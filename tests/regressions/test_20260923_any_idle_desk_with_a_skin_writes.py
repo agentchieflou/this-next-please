@@ -19,30 +19,28 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _serve, _stop,  # noqa: F401 - fixtures
                             fleet_home)
 
 
 @pytest.mark.browser
 @pytest.mark.parametrize("skin", ["voxel:nether", "farmstead:cave"])
-def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path, skin):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path, skin, desk_browser):
     _desk_of(tmp_path)
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "%s"}}' % skin, encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, count=True)
-            family, variant = skin.split(":")
-            page.wait_for_function(f"""() => document.body.dataset.skin === '{family}'
-                                     && document.body.dataset.skinVariant === '{variant}'
-                                     && !!document.head.querySelector('link[data-skin]').sheet""",
-                                   timeout=15000)
-            count = page.evaluate(IDLE_LOOP)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, count=True)
+        family, variant = skin.split(":")
+        page.wait_for_function(f"""() => document.body.dataset.skin === '{family}'
+                                 && document.body.dataset.skinVariant === '{variant}'
+                                 && !!document.head.querySelector('link[data-skin]').sheet""",
+                               timeout=15000)
+        count = page.evaluate(IDLE_LOOP)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle desk with {skin} wrote to the page: {count}"

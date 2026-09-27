@@ -22,7 +22,6 @@ from __future__ import annotations
 import math
 import os
 import re
-import threading
 
 import pytest
 
@@ -31,7 +30,8 @@ from agentdata.fleet import agentstate, events as E, registry, serve as S, skins
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
+from test_fleet_ink import _serve, _stop  # noqa: F401 - over the harness's serve_desk; re-exported
 from test_fleet_gutters import _gutter_point
 from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, catch_up_frames
 
@@ -120,18 +120,6 @@ def _desk_of(tmp_path, names, extra=None):
     _repos(tmp_path, names, extra)
     S.arrange(order=list(names))
     S.update_window("main", open=names[0], widths={n: 1 for n in names})
-
-
-def _serve():
-    server, token = S.build(0)
-    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
-    return server, token, server.server_address[1]
-
-
-def _stop(server):
-    server.stopping.set()
-    server.shutdown()
-    server.server_close()
 
 
 def _skin(fleet_home, name):
@@ -294,35 +282,33 @@ def test_the_grammar_is_documented_for_every_state():
 
 
 @pytest.mark.browser
-def test_every_voxel_variant_is_drawn_by_the_layer_and_plain_without_it(fleet_home, tmp_path):
+def test_every_voxel_variant_is_drawn_by_the_layer_and_plain_without_it(fleet_home, tmp_path, desk_browser):
     """Every world: with the gate on, the ground, the slabs and the stacks are three instanced
     meshes drawn in three calls, the slab's face is the variant's panel, and the page stops
     painting what the slabs paint. With it off, `body.ink-off`: the one plain look every skin
     shares since #257 -- the palette's opaque panel, no texture, no sprite -- and the same mark
     table drawn plain."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta"))
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for variant in VARIANTS:
-                for extra in ("&ink=on", "&ink=off"):
-                    _skin(fleet_home, f"voxel:{variant}")
-                    page, errors = _open(browser, port, token, extra, panes=2)
-                    page.wait_for_function(f"() => Ink.inspect().table === 'voxel:{variant}'", timeout=10000)
-                    look = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo]');
-                      const cs = getComputedStyle(t), chip = getComputedStyle(t.querySelector('.chip'), '::before');
-                      return { off: document.body.classList.contains('ink-off'), tile: cs.backgroundColor,
-                               border: cs.borderLeftColor, ground: getComputedStyle(document.body).backgroundImage,
-                               sprite: chip.display === 'none' || chip.backgroundImage === 'none' ? '' : chip.backgroundImage,
-                               plain: Ink.inspect().plain, layer: !!Ink.inspect().layer }; }""")
-                    look["voxel"] = _voxel(page) if extra == "&ink=on" else None
-                    seen[(variant, extra)] = look
-                    assert not errors, errors
-                    page.close()
-            browser.close()
+        browser = desk_browser
+        for variant in VARIANTS:
+            for extra in ("&ink=on", "&ink=off"):
+                _skin(fleet_home, f"voxel:{variant}")
+                page, errors = _open(browser, port, token, extra, panes=2)
+                page.wait_for_function(f"() => Ink.inspect().table === 'voxel:{variant}'", timeout=10000)
+                look = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo]');
+                  const cs = getComputedStyle(t), chip = getComputedStyle(t.querySelector('.chip'), '::before');
+                  return { off: document.body.classList.contains('ink-off'), tile: cs.backgroundColor,
+                           border: cs.borderLeftColor, ground: getComputedStyle(document.body).backgroundImage,
+                           sprite: chip.display === 'none' || chip.backgroundImage === 'none' ? '' : chip.backgroundImage,
+                           plain: Ink.inspect().plain, layer: !!Ink.inspect().layer }; }""")
+                look["voxel"] = _voxel(page) if extra == "&ink=on" else None
+                seen[(variant, extra)] = look
+                assert not errors, errors
+                page.close()
+        close_pages(browser)
     finally:
         _stop(server)
     for variant in VARIANTS:
@@ -343,11 +329,10 @@ def test_every_voxel_variant_is_drawn_by_the_layer_and_plain_without_it(fleet_ho
 
 
 @pytest.mark.browser
-def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_path):
+def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_path, desk_browser):
     """#256: a fleet of twenty costs what one costs. The renderer's own count of the back pass
     (`renderer.info.render.calls`, read after the last voxel draw) is three -- ground, slabs,
     stacks -- with one agent on the desk and with twenty, while the instances grow with the panes."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = tuple(f"agent{i:02d}" for i in range(20))
     _skin(fleet_home, "voxel")
     _desk_of(tmp_path, names[:1])
@@ -359,12 +344,11 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
             S.update_window("main", open=names[0], widths={x: 1 for x in names})
         server, token, port = _serve()
         try:
-            with sync_playwright() as p:
-                browser = launch_chromium(p)
-                page, errors = _open(browser, port, token, panes=n, width=1600)
-                got.append(_voxel(page))
-                assert not errors, errors
-                browser.close()
+            browser = desk_browser
+            page, errors = _open(browser, port, token, panes=n, width=1600)
+            got.append(_voxel(page))
+            assert not errors, errors
+            close_pages(browser)
         finally:
             _stop(server)
     one, twenty = got
@@ -392,14 +376,13 @@ def _live(page, selector, lane):
 
 
 @pytest.mark.browser
-def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(fleet_home, tmp_path, world):
+def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(fleet_home, tmp_path, world, desk_browser):
     """The grammar, state by state, driven from the server's fold as a real agent would drive it:
     needs you raises the block and underlines the name; an error cracks it and bangs the margin;
     done sets the stack full and ticks it; running turns the block a quarter at a time; a stale
     session leaves a pebble and a dashed pencil box; a finding puts ore in the stack and a red line
     under the line; an answer chosen is looped. When the state goes, so does its response: the
     block drops, mends, empties; pencil is erased and ink is struck."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ("alpha", "beta", "gamma", "delta")
     extra = {
         "alpha": [E.event("alpha", "question_opened", {"question": "which window?", "id": "q1",
@@ -412,52 +395,51 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     world.states.update({"alpha": "idle", "beta": "idle", "gamma": "idle", "delta": "idle"})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _open(browser, port, token, panes=4)
-            quiet = {n: _stack(page, n) for n in names}
+        browser = desk_browser
+        page, errors = _open(browser, port, token, panes=4)
+        quiet = {n: _stack(page, n) for n in names}
 
-            world.states.update({"alpha": "needs_human", "beta": "error", "gamma": "done", "delta": "running"})
-            world.stale.add("alpha")
-            world.push(*names)
-            page.wait_for_function("""() => ['alpha.state-needs_human.needs-human', 'beta.state-error',
-                'gamma.state-done', 'delta.state-running'].every(s => { const [r, ...c] = s.split('.');
-                return document.querySelector(`.tile[data-repo="${r}"].` + c.join('.')); })""", timeout=20000)
-            page.click('.tile[data-repo="alpha"] .ask-choice')
-            _rest(page, f"""(() => {{ const v = ({VOXEL})();
-              const s = Object.fromEntries(v.panes.map(p => [p.repo, p.stack]));
-              return s.alpha.lift === 5 && s.alpha.stale && s.beta.state === 'error' && s.gamma.level === 3
-                     && Ink.inspect().layer.marks.filter(m => m.state === 'drawn').length >= 6; }})()""")
-            on = {n: _stack(page, n) for n in names}
-            # The next quarter is one timer, re-armed on the frame after it fires; a separate read
-            # could land in that one-frame gap on a slow runner (#296). Wait for it to be armed.
-            timer = page.wait_for_function(f"() => ({VOXEL})().timer", timeout=10000).json_value()
-            marks_on ={k: {n: len(_live(page, sel, "pane:" + n)) for n in names} for k, sel in MARK.items()}
-            # A running block turns: the next quarter comes from a timer, and is drawn.
-            page.wait_for_function(f"""() => ({VOXEL})().panes
-                .find(p => p.repo === 'delta').stack.turning > 0""", timeout=10000)
+        world.states.update({"alpha": "needs_human", "beta": "error", "gamma": "done", "delta": "running"})
+        world.stale.add("alpha")
+        world.push(*names)
+        page.wait_for_function("""() => ['alpha.state-needs_human.needs-human', 'beta.state-error',
+            'gamma.state-done', 'delta.state-running'].every(s => { const [r, ...c] = s.split('.');
+            return document.querySelector(`.tile[data-repo="${r}"].` + c.join('.')); })""", timeout=20000)
+        page.click('.tile[data-repo="alpha"] .ask-choice')
+        _rest(page, f"""(() => {{ const v = ({VOXEL})();
+          const s = Object.fromEntries(v.panes.map(p => [p.repo, p.stack]));
+          return s.alpha.lift === 5 && s.alpha.stale && s.beta.state === 'error' && s.gamma.level === 3
+                 && Ink.inspect().layer.marks.filter(m => m.state === 'drawn').length >= 6; }})()""")
+        on = {n: _stack(page, n) for n in names}
+        # The next quarter is one timer, re-armed on the frame after it fires; a separate read
+        # could land in that one-frame gap on a slow runner (#296). Wait for it to be armed.
+        timer = page.wait_for_function(f"() => ({VOXEL})().timer", timeout=10000).json_value()
+        marks_on ={k: {n: len(_live(page, sel, "pane:" + n)) for n in names} for k, sel in MARK.items()}
+        # A running block turns: the next quarter comes from a timer, and is drawn.
+        page.wait_for_function(f"""() => ({VOXEL})().panes
+            .find(p => p.repo === 'delta').stack.turning > 0""", timeout=10000)
 
-            world.states.update({"alpha": "idle", "beta": "idle", "gamma": "idle", "delta": "idle"})
-            world.stale.clear()
-            world.push(*names)
-            second = '.tile[data-repo="alpha"] .ask-choice:nth-child(2)'
-            page.click(second)
-            # The rest is read once the second answer is on the page and the layer has matched the
-            # page since (#517). The layer matches on the animation frame after a mutation, and it
-            # queues the new loop and the old mark's strike in that frame: until then it is not
-            # busy, and a rest checked in between -- the push above already landed, so the stacks
-            # are idle -- passed with the strike not yet begun, and `left` read it under way.
-            page.wait_for_function(f"() => document.querySelector({second!r}).getAttribute('aria-pressed') === 'true'",
-                                   timeout=10000)
-            seen = page.evaluate("() => Ink.inspect().layer.frames")
-            _rest(page, f"""(() => {{ const v = ({VOXEL})();
-              return v.panes.every(p => p.stack.state === 'idle' && p.stack.lift === 0 && !p.stack.stale)
-                     && !v.timer && Ink.inspect().layer.frames > {seen}; }})()""")
-            off = {n: _stack(page, n) for n in names}
-            left = {k: [(m["lane"], m["state"], bool(m["strikeOf"]), m["erased"]) for m in _marks(page, sel)]
-                    for k, sel in MARK.items()}
-            assert not errors, errors
-            browser.close()
+        world.states.update({"alpha": "idle", "beta": "idle", "gamma": "idle", "delta": "idle"})
+        world.stale.clear()
+        world.push(*names)
+        second = '.tile[data-repo="alpha"] .ask-choice:nth-child(2)'
+        page.click(second)
+        # The rest is read once the second answer is on the page and the layer has matched the
+        # page since (#517). The layer matches on the animation frame after a mutation, and it
+        # queues the new loop and the old mark's strike in that frame: until then it is not
+        # busy, and a rest checked in between -- the push above already landed, so the stacks
+        # are idle -- passed with the strike not yet begun, and `left` read it under way.
+        page.wait_for_function(f"() => document.querySelector({second!r}).getAttribute('aria-pressed') === 'true'",
+                               timeout=10000)
+        seen = page.evaluate("() => Ink.inspect().layer.frames")
+        _rest(page, f"""(() => {{ const v = ({VOXEL})();
+          return v.panes.every(p => p.stack.state === 'idle' && p.stack.lift === 0 && !p.stack.stale)
+                 && !v.timer && Ink.inspect().layer.frames > {seen}; }})()""")
+        off = {n: _stack(page, n) for n in names}
+        left = {k: [(m["lane"], m["state"], bool(m["strikeOf"]), m["erased"]) for m in _marks(page, sel)]
+                for k, sel in MARK.items()}
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert all(s["level"] == 1 and s["lift"] == 0 and not s["needs"] for s in quiet.values()), quiet
@@ -502,13 +484,12 @@ CHECKS = """(r) => Ink.inspect().layer.marks.filter(m => m.lane === 'pane:' + r 
 
 @pytest.mark.browser
 def test_a_finished_agent_nothing_supervises_is_ticked_and_stacked_full_on_every_variant(fleet_home, tmp_path,
-                                                                                       alive):
+                                                                                       alive, desk_browser):
     """#333: the fold calls an agent done only once nothing supervises it, and the chip draws every
     quiet unsupervised agent as idle -- so the pane is `state-idle is-done` (#253). Voxel keys done
     on both classes, as the paper skins do: a green check in the margin and the stack set full, in
     every world, from the fold's own events. Reduced motion, so the stack is set at once. When the
     agent starts again the check is struck and the stack leaves done."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ("alpha", "beta")
     finished = [E.event("beta", "phase_changed", {"from": "build", "to": "done"}, ticket="RDSD-1")]
     for name in names:
@@ -523,29 +504,28 @@ def test_a_finished_agent_nothing_supervises_is_ticked_and_stacked_full_on_every
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for variant in VARIANTS:
-                _skin(fleet_home, f"voxel:{variant}")
-                page, errors = _open(browser, port, token, panes=2, reduced=True)
-                _rest(page, f"""Ink.inspect().table === 'voxel:{variant}' && ({CHECKS})('beta').includes('drawn')
-                                && ({VOXEL})().panes.find(p => p.repo === 'beta').stack.state === 'done'""")
-                seen[variant] = {"cls": page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className"""),
-                                 "checks": page.evaluate(CHECKS, "beta"),
-                                 "beta": _stack(page, "beta"), "alpha": _stack(page, "alpha")}
-                assert not errors, errors
-                if variant != VARIANTS[-1]:
-                    page.close()
-            alive.add("beta")
-            E.append("beta", [E.event("beta", "turn_started", {"turn": "1"}, ticket="RDSD-1")])
-            page.wait_for_function(
-                """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
-                             return true; refresh(); return false; }""", timeout=20000, polling=250)
-            _rest(page, f"""!({CHECKS})('beta').includes('drawn')
-                            && ({VOXEL})().panes.find(p => p.repo === 'beta').stack.state !== 'done'""")
-            again = {"checks": page.evaluate(CHECKS, "beta"), "beta": _stack(page, "beta")}
+        browser = desk_browser
+        for variant in VARIANTS:
+            _skin(fleet_home, f"voxel:{variant}")
+            page, errors = _open(browser, port, token, panes=2, reduced=True)
+            _rest(page, f"""Ink.inspect().table === 'voxel:{variant}' && ({CHECKS})('beta').includes('drawn')
+                            && ({VOXEL})().panes.find(p => p.repo === 'beta').stack.state === 'done'""")
+            seen[variant] = {"cls": page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className"""),
+                             "checks": page.evaluate(CHECKS, "beta"),
+                             "beta": _stack(page, "beta"), "alpha": _stack(page, "alpha")}
             assert not errors, errors
-            browser.close()
+            if variant != VARIANTS[-1]:
+                page.close()
+        alive.add("beta")
+        E.append("beta", [E.event("beta", "turn_started", {"turn": "1"}, ticket="RDSD-1")])
+        page.wait_for_function(
+            """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
+                         return true; refresh(); return false; }""", timeout=20000, polling=250)
+        _rest(page, f"""!({CHECKS})('beta').includes('drawn')
+                        && ({VOXEL})().panes.find(p => p.repo === 'beta').stack.state !== 'done'""")
+        again = {"checks": page.evaluate(CHECKS, "beta"), "beta": _stack(page, "beta")}
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for variant, got in seen.items():
@@ -570,46 +550,44 @@ SLAB_DRIFT = """(voxel) => { const out = [];
 
 
 @pytest.mark.browser
-def test_the_slabs_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_home, tmp_path):
+def test_the_slabs_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_home, tmp_path, desk_browser):
     """While the hand holds a gutter, every frame that moves a pane has its slab where the pane is:
     checked by a ResizeObserver that runs after the layer's, in the same frame, reading where the
     voxel skin last drew each pane. The skin writes nothing to the page to do it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _skin(fleet_home, "voxel")
     _desk_of(tmp_path, ("alpha", "beta", "gamma"))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _open(browser, port, token, panes=3, width=1400)
-            page.evaluate("""([drift]) => {
-              const m = window.__voxel;
-              const check = new Function('v', 'return (' + drift + ')(v);');
-              window.__follow = { frames: 0, worst: 0, writes: [] };
-              new ResizeObserver(() => {
-                const d = check(m.inspect());
-                window.__follow.frames += 1;
-                window.__follow.worst = Math.max(window.__follow.worst, ...d, 0);
-              }).observe(document.querySelector('.tile[data-repo="beta"]'));
-              new MutationObserver(rs => rs.forEach(r => {
-                if (r.target.id === 'ink') window.__follow.writes.push(r.attributeName || r.type);
-              })).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
-            }""", [SLAB_DRIFT])
-            before = page.evaluate(f"() => ({SLAB_DRIFT})(({VOXEL})())")
-            x, y = _gutter_point(page, "alpha")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x + 120, y, steps=24)
-            page.wait_for_function("() => window.__follow.frames >= 3", timeout=8000)
-            page.mouse.up()
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            _rest(page)
-            after = page.evaluate(f"() => ({SLAB_DRIFT})(({VOXEL})())")
-            follow = page.evaluate("() => window.__follow")
-            calls = _voxel(page)["drawCalls"]
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _open(browser, port, token, panes=3, width=1400)
+        page.evaluate("""([drift]) => {
+          const m = window.__voxel;
+          const check = new Function('v', 'return (' + drift + ')(v);');
+          window.__follow = { frames: 0, worst: 0, writes: [] };
+          new ResizeObserver(() => {
+            const d = check(m.inspect());
+            window.__follow.frames += 1;
+            window.__follow.worst = Math.max(window.__follow.worst, ...d, 0);
+          }).observe(document.querySelector('.tile[data-repo="beta"]'));
+          new MutationObserver(rs => rs.forEach(r => {
+            if (r.target.id === 'ink') window.__follow.writes.push(r.attributeName || r.type);
+          })).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
+        }""", [SLAB_DRIFT])
+        before = page.evaluate(f"() => ({SLAB_DRIFT})(({VOXEL})())")
+        x, y = _gutter_point(page, "alpha")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x + 120, y, steps=24)
+        page.wait_for_function("() => window.__follow.frames >= 3", timeout=8000)
+        page.mouse.up()
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        _rest(page)
+        after = page.evaluate(f"() => ({SLAB_DRIFT})(({VOXEL})())")
+        follow = page.evaluate("() => window.__follow")
+        calls = _voxel(page)["drawCalls"]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert max(before) < 0.5 and max(after) < 0.5, (before, after)
@@ -619,23 +597,21 @@ def test_the_slabs_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_
 
 
 @pytest.mark.browser
-def test_an_idle_voxel_desk_writes_nothing_and_draws_nothing(fleet_home, tmp_path, world):
+def test_an_idle_voxel_desk_writes_nothing_and_draws_nothing(fleet_home, tmp_path, world, desk_browser):
     """The render contract with the voxels on the paper: an idle desk -- no agent running, so no
     block turning -- is zero DOM mutations and zero WebGL frames."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _skin(fleet_home, "voxel")
     _desk_of(tmp_path, ("alpha", "beta"))
     world.states.update({"alpha": "needs_human", "beta": "error"})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _open(browser, port, token, panes=2, count=True)
-            _rest(page, f"({VOXEL})().panes.every(p => p.stack.lift === 5)")
-            count = page.evaluate(IDLE_LOOP)
-            timer = _voxel(page)["timer"]
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _open(browser, port, token, panes=2, count=True)
+        _rest(page, f"({VOXEL})().panes.every(p => p.stack.lift === 5)")
+        count = page.evaluate(IDLE_LOOP)
+        timer = _voxel(page)["timer"]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle voxel desk wrote to the page: {count}"
@@ -665,33 +641,31 @@ SETTLE = """async () => {
 
 
 @pytest.mark.browser
-def test_the_voxels_settle_in_a_bounded_number_of_frames(fleet_home, tmp_path, world):
+def test_the_voxels_settle_in_a_bounded_number_of_frames(fleet_home, tmp_path, world, desk_browser):
     """Ground rule 5: counted in frames, not milliseconds. From "needs you" arriving, the block is
     up and the mark drawn within the frames the pen needs for the mark (the layer's own bound) plus
     the block's rise at 60 Hz; and more than one, because it rises. Under reduced motion it is where
     it ends up at once, and nothing is scheduled."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _skin(fleet_home, "voxel")
     _desk_of(tmp_path, ("alpha", "beta"))
     world.states.update({"alpha": "idle", "beta": "idle"})
     server, token, port = _serve()
     got = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for reduced in (False, True):
-                world.states["alpha"] = "idle"
-                page, errors = _open(browser, port, token, panes=2, reduced=reduced)
-                world.states.update({"alpha": "needs_human", "beta": "running" if reduced else "idle"})
-                page.evaluate(f"() => {{ window.__settle = ({SETTLE})(); }}")
-                world.push("alpha", "beta")
-                got[reduced] = page.evaluate("() => window.__settle", )
-                got[reduced]["timer"] = _voxel(page)["timer"]
-                assert not errors, errors
-                page.close()
-                world.states.update({"alpha": "idle", "beta": "idle"})
-                world.push("alpha", "beta")
-            browser.close()
+        browser = desk_browser
+        for reduced in (False, True):
+            world.states["alpha"] = "idle"
+            page, errors = _open(browser, port, token, panes=2, reduced=reduced)
+            world.states.update({"alpha": "needs_human", "beta": "running" if reduced else "idle"})
+            page.evaluate(f"() => {{ window.__settle = ({SETTLE})(); }}")
+            world.push("alpha", "beta")
+            got[reduced] = page.evaluate("() => window.__settle", )
+            got[reduced]["timer"] = _voxel(page)["timer"]
+            assert not errors, errors
+            page.close()
+            world.states.update({"alpha": "idle", "beta": "idle"})
+            world.push("alpha", "beta")
+        close_pages(browser)
     finally:
         _stop(server)
     moving, still = got[False], got[True]
@@ -704,26 +678,24 @@ def test_the_voxels_settle_in_a_bounded_number_of_frames(fleet_home, tmp_path, w
 
 
 @pytest.mark.browser
-def test_dispose_frees_the_voxels_when_the_skin_changes(fleet_home, tmp_path):
+def test_dispose_frees_the_voxels_when_the_skin_changes(fleet_home, tmp_path, desk_browser):
     """The skin going takes its voxels with it: the three meshes' geometry freed on the GPU, no
     timer left behind, and choosing it again builds them afresh -- still three draw calls."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _skin(fleet_home, "voxel")
     _desk_of(tmp_path, ("alpha", "beta"))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _open(browser, port, token, panes=2)
-            before = _voxel(page)
-            page.evaluate("() => post('theme', { skin: 'none' })")
-            page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
-            gone = _voxel(page)
-            page.evaluate("() => post('theme', { skin: 'voxel:nether' })")
-            _rest(page, f"({VOXEL})().panes.length === 2")
-            again = _voxel(page)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _open(browser, port, token, panes=2)
+        before = _voxel(page)
+        page.evaluate("() => post('theme', { skin: 'none' })")
+        page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
+        gone = _voxel(page)
+        page.evaluate("() => post('theme', { skin: 'voxel:nether' })")
+        _rest(page, f"({VOXEL})().panes.length === 2")
+        again = _voxel(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert before["on"] and not gone["on"] and not gone["timer"], gone

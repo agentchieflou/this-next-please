@@ -33,7 +33,7 @@ import pytest
 from agentdata import theme
 from agentdata.fleet import agentstate, events as E, skins, supervisor
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_gutters import _gutter_point
 from test_fleet_ink import (IDLE_LOOP, COUNT_FETCHES, _desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
                             fleet_home)
@@ -349,52 +349,50 @@ def _paper(page):
 
 
 @pytest.mark.browser
-def test_every_variant_is_drawn_in_ink_and_plain(fleet_home, tmp_path):
+def test_every_variant_is_drawn_in_ink_and_plain(fleet_home, tmp_path, desk_browser):
     """plan-ink: *a skin ships switched on only for shells measured as hardware; until then it is
     selectable and falls back.* With `?ink=on` every variant is the ink layer's -- ground, bands,
     a frame per pane, the pane's paper the variant's composited panel, the chip's glyph box left
     for the crop -- and with the gate off it is the one plain look every skin shares since #257 (no
     wood, no crop in the chip), with the same marks drawn plain (the pencil ring round a stale
     session is a CSS outline)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for extra in ("&ink=on", ""):
-                page, errors = _page(browser, port, token, extra)
-                for variant in VARIANTS:
-                    _choose(page, f"farmstead:{variant}")
-                    name = f"farmstead:{variant}"
-                    if extra:
-                        farm = _inked(page, name)
-                        alpha = _rect(page, "alpha")
-                        mid = page.evaluate(PIXELS, {"x": alpha["x"] + alpha["w"] / 2, "y": alpha["y"] + alpha["h"] - 40,
-                                                     "w": 1, "h": 1})[0][0]
-                        head = page.evaluate(PIXELS, {"x": 300, "y": 10, "w": 1, "h": 1})[0][0]
-                        seen[("ink", variant)] = {
-                            "layer": page.evaluate("() => Ink.inspect().layer.skin"), "farm": farm,
-                            "paper": _paper(page), "mid": _hex(mid), "head": head,
-                            "look": page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="alpha"]');
-                              const chip = t.querySelector('.chip');
-                              return { tile: getComputedStyle(t).backgroundColor,
-                                       glyph: getComputedStyle(chip, '::before').backgroundImage,
-                                       off: document.body.classList.contains('ink-off') }; }""")}
-                    else:
-                        page.wait_for_function(f"() => Ink.inspect().table === '{name}' && Ink.inspect().plain",
-                                               timeout=20000)
-                        page.wait_for_function("""() => getComputedStyle(document.querySelector(
-                          '.tile[data-repo="alpha"] .oldsession')).outlineStyle === 'solid'""", timeout=20000)
-                        seen[("plain", variant)] = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="alpha"]');
+        browser = desk_browser
+        for extra in ("&ink=on", ""):
+            page, errors = _page(browser, port, token, extra)
+            for variant in VARIANTS:
+                _choose(page, f"farmstead:{variant}")
+                name = f"farmstead:{variant}"
+                if extra:
+                    farm = _inked(page, name)
+                    alpha = _rect(page, "alpha")
+                    mid = page.evaluate(PIXELS, {"x": alpha["x"] + alpha["w"] / 2, "y": alpha["y"] + alpha["h"] - 40,
+                                                 "w": 1, "h": 1})[0][0]
+                    head = page.evaluate(PIXELS, {"x": 300, "y": 10, "w": 1, "h": 1})[0][0]
+                    seen[("ink", variant)] = {
+                        "layer": page.evaluate("() => Ink.inspect().layer.skin"), "farm": farm,
+                        "paper": _paper(page), "mid": _hex(mid), "head": head,
+                        "look": page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="alpha"]');
+                          const chip = t.querySelector('.chip');
                           return { tile: getComputedStyle(t).backgroundColor,
-                                   glyph: getComputedStyle(t.querySelector('.chip'), '::before').backgroundImage,
-                                   canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer,
-                                   off: document.body.classList.contains('ink-off') }; }""")
-                assert not errors, errors
-                page.close()
-            browser.close()
+                                   glyph: getComputedStyle(chip, '::before').backgroundImage,
+                                   off: document.body.classList.contains('ink-off') }; }""")}
+                else:
+                    page.wait_for_function(f"() => Ink.inspect().table === '{name}' && Ink.inspect().plain",
+                                           timeout=20000)
+                    page.wait_for_function("""() => getComputedStyle(document.querySelector(
+                      '.tile[data-repo="alpha"] .oldsession')).outlineStyle === 'solid'""", timeout=20000)
+                    seen[("plain", variant)] = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="alpha"]');
+                      return { tile: getComputedStyle(t).backgroundColor,
+                               glyph: getComputedStyle(t.querySelector('.chip'), '::before').backgroundImage,
+                               canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer,
+                               off: document.body.classList.contains('ink-off') }; }""")
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         _stop(server)
     for variant in VARIANTS:
@@ -455,26 +453,24 @@ def _ratio(a, b):
 
 
 @pytest.mark.browser
-def test_every_header_and_footer_control_reads_at_4_5_in_every_weather(fleet_home, tmp_path):
+def test_every_header_and_footer_control_reads_at_4_5_in_every_weather(fleet_home, tmp_path, desk_browser):
     """The band ink is for the words written on the planks. A control keeps its own background, so
     it keeps the palette's text too (#336): at 8557b2b daytime's "sidebar", "chime off", "0 new" and
     "keys" read at 1.30:1 and the "?" key at 1.22:1, the band's near-white on the palette's light
     buttons. Every visible button, input, select and key in the header and the footer, in every
     weather with ink on, reads at 4.5:1 against the background it sits on."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token)
-            for variant in VARIANTS:
-                _choose(page, f"farmstead:{variant}")
-                _inked(page, f"farmstead:{variant}")
-                seen[variant] = page.evaluate(CONTROLS)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token)
+        for variant in VARIANTS:
+            _choose(page, f"farmstead:{variant}")
+            _inked(page, f"farmstead:{variant}")
+            seen[variant] = page.evaluate(CONTROLS)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for variant, controls in seen.items():
@@ -485,49 +481,47 @@ def test_every_header_and_footer_control_reads_at_4_5_in_every_weather(fleet_hom
 
 
 @pytest.mark.browser
-def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_home, tmp_path):
+def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_home, tmp_path, desk_browser):
     """Every sprite in the sheet sits at 0,0, so a fragment that did not hide the others drew all
     seven on top of each other, squeezed into 16px. The sheet is a stack: a fragment is that
     sprite alone, the sheet's own size, and no fragment is nothing -- read here as a browser reads
     an image of the sheet by fragment, drawn at 16px. Since #257 the chip no longer carries the
     crop in CSS under `body.ink-off` (the plain look is every skin's); the crop is the module's, read
     from the same sheet (`test_the_sprites_are_nearest_neighbour_textures...`)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, "")
-            drawn = page.evaluate("""async (ids) => {
-              const out = {};
-              for (const id of ids) {
-                const img = new Image();
-                img.src = q('/static/skins/farmstead/sprites.svg') + (id ? '#' + id : '');
-                await img.decode();
-                const c = document.createElement('canvas');
-                c.width = c.height = 16;
-                const g = c.getContext('2d');
-                g.imageSmoothingEnabled = false;
-                g.drawImage(img, 0, 0, 16, 16);
-                const d = g.getImageData(0, 0, 16, 16).data, seen = new Set(), extent = [0, 0];
-                for (let i = 0; i < d.length; i += 4) {
-                  if (!d[i + 3]) continue;
-                  seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
-                    .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
-                  extent[0] = Math.max(extent[0], (i / 4) % 16 + 1);
-                  extent[1] = Math.max(extent[1], Math.floor(i / 64) + 1);
-                }
-                out[id || 'none'] = [...seen].sort();
-                out[(id || 'none') + ':size'] = [img.naturalWidth, img.naturalHeight];
-                out[(id || 'none') + ':extent'] = extent;
-              }
-              return out;
-            }""", ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted", *PROPS, ""])
-            glyph = page.evaluate("""() => getComputedStyle(document.querySelector(
-              '.tile[data-repo="alpha"] .chip'), '::before').backgroundImage""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, "")
+        drawn = page.evaluate("""async (ids) => {
+          const out = {};
+          for (const id of ids) {
+            const img = new Image();
+            img.src = q('/static/skins/farmstead/sprites.svg') + (id ? '#' + id : '');
+            await img.decode();
+            const c = document.createElement('canvas');
+            c.width = c.height = 16;
+            const g = c.getContext('2d');
+            g.imageSmoothingEnabled = false;
+            g.drawImage(img, 0, 0, 16, 16);
+            const d = g.getImageData(0, 0, 16, 16).data, seen = new Set(), extent = [0, 0];
+            for (let i = 0; i < d.length; i += 4) {
+              if (!d[i + 3]) continue;
+              seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
+                .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
+              extent[0] = Math.max(extent[0], (i / 4) % 16 + 1);
+              extent[1] = Math.max(extent[1], Math.floor(i / 64) + 1);
+            }
+            out[id || 'none'] = [...seen].sort();
+            out[(id || 'none') + ':size'] = [img.naturalWidth, img.naturalHeight];
+            out[(id || 'none') + ':extent'] = extent;
+          }
+          return out;
+        }""", ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted", *PROPS, ""])
+        glyph = page.evaluate("""() => getComputedStyle(document.querySelector(
+          '.tile[data-repo="alpha"] .chip'), '::before').backgroundImage""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert glyph == "none", f"the plain chip paints a crop in CSS: {glyph}"
@@ -544,30 +538,28 @@ def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_hom
 
 
 @pytest.mark.browser
-def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_pixels(fleet_home, tmp_path):
+def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_pixels(fleet_home, tmp_path, desk_browser):
     """The art is rasterised on its own grid -- one texel per art pixel -- and every enlargement is
     NearestFilter's at a whole number of DEVICE pixels. At a device pixel ratio of 2 an art pixel of
     the crop is a 4x4 block (twice the art, #336) and one of the soil a 4x4 block, each block one colour, and every colour
     one the sheet has (or the paper round the crop): crisp, never a blend of two texels."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, dpr=2)
-            farm = _inked(page, "farmstead:daytime")
-            crop = farm["panes"]["alpha"]["crop"]
-            crop_px = page.evaluate(PIXELS, {"x": crop["x"], "y": crop["y"], "w": crop["size"], "h": crop["size"]})
-            paper = _paper(page)
-            # The soil, on its own: the skin's ground and nothing over it, for a block that is soil
-            # wherever the desk's own layout puts the panes.
-            page.evaluate("""async () => { const m = window.__farm;
-              await Ink.setSkin({ name: 'soil', marks: [] }, { ground: m.ground, dispose: m.dispose }); }""")
-            page.wait_for_function("() => window.__farm.inspect().loaded && !Ink.inspect().layer.busy", timeout=20000)
-            soil_px = page.evaluate(PIXELS, {"x": 16, "y": 200, "w": 32, "h": 16})
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, dpr=2)
+        farm = _inked(page, "farmstead:daytime")
+        crop = farm["panes"]["alpha"]["crop"]
+        crop_px = page.evaluate(PIXELS, {"x": crop["x"], "y": crop["y"], "w": crop["size"], "h": crop["size"]})
+        paper = _paper(page)
+        # The soil, on its own: the skin's ground and nothing over it, for a block that is soil
+        # wherever the desk's own layout puts the panes.
+        page.evaluate("""async () => { const m = window.__farm;
+          await Ink.setSkin({ name: 'soil', marks: [] }, { ground: m.ground, dispose: m.dispose }); }""")
+        page.wait_for_function("() => window.__farm.inspect().loaded && !Ink.inspect().layer.busy", timeout=20000)
+        soil_px = page.evaluate(PIXELS, {"x": 16, "y": 200, "w": 32, "h": 16})
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert farm["nearest"] and farm["raster"] == 1, farm
@@ -607,24 +599,22 @@ GLYPH_BOXES = """() => Object.fromEntries([...document.querySelectorAll('#grid .
 
 @pytest.mark.browser
 @pytest.mark.parametrize("dpr", [1, 1.25], ids=["dpr-1", "dpr-1.25"])
-def test_the_crop_is_large_enough_to_read_and_stays_in_its_glyph_box(fleet_home, tmp_path, dpr):
+def test_the_crop_is_large_enough_to_read_and_stays_in_its_glyph_box(fleet_home, tmp_path, dpr, desk_browser):
     """The crop is the state's second carrier beside the chip's word (HIG *Color*: never colour
     alone), and at the art's own size it was 6 to 12 px of a 16px box (#336). It is the sprite's
     central 12x12 art pixels at twice the art now: 24 CSS px at a device pixel ratio of 1, and 19.2
     at 1.25 (two whole device pixels an art pixel, through `unitOf`). It stays inside the chip's
     glyph box -- the chip's rect up to where its word begins -- give or take the half device pixel
     its position is snapped by."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, dpr=dpr)
-            farm = _inked(page, "farmstead:daytime")
-            boxes = page.evaluate(GLYPH_BOXES)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, dpr=dpr)
+        farm = _inked(page, "farmstead:daytime")
+        boxes = page.evaluate(GLYPH_BOXES)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert farm["units"]["crop"] == pytest.approx(2 if dpr == 1 else 1.6), farm["units"]
@@ -638,39 +628,37 @@ def test_the_crop_is_large_enough_to_read_and_stays_in_its_glyph_box(fleet_home,
 
 
 @pytest.mark.browser
-def test_each_frame_follows_a_gutter_drag(fleet_home, tmp_path):
+def test_each_frame_follows_a_gutter_drag(fleet_home, tmp_path, desk_browser):
     """A frame is built at its pane's size and moves with it; a gutter drag changes the size, and
     the frame is built again in the frame the browser laid out -- so at rest every pane's frame is
     the pane, the right-hand board is where the pane now ends, and paper fills what it grew into."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path, ("alpha", "beta", "gamma"))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, panes=3)
-            _inked(page, "farmstead:daytime", panes=3)
-            before = _rect(page, "alpha")
-            mid_y = before["y"] + before["h"] / 2
-            board_before = page.evaluate(PIXELS, {"x": before["x"] + before["w"] + 1, "y": mid_y, "w": 1, "h": 1})[0][0]
-            x, y = _gutter_point(page, "alpha")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x + 120, y, steps=24)
-            page.mouse.up()
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            _settle(page, f"""(() => {{ const r = document.querySelector('.tile[data-repo="alpha"]').getBoundingClientRect();
-              const f = window.__farm.inspect().panes.alpha.box; return r.width > {before['w'] + 60}
-                && Math.abs(f.w - r.width) < 0.5 && Math.abs(f.h - r.height) < 0.5; }})()""")
-            after = _rect(page, "alpha")
-            farm = page.evaluate(FARM)
-            board_after = page.evaluate(PIXELS, {"x": after["x"] + after["w"] + 1, "y": mid_y, "w": 1, "h": 1})[0][0]
-            grown = page.evaluate(PIXELS, {"x": before["x"] + before["w"] + 1, "y": mid_y, "w": 1, "h": 1})[0][0]
-            paper = _paper(page)
-            layer = page.evaluate("() => Ink.inspect().layer.skin")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, panes=3)
+        _inked(page, "farmstead:daytime", panes=3)
+        before = _rect(page, "alpha")
+        mid_y = before["y"] + before["h"] / 2
+        board_before = page.evaluate(PIXELS, {"x": before["x"] + before["w"] + 1, "y": mid_y, "w": 1, "h": 1})[0][0]
+        x, y = _gutter_point(page, "alpha")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x + 120, y, steps=24)
+        page.mouse.up()
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        _settle(page, f"""(() => {{ const r = document.querySelector('.tile[data-repo="alpha"]').getBoundingClientRect();
+          const f = window.__farm.inspect().panes.alpha.box; return r.width > {before['w'] + 60}
+            && Math.abs(f.w - r.width) < 0.5 && Math.abs(f.h - r.height) < 0.5; }})()""")
+        after = _rect(page, "alpha")
+        farm = page.evaluate(FARM)
+        board_after = page.evaluate(PIXELS, {"x": after["x"] + after["w"] + 1, "y": mid_y, "w": 1, "h": 1})[0][0]
+        grown = page.evaluate(PIXELS, {"x": before["x"] + before["w"] + 1, "y": mid_y, "w": 1, "h": 1})[0][0]
+        paper = _paper(page)
+        layer = page.evaluate("() => Ink.inspect().layer.skin")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert after["w"] > before["w"] + 60, (before, after)
@@ -744,35 +732,33 @@ GROWTH = """async (repo) => {
 
 @pytest.mark.browser
 @pytest.mark.parametrize("reduced", [False, True], ids=["drawn", "reduced-motion"])
-def test_a_crop_grows_exactly_one_stage_when_the_phase_advances(fleet_home, tmp_path, monkeypatch, reduced):
+def test_a_crop_grows_exactly_one_stage_when_the_phase_advances(fleet_home, tmp_path, monkeypatch, reduced, desk_browser):
     """The phase's DOM signal is the tile's `state-*`, which the fold derives from the phase and the
     turn. An idle agent's seed becomes a sprout when a turn begins, and the sprout a bloom when the
     phase reaches done: one stage each, drawn up from the soil a row at a time over the stage
     before, never cross-faded. Under reduced motion the stage is simply there."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     forced = _force(monkeypatch)
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, reduced=reduced)
-            farm = _inked(page, "farmstead:daytime")
-            start = farm["panes"]["alpha"]
-            forced["live"].add("alpha")
-            _state(page, "alpha", "state-running")
-            to_sprout = page.evaluate(GROWTH, "alpha")
-            _settle(page)
-            forced["state"]["alpha"] = "done"
-            _state(page, "alpha", "state-done")
-            to_bloom = page.evaluate(GROWTH, "alpha")
-            _settle(page)
-            end = page.evaluate(FARM)["panes"]
-            crop = end["alpha"]["crop"]
-            px = page.evaluate(PIXELS, {"x": crop["x"], "y": crop["y"], "w": crop["size"], "h": crop["size"]})
-            paper = _paper(page)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, reduced=reduced)
+        farm = _inked(page, "farmstead:daytime")
+        start = farm["panes"]["alpha"]
+        forced["live"].add("alpha")
+        _state(page, "alpha", "state-running")
+        to_sprout = page.evaluate(GROWTH, "alpha")
+        _settle(page)
+        forced["state"]["alpha"] = "done"
+        _state(page, "alpha", "state-done")
+        to_bloom = page.evaluate(GROWTH, "alpha")
+        _settle(page)
+        end = page.evaluate(FARM)["panes"]
+        crop = end["alpha"]["crop"]
+        px = page.evaluate(PIXELS, {"x": crop["x"], "y": crop["y"], "w": crop["size"], "h": crop["size"]})
+        paper = _paper(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert start["shown"] == "crop-seed" and start["stage"] == 0 and start["grows"] == 0, start
@@ -791,28 +777,26 @@ def test_a_crop_grows_exactly_one_stage_when_the_phase_advances(fleet_home, tmp_
 
 
 @pytest.mark.browser
-def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path):
+def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path, desk_browser):
     """The fold calls an agent done only once nothing supervises it, and the chip draws every quiet
     unsupervised agent as idle -- so the page says it finished with `is-done` (#253). Farmstead
     reads that: a phase reaching done ticks the head in green and grows the seed to a bloom,
     through the sprout, from the fold's own events and nothing forced."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token)
-            _inked(page, "farmstead:daytime")
-            E.append("beta", [E.event("beta", "phase_changed", {"from": "querying", "to": "done"},
-                                      ticket="RDSD-1")])
-            _state(page, "beta", "is-done")
-            chip = page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className""")
-            _settle(page, f"Ink.inspect().layer.marks.some(m => m.selector === '{DONE}' && m.drawn === 1)")
-            marks = page.evaluate("() => Ink.inspect().layer.marks")
-            farm = page.evaluate(FARM)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token)
+        _inked(page, "farmstead:daytime")
+        E.append("beta", [E.event("beta", "phase_changed", {"from": "querying", "to": "done"},
+                                  ticket="RDSD-1")])
+        _state(page, "beta", "is-done")
+        chip = page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className""")
+        _settle(page, f"Ink.inspect().layer.marks.some(m => m.selector === '{DONE}' && m.drawn === 1)")
+        marks = page.evaluate("() => Ink.inspect().layer.marks")
+        farm = page.evaluate(FARM)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert "state-idle" in chip.split(), f"the chip still says idle: {chip}"
@@ -824,58 +808,56 @@ def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp_path, monkeypatch):
+def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The grammar (docs/skin-farmstead.md), every row from the fold's own events: an agent that was
     refused a tool needs you (its name highlighted, its crop wilted); one that asked a question and
     had a choice picked is answered (the choice circled); a friction line is a finding (ringed in
     red); an error boxes the head in marker, wilts the crop and scorches the frame; a live turn is
     running (the name underlined, a sprout); done is ticked. A new run takes them away -- ink
     struck, never faded -- and the crop is replanted."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     forced = _force(monkeypatch)
     _farm_desk(fleet_home, tmp_path, ("alpha", "beta", "gamma"))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, panes=3, width=1600)
-            _inked(page, "farmstead:daytime", panes=3)
-            E.append("alpha", [E.event("alpha", "error", {"exit_code": 2}, ticket="RDSD-1")])
-            E.append("beta", [E.event("beta", "friction", {"severity": "nit", "file": "notes.md"}, ticket="RDSD-1"),
-                              E.event("beta", "question_opened", {"id": "q1", "question": "Which way?",
-                                                                  "choices": ["left", "right"]}, ticket="RDSD-1")])
-            forced["live"].add("gamma")
-            _state(page, "alpha", "state-error")
-            _state(page, "beta", "needs-human")
-            _state(page, "gamma", "state-running")
-            page.wait_for_selector('.tile[data-repo="beta"] .transcript li.friction', timeout=20000)
-            choice = '.tile[data-repo="beta"] .asks:not([hidden]) .ask-choice'
-            page.wait_for_selector(choice, timeout=20000)
-            page.wait_for_function("() => windowWrites === 0 && !document.body.classList.contains('is-stale')",
-                                   timeout=20000)
-            page.locator(choice).first.click()
-            page.wait_for_selector(choice + '[aria-pressed="true"]', timeout=20000)
-            _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn').length >= 8
-                             && Ink.inspect().layer.marks.some(m => m.selector.includes('ask-choice') && m.drawn === 1)""")
-            on = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
-            # Done: the fold says so for a supervised agent.
-            forced["state"]["gamma"] = "done"
-            _state(page, "gamma", "state-done")
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done)' && m.drawn === 1)")
-            done = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
-            # A new run for every one of them: nothing outstanding.
-            forced["live"].clear()
-            forced["state"].clear()
-            for repo in ("alpha", "beta", "gamma"):
-                E.append(repo, [E.event(repo, "started", {"pid": 1}, ticket="RDSD-1")])
-            for repo in ("alpha", "beta", "gamma"):
-                _state(page, repo, "state-idle")
-            page.wait_for_function("""() => !document.querySelector('.tile.needs-human')""", timeout=20000)
-            _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn'
-                             && !m.selector.includes('oldsession') && !m.selector.includes('friction')).length === 0""")
-            off = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, panes=3, width=1600)
+        _inked(page, "farmstead:daytime", panes=3)
+        E.append("alpha", [E.event("alpha", "error", {"exit_code": 2}, ticket="RDSD-1")])
+        E.append("beta", [E.event("beta", "friction", {"severity": "nit", "file": "notes.md"}, ticket="RDSD-1"),
+                          E.event("beta", "question_opened", {"id": "q1", "question": "Which way?",
+                                                              "choices": ["left", "right"]}, ticket="RDSD-1")])
+        forced["live"].add("gamma")
+        _state(page, "alpha", "state-error")
+        _state(page, "beta", "needs-human")
+        _state(page, "gamma", "state-running")
+        page.wait_for_selector('.tile[data-repo="beta"] .transcript li.friction', timeout=20000)
+        choice = '.tile[data-repo="beta"] .asks:not([hidden]) .ask-choice'
+        page.wait_for_selector(choice, timeout=20000)
+        page.wait_for_function("() => windowWrites === 0 && !document.body.classList.contains('is-stale')",
+                               timeout=20000)
+        page.locator(choice).first.click()
+        page.wait_for_selector(choice + '[aria-pressed="true"]', timeout=20000)
+        _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn').length >= 8
+                         && Ink.inspect().layer.marks.some(m => m.selector.includes('ask-choice') && m.drawn === 1)""")
+        on = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
+        # Done: the fold says so for a supervised agent.
+        forced["state"]["gamma"] = "done"
+        _state(page, "gamma", "state-done")
+        _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done)' && m.drawn === 1)")
+        done = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
+        # A new run for every one of them: nothing outstanding.
+        forced["live"].clear()
+        forced["state"].clear()
+        for repo in ("alpha", "beta", "gamma"):
+            E.append(repo, [E.event(repo, "started", {"pid": 1}, ticket="RDSD-1")])
+        for repo in ("alpha", "beta", "gamma"):
+            _state(page, repo, "state-idle")
+        page.wait_for_function("""() => !document.querySelector('.tile.needs-human')""", timeout=20000)
+        _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn'
+                         && !m.selector.includes('oldsession') && !m.selector.includes('friction')).length === 0""")
+        off = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -908,27 +890,25 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
 
 
 @pytest.mark.browser
-def test_the_farm_settles_in_a_bounded_number_of_frames(fleet_home, tmp_path, monkeypatch):
+def test_the_farm_settles_in_a_bounded_number_of_frames(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Ground rule 5, counted in frames: from the class changing to the paper at rest is the marks'
     own catch-up (the layer's bound) plus at most sixteen frames of a crop growing -- whatever the
     frame rate, because a slow frame grows it further."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     forced = _force(monkeypatch)
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token)
-            _inked(page, "farmstead:daytime")
-            first = page.evaluate("() => Ink.inspect().layer.frames")
-            forced["live"].add("alpha")
-            _state(page, "alpha", "state-running")
-            steps = page.evaluate(GROWTH, "alpha")
-            _settle(page)
-            last = page.evaluate("() => Ink.inspect().layer")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token)
+        _inked(page, "farmstead:daytime")
+        first = page.evaluate("() => Ink.inspect().layer.frames")
+        forced["live"].add("alpha")
+        _state(page, "alpha", "state-running")
+        steps = page.evaluate(GROWTH, "alpha")
+        _settle(page)
+        last = page.evaluate("() => Ink.inspect().layer")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     drawn = [m for m in last["marks"] if m["selector"] == ".tile.state-running .head .repo"]
@@ -941,20 +921,18 @@ def test_the_farm_settles_in_a_bounded_number_of_frames(fleet_home, tmp_path, mo
 
 
 @pytest.mark.browser
-def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path):
+def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path, desk_browser):
     """desk-ink §Budgets: an idle desk with ink on it is zero DOM mutations and zero WebGL frames --
     the frames, the crops and the bands included."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, count=True)
-            _inked(page, "farmstead:daytime")
-            count = page.evaluate(IDLE_LOOP)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, count=True)
+        _inked(page, "farmstead:daytime")
+        count = page.evaluate(IDLE_LOOP)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle farm wrote to the page: {count}"
@@ -962,27 +940,25 @@ def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_dispose_frees_the_textures_when_the_skin_changes(fleet_home, tmp_path):
+def test_dispose_frees_the_textures_when_the_skin_changes(fleet_home, tmp_path, desk_browser):
     """The layer frees what is in the scenes it handed out; the sprite textures are the skin's, and
     `dispose` frees them -- when the weather changes (the next one loads its own) and when the skin
     goes. The renderer's own count of textures says they are gone from the GPU."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token)
-            day = _inked(page, "farmstead:daytime")
-            _choose(page, "farmstead:rainy")
-            rainy = _inked(page, "farmstead:rainy")
-            _choose(page, "none")
-            page.wait_for_function("() => Ink.inspect().table === null", timeout=20000)
-            gone = page.evaluate(FARM)
-            _choose(page, "glass")
-            page.wait_for_function("() => document.body.dataset.skin === 'glass'", timeout=20000)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token)
+        day = _inked(page, "farmstead:daytime")
+        _choose(page, "farmstead:rainy")
+        rainy = _inked(page, "farmstead:rainy")
+        _choose(page, "none")
+        page.wait_for_function("() => Ink.inspect().table === null", timeout=20000)
+        gone = page.evaluate(FARM)
+        _choose(page, "glass")
+        page.wait_for_function("() => document.body.dataset.skin === 'glass'", timeout=20000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     # Fourteen sprites: the soil, the plank, five crops and the effects' seven (#380).

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 #: The mutation count of `IDLE_LOOP` without the layer: it reads the layer's renders, and with no
@@ -30,28 +30,26 @@ WATCH = IDLE_LOOP.replace("Ink.inspect().layer", "null")
 
 @pytest.mark.browser
 @pytest.mark.parametrize("skin", ["farmstead:cave", "voxel"])
-def test_an_idle_desk_with_a_skin_chosen_writes_nothing(fleet_home, tmp_path, skin):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_an_idle_desk_with_a_skin_chosen_writes_nothing(fleet_home, tmp_path, skin, desk_browser):
     _desk_of(tmp_path)
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "%s"}}' % skin, encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            page.add_init_script(COUNT_FETCHES)
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            family = skin.split(":")[0]
-            page.wait_for_function(
-                f"""() => document.querySelectorAll('#grid .tile.is-solo').length === 2
-                     && document.body.dataset.skin === {family!r}
-                     && !!document.head.querySelector('link[data-skin]')
-                     && !document.body.classList.contains('is-stale')""", timeout=15000)
-            count = page.evaluate(WATCH)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.add_init_script(COUNT_FETCHES)
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        family = skin.split(":")[0]
+        page.wait_for_function(
+            f"""() => document.querySelectorAll('#grid .tile.is-solo').length === 2
+                 && document.body.dataset.skin === {family!r}
+                 && !!document.head.querySelector('link[data-skin]')
+                 && !document.body.classList.contains('is-stale')""", timeout=15000)
+        count = page.evaluate(WATCH)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle desk with {skin} chosen wrote to the page: {count}"
