@@ -17,6 +17,10 @@ Moving the page (#374, docs/desk-ink.md §Moving the page): `api.fx.animate(pane
 a moment with a transform or a filter only, writes no attribute on any frame, gives the box back, is refused under
 reduced motion, focus or a selection, and is taken back by a focus or `Ink.setSkin(null)` mid-animation.
 
+Lines and letters (#375, docs/desk-ink.md §Lines and letters): under `options.fx.text`, `api.fx.glyphs(el)` gives each
+character's own box, cached per element on its text length and size, capped and clamped, whitespace skipped, `[]` for
+an element that left the page; `api.fx.lines(el)` gives the element's line boxes; without it, `api.fx` has neither.
+
 The budgets (`FX_BUDGET`, `INK_BUDGET`) are held in tests/test_fleet_ink.py.
 """
 from __future__ import annotations
@@ -257,6 +261,41 @@ KINDS = """async () => { const m = await import(q('/static/ink/fx.js'));
     { props: [...new Set(v.frames.flatMap(f => Object.keys(f)).filter(p => p !== 'offset'))], ms: v.ms }])); }"""
 
 
+#: The lines and letters of an element (#375): what `api.fx.glyphs` gives for a pane's name, against each character's
+#: own Range rect read here, and whether the example's `helpers()` carries the two helpers at all.
+HELPERS = "() => { const h = window.__example.helpers(); return h ? Object.keys(h).sort() : null; }"
+LETTERS = """(repo) => { const el = tiles.get(repo).el.querySelector('.repo'), got = window.__example.helpers().glyphs(el);
+  const own = [], walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), r = document.createRange();
+  for (let n; (n = walk.nextNode());) for (const [i, ch] of [...n.data].entries()) {
+    if (/\\s/.test(ch)) continue;
+    r.setStart(n, i); r.setEnd(n, i + 1);
+    const b = r.getBoundingClientRect();
+    own.push({ x: b.left, y: b.top, w: b.width, h: b.height, ch });
+  }
+  return { got, own }; }"""
+#: How many Range rect reads one `glyphs(name)` makes, after `step` has changed the name (or not).
+READS = """([repo, step]) => { const el = tiles.get(repo).el.querySelector('.repo'), h = window.__example.helpers();
+  if (step === 'text') el.textContent = el.textContent + 'x';
+  if (step === 'width') el.style.letterSpacing = '2px';
+  const P = Range.prototype, rects = P.getClientRects, box = P.getBoundingClientRect;
+  let n = 0;
+  P.getClientRects = function () { n += 1; return rects.call(this); };
+  P.getBoundingClientRect = function () { n += 1; return box.call(this); };
+  try { h.glyphs(el); } finally { P.getClientRects = rects; P.getBoundingClientRect = box; }
+  return n; }"""
+#: A made element, outside the grid, 300 letters in words that wrap at 200 px: the default cap, the hard cap,
+#: whitespace skipped, its lines inside it; then gone from the page, where both helpers give nothing.
+CAPS = """() => { const h = window.__example.helpers(), d = document.createElement('div');
+  d.style.cssText = 'position: fixed; left: 16px; top: 16px; width: 200px; font: 14px monospace';
+  d.textContent = Array.from({ length: 60 }, () => 'abcde').join(' ');
+  document.body.appendChild(d);
+  const r = d.getBoundingClientRect(), g = h.glyphs(d), big = h.glyphs(d, 1000), lines = h.lines(d);
+  const inside = lines.every(l => l.x >= r.left - 0.5 && l.x + l.w <= r.right + 0.5 && l.y >= r.top - 0.5 && l.y + l.h <= r.bottom + 0.5);
+  d.remove();
+  return { n: g.length, big: big.length, blank: big.filter(b => /\\s/.test(b.ch)).length, lines: lines.length, inside,
+           gone: [h.glyphs(d).length, h.lines(d).length] }; }"""
+
+
 def _same(moved):
     """The pane's style attribute and `cssText` never changed: before, on every frame and after."""
     first = [moved["before"]["style"], moved["before"]["css"]]
@@ -300,13 +339,15 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
     nothing and draws nothing; a piece a skin leaves in the effects group is reaped; and a bad row
     refuses its whole table, naming the row, while the marks draw on. Between the net and the
     refusals, #374: a cue that moves its pane, on the pane as styled and with a transform of its
-    own, then where `animate` may not run and what takes it back. Then a page under reduced
+    own, then where `animate` may not run and what takes it back; and #375: under `example:text`
+    the letters of a pane's name, their cache, their caps and the lines of a made element, the
+    letters a cue reads, and neither helper under `example`. Then a page under reduced
     motion, where nothing is queued and no pane moves, and one with `?ink=off`, where nothing
     happens, nothing is fetched and nothing animates."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata.fleet import events as E
     from agentdata.fleet.registry import Registry
-    from test_fleet_ink import _mark, _no_skin_css
+    from test_fleet_ink import _choose, _mark, _no_skin_css
 
     def refusal(repo, message):
         E.append(repo, [E.event(repo, "denied", {"message": message}, ticket="RDSD-1")])
@@ -500,6 +541,43 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
             gone = page.evaluate("() => ({ live: tiles.get('alpha').el.getAnimations().length,"
                                  " style: tiles.get('alpha').el.getAttribute('style') })")
             assert gone == {"live": 0, "style": own}, gone
+
+
+            # The lines and letters of an element (#375): the example's `text` variant asks for them with
+            # `options.fx.text`, and its `helpers()` is the `api.fx` its hooks were handed.
+            _mark(page, "alpha", "ink-cue", False)
+            _choose(page, "example:text")
+            page.wait_for_function("() => Ink.inspect().table === 'example:text' && !!window.__example.helpers()"
+                                   " && !!window.__example.helpers().glyphs", timeout=20000)
+            _armed(page)
+            assert page.evaluate(HELPERS) == ["animate", "glyphs", "lines"]
+            # Cached per element: read once, not again for the same name and box, again for new text and a new width.
+            reads = [page.evaluate(READS, ["alpha", step]) for step in ("", "", "text", "width")]
+            assert reads[0] > 0 and reads[1] == 0 and reads[2] > 0 and reads[3] > 0, reads
+            page.evaluate("() => { const el = tiles.get('alpha').el.querySelector('.repo');"
+                          " el.textContent = 'alpha'; el.style.letterSpacing = ''; }")
+            letters = page.evaluate(LETTERS, "alpha")
+            assert [g["ch"] for g in letters["got"]] == [g["ch"] for g in letters["own"]] == list("alpha"), letters
+            assert all(max(abs(g[k] - o[k]) for k in "xywh") <= 0.5
+                       for g, o in zip(letters["got"], letters["own"])), letters
+            caps = page.evaluate(CAPS)
+            assert caps == {"n": 128, "big": 256, "blank": 0, "lines": caps["lines"], "inside": True,
+                            "gone": [0, 0]} and caps["lines"] > 1, caps
+            # Its cue reads the letters of the name of the pane it arrived in.
+            f = _frames(page)
+            before = page.evaluate(CUED)
+            _mark(page, "alpha", "ink-cue")
+            _delivered(page, before["fx"]["delivered"])
+            _still(page, f)
+            read = page.evaluate("() => window.__example.inspect().text")
+            now = page.evaluate(LETTERS, "alpha")["got"]
+            assert read and read[-1]["repo"] == "alpha" and read[-1]["glyphs"] == now, (read, now)
+            # Neither helper without `options.fx.text`.
+            _mark(page, "alpha", "ink-cue", False)
+            _choose(page, "example")
+            page.wait_for_function("() => Ink.inspect().table === 'example' && !!Ink.inspect().layer.fx", timeout=20000)
+            page.wait_for_function("() => !!window.__example.helpers()", timeout=20000)
+            assert page.evaluate(HELPERS) == ["animate"]
 
             # Refused rows, last: the whole table is refused, naming the row and why, and said in the
             # console; the marks draw on.

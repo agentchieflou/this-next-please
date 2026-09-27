@@ -638,13 +638,31 @@ def fleet_snapshot() -> dict:
     served_panels = SK.panels_on(served.name) if served.name != "none" else []
     default_mark = T.pane_mark(served, panels=served_panels)
     served_css = T.to_css(served, panels=served_panels)
+    # The grounds and states a mark is judged on: the served palette's, or, under `<skin>:auto`
+    # (#342), each side's, since the page picks its side and the server cannot know which.
+    sides = [(served_css, served_panels)] if served_css else []
+    if skin_info and skin_info.get("auto"):
+        sides = []
+        for v in skin_info["auto"].values():
+            st = theme_or_none(v["base"])
+            panels = SK.panels_on(st.name) if st.name != "none" else []
+            sides.append((T.to_css(st, panels=panels) if st.name != "none" else {}, panels))
+
+    def clear_everywhere(colour: str | None) -> bool:
+        return bool(sides) and all(css and T.marks_clear(colour, (css["--panel"], *panels),
+                                                         [css[r] for r in T.ROLES])
+                                   for css, panels in sides)
+
+    if skin_info and skin_info.get("auto") and not clear_everywhere(default_mark):
+        # The default variant's mark does not read on the other side: send none, and the tile's own
+        # border paints the strip in `--focus`, which each side's tokens carry and rule 10 holds.
+        default_mark = ""
 
     def palette_mark(colour: str | None) -> str:
         """A palette's accent where it reads as no state on the served page, else the served palette's mark."""
         if not served_css:
             return ""
-        grounds = (served_css["--panel"], *served_panels)
-        return colour if T.marks_clear(colour, grounds, [served_css[r] for r in T.ROLES]) else default_mark
+        return colour if clear_everywhere(colour) else default_mark
     proj_theme_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_theme_map, dict):
         proj_theme_map = {}
@@ -1501,10 +1519,20 @@ def theme_state() -> dict:
         default_name = skin_info.get("base") or default_name
         skin_name = skin_info["full"]
 
+    def tokens(t):
+        # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
+        # the tokens are one set per palette, the same under every skin on it.
+        return T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
+
     t = theme_or_none(default_name)
-    # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
-    # the tokens are one set per palette, the same under every skin on it.
-    css_vars = T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
+    css_vars = tokens(t)
+    # `<skin>:auto` (#342): both sides, each exactly what choosing that variant serves, so the page
+    # follows the system's appearance without asking. `theme` and `css` stay the default variant's:
+    # the terminal's palette, which cannot follow, and what a reader that knows nothing of `auto` uses.
+    auto = {}
+    for side, v in ((skin_info or {}).get("auto") or {}).items():
+        st = theme_or_none(v["base"])
+        auto[side] = {"variant": v["variant"], "skin": v["full"], "theme": st.name, "css": tokens(st)}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
         proj_map = {}
@@ -1535,6 +1563,10 @@ def theme_state() -> dict:
         # file changes, and the served page itself (`page_theme`, #345) -- so the settings page's
         # "in effect now" is true of them as it is of the palette.
         "tiers": SET.tiers(cfg),
+        **({"auto": auto} if auto else {}),
+        # The highest pick number written (#483): a page numbers its picks above it, so a number a
+        # clock that was ahead stored never leaves the picker refusing every pick until it catches up.
+        "seq": _stored_seq(cfg),
     }
 
 
@@ -1585,10 +1617,23 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     class to append) and `body` (attributes after the class): all empty for no skin, no palette
     and the default tiers, so that page is byte-identical to the file."""
     from . import settings as SET
-    decl, attrs = [], ""
+    def safe(css):
+        return [f"{k}:{v}" for k, v in (css or {}).items() if CSS_TOKEN.match(str(k)) and CSS_HEX.match(str(v))]
+
+    decl, attrs, sheet = [], "", ""
     css = ts.get("css") or {}
-    if css and ts.get("theme") != "none":
-        decl = [f"{k}:{v}" for k, v in css.items() if CSS_TOKEN.match(str(k)) and CSS_HEX.match(str(v))]
+    auto = ts.get("auto") or {}
+    if auto.get("light") and auto.get("dark"):
+        # `<skin>:auto` (#342): the server cannot know the appearance, so the page carries both sets
+        # and the browser picks, in the first frame. `applyThemeState` then writes the same values
+        # inline for the side it resolves, and on every change of appearance.
+        light, dark = safe(auto["light"].get("css")), safe(auto["dark"].get("css"))
+        attrs = ' data-theme="custom"'
+        sheet = ('<style data-skin-auto="true">:root[data-theme="custom"]{' + ";".join(light) + "}"
+                 '@media (prefers-color-scheme: dark){:root[data-theme="custom"]{' + ";".join(dark) + "}}"
+                 "</style>")
+    elif css and ts.get("theme") != "none":
+        decl = safe(css)
         attrs = ' data-theme="custom"'
     if desk:
         tiers = ts.get("tiers") or {}
@@ -1605,11 +1650,17 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     # the one the page wears.
     family, _, variant = str(ts.get("skin") or "").partition(":")
     if family in ("", "none") or not SKIN_FAMILY.match(family):
-        return {"html": attrs, "link": "", "body_class": "", "body": ""}
+        return {"html": attrs, "link": sheet, "body_class": "", "body": ""}
     variant = variant if SKIN_FAMILY.match(variant) else ""
-    link = (f'<link rel="stylesheet" data-skin="true" '
-            f'href="/static/skins/{family}/skin.css?t={_escape(token)}">')
-    body = f' data-skin="{family}"' + (f' data-skin-variant="{variant}"' if variant else "")
+    link = sheet + (f'<link rel="stylesheet" data-skin="true" '
+                    f'href="/static/skins/{family}/skin.css?t={_escape(token)}">')
+    pair = ""
+    if sheet:
+        # The two variants, light then dark: common.js picks one before the page's first frame.
+        sides = [str(auto[s].get("variant") or "") for s in ("light", "dark")]
+        if all(SKIN_FAMILY.match(v) for v in sides):
+            variant, pair = sides[0], f' data-skin-auto="{sides[0]} {sides[1]}"'
+    body = f' data-skin="{family}"' + (f' data-skin-variant="{variant}"' if variant else "") + pair
     off = not desk or INK_OFF_UNTIL_DRAWN or not gate_on
     return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 
@@ -2630,12 +2681,18 @@ def act(what: str, body: dict) -> dict:
     if what == "theme":
         from .. import config as C
 
+        seq = _theme_seq(body)
         with C.LOCK:
-            _write_theme(C, body)
-        _config_changed()
+            wrote, _ = _write_theme(C, body, seq)
+        if wrote:
+            _config_changed()
         # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
         # from this answer instead of waiting a tick for the frame to say what it has just chosen.
-        return theme_state()
+        # A stale pick (#483) is answered the same way, with what is on, and says it was not written.
+        out = theme_state()
+        if not wrote:
+            out["stale"] = True
+        return out
     if what == "models":
         # Ask the Copilot CLI for its model list again (#361), on a thread: the answer goes out at
         # once, and a list that changed reaches every open page as one `models` frame. An ask while
@@ -2705,10 +2762,39 @@ def _write_settings(C, SET, body: dict) -> None:
         raise ServeError(str(e), e.hint, code="config_refused") from None
 
 
-def _write_theme(C, body: dict) -> None:
-    """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
+def _theme_seq(body: dict) -> int | None:
+    """The pick's number (#483), or None for a write that carries none (`ad-theme`, an older page)."""
+    seq = body.get("seq")
+    if seq is None:
+        return None
+    if isinstance(seq, bool) or not isinstance(seq, int) or not 0 < seq < 2 ** 53:
+        raise ServeError("seq is a positive whole number", "number each pick above the last one",
+                         code="bad_request")
+    return seq
+
+
+def _stored_seq(cfg: dict) -> int:
+    """`theme.seq` as config.json holds it, 0 when it holds none or something that is not a number."""
+    seq = (cfg.get("theme") or {}).get("seq")
+    return seq if isinstance(seq, int) and not isinstance(seq, bool) else 0
+
+
+def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
+    """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`.
+
+    Two quick picks from /settings travel on two connections, and the handler threads can take
+    `C.LOCK` in either order, so the first pick could be written last and win (#483). The page
+    numbers its picks, and the highest number written so far is kept beside the theme it wrote: a
+    pick numbered at or below it is older than what is on and is not written. The compare and the
+    write are one read-modify-write under the lock. A write with no number is written as before and
+    leaves the number alone. Answers (written, the highest number)."""
     cfg = C.load()
     cfg.setdefault("theme", {})
+    last = _stored_seq(cfg)
+    if seq is not None and seq <= last:
+        return False, last
+    if seq is not None:
+        cfg["theme"]["seq"] = last = seq
     if "theme" in body:
         theme_val = str(body["theme"]).strip()
         cfg["theme"]["default"] = theme_val if theme_val else "none"
@@ -2725,6 +2811,7 @@ def _write_theme(C, body: dict) -> None:
             cfg["theme"]["skin"] = chosen["full"]
             cfg["theme"]["default"] = chosen["base"]
     C.save(cfg)
+    return True, last
 
 
 def _sweep(url: str) -> list[dict]:

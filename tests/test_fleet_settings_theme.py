@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
@@ -110,6 +112,25 @@ LATE_FRAME = """
 })();
 """
 
+# The first `POST /api/theme` goes to the server at once, but the page is handed its answer only at
+# `window.__release()`; every later one is answered as it comes (#483, the #437 regression's hold).
+# `window.__firstRead` turns true once the page has read the held answer's body.
+HOLD_FIRST_ANSWER = """() => {
+  const real = window.fetch;
+  window.__held = false;
+  window.fetch = function (u, o) {
+    const theme = o && o.method === 'POST' && new URL(String(u), location.href).pathname === '/api/theme';
+    if (!theme || window.__held) return real.apply(this, arguments);
+    window.__held = true;
+    const answer = real.apply(this, arguments).then(r => {
+      const json = r.json.bind(r);
+      r.json = () => json().then(v => { window.__firstRead = true; return v; });
+      return r;
+    });
+    return new Promise(go => { window.__release = () => { window.__held = 'released'; go(answer); }; });
+  };
+}"""
+
 FILLED = "() => document.querySelectorAll('#skin option').length > 3"
 BG = "() => document.documentElement.style.getPropertyValue('--bg')"
 
@@ -152,6 +173,14 @@ def _post(port, token, path, body):
         return json.loads(r.read().decode("utf-8"))
 
 
+def _post_status(port, token, path, body) -> int:
+    try:
+        _post(port, token, path, body)
+    except urllib.error.HTTPError as e:
+        return e.code
+    return 200
+
+
 # ----------------------------------------------------------------------------- the two answers
 
 
@@ -187,6 +216,61 @@ def test_post_theme_answers_with_the_css_it_wrote(fleet_home, tmp_path):
     assert skin["ok"] and skin["css"] == want["css"] and skin["css"], skin
     assert (skin["theme"], skin["skin"], skin["skin_family"]) == (want["theme"], "voxel:nether", "voxel")
     assert palette["css"] == want_palette["css"] and palette["theme"] == "nfl-browns", palette
+
+
+def test_two_theme_writes_that_arrive_out_of_order_end_on_the_later_pick(fleet_home, tmp_path):
+    """#483: the page numbers its picks, and a write numbered below one already applied is not
+    written. Two quick picks travel on two connections and the server can take them in either
+    order; the later pick wins either way, and the stale write is answered with what is on."""
+    _config(fleet_home)
+    server, token, port = _serve()
+    try:
+        later = _post(port, token, "/api/theme", {"skin": "voxel:overworld", "seq": 1_700_000_000_002})
+        earlier = _post(port, token, "/api/theme", {"skin": "glass:smoke", "seq": 1_700_000_000_001})
+        on = S.theme_state()
+        unnumbered = _post(port, token, "/api/theme", {"skin": "voxel:nether"})
+        again = _post(port, token, "/api/theme", {"skin": "glass:smoke", "seq": 1_700_000_000_002})
+        bad = [_post_status(port, token, "/api/theme", {"skin": "glass:smoke", "seq": s})
+               for s in ("3", True, -1, 1.5)]
+    finally:
+        _stop(server)
+    assert on["skin"] == "voxel:overworld", "the later pick wins, whichever write arrives last"
+    assert later["ok"] and later["skin"] == "voxel:overworld" and later["seq"] == 1_700_000_000_002, later
+    assert earlier["ok"] and earlier["stale"] is True, earlier
+    assert (earlier["skin"], earlier["css"]) == ("voxel:overworld", on["css"]), earlier
+    assert earlier["seq"] == 1_700_000_000_002, earlier
+    assert unnumbered["skin"] == "voxel:nether" and unnumbered["seq"] == 1_700_000_000_002, unnumbered
+    assert again["stale"] is True and again["skin"] == "voxel:nether", "an equal number is stale too"
+    assert bad == [409] * 4, bad
+
+
+#: A `theme.seq` written by a clock that was ahead: an NTP step back, a VM resumed, a hand edit.
+AHEAD = 4_102_444_800_000
+
+
+def _pick_seq(last: int) -> int:
+    """How /settings numbers a pick (`settings.js` `choose`): the clock, or one above the last heard."""
+    return max(int(time.time() * 1000), last + 1)
+
+
+def test_a_number_stored_by_a_clock_that_was_ahead_never_locks_the_picker(fleet_home, tmp_path):
+    """#483: the page numbers from the highest `seq` it has heard, and the theme state it loads says
+    it, so a fresh page's first pick wins over a stored number hours ahead of the clock. A pick
+    numbered from the clock alone is stale, and its answer says the number to outrank."""
+    _config(fleet_home, skin="voxel:nether", seq=AHEAD)
+    server, token, port = _serve()
+    try:
+        current = _get(port, token, "/api/themes")["current"]
+        fresh = _post(port, token, "/api/theme", {"skin": "glass:smoke", "seq": _pick_seq(current.get("seq", 0))})
+        clock = _post(port, token, "/api/theme", {"skin": "voxel:overworld", "seq": _pick_seq(0)})
+        after = _post(port, token, "/api/theme", {"skin": "voxel:overworld", "seq": _pick_seq(clock["seq"])})
+        on = S.theme_state()
+    finally:
+        _stop(server)
+    assert "stale" not in fresh and fresh["skin"] == "glass:smoke", "a fresh page's first pick wins"
+    assert current["seq"] == AHEAD, current
+    assert clock["stale"] is True and clock["seq"] == AHEAD + 1, clock
+    assert "stale" not in after and on["skin"] == "voxel:overworld" and on["seq"] == AHEAD + 2, on
 
 
 @pytest.mark.browser
@@ -373,8 +457,12 @@ def test_leaving_settings_waits_for_the_write(browser, fleet_home, tmp_path, ans
 
 @pytest.mark.browser
 def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp_path):
+    """Folded in (#483, decision 13): two picks made back to back, with the first one's answer held
+    until the second has been answered, leave the page on the second pick. The config holds a pick
+    number from a clock that was ahead (`AHEAD`), which the page numbers above."""
     _desk_of(tmp_path, ("alpha",))
-    _config(fleet_home, skin="voxel:nether")
+    last = _state_of(fleet_home, skin="voxel:overworld")
+    _config(fleet_home, skin="voxel:nether", seq=AHEAD)
     server, token, port = _serve()
     try:
         page, errors = _page(browser)
@@ -395,6 +483,25 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
         assert read, frames
         assert all(r[1] >= 4.5 for r in read), read
         assert all(f["inkOff"] for f in frames if f["inkOff"] is not None), "ink-off stays on /settings"
+
+        page.wait_for_function("() => pendingTheme === null", timeout=15000)
+        assert S.theme_state()["skin"] == "farmstead:daytime", "a fresh page's first pick is written"
+
+        # #483: two quick picks; the first answer lands after the second has been applied.
+        page.evaluate("() => { document.getElementById('saved').hidden = true; }")
+        page.evaluate(HOLD_FIRST_ANSWER)
+        page.select_option("#skin", "glass:smoke")
+        page.wait_for_function("() => window.__held === true", timeout=15000)
+        page.select_option("#skin", "voxel:overworld")
+        page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
+        assert S.theme_state()["skin"] == "voxel:overworld", "the server wrote the picks in order"
+        page.evaluate("() => window.__release()")
+        page.wait_for_function("() => window.__firstRead === true", timeout=15000)
+        page.wait_for_function("() => pendingTheme === null", timeout=15000)
+        got = page.evaluate("""() => [document.body.dataset.skin || '', document.body.dataset.skinVariant || '',
+            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('skin').value]""")
+        print(f"\n  two quick picks, the first answer last: {got}")
+        assert tuple(got) == ("voxel", "overworld", last["css"]["--bg"], "voxel:overworld"), got
         assert not errors, errors
         page.close()
     finally:

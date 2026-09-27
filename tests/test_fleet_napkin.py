@@ -35,7 +35,7 @@ from agentdata.fleet.registry import Registry
 from agentdata.fleet import serve as S
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import (AT_REST, COUNT_FETCHES, IDLE_LOOP, _marks, _serve, _stop,
                             catch_up_frames)
 from test_fleet_ink import fleet_home  # noqa: F401 - fixtures
@@ -244,14 +244,13 @@ def _settle(page, also="true", timeout=30000):
 
 
 @pytest.mark.browser
-def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_path, monkeypatch):
+def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The paper state grammar (plan-ink), drawn from real agents: idle a pencil outline and its
     name underlined in pencil; running its name underlined in pen with the pen's tip at the end;
     needs you the name and the question highlighted and each choice looped in pencil; error the
     felt tip's box and a bang; stale (#240) its note written, an arrow to the run's line and a
     dashed outline; done a green check (the fold's `is-done`); a finding (a refused line) ringed, its
     kind highlighted and its words written; the header count handwritten."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     q = {"question": "which window should ask land in?", "id": "q1", "blocking": True,
          "choices": ["left", "right"]}
     _desk(tmp_path, monkeypatch, {
@@ -262,24 +261,23 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     }, live=("run",))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 7)
-            page.wait_for_selector(_tile("found") + " .transcript li.denied", timeout=15000)
-            page.wait_for_selector(_tile("run") + ".state-running", timeout=15000)
-            page.wait_for_selector(_tile("done") + ".is-done", timeout=15000)
-            page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-            page.wait_for_selector(_tile("ask") + ".needs-human .ask-choice", timeout=15000)
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.shape === 'bang')"
-                          " && Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
-            marks = _marks(page)
-            napkin = page.evaluate(NAPKIN)
-            tip = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="run"]');
-              const r = t.getBoundingClientRect(), n = t.querySelector('.head .repo').getBoundingClientRect();
-              const line = document.querySelector('.tile[data-repo="old"] .runline').getBoundingClientRect();
-              return { x: n.right - r.left, y: n.bottom - r.top, runline: line.width > 0 }; }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _napkin_page(browser, port, token, fleet_home, 7)
+        page.wait_for_selector(_tile("found") + " .transcript li.denied", timeout=15000)
+        page.wait_for_selector(_tile("run") + ".state-running", timeout=15000)
+        page.wait_for_selector(_tile("done") + ".is-done", timeout=15000)
+        page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
+        page.wait_for_selector(_tile("ask") + ".needs-human .ask-choice", timeout=15000)
+        _settle(page, "Ink.inspect().layer.marks.some(m => m.shape === 'bang')"
+                      " && Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
+        marks = _marks(page)
+        napkin = page.evaluate(NAPKIN)
+        tip = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="run"]');
+          const r = t.getBoundingClientRect(), n = t.querySelector('.head .repo').getBoundingClientRect();
+          const line = document.querySelector('.tile[data-repo="old"] .runline').getBoundingClientRect();
+          return { x: n.right - r.left, y: n.bottom - r.top, runline: line.width > 0 }; }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     # An arrow with nothing to point at (the run's line is not shown at this width) has no strokes.
@@ -327,14 +325,13 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
 
 @pytest.mark.browser
 def test_a_state_that_goes_is_erased_or_struck_and_the_name_is_never_struck(fleet_home, tmp_path,
-                                                                             monkeypatch):
+                                                                             monkeypatch, desk_browser):
     """Drawn, never faded. Choosing an answer erases its pencil loop and circles it in pen; the
     answer arriving strikes the question's highlight through in pen and ERASES the name's -- a
     name struck through reads as an agent that has gone, the flaw both prototypes had (the row
     says `leaves: "erased"`, #252). An idle pane that starts running has its pencil erased, and a
     pane that leaves error has its felt tip's box and its bang struck, with the ink it soaked
     staying where it soaked."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     q = {"question": "which window should ask land in?", "id": "q1", "blocking": True,
          "choices": ["left", "right"]}
     alive = _desk(tmp_path, monkeypatch, {
@@ -343,38 +340,37 @@ def test_a_state_that_goes_is_erased_or_struck_and_the_name_is_never_struck(flee
     })
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3)
-            page.wait_for_selector(_tile("ask") + ".needs-human .ask-choice", timeout=15000)
-            page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-            _settle(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:ask').length === 4"
-                          " && Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
-            before = _marks(page)
+        browser = desk_browser
+        page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3)
+        page.wait_for_selector(_tile("ask") + ".needs-human .ask-choice", timeout=15000)
+        page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
+        _settle(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:ask').length === 4"
+                      " && Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
+        before = _marks(page)
 
-            # The operator picks an answer: the page's own button, the page's own aria-pressed.
-            page.locator(_tile("ask") + " .ask-choice").nth(1).click()
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.shape === 'ellipse' && m.drawn === 1)"
-                          " && Ink.inspect().layer.marks.filter(m => m.tool === 'pencil'"
-                          " && m.lane === 'pane:ask').length === 1")
-            chosen = _marks(page)
+        # The operator picks an answer: the page's own button, the page's own aria-pressed.
+        page.locator(_tile("ask") + " .ask-choice").nth(1).click()
+        _settle(page, "Ink.inspect().layer.marks.some(m => m.shape === 'ellipse' && m.drawn === 1)"
+                      " && Ink.inspect().layer.marks.filter(m => m.tool === 'pencil'"
+                      " && m.lane === 'pane:ask').length === 1")
+        chosen = _marks(page)
 
-            # The answer arrives, the idle agent starts, and the failed one is started again.
-            alive.update({"idle", "err"})
-            E.append("ask", [E.event("ask", "question_answered", {"id": "q1", "answer": "right"},
-                                     ticket="RDSD-1")])
-            for name in ("idle", "err"):
-                E.append(name, [E.event(name, "turn_started", {}, ticket="RDSD-1")])
-            page.wait_for_selector(_tile("ask") + ":not(.needs-human)", timeout=15000)
-            page.wait_for_selector(_tile("idle") + ".state-running", timeout=15000)
-            page.wait_for_selector(_tile("err") + ".state-running", timeout=15000)
-            _settle(page, "Ink.inspect().layer.marks.filter(m => m.strikeOf).length >= 3"
-                          " && !Ink.inspect().layer.marks.some(m => m.tool === 'pencil'"
-                          " && m.lane === 'pane:idle')")
-            after = _marks(page)
-            napkin = page.evaluate(NAPKIN)
-            assert not errors, errors
-            browser.close()
+        # The answer arrives, the idle agent starts, and the failed one is started again.
+        alive.update({"idle", "err"})
+        E.append("ask", [E.event("ask", "question_answered", {"id": "q1", "answer": "right"},
+                                 ticket="RDSD-1")])
+        for name in ("idle", "err"):
+            E.append(name, [E.event(name, "turn_started", {}, ticket="RDSD-1")])
+        page.wait_for_selector(_tile("ask") + ":not(.needs-human)", timeout=15000)
+        page.wait_for_selector(_tile("idle") + ".state-running", timeout=15000)
+        page.wait_for_selector(_tile("err") + ".state-running", timeout=15000)
+        _settle(page, "Ink.inspect().layer.marks.filter(m => m.strikeOf).length >= 3"
+                      " && !Ink.inspect().layer.marks.some(m => m.tool === 'pencil'"
+                      " && m.lane === 'pane:idle')")
+        after = _marks(page)
+        napkin = page.evaluate(NAPKIN)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     loops = [m for m in before if m["lane"] == "pane:ask" and m["tool"] == "pencil"]
@@ -435,40 +431,38 @@ def _to_seam(x, y):
 
 
 @pytest.mark.browser
-def test_a_coffee_ring_is_under_a_pane_idle_a_long_time_and_no_other(fleet_home, tmp_path, monkeypatch):
+def test_a_coffee_ring_is_under_a_pane_idle_a_long_time_and_no_other(fleet_home, tmp_path, monkeypatch, desk_browser):
     """A pane that has been idle a long time -- idle, and its chip a day old -- has a coffee ring
     under it. A pane idle a moment has none, nor does a pane whose last word was days ago but which
     is in error: it is not idle, it needs you. The agent waking takes the cup away."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, monkeypatch, {
         "old": {"ts": LONG_AGO}, "fresh": {},
         "olderr": {"ts": LONG_AGO, "more": [("error", {"exit_code": 1})]},
     })
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3)
-            page.wait_for_selector(_tile("old") + ".state-idle .chip.stale", timeout=15000)
-            page.wait_for_selector(_tile("olderr") + ".state-error .chip.stale", timeout=15000)
-            _settle(page, f"({NAPKIN}).old.coffee")
-            napkin = page.evaluate(NAPKIN)
+        browser = desk_browser
+        page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3)
+        page.wait_for_selector(_tile("old") + ".state-idle .chip.stale", timeout=15000)
+        page.wait_for_selector(_tile("olderr") + ".state-error .chip.stale", timeout=15000)
+        _settle(page, f"({NAPKIN}).old.coffee")
+        napkin = page.evaluate(NAPKIN)
 
-            def ring_box(repo):
-                r = page.evaluate(f"() => document.querySelector('{_tile(repo)}').getBoundingClientRect().toJSON()")
-                c = napkin["old"]["ring"]           # the same place in every pane, for comparison
-                return {"x": r["x"] + c["x"] - c["r"] - 4, "y": r["y"] + c["y"] - c["r"] - 4,
-                        "w": 2 * c["r"] + 8, "h": 2 * c["r"] + 8}
+        def ring_box(repo):
+            r = page.evaluate(f"() => document.querySelector('{_tile(repo)}').getBoundingClientRect().toJSON()")
+            c = napkin["old"]["ring"]           # the same place in every pane, for comparison
+            return {"x": r["x"] + c["x"] - c["r"] - 4, "y": r["y"] + c["y"] - c["r"] - 4,
+                    "w": 2 * c["r"] + 8, "h": 2 * c["r"] + 8}
 
-            seen = {repo: _count(page.evaluate(PIXELS, ring_box(repo)), _coffee)
-                    for repo in ("old", "fresh", "olderr")}
+        seen = {repo: _count(page.evaluate(PIXELS, ring_box(repo)), _coffee)
+                for repo in ("old", "fresh", "olderr")}
 
-            E.append("old", [E.event("old", "assistant_text", {"text": "back"}, ticket="RDSD-1")])
-            page.wait_for_selector(_tile("old") + " .chip:not(.stale)", timeout=15000)
-            _settle(page, f"!({NAPKIN}).old.coffee")
-            woke = _count(page.evaluate(PIXELS, ring_box("old")), _coffee)
-            assert not errors, errors
-            browser.close()
+        E.append("old", [E.event("old", "assistant_text", {"text": "back"}, ticket="RDSD-1")])
+        page.wait_for_selector(_tile("old") + " .chip:not(.stale)", timeout=15000)
+        _settle(page, f"!({NAPKIN}).old.coffee")
+        woke = _count(page.evaluate(PIXELS, ring_box("old")), _coffee)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert napkin["old"]["coffee"] and not napkin["fresh"]["coffee"] and not napkin["olderr"]["coffee"]
@@ -479,27 +473,25 @@ def test_a_coffee_ring_is_under_a_pane_idle_a_long_time_and_no_other(fleet_home,
 
 
 @pytest.mark.browser
-def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch):
+def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The felt tip's ink runs down the quilting: just outside its stroke round an error pane,
     the paper is inked where a seam is pressed in, and hardly at all on the pillows between. The
     seams are the paper shader's lattice (`toSeam` in napkin.js), recomputed here per pixel."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, monkeypatch, {"err": {"more": [("error", {"exit_code": 2})]}, "idle": {}})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 2)
-            page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker' && m.drawn === 1)")
-            r = page.evaluate(f"() => document.querySelector('{_tile('err')}').getBoundingClientRect().toJSON()")
-            # A band 6-11px inside the loop (which runs 4px inside the pane, #332) down its left
-            # side, in the pane's margin: below the bang written there and clear of the corners.
-            # The stroke and its wobble end ~4px from the line.
-            band = {"x": r["x"] + 4 + 6, "y": r["y"] + 80, "w": 5, "h": r["height"] - 120}
-            pixels = page.evaluate(PIXELS, band)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _napkin_page(browser, port, token, fleet_home, 2)
+        page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
+        _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker' && m.drawn === 1)")
+        r = page.evaluate(f"() => document.querySelector('{_tile('err')}').getBoundingClientRect().toJSON()")
+        # A band 6-11px inside the loop (which runs 4px inside the pane, #332) down its left
+        # side, in the pane's margin: below the bang written there and clear of the corners.
+        # The stroke and its wobble end ~4px from the line.
+        band = {"x": r["x"] + 4 + 6, "y": r["y"] + 80, "w": 5, "h": r["height"] - 120}
+        pixels = page.evaluate(PIXELS, band)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     red = lambda r, g, b: r - (g + b) / 2 > 14                    # noqa: E731
@@ -516,30 +508,28 @@ def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch)
 
 
 @pytest.mark.browser
-def test_reduced_motion_draws_the_napkin_at_once(fleet_home, tmp_path, monkeypatch):
+def test_reduced_motion_draws_the_napkin_at_once(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Under reduced motion every mark is on the paper at once, the felt tip has soaked in at once,
     the ring is down at once, and no pen travels."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, monkeypatch, {"err": {"more": [("error", {"exit_code": 2})]},
                                   "old": {"ts": LONG_AGO}})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 2, reduced=True)
-            page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-            page.wait_for_selector(_tile("old") + ".state-idle .chip.stale", timeout=15000)
-            page.wait_for_function("() => Ink.inspect().layer.marks.some(m => m.tool === 'marker')",
-                                   timeout=15000)
-            # The frame after the marker's mark exists: everything is already down.
-            seen = page.evaluate(f"""async () => {{
-              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-              const l = Ink.inspect().layer;
-              return {{ marks: l.marks.map(m => [m.selector, m.drawn]), hands: l.hands,
-                        reduced: l.reduced, napkin: {NAPKIN} }};
-            }}""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _napkin_page(browser, port, token, fleet_home, 2, reduced=True)
+        page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
+        page.wait_for_selector(_tile("old") + ".state-idle .chip.stale", timeout=15000)
+        page.wait_for_function("() => Ink.inspect().layer.marks.some(m => m.tool === 'marker')",
+                               timeout=15000)
+        # The frame after the marker's mark exists: everything is already down.
+        seen = page.evaluate(f"""async () => {{
+          await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+          const l = Ink.inspect().layer;
+          return {{ marks: l.marks.map(m => [m.selector, m.drawn]), hands: l.hands,
+                    reduced: l.reduced, napkin: {NAPKIN} }};
+        }}""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert seen["reduced"] is True and seen["hands"] is False
@@ -549,12 +539,11 @@ def test_reduced_motion_draws_the_napkin_at_once(fleet_home, tmp_path, monkeypat
 
 
 @pytest.mark.browser
-def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tmp_path, monkeypatch):
+def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Where the gate is off (every shell but a measured hardware one), the napkin is the one plain
     look every skin shares since #257 -- the palette's page and panes, no quilt and no ring, which
     are the module's to draw -- and the same mark table drawn plain by the layer's fallback: the
     error pane boxed, the name that needs you tinted. No layer, no three.js. Both variants."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     q = {"question": "which window?", "id": "q1", "blocking": True, "choices": ["left", "right"]}
     _desk(tmp_path, monkeypatch, {
         "old": {"ts": LONG_AGO}, "err": {"more": [("error", {"exit_code": 2})]},
@@ -563,36 +552,35 @@ def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tm
     server, token, port = _serve()
     looks = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for variant in ("", "kraft"):
-                page, errors, asked = _napkin_page(browser, port, token, fleet_home, 3, ink=False,
-                                                   variant=variant)
-                page.wait_for_selector(_tile("old") + ".state-idle .chip.stale", timeout=15000)
-                page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-                page.wait_for_selector(_tile("ask") + ".needs-human", timeout=15000)
-                page.wait_for_function("() => getComputedStyle(document.body).getPropertyValue('--paper').trim() !== ''",
-                                       timeout=10000)
-                looks[variant or "diner"] = page.evaluate("""() => {
-                  const t = r => document.querySelector(`.tile[data-repo="${r}"]`);
-                  const cs = e => getComputedStyle(e);
-                  return {
-                    off: document.body.classList.contains('ink-off'), drawn: Ink.inspect().plain,
-                    paper: cs(document.body).getPropertyValue('--paper').trim(),
-                    page: cs(document.body).backgroundImage,
-                    old: cs(t('old')).backgroundImage, err: cs(t('err')).backgroundImage,
-                    panel: cs(t('err')).backgroundColor,
-                    want: cs(document.body).getPropertyValue('--panel').trim(),
-                    box: cs(t('err')).outlineStyle + ' ' + cs(t('err')).outlineWidth,
-                    name: cs(t('ask').querySelector('.head .repo')).backgroundColor,
-                    bare: cs(t('old').querySelector('.head .repo')).backgroundColor,
-                    under: cs(t('old').querySelector('.head .repo')).textDecorationLine,
-                  };
-                }""")
-                assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
-                assert not errors, errors
-                page.close()
-            browser.close()
+        browser = desk_browser
+        for variant in ("", "kraft"):
+            page, errors, asked = _napkin_page(browser, port, token, fleet_home, 3, ink=False,
+                                               variant=variant)
+            page.wait_for_selector(_tile("old") + ".state-idle .chip.stale", timeout=15000)
+            page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
+            page.wait_for_selector(_tile("ask") + ".needs-human", timeout=15000)
+            page.wait_for_function("() => getComputedStyle(document.body).getPropertyValue('--paper').trim() !== ''",
+                                   timeout=10000)
+            looks[variant or "diner"] = page.evaluate("""() => {
+              const t = r => document.querySelector(`.tile[data-repo="${r}"]`);
+              const cs = e => getComputedStyle(e);
+              return {
+                off: document.body.classList.contains('ink-off'), drawn: Ink.inspect().plain,
+                paper: cs(document.body).getPropertyValue('--paper').trim(),
+                page: cs(document.body).backgroundImage,
+                old: cs(t('old')).backgroundImage, err: cs(t('err')).backgroundImage,
+                panel: cs(t('err')).backgroundColor,
+                want: cs(document.body).getPropertyValue('--panel').trim(),
+                box: cs(t('err')).outlineStyle + ' ' + cs(t('err')).outlineWidth,
+                name: cs(t('ask').querySelector('.head .repo')).backgroundColor,
+                bare: cs(t('old').querySelector('.head .repo')).backgroundColor,
+                under: cs(t('old').querySelector('.head .repo')).textDecorationLine,
+              };
+            }""")
+            assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         _stop(server)
     for variant, look in looks.items():
@@ -609,44 +597,42 @@ def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tm
 @pytest.mark.browser
 def test_an_idle_napkin_writes_nothing_draws_nothing_and_settled_in_bounded_frames(fleet_home,
                                                                                     tmp_path,
-                                                                                    monkeypatch):
+                                                                                    monkeypatch, desk_browser):
     """The render contract with the napkin on the paper: once the marks are drawn and the felt tip
     has soaked in, an idle desk is zero DOM mutations and zero WebGL frames -- and getting there
     took the frames a hand needs for the marks at the pen's speed, plus the soak (napkin.js
     `SOAK_S`), and never more."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, monkeypatch, {"err": {"more": [("error", {"exit_code": 2})]}, "idle": {},
                                   "old": {"ts": LONG_AGO}})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3, count=True)
-            page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
-            # Settling again, from nothing: the table set afresh, counted in frames.
-            rec = page.evaluate(f"""async () => {{
-              const m = window.__napkin;
-              await Ink.setSkin(null);
-              const table = {{ name: 'napkin', paper: '--paper', marks: m.marks() }};
-              const f0 = Ink.inspect().layer ? Ink.inspect().layer.frames : 0;
-              await Ink.setSkin(table, m);
-              for (let i = 0; i < 4000; i++) {{
-                await new Promise(d => requestAnimationFrame(d));
-                const l = Ink.inspect().layer;
-                if (l.marks.length && !l.busy && !Object.values(l.lanes).some(x => x.hand)
-                    && Object.values({NAPKIN}).every(p => !p.bleed || p.tail === 1)) {{
-                  return {{ frames: l.frames - f0,
-                            marks: l.marks.map(k => [k.id, k.lane, k.drawn, k.selector, k.len, k.strokes]) }};
-                }}
-              }}
-              const l = Ink.inspect().layer;
-              return {{ stuck: {{ busy: l.busy, lanes: l.lanes, napkin: {NAPKIN},
-                                 marks: l.marks.filter(k => k.drawn !== 1).map(k => [k.selector, k.state, k.drawn]) }} }};
-            }}""")
-            count = page.evaluate(IDLE_LOOP)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3, count=True)
+        page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
+        _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
+        # Settling again, from nothing: the table set afresh, counted in frames.
+        rec = page.evaluate(f"""async () => {{
+          const m = window.__napkin;
+          await Ink.setSkin(null);
+          const table = {{ name: 'napkin', paper: '--paper', marks: m.marks() }};
+          const f0 = Ink.inspect().layer ? Ink.inspect().layer.frames : 0;
+          await Ink.setSkin(table, m);
+          for (let i = 0; i < 4000; i++) {{
+            await new Promise(d => requestAnimationFrame(d));
+            const l = Ink.inspect().layer;
+            if (l.marks.length && !l.busy && !Object.values(l.lanes).some(x => x.hand)
+                && Object.values({NAPKIN}).every(p => !p.bleed || p.tail === 1)) {{
+              return {{ frames: l.frames - f0,
+                        marks: l.marks.map(k => [k.id, k.lane, k.drawn, k.selector, k.len, k.strokes]) }};
+            }}
+          }}
+          const l = Ink.inspect().layer;
+          return {{ stuck: {{ busy: l.busy, lanes: l.lanes, napkin: {NAPKIN},
+                             marks: l.marks.filter(k => k.drawn !== 1).map(k => [k.selector, k.state, k.drawn]) }} }};
+        }}""")
+        count = page.evaluate(IDLE_LOOP)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert "stuck" not in rec, f"the napkin never came to rest: {rec}"

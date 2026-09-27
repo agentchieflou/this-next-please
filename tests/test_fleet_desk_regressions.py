@@ -30,8 +30,8 @@ from agentdata.fleet import agentstate, serve as S
 from agentdata.fleet import events as E
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
 # The desk module's globals are process-wide; without this the saved-desk test's pins and arrangement
 # survived into the next test that ran after it (a shuffled-order failure on main).
@@ -185,8 +185,7 @@ def desk(fleet_home, tmp_path):                                 # noqa: F811
         server.server_close()
 
 
-def _page(p, url):
-    browser = launch_chromium(p)
+def _page(browser, url):
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -197,123 +196,109 @@ def _page(p, url):
 
 
 @pytest.mark.browser
-def test_nothing_the_page_has_hidden_is_still_on_the_screen(desk):
+def test_nothing_the_page_has_hidden_is_still_on_the_screen(desk, desk_browser):
     """The defect that made the whole dashboard unusable, and the one no test could see.
 
     Every panel sets `display: flex` under an id selector, which outranks the user agent's
     `[hidden] { display: none }`. So `el.hidden = true` -- the only way this page closes anything --
     changed an attribute and nothing else, and five full-height panels stayed on the glass.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
-        showing = page.evaluate("""() => [...document.querySelectorAll('[hidden]')]
-            .filter(e => { const r = e.getBoundingClientRect();
-                           return getComputedStyle(e).display !== 'none' && r.width > 0 && r.height > 0; })
-            .map(e => e.id || e.className || e.tagName)""")
-        browser.close()
+    browser, page, errors = _page(desk_browser, desk)
+    showing = page.evaluate("""() => [...document.querySelectorAll('[hidden]')]
+        .filter(e => { const r = e.getBoundingClientRect();
+                       return getComputedStyle(e).display !== 'none' && r.width > 0 && r.height > 0; })
+        .map(e => e.id || e.className || e.tagName)""")
+    close_pages(browser)
     assert showing == [], f"hidden, and yet on the screen: {showing}"
     assert errors == [], errors
 
 
 @pytest.mark.browser
-def test_a_tile_can_actually_be_clicked(desk):
+def test_a_tile_can_actually_be_clicked(desk, desk_browser):
     """What the operator hit first: a hidden panel over the grid still swallows the pointer.
 
     `display` is what removes an element from hit-testing; the `hidden` attribute alone does not.
     So the closed board sat over the left half of the grid and ate every click meant for a tile,
     which reads exactly like a dashboard whose buttons do nothing.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        covered = page.evaluate("""() => {
-            const t = document.querySelector('.tile');
-            const r = t.getBoundingClientRect();
-            const top = document.elementFromPoint(r.left + Math.min(60, r.width / 2), r.top + 12);
-            return (top && t.contains(top)) ? '' : ((top && (top.id || top.className)) || 'nothing');
-        }""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    covered = page.evaluate("""() => {
+        const t = document.querySelector('.tile');
+        const r = t.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + Math.min(60, r.width / 2), r.top + 12);
+        return (top && t.contains(top)) ? '' : ((top && (top.id || top.className)) || 'nothing');
+    }""")
+    close_pages(browser)
     assert covered == "", f"a tile is covered by {covered!r}"
 
 
 @pytest.mark.browser
-def test_every_state_on_the_page_carries_its_age(desk):
+def test_every_state_on_the_page_carries_its_age(desk, desk_browser):
     """"done" is not information. "done - 2d" is."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        chips = page.evaluate("""() => [...document.querySelectorAll('.tile .chip')]
-            .map(c => ({ text: c.textContent.trim(), age: (c.querySelector('.chipage') || {}).textContent || '' }))""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    chips = page.evaluate("""() => [...document.querySelectorAll('.tile .chip')]
+        .map(c => ({ text: c.textContent.trim(), age: (c.querySelector('.chipage') || {}).textContent || '' }))""")
+    close_pages(browser)
     assert chips, "no chips drawn"
     for chip in chips:
         assert chip["age"].strip(), f"a state with no age: {chip['text']!r}"
 
 
 @pytest.mark.browser
-def test_no_tile_contradicts_its_own_chip(desk):
+def test_no_tile_contradicts_its_own_chip(desk, desk_browser):
     """A tile that says "needs you" must not also say "nothing is supervised now"."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        bad = page.evaluate("""() => [...document.querySelectorAll('.tile')]
-            .filter(t => /running|waiting|needs|blocked|error/.test(t.querySelector('.chip').textContent.toLowerCase())
-                      && /nothing is supervised/.test((t.querySelector('.why') || {}).textContent || ''))
-            .map(t => t.dataset.repo + ': ' + t.querySelector('.chip').textContent
-                    + ' / ' + t.querySelector('.why').textContent)""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    bad = page.evaluate("""() => [...document.querySelectorAll('.tile')]
+        .filter(t => /running|waiting|needs|blocked|error/.test(t.querySelector('.chip').textContent.toLowerCase())
+                  && /nothing is supervised/.test((t.querySelector('.why') || {}).textContent || ''))
+        .map(t => t.dataset.repo + ': ' + t.querySelector('.chip').textContent
+                + ' / ' + t.querySelector('.why').textContent)""")
+    close_pages(browser)
     assert bad == [], bad
 
 
 @pytest.mark.browser
-def test_every_tile_says_which_run_its_transcript_belongs_to(desk):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        lines = page.evaluate("""() => [...document.querySelectorAll('.tile')]
-            .map(t => ((t.querySelector('.runline') || {}).textContent || '').trim())""")
-        browser.close()
+def test_every_tile_says_which_run_its_transcript_belongs_to(desk, desk_browser):
+    browser, page, _ = _page(desk_browser, desk)
+    lines = page.evaluate("""() => [...document.querySelectorAll('.tile')]
+        .map(t => ((t.querySelector('.runline') || {}).textContent || '').trim())""")
+    close_pages(browser)
     assert lines and all(len(line) > 4 for line in lines), lines
     assert any("run 1" in line for line in lines), lines
 
 
 @pytest.mark.browser
-def test_the_sidebar_sits_beside_the_grid_and_does_not_cover_it(desk):
+def test_the_sidebar_sits_beside_the_grid_and_does_not_cover_it(desk, desk_browser):
     """HIG *Split views*. Five fixed overlays at one edge is what this replaced."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        page.keyboard.press("b")
-        page.wait_for_timeout(500)
-        got = page.evaluate("""() => {
-            const s = document.getElementById('side'), m = document.querySelector('main');
-            if (!s || s.hidden) return null;
-            const sb = s.getBoundingClientRect(), mb = m.getBoundingClientRect();
-            return { position: getComputedStyle(s).position, overlaps: sb.left < mb.right - 2 };
-        }""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    page.keyboard.press("b")
+    page.wait_for_timeout(500)
+    got = page.evaluate("""() => {
+        const s = document.getElementById('side'), m = document.querySelector('main');
+        if (!s || s.hidden) return null;
+        const sb = s.getBoundingClientRect(), mb = m.getBoundingClientRect();
+        return { position: getComputedStyle(s).position, overlaps: sb.left < mb.right - 2 };
+    }""")
+    close_pages(browser)
     assert got, "pressing b opened no sidebar"
     assert got["position"] != "fixed", "the sidebar is an overlay again"
     assert not got["overlaps"], "the sidebar is sitting on top of the grid"
 
 
 @pytest.mark.browser
-def test_one_control_per_meaning_in_the_toolbar(desk):
+def test_one_control_per_meaning_in_the_toolbar(desk, desk_browser):
     """A segmented layout picker AND a select offering the same eight choices was two controls. The
     picker then went too, with the arrangements it chose between (#232): one arrangement is not a
     choice, and a control with one answer is not a control."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        got = page.evaluate("""() => ({
-            segments: document.querySelectorAll('#layoutgroup .segment, [data-layout]').length,
-            legacy: !!document.querySelector('select#layout'),
-            settings: !!document.getElementById('setbtn'),
-            pickers: !!document.getElementById('skin') || !!document.getElementById('theme'),
-            clipped: document.querySelector('.toolbar').scrollWidth > document.querySelector('.toolbar').clientWidth,
-        })""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    got = page.evaluate("""() => ({
+        segments: document.querySelectorAll('#layoutgroup .segment, [data-layout]').length,
+        legacy: !!document.querySelector('select#layout'),
+        settings: !!document.getElementById('setbtn'),
+        pickers: !!document.getElementById('skin') || !!document.getElementById('theme'),
+        clipped: document.querySelector('.toolbar').scrollWidth > document.querySelector('.toolbar').clientWidth,
+    })""")
+    close_pages(browser)
     assert got["segments"] == 0, got      # one arrangement, so nothing to pick between (#232)
     assert not got["legacy"], "the old layout select is back beside the segmented control"
     assert got["settings"], "there is no way from the desk to the settings"
@@ -323,28 +308,26 @@ def test_one_control_per_meaning_in_the_toolbar(desk):
 
 
 @pytest.mark.browser
-def test_a_skin_loads_only_when_it_is_asked_for(desk):
+def test_a_skin_loads_only_when_it_is_asked_for(desk, desk_browser):
     """#154's contract: no skin bytes reach the page until somebody chooses one."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        assert page.evaluate("() => !document.head.querySelector('link[data-skin]')")
-        page.evaluate("""async () => {
-            const u = new URL(location.href);
-            await fetch('/api/theme?t=' + u.searchParams.get('t'),
-                        { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ skin: 'voxel' }) });
-        }""")
-        # Waited for, not slept through (#227): the page hears of the skin from the stream's
-        # `theme` frame, which follows the config file's mtime on the loop's own tick. A flat
-        # 2.5 s was most of a tick's budget on a loaded Windows runner (the 3.14 leg of #264).
-        page.wait_for_function(
-            """() => { const l = document.head.querySelector('link[data-skin]');
-                       return !!l && l.href.indexOf('/static/skins/voxel/skin.css') >= 0; }""",
-            timeout=15000)
-        href = page.evaluate("""() => { const l = document.head.querySelector('link[data-skin]');
-                                        return l ? l.href : ''; }""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    assert page.evaluate("() => !document.head.querySelector('link[data-skin]')")
+    page.evaluate("""async () => {
+        const u = new URL(location.href);
+        await fetch('/api/theme?t=' + u.searchParams.get('t'),
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ skin: 'voxel' }) });
+    }""")
+    # Waited for, not slept through (#227): the page hears of the skin from the stream's
+    # `theme` frame, which follows the config file's mtime on the loop's own tick. A flat
+    # 2.5 s was most of a tick's budget on a loaded Windows runner (the 3.14 leg of #264).
+    page.wait_for_function(
+        """() => { const l = document.head.querySelector('link[data-skin]');
+                   return !!l && l.href.indexOf('/static/skins/voxel/skin.css') >= 0; }""",
+        timeout=15000)
+    href = page.evaluate("""() => { const l = document.head.querySelector('link[data-skin]');
+                                    return l ? l.href : ''; }""")
+    close_pages(browser)
     assert "/static/skins/voxel/skin.css" in href, href
 
 
@@ -407,7 +390,7 @@ def test_a_skin_is_drawn_against_the_palette_it_declares(fleet_home, tmp_path): 
 
 
 @pytest.mark.browser
-def test_selecting_a_project_does_not_throw_the_arrangement_away(desk):
+def test_selecting_a_project_does_not_throw_the_arrangement_away(desk, desk_browser):
     """`/api/select` answers with the selection and says nothing about the arrangement.
 
     Assigning that answer wholesale dropped `arrangement`, so clicking any tile un-widened every
@@ -415,25 +398,23 @@ def test_selecting_a_project_does_not_throw_the_arrangement_away(desk):
     poll, fifteen seconds later, put them back. The widening is this window's widths since the
     gutters (#234), which a selection must not touch either.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        before = page.evaluate("""async () => {
-            await toggleTilePin('quiet');
-            applyPreset('all');
-            await windowChain;
-            return { widened: document.querySelectorAll('#grid .tile.is-solo').length,
-                     pinned: (getArrangement().pinned || []).slice() };
-        }""")
-        # Waited on the select's own answer, which is the thing that used to throw it all away.
-        after = page.evaluate("""async () => {
-            await choose('asks');
-            return { widened: document.querySelectorAll('#grid .tile.is-solo').length,
-                     pinned: (getArrangement().pinned || []).slice(),
-                     widths: !!myWidths,
-                     arrangement: !!(desk.desk.arrangement && desk.desk.arrangement.order) };
-        }""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    before = page.evaluate("""async () => {
+        await toggleTilePin('quiet');
+        applyPreset('all');
+        await windowChain;
+        return { widened: document.querySelectorAll('#grid .tile.is-solo').length,
+                 pinned: (getArrangement().pinned || []).slice() };
+    }""")
+    # Waited on the select's own answer, which is the thing that used to throw it all away.
+    after = page.evaluate("""async () => {
+        await choose('asks');
+        return { widened: document.querySelectorAll('#grid .tile.is-solo').length,
+                 pinned: (getArrangement().pinned || []).slice(),
+                 widths: !!myWidths,
+                 arrangement: !!(desk.desk.arrangement && desk.desk.arrangement.order) };
+    }""")
+    close_pages(browser)
     assert before == {"widened": 2, "pinned": ["quiet"]}, "the fixture did not widen or pin"
     assert after["arrangement"], "the desk state lost its arrangement"
     assert after["pinned"] == ["quiet"], "selecting a project unpinned a tile"
@@ -441,49 +422,45 @@ def test_selecting_a_project_does_not_throw_the_arrangement_away(desk):
 
 
 @pytest.mark.browser
-def test_the_number_on_a_tile_is_the_key_that_focuses_it(desk):
+def test_the_number_on_a_tile_is_the_key_that_focuses_it(desk, desk_browser):
     """The badge is drawn from the arrangement; the digit shortcut read registry order.
 
     The moment anything was moved or pinned the two disagreed: the tile said 2 and pressing 2
     focused a different project.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        page.evaluate("() => moveTile(document.querySelector('.tile').dataset.repo, 1)")
-        page.wait_for_timeout(900)
-        got = page.evaluate("""() => {
-            const byBadge = {};
-            document.querySelectorAll('.tile').forEach(t => {
-                byBadge[t.querySelector('.n').textContent.trim()] = t.dataset.repo;
-            });
-            return { byBadge, order: getEffectiveOrder() };
-        }""")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    page.evaluate("() => moveTile(document.querySelector('.tile').dataset.repo, 1)")
+    page.wait_for_timeout(900)
+    got = page.evaluate("""() => {
+        const byBadge = {};
+        document.querySelectorAll('.tile').forEach(t => {
+            byBadge[t.querySelector('.n').textContent.trim()] = t.dataset.repo;
+        });
+        return { byBadge, order: getEffectiveOrder() };
+    }""")
+    close_pages(browser)
     for index, repo in enumerate(got["order"], start=1):
         assert got["byBadge"].get(str(index)) == repo, (index, got)
 
 
 @pytest.mark.browser
-def test_a_pinned_tile_can_still_be_moved(desk):
+def test_a_pinned_tile_can_still_be_moved(desk, desk_browser):
     """Pinned tiles come first always, so a move has to happen inside the block the tile is in.
 
     Reordering the flattened list and posting that did nothing once anything was pinned: the pinned
     names went back in front on the very next draw and the operator's move vanished.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        names = page.evaluate("() => getEffectiveOrder()")
-        page.evaluate("async (n) => { await toggleTilePin(n[0]); await toggleTilePin(n[1]); }", names)
-        page.wait_for_timeout(900)
-        assert page.evaluate("() => (getArrangement().pinned || []).length") == 2, \
-            "two quick pins must both survive"
-        before = page.evaluate("() => getEffectiveOrder()")
-        page.evaluate("(n) => moveTile(n, 1)", before[0])
-        page.wait_for_timeout(1200)
-        after = page.evaluate("() => getEffectiveOrder()")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk)
+    names = page.evaluate("() => getEffectiveOrder()")
+    page.evaluate("async (n) => { await toggleTilePin(n[0]); await toggleTilePin(n[1]); }", names)
+    page.wait_for_timeout(900)
+    assert page.evaluate("() => (getArrangement().pinned || []).length") == 2, \
+        "two quick pins must both survive"
+    before = page.evaluate("() => getEffectiveOrder()")
+    page.evaluate("(n) => moveTile(n, 1)", before[0])
+    page.wait_for_timeout(1200)
+    after = page.evaluate("() => getEffectiveOrder()")
+    close_pages(browser)
     assert len(before) >= 2 and before != after, f"a pinned tile would not move: {before} -> {after}"
     assert after[0] == before[1] and after[1] == before[0], (before, after)
 
@@ -509,7 +486,7 @@ def test_a_relative_url_inside_a_stylesheet_carries_the_token():
 
 
 @pytest.mark.browser
-def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
+def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk, desk_browser):
     """#156 and #157 are "the state as a block / as a crop stage, beside the glyph".
 
     The art was on disk and referenced by nothing, and the only test covering it asserted the file
@@ -517,24 +494,22 @@ def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
     by its ink module, which fetches the sheet itself and reads each crop out of it, so this opens
     the desk with `?ink=on` and asks the module what it drew.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk + "&ink=on")
-        seen = []
-        page.on("response", lambda r: seen.append((r.status, r.url)) if "sprites.svg" in r.url else None)
-        page.evaluate("""async () => {
-            const u = new URL(location.href);
-            await fetch('/api/theme?t=' + u.searchParams.get('t'),
-                        { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ skin: 'farmstead' }) });
-        }""")
-        page.wait_for_function("() => (Ink.inspect().table || '').indexOf('farmstead') === 0", timeout=20000)
-        # The module the page runs: the same URL is the same instance.
-        page.evaluate("async () => { window.__farm = await import(q('/static/ink/skins/farmstead.js')); }")
-        page.wait_for_function("() => window.__farm.inspect().loaded || !!window.__farm.inspect().failed",
-                               timeout=20000)
-        painted = page.evaluate("() => window.__farm.inspect()")
-        browser.close()
+    browser, page, _ = _page(desk_browser, desk + "&ink=on")
+    seen = []
+    page.on("response", lambda r: seen.append((r.status, r.url)) if "sprites.svg" in r.url else None)
+    page.evaluate("""async () => {
+        const u = new URL(location.href);
+        await fetch('/api/theme?t=' + u.searchParams.get('t'),
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ skin: 'farmstead' }) });
+    }""")
+    page.wait_for_function("() => (Ink.inspect().table || '').indexOf('farmstead') === 0", timeout=20000)
+    # The module the page runs: the same URL is the same instance.
+    page.evaluate("async () => { window.__farm = await import(q('/static/ink/skins/farmstead.js')); }")
+    page.wait_for_function("() => window.__farm.inspect().loaded || !!window.__farm.inspect().failed",
+                           timeout=20000)
+    painted = page.evaluate("() => window.__farm.inspect()")
+    close_pages(browser)
     assert painted["loaded"] and not painted["failed"], painted
     assert seen, "the page never asked for the sprite sheet"
     assert all(status == 200 for status, _ in seen), seen
@@ -570,10 +545,9 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
 
 
 @pytest.mark.browser
-def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monkeypatch):
+def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monkeypatch, desk_browser):
     """When a start returns 409 with code: 'cross_project', the override prompt appears
     even when the refusal error string does not contain 'jira_project'."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata.fleet import supervisor
 
     def reworded_check_ticket(repo, key, **kw):
@@ -584,41 +558,38 @@ def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monk
         )
     monkeypatch.setattr(supervisor, "check_ticket", reworded_check_ticket)
 
-    with sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
-        page.evaluate("""() => {
-            window._confirmed = [];
-            window.confirm = (msg) => { window._confirmed.push(msg); return false; };
-        }""")
-        page.evaluate("() => dispatch('DATAENG-9', 'asks')")
-        page.wait_for_timeout(500)
-        confirmed = page.evaluate("() => window._confirmed")
-        assert len(confirmed) == 1, "confirm dialog did not appear for reworded cross_project refusal"
-        assert "different board" in confirmed[0]
-        assert "Start it anyway?" in confirmed[0]
-        browser.close()
+    browser, page, errors = _page(desk_browser, desk)
+    page.evaluate("""() => {
+        window._confirmed = [];
+        window.confirm = (msg) => { window._confirmed.push(msg); return false; };
+    }""")
+    page.evaluate("() => dispatch('DATAENG-9', 'asks')")
+    page.wait_for_timeout(500)
+    confirmed = page.evaluate("() => window._confirmed")
+    assert len(confirmed) == 1, "confirm dialog did not appear for reworded cross_project refusal"
+    assert "different board" in confirmed[0]
+    assert "Start it anyway?" in confirmed[0]
+    close_pages(browser)
 
 
 @pytest.mark.browser
-def test_successful_attach_reads_attached_arrow(desk):
+def test_successful_attach_reads_attached_arrow(desk, desk_browser):
     """A successful attach renders 'attached → ...', and not 'already there'."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
-    with sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
-        result = page.evaluate("""() => {
-            const meta = document.createElement("span");
-            const r = { ok: true, data: { attached: true, dir: ".agent/in/RDSD-118", file: "foo.csv" } };
-            const d = (r && r.data) ? r.data : r;
-            const attached = r ? (r.attached !== undefined ? r.attached : (d && d.attached)) : false;
-            const dir = r ? (r.dir || (d && d.dir) || "") : "";
-            const why = r ? (r.why || (d && d.why) || "") : "";
-            text(meta, r && r.ok ? (attached ? "attached → " + dir : (why || "already there"))
-                                 : (r ? (r.error || "refused") : "refused"));
-            return meta.textContent;
-        }""")
-        assert "attached → .agent/in/RDSD-118" in result, f"expected 'attached → ...', got {result!r}"
-        browser.close()
+    browser, page, errors = _page(desk_browser, desk)
+    result = page.evaluate("""() => {
+        const meta = document.createElement("span");
+        const r = { ok: true, data: { attached: true, dir: ".agent/in/RDSD-118", file: "foo.csv" } };
+        const d = (r && r.data) ? r.data : r;
+        const attached = r ? (r.attached !== undefined ? r.attached : (d && d.attached)) : false;
+        const dir = r ? (r.dir || (d && d.dir) || "") : "";
+        const why = r ? (r.why || (d && d.why) || "") : "";
+        text(meta, r && r.ok ? (attached ? "attached → " + dir : (why || "already there"))
+                             : (r ? (r.error || "refused") : "refused"));
+        return meta.textContent;
+    }""")
+    assert "attached → .agent/in/RDSD-118" in result, f"expected 'attached → ...', got {result!r}"
+    close_pages(browser)
 
 
 def test_offline_app_js_cross_project_and_attach_contract():

@@ -29,9 +29,9 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
 from test_fleet_column import _until
-from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -233,11 +233,10 @@ def _shares(widths, names):
 
 
 @pytest.mark.browser
-def test_a_gutter_drag_moves_width_between_exactly_two_panes_in_one_post(fleet_home, tmp_path):
+def test_a_gutter_drag_moves_width_between_exactly_two_panes_in_one_post(fleet_home, tmp_path, desk_browser):
     """The rule that makes a resize predictable: the two panes beside the gutter trade width, and
     every other pane stays exactly where it is -- its left edge and its width, to the pixel. Thirty
     moves under the hand are one write when it comes up, and nothing else is posted at all."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -245,18 +244,17 @@ def test_a_gutter_drag_moves_width_between_exactly_two_panes_in_one_post(fleet_h
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=3)
-            before = _read_settled(page)
-            posts.clear()
-            _drag_gutter(page, "alpha", 90, steps=30)
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            after = _read_settled(page)
-            edge = page.evaluate("() => paneEdge()")
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=3)
+        before = _read_settled(page)
+        posts.clear()
+        _drag_gutter(page, "alpha", 90, steps=30)
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        after = _read_settled(page)
+        edge = page.evaluate("() => paneEdge()")
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -278,13 +276,12 @@ def test_a_gutter_drag_moves_width_between_exactly_two_panes_in_one_post(fleet_h
 
 
 @pytest.mark.browser
-def test_the_snaps_are_the_rail_the_two_minimums_and_an_even_share(fleet_home, tmp_path):
+def test_the_snaps_are_the_rail_the_two_minimums_and_an_even_share(fleet_home, tmp_path, desk_browser):
     """plan-panes §Resizing: under 120px a pane settles to a 48px rail, the compact minimum is a
     floor, and the full minimum and an even share with the neighbour take the hand within 8px --
     read off the one function the drag and the keys both go through, and then done by hand: a
     gutter pulled until the pane on its left is under 120px leaves it a rail, and the record says
     so."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -292,33 +289,32 @@ def test_the_snaps_are_the_rail_the_two_minimums_and_an_even_share(fleet_home, t
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            got = page.evaluate("""() => ({
-              // Two panes 800px wide between them.
-              rail: [60, 110, 119].map(a => snapPair(a, 800)),
-              compact: [121, 150, 159, 165, 168, 169].map(a => snapPair(a, 800)),
-              full: [351, 352, 355, 365, 368, 369].map(a => snapPair(a, 800)),
-              even: [391, 392, 395, 405, 408, 409].map(a => snapPair(a, 800)),
-              free: [300, 500, 600].map(a => snapPair(a, 800)),
-              // The neighbour keeps the same rules: under 120px it is the rail.
-              neighbour: [650, 675, 685, 790].map(a => snapPair(a, 800)),
-              // Two rails have nowhere to go, and a pair that cannot hold two compact panes has
-              // exactly two states, the nearer of which wins.
-              rails: snapPair(70, 96),
-              narrow: [100, 135, 155].map(a => snapPair(a, 290)),
-            })""")
-            before = _read_settled(page)
-            posts.clear()
-            # Pull alpha down to 100px: it settles to a rail and beta takes the rest.
-            _drag_gutter(page, "alpha", 100 - before["alpha"]["width"], steps=20)
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read_settled(page)
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        got = page.evaluate("""() => ({
+          // Two panes 800px wide between them.
+          rail: [60, 110, 119].map(a => snapPair(a, 800)),
+          compact: [121, 150, 159, 165, 168, 169].map(a => snapPair(a, 800)),
+          full: [351, 352, 355, 365, 368, 369].map(a => snapPair(a, 800)),
+          even: [391, 392, 395, 405, 408, 409].map(a => snapPair(a, 800)),
+          free: [300, 500, 600].map(a => snapPair(a, 800)),
+          // The neighbour keeps the same rules: under 120px it is the rail.
+          neighbour: [650, 675, 685, 790].map(a => snapPair(a, 800)),
+          // Two rails have nowhere to go, and a pair that cannot hold two compact panes has
+          // exactly two states, the nearer of which wins.
+          rails: snapPair(70, 96),
+          narrow: [100, 135, 155].map(a => snapPair(a, 290)),
+        })""")
+        before = _read_settled(page)
+        posts.clear()
+        # Pull alpha down to 100px: it settles to a rail and beta takes the rest.
+        _drag_gutter(page, "alpha", 100 - before["alpha"]["width"], steps=20)
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        after = _read_settled(page)
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -341,11 +337,10 @@ def test_the_snaps_are_the_rail_the_two_minimums_and_an_even_share(fleet_home, t
 
 @pytest.mark.browser
 def test_escape_in_the_middle_of_a_drag_puts_the_widths_back_and_writes_nothing(fleet_home,
-                                                                               tmp_path):
+                                                                               tmp_path, desk_browser):
     """The hand is the preview, so the preview has to be cancellable: `Esc` with the button still
     down restores every pane's width, posts nothing, and is not the page's own `Esc` (back to the
     last pane) as well."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -354,38 +349,37 @@ def test_escape_in_the_middle_of_a_drag_puts_the_widths_back_and_writes_nothing(
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            # A pane to go back to, so that an `Esc` that leaked through would show.
-            page.evaluate("() => { previousOpen = 'gamma'; }")
-            before = _read_settled(page)
-            posts.clear()
-            x, y = _gutter_point(page, "alpha")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x + 150, y, steps=15)
-            # The preview is the real layout: alpha is wider under the hand before anything is sent.
-            page.wait_for_function(
-                f"""() => document.querySelector('.tile[data-repo="alpha"]')
-                            .getBoundingClientRect().width > {before['alpha']['width'] + 100}""",
-                timeout=8000)
-            assert [u for u, _ in posts] == [], "the drag posted before the hand came up"
-            # Put down with the hand back over alpha: the release that follows is not a click on
-            # alpha either, which would select it for every window.
-            page.mouse.move(x - 40, y, steps=4)
-            page.keyboard.press("Escape")
-            page.mouse.up()
-            page.wait_for_function("() => !gutterHeld", timeout=8000)
-            after = _read_settled(page)
-            # Nothing is waited for to arrive, so give anything that was going to be sent the time.
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            page.wait_for_timeout(300)
-            state = page.evaluate("() => ({ open: openName(), hash: location.hash })")
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        # A pane to go back to, so that an `Esc` that leaked through would show.
+        page.evaluate("() => { previousOpen = 'gamma'; }")
+        before = _read_settled(page)
+        posts.clear()
+        x, y = _gutter_point(page, "alpha")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x + 150, y, steps=15)
+        # The preview is the real layout: alpha is wider under the hand before anything is sent.
+        page.wait_for_function(
+            f"""() => document.querySelector('.tile[data-repo="alpha"]')
+                        .getBoundingClientRect().width > {before['alpha']['width'] + 100}""",
+            timeout=8000)
+        assert [u for u, _ in posts] == [], "the drag posted before the hand came up"
+        # Put down with the hand back over alpha: the release that follows is not a click on
+        # alpha either, which would select it for every window.
+        page.mouse.move(x - 40, y, steps=4)
+        page.keyboard.press("Escape")
+        page.mouse.up()
+        page.wait_for_function("() => !gutterHeld", timeout=8000)
+        after = _read_settled(page)
+        # Nothing is waited for to arrive, so give anything that was going to be sent the time.
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        page.wait_for_timeout(300)
+        state = page.evaluate("() => ({ open: openName(), hash: location.hash })")
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -398,11 +392,10 @@ def test_escape_in_the_middle_of_a_drag_puts_the_widths_back_and_writes_nothing(
 
 
 @pytest.mark.browser
-def test_the_footers_undo_takes_a_drag_back_in_one_more_write(fleet_home, tmp_path):
+def test_the_footers_undo_takes_a_drag_back_in_one_more_write(fleet_home, tmp_path, desk_browser):
     """One write per gesture, and a way back from it that is not another drag: the footer offers
     the undo the moment the widths change, and pressing it is one more write, of the widths as they
     were."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -411,27 +404,26 @@ def test_the_footers_undo_takes_a_drag_back_in_one_more_write(fleet_home, tmp_pa
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read_settled(page)
-            assert not page.locator("#undo").is_visible()
-            posts.clear()
-            _drag_gutter(page, "alpha", -120)
-            page.wait_for_selector("#undo:not([hidden])", timeout=8000)
-            said = page.inner_text("#undo")
-            _until(lambda: _record() != record)
-            page.locator("#undo").click()
-            page.wait_for_function(
-                f"""() => Math.abs(document.querySelector('.tile[data-repo="alpha"]')
-                           .getBoundingClientRect().width - {before['alpha']['width']}) < 1""",
-                timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read_settled(page)
-            gone = page.evaluate("() => document.getElementById('undo').hidden")
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        before = _read_settled(page)
+        assert not page.locator("#undo").is_visible()
+        posts.clear()
+        _drag_gutter(page, "alpha", -120)
+        page.wait_for_selector("#undo:not([hidden])", timeout=8000)
+        said = page.inner_text("#undo")
+        _until(lambda: _record() != record)
+        page.locator("#undo").click()
+        page.wait_for_function(
+            f"""() => Math.abs(document.querySelector('.tile[data-repo="alpha"]')
+                       .getBoundingClientRect().width - {before['alpha']['width']}) < 1""",
+            timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        after = _read_settled(page)
+        gone = page.evaluate("() => document.getElementById('undo').hidden")
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -447,12 +439,11 @@ def test_the_footers_undo_takes_a_drag_back_in_one_more_write(fleet_home, tmp_pa
 
 
 @pytest.mark.browser
-def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_path):
+def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_path, desk_browser):
     """The three presets where the arrangement picker was: *one* (`1`) the pane with the keys wide
     and every other a rail, *all* (`=`) an even share each, *needs me* (`f`) whoever needs a person
     wide and the rest rails -- with the keys moved to one of them, and nothing hidden. Each is one
     write, by its button or its key, and the undo takes it back."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta", "epsilon"]
     _repos(tmp_path, names, needs=("gamma", "epsilon"))
     S.arrange(order=names)
@@ -462,52 +453,51 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, width=1600)
-            page.wait_for_selector('.tile[data-repo="epsilon"].needs-human', timeout=15000)
-            seen = {}
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, width=1600)
+        page.wait_for_selector('.tile[data-repo="epsilon"].needs-human', timeout=15000)
+        seen = {}
 
-            posts.clear()
-            page.locator("#preset-all").click()
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile.is-solo').length === 5", timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["all"] = (_read_settled(page), list(posts))
+        posts.clear()
+        page.locator("#preset-all").click()
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile.is-solo').length === 5", timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        seen["all"] = (_read_settled(page), list(posts))
 
-            posts.clear()
-            page.keyboard.press("f")
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile.is-solo')]
-                          .map(t => t.dataset.repo).join() === 'gamma,epsilon'""", timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["needs"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"),
-                             page.evaluate("() => document.querySelectorAll('.tile.is-hidden').length"))
+        posts.clear()
+        page.keyboard.press("f")
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#grid .tile.is-solo')]
+                      .map(t => t.dataset.repo).join() === 'gamma,epsilon'""", timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        seen["needs"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"),
+                         page.evaluate("() => document.querySelectorAll('.tile.is-hidden').length"))
 
-            posts.clear()
-            page.keyboard.press("1")
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile.is-solo').length === 1", timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["one"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
+        posts.clear()
+        page.keyboard.press("1")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile.is-solo').length === 1", timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        seen["one"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
 
-            # The keyboard on a rail: `1` makes THAT pane the one.
-            posts.clear()
-            page.focus('.tile[data-repo="beta"] .pane-rail')
-            page.keyboard.press("1")
-            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["one-here"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
-            _until(lambda: S.desk_state()["windows"]["main"].get("open") == "beta")
+        # The keyboard on a rail: `1` makes THAT pane the one.
+        posts.clear()
+        page.focus('.tile[data-repo="beta"] .pane-rail')
+        page.keyboard.press("1")
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        seen["one-here"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
+        _until(lambda: S.desk_state()["windows"]["main"].get("open") == "beta")
 
-            # And back: the undo of a preset is the preset before it.
-            posts.clear()
-            page.keyboard.press("u")
-            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["undo"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
-            assert not errors, errors
-            browser.close()
+        # And back: the undo of a preset is the preset before it.
+        posts.clear()
+        page.keyboard.press("u")
+        page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        seen["undo"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -538,28 +528,26 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
 
 
 @pytest.mark.browser
-def test_needs_me_with_nobody_needing_you_says_so_and_writes_nothing(fleet_home, tmp_path):
+def test_needs_me_with_nobody_needing_you_says_so_and_writes_nothing(fleet_home, tmp_path, desk_browser):
     """A preset that made every pane a rail would be the blank window the desk exists to stop."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta"]
     _repos(tmp_path, names)
     S.arrange(order=names)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token)
-            posts.clear()
-            page.keyboard.press("f")
-            page.wait_for_function(
-                "() => document.getElementById('notice').textContent.indexOf('nothing needs you') >= 0",
-                timeout=8000)
-            page.wait_for_timeout(300)
-            wide = page.evaluate("() => document.querySelectorAll('#grid .tile.is-solo').length")
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token)
+        posts.clear()
+        page.keyboard.press("f")
+        page.wait_for_function(
+            "() => document.getElementById('notice').textContent.indexOf('nothing needs you') >= 0",
+            timeout=8000)
+        page.wait_for_timeout(300)
+        wide = page.evaluate("() => document.querySelectorAll('#grid .tile.is-solo').length")
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert wide == 1 and sent == [], sent
@@ -569,11 +557,10 @@ def test_needs_me_with_nobody_needing_you_says_so_and_writes_nothing(fleet_home,
 
 
 @pytest.mark.browser
-def test_two_windows_hold_different_widths_over_the_same_order(fleet_home, tmp_path):
+def test_two_windows_hold_different_widths_over_the_same_order(fleet_home, tmp_path, desk_browser):
     """plan-panes §Where this plan pushes back, item 4: the left monitor holds alpha wide and the
     right one beta, while both show the same agents in the same order. A drag in one leaves the
     other's record alone; a move in either reorders both."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -583,33 +570,32 @@ def test_two_windows_hold_different_widths_over_the_same_order(fleet_home, tmp_p
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            left, errors_l, posts_l = _page(browser, port, token, w="left", wide=2)
-            right, errors_r, posts_r = _page(browser, port, token, w="right", wide=1)
-            wide_l = [n for n, p in _read(left).items() if p["wide"]]
-            wide_r = [n for n, p in _read(right).items() if p["wide"]]
-            order = lambda page: [t for t in page.evaluate(
-                "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)")]
-            same_order = order(left) == order(right) == names
+        browser = desk_browser
+        left, errors_l, posts_l = _page(browser, port, token, w="left", wide=2)
+        right, errors_r, posts_r = _page(browser, port, token, w="right", wide=1)
+        wide_l = [n for n, p in _read(left).items() if p["wide"]]
+        wide_r = [n for n, p in _read(right).items() if p["wide"]]
+        order = lambda page: [t for t in page.evaluate(
+            "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)")]
+        same_order = order(left) == order(right) == names
 
-            _drag_gutter(left, "alpha", 60)
-            left.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            _until(lambda: _record("left").get("alpha", 0) > _record("left").get("beta", 0))
-            # The other window heard the desk change and drew nothing different.
-            right.wait_for_function(
-                f"() => desk.desk.version >= {S.desk_state()['version']}", timeout=8000)
-            wide_r_after = [n for n, p in _read(right).items() if p["wide"]]
+        _drag_gutter(left, "alpha", 60)
+        left.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        _until(lambda: _record("left").get("alpha", 0) > _record("left").get("beta", 0))
+        # The other window heard the desk change and drew nothing different.
+        right.wait_for_function(
+            f"() => desk.desk.version >= {S.desk_state()['version']}", timeout=8000)
+        wide_r_after = [n for n, p in _read(right).items() if p["wide"]]
 
-            # The order is the desk's: a move in the right window reorders the left one.
-            right.focus('.tile[data-repo="gamma"]')
-            right.keyboard.press("Alt+ArrowLeft")
-            left.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)
-                          .join() === 'alpha,gamma,beta'""", timeout=8000)
-            wide_l_after = [n for n, p in _read(left).items() if p["wide"]]
-            assert not errors_l and not errors_r, (errors_l, errors_r)
-            browser.close()
+        # The order is the desk's: a move in the right window reorders the left one.
+        right.focus('.tile[data-repo="gamma"]')
+        right.keyboard.press("Alt+ArrowLeft")
+        left.wait_for_function(
+            """() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)
+                      .join() === 'alpha,gamma,beta'""", timeout=8000)
+        wide_l_after = [n for n, p in _read(left).items() if p["wide"]]
+        assert not errors_l and not errors_r, (errors_l, errors_r)
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -696,11 +682,10 @@ def test_a_write_of_widths_older_than_the_record_is_refused(fleet_home, tmp_path
 
 
 @pytest.mark.browser
-def test_a_refused_write_of_widths_puts_the_page_back_and_says_why(fleet_home, tmp_path):
+def test_a_refused_write_of_widths_puts_the_page_back_and_says_why(fleet_home, tmp_path, desk_browser):
     """The other half of optimistic, for this window's record: the page painted the step, the
     server refused it, and the page puts its widths back, says so in the server's words, and reads
     the desk again so the next gesture starts from what is really there."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -708,35 +693,34 @@ def test_a_refused_write_of_widths_puts_the_page_back_and_says_why(fleet_home, t
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read_settled(page)
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        before = _read_settled(page)
 
-            def refuse(route):
-                body = json.loads(route.request.post_data or "{}")
-                if "widths" not in body:
-                    return route.continue_()
-                return route.fulfill(status=409, content_type="application/json", body=json.dumps(
-                    {"ok": False, "error": "window 'main' was given other widths since this page "
-                                           "last heard",
-                     "hint": "another page under the same `?w=` moved them",
-                     "code": "widths_stale"}))
+        def refuse(route):
+            body = json.loads(route.request.post_data or "{}")
+            if "widths" not in body:
+                return route.continue_()
+            return route.fulfill(status=409, content_type="application/json", body=json.dumps(
+                {"ok": False, "error": "window 'main' was given other widths since this page "
+                                       "last heard",
+                 "hint": "another page under the same `?w=` moved them",
+                 "code": "widths_stale"}))
 
-            page.route("**/api/window*", refuse)
-            page.focus('.tile[data-repo="alpha"]')
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_function(
-                "() => document.getElementById('notice').textContent.indexOf('other widths') >= 0",
-                timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            page.wait_for_function(
-                f"""() => Math.abs(document.querySelector('.tile[data-repo="alpha"]')
-                           .getBoundingClientRect().width - {before['alpha']['width']}) < 1""",
-                timeout=8000)
-            undo = not page.evaluate("() => document.getElementById('undo').hidden")
-            assert not errors, errors
-            browser.close()
+        page.route("**/api/window*", refuse)
+        page.focus('.tile[data-repo="alpha"]')
+        page.keyboard.press("Alt+Shift+ArrowRight")
+        page.wait_for_function(
+            "() => document.getElementById('notice').textContent.indexOf('other widths') >= 0",
+            timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        page.wait_for_function(
+            f"""() => Math.abs(document.querySelector('.tile[data-repo="alpha"]')
+                       .getBoundingClientRect().width - {before['alpha']['width']}) < 1""",
+            timeout=8000)
+        undo = not page.evaluate("() => document.getElementById('undo').hidden")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert not undo, "a refused change is not offered back"
@@ -746,11 +730,10 @@ def test_a_refused_write_of_widths_puts_the_page_back_and_says_why(fleet_home, t
 
 
 @pytest.mark.browser
-def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home, tmp_path):
+def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home, tmp_path, desk_browser):
     """VS Code's sash does this, and so does the desk: the two panes beside the gutter end even,
     and the two presses that make a double click write nothing of their own -- nor select the
     project, nor open the pane, which is what a click and a double click on a pane mean."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -758,23 +741,22 @@ def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home,
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=3)
-            before = _read_settled(page)
-            assert before["alpha"]["width"] > before["beta"]["width"] + 100, before
-            posts.clear()
-            page.locator('.tile[data-repo="alpha"] > .gutter').dblclick()
-            page.wait_for_function(
-                """() => { const w = n => document.querySelector('.tile[data-repo="' + n + '"]')
-                                          .getBoundingClientRect().width;
-                           return Math.abs(w('alpha') - w('beta')) < 1; }""", timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            page.wait_for_timeout(300)
-            after = _read_settled(page)
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=3)
+        before = _read_settled(page)
+        assert before["alpha"]["width"] > before["beta"]["width"] + 100, before
+        posts.clear()
+        page.locator('.tile[data-repo="alpha"] > .gutter').dblclick()
+        page.wait_for_function(
+            """() => { const w = n => document.querySelector('.tile[data-repo="' + n + '"]')
+                                      .getBoundingClientRect().width;
+                       return Math.abs(w('alpha') - w('beta')) < 1; }""", timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        page.wait_for_timeout(300)
+        after = _read_settled(page)
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -785,10 +767,9 @@ def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home,
 
 
 @pytest.mark.browser
-def test_shift_click_opens_a_rail_beside_the_open_pane(fleet_home, tmp_path):
+def test_shift_click_opens_a_rail_beside_the_open_pane(fleet_home, tmp_path, desk_browser):
     """How two are open without a drag: Shift and a rail, and the rail shares the width of the pane
     that has the keys -- which keeps them. Every other pane stays where it was."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -796,20 +777,19 @@ def test_shift_click_opens_a_rail_beside_the_open_pane(fleet_home, tmp_path):
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read_settled(page)
-            posts.clear()
-            page.locator('.tile[data-repo="delta"] .pane-rail').click(modifiers=["Shift"])
-            page.wait_for_selector('.tile[data-repo="delta"].is-solo:not([data-tier="rail"])',
-                                   timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read_settled(page)
-            open_ = page.evaluate("() => openName()")
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        before = _read_settled(page)
+        posts.clear()
+        page.locator('.tile[data-repo="delta"] .pane-rail').click(modifiers=["Shift"])
+        page.wait_for_selector('.tile[data-repo="delta"].is-solo:not([data-tier="rail"])',
+                               timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        after = _read_settled(page)
+        open_ = page.evaluate("() => openName()")
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -823,11 +803,10 @@ def test_shift_click_opens_a_rail_beside_the_open_pane(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_rail_pressed_takes_the_width_of_the_pane_that_had_the_keys(fleet_home, tmp_path):
+def test_a_rail_pressed_takes_the_width_of_the_pane_that_had_the_keys(fleet_home, tmp_path, desk_browser):
     """The column's swap, kept: in a window with widths of its own, the rail pressed takes the width
     of the open pane, which becomes a rail in its own slot -- one write, `open` and the widths
     together, and every other pane where it was."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -835,18 +814,17 @@ def test_a_rail_pressed_takes_the_width_of_the_pane_that_had_the_keys(fleet_home
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read_settled(page)
-            posts.clear()
-            page.locator('.tile[data-repo="gamma"] .pane-rail').click()
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read_settled(page)
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        before = _read_settled(page)
+        posts.clear()
+        page.locator('.tile[data-repo="gamma"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        after = _read_settled(page)
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -860,7 +838,7 @@ def test_a_rail_pressed_takes_the_width_of_the_pane_that_had_the_keys(fleet_home
 
 
 @pytest.mark.browser
-def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
+def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path, desk_browser):
     """The rule every gesture on this page keeps. `Alt+Shift+←/→` moves the gutter on the pane's
     right one step; `Alt+Enter` evens it (the double click); `←`/`→` walk the row; `Shift+Enter` on
     a rail opens it beside (the Shift-click); `Enter` swaps it in; `u` takes the last change back.
@@ -870,7 +848,6 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
     its double click, and a finger held on a rail is its Shift-click: it opens beside the pane with
     the keys, in one write, and nothing is reordered. In a phone's stack (390x844) a finger that
     drifts 4 px on a rail lifts no reorder -- the order is `Alt+←/→`'s there -- and a tap opens it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -881,119 +858,118 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            start = _read_settled(page)
-            posts.clear()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        start = _read_settled(page)
+        posts.clear()
 
-            # The gutter, one step.
-            page.focus('.tile[data-repo="alpha"]')
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_function(f"() => Math.abs(({width})('alpha') - "
-                                   f"{start['alpha']['width'] + 40}) < 1", timeout=8000)
-            step = _read_settled(page)
-            # The double click: even.
-            page.keyboard.press("Alt+Enter")
-            page.wait_for_function(f"() => Math.abs(({width})('alpha') - ({width})('beta')) < 1",
-                                   timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            even = _read_settled(page)
+        # The gutter, one step.
+        page.focus('.tile[data-repo="alpha"]')
+        page.keyboard.press("Alt+Shift+ArrowRight")
+        page.wait_for_function(f"() => Math.abs(({width})('alpha') - "
+                               f"{start['alpha']['width'] + 40}) < 1", timeout=8000)
+        step = _read_settled(page)
+        # The double click: even.
+        page.keyboard.press("Alt+Enter")
+        page.wait_for_function(f"() => Math.abs(({width})('alpha') - ({width})('beta')) < 1",
+                               timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        even = _read_settled(page)
 
-            # Along the row, and Shift+Enter on a rail: open beside the pane with the keys.
-            page.keyboard.press("ArrowRight")
-            assert page.evaluate(here) == "beta"
-            page.keyboard.press("ArrowRight")
-            assert page.evaluate(here) == "gamma"
-            assert page.evaluate("() => document.activeElement.classList.contains('pane-rail')")
-            page.keyboard.press("ArrowLeft")
-            page.keyboard.press("ArrowRight")
-            page.keyboard.press("Shift+Enter")
-            page.wait_for_selector('.tile[data-repo="gamma"].is-solo', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            beside = _read_settled(page)
-            beside_open = page.evaluate("() => openName()")
+        # Along the row, and Shift+Enter on a rail: open beside the pane with the keys.
+        page.keyboard.press("ArrowRight")
+        assert page.evaluate(here) == "beta"
+        page.keyboard.press("ArrowRight")
+        assert page.evaluate(here) == "gamma"
+        assert page.evaluate("() => document.activeElement.classList.contains('pane-rail')")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Shift+Enter")
+        page.wait_for_selector('.tile[data-repo="gamma"].is-solo', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        beside = _read_settled(page)
+        beside_open = page.evaluate("() => openName()")
 
-            # `u`: back to before the Shift+Enter.
-            page.keyboard.press("u")
-            page.wait_for_selector('.tile[data-repo="gamma"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            undone = _read_settled(page)
+        # `u`: back to before the Shift+Enter.
+        page.keyboard.press("u")
+        page.wait_for_selector('.tile[data-repo="gamma"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        undone = _read_settled(page)
 
-            # Enter on the rail: the swap.
-            page.focus('.tile[data-repo="gamma"] .pane-rail')
-            page.keyboard.press("Enter")
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0 && openName() === 'gamma'",
-                                   timeout=8000)
+        # Enter on the rail: the swap.
+        page.focus('.tile[data-repo="gamma"] .pane-rail')
+        page.keyboard.press("Enter")
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0 && openName() === 'gamma'",
+                               timeout=8000)
 
-            # A rail stepped wide from its own face, twice: the face goes, the keyboard stays.
-            page.focus('.tile[data-repo="alpha"] .pane-rail')
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="compact"]', timeout=8000)
-            page.wait_for_function(f"() => Math.abs(({width})('alpha') - {COMPACT_FROM}) < 1",
-                                   timeout=8000)
-            page.wait_for_function(f"() => ({here})() === 'alpha'", timeout=8000)
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_function(f"() => Math.abs(({width})('alpha') - {COMPACT_FROM + 40}) < 1",
-                                   timeout=8000)
-            # And back down into a rail in two.
-            page.keyboard.press("Alt+Shift+ArrowLeft")
-            page.keyboard.press("Alt+Shift+ArrowLeft")
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        # A rail stepped wide from its own face, twice: the face goes, the keyboard stays.
+        page.focus('.tile[data-repo="alpha"] .pane-rail')
+        page.keyboard.press("Alt+Shift+ArrowRight")
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="compact"]', timeout=8000)
+        page.wait_for_function(f"() => Math.abs(({width})('alpha') - {COMPACT_FROM}) < 1",
+                               timeout=8000)
+        page.wait_for_function(f"() => ({here})() === 'alpha'", timeout=8000)
+        page.keyboard.press("Alt+Shift+ArrowRight")
+        page.wait_for_function(f"() => Math.abs(({width})('alpha') - {COMPACT_FROM + 40}) < 1",
+                               timeout=8000)
+        # And back down into a rail in two.
+        page.keyboard.press("Alt+Shift+ArrowLeft")
+        page.keyboard.press("Alt+Shift+ArrowLeft")
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
 
-            # The presets are keys already (`test_each_preset_is_one_write_and_needs_me_hides_nothing`);
-            # `=` once more here, from a pane, to see the keyboard reach it wherever it is.
-            page.keyboard.press("=")
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile.is-solo').length === 4", timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            sent = list(posts)
-            assert not errors, errors
-            page.close()
+        # The presets are keys already (`test_each_preset_is_one_write_and_needs_me_hides_nothing`);
+        # `=` once more here, from a pane, to see the keyboard reach it wherever it is.
+        page.keyboard.press("=")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile.is-solo').length === 4", timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        sent = list(posts)
+        assert not errors, errors
+        page.close()
 
-            # The touch twins (#577): a tablet, then a phone.
-            S.update_window("main", open="alpha",
-                            widths={"alpha": 3, "beta": 2, "gamma": 0, "delta": 0})
-            tablet, errors, touched = _page(browser, port, token, width=1180, height=820, wide=2,
-                                            touch=True)
-            order = tablet.evaluate(ORDER)
-            _read_settled(tablet)
-            touched.clear()
-            gutter = '.tile[data-repo="alpha"] > .gutter'
-            _gutter_point(tablet, "alpha")
-            _touch(tablet, gutter)
-            _touch(tablet, gutter)
-            tablet.wait_for_function(f"() => Math.abs(({width})('alpha') - ({width})('beta')) < 1",
-                                     timeout=8000)
-            tablet.wait_for_function("() => windowWrites === 0", timeout=8000)
-            tapped = _read_settled(tablet)
-            tapped_sent = list(touched)
-            touched.clear()
-            held_lifted = _touch(tablet, '.tile[data-repo="gamma"] .pane-rail',
-                                 until='.tile[data-repo="gamma"].is-solo')
-            tablet.wait_for_function("() => windowWrites === 0", timeout=8000)
-            held = _read_settled(tablet)
-            held_open = tablet.evaluate("() => openName()")
-            held_order = tablet.evaluate(ORDER)
-            held_sent = list(touched)
-            assert not errors, errors
-            tablet.context.close()
+        # The touch twins (#577): a tablet, then a phone.
+        S.update_window("main", open="alpha",
+                        widths={"alpha": 3, "beta": 2, "gamma": 0, "delta": 0})
+        tablet, errors, touched = _page(browser, port, token, width=1180, height=820, wide=2,
+                                        touch=True)
+        order = tablet.evaluate(ORDER)
+        _read_settled(tablet)
+        touched.clear()
+        gutter = '.tile[data-repo="alpha"] > .gutter'
+        _gutter_point(tablet, "alpha")
+        _touch(tablet, gutter)
+        _touch(tablet, gutter)
+        tablet.wait_for_function(f"() => Math.abs(({width})('alpha') - ({width})('beta')) < 1",
+                                 timeout=8000)
+        tablet.wait_for_function("() => windowWrites === 0", timeout=8000)
+        tapped = _read_settled(tablet)
+        tapped_sent = list(touched)
+        touched.clear()
+        held_lifted = _touch(tablet, '.tile[data-repo="gamma"] .pane-rail',
+                             until='.tile[data-repo="gamma"].is-solo')
+        tablet.wait_for_function("() => windowWrites === 0", timeout=8000)
+        held = _read_settled(tablet)
+        held_open = tablet.evaluate("() => openName()")
+        held_order = tablet.evaluate(ORDER)
+        held_sent = list(touched)
+        assert not errors, errors
+        tablet.context.close()
 
-            S.update_window("main", open="alpha",
-                            widths={"alpha": 1, "beta": 0, "gamma": 0, "delta": 0})
-            phone, errors, touched = _page(browser, port, token, width=390, height=844, touch=True)
-            _read_settled(phone)
-            touched.clear()
-            drift_lifted = _touch(phone, '.tile[data-repo="delta"] .pane-rail', dx=4)
-            phone.locator('.tile[data-repo="beta"] .pane-rail').tap()
-            phone.wait_for_function("() => windowWrites === 0 && openName() === 'beta'",
-                                    timeout=8000)
-            phone_order = phone.evaluate(ORDER)
-            phone_sent = list(touched)
-            assert not errors, errors
-            browser.close()
+        S.update_window("main", open="alpha",
+                        widths={"alpha": 1, "beta": 0, "gamma": 0, "delta": 0})
+        phone, errors, touched = _page(browser, port, token, width=390, height=844, touch=True)
+        _read_settled(phone)
+        touched.clear()
+        drift_lifted = _touch(phone, '.tile[data-repo="delta"] .pane-rail', dx=4)
+        phone.locator('.tile[data-repo="beta"] .pane-rail').tap()
+        phone.wait_for_function("() => windowWrites === 0 && openName() === 'beta'",
+                                timeout=8000)
+        phone_order = phone.evaluate(ORDER)
+        phone_sent = list(touched)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -1026,7 +1002,7 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
 
 @pytest.mark.browser
 @pytest.mark.measured
-def test_a_frame_of_the_drag_is_inside_the_budget(fleet_home, tmp_path):
+def test_a_frame_of_the_drag_is_inside_the_budget(fleet_home, tmp_path, desk_browser):
     """#219's fifty milliseconds, for the one gesture that runs a frame at a time: each frame of a
     gutter drag writes two panes' widths and nothing else, and is marked (`gutter:frame`); the
     release that writes them once is marked too (`widths:drag`). What is asserted is what the page
@@ -1036,7 +1012,6 @@ def test_a_frame_of_the_drag_is_inside_the_budget(fleet_home, tmp_path):
     under the hand, which is what a drag that IS the preview asks it to do, and on a runner shared
     with three other browsers that is a measure of the sharing. The stream is closed first, so the
     server's heartbeat is not drawn in the middle of the hand's frames."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(6)]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -1045,55 +1020,54 @@ def test_a_frame_of_the_drag_is_inside_the_budget(fleet_home, tmp_path):
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, width=1920, height=1080, wide=3)
-            page.evaluate("""() => {
-              if (source) { source.close(); source = null; }
-              performance.clearMeasures();
-              window.__long = [];
-              window.__stamps = [];
-              window.__obs = new PerformanceObserver(list => {
-                list.getEntries().forEach(e => window.__long.push(
-                  { at: e.startTime, until: e.startTime + e.duration, ms: Math.round(e.duration) }));
-              });
-              try { window.__obs.observe({ entryTypes: ['longtask'] }); } catch (e) {}
-              window.__ticking = true;
-              const tick = t => { window.__stamps.push(t); if (window.__ticking) requestAnimationFrame(tick); };
-              requestAnimationFrame(tick);
-            }""")
-            x, y = _gutter_point(page, "r00")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            for dx in (40, 80, 120, 80, 20, -40, -80, -40, 30):
-                page.mouse.move(x + dx, y, steps=6)
-                page.wait_for_function(
-                    "() => !gutterHeld || gutterHeld.frame === 0", timeout=8000)
-            page.mouse.up()
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            out = page.evaluate("""() => {
-              window.__ticking = false;
-              window.__obs.disconnect();
-              const gaps = [];
-              for (let i = 1; i < window.__stamps.length; i++)
-                gaps.push(window.__stamps[i] - window.__stamps[i - 1]);
-              const ours = performance.getEntriesByType('measure')
-                .filter(m => m.name.indexOf('gutter:frame') === 0 ||
-                             m.name.indexOf('widths:drag') === 0);
-              return {
-                frames: ours.filter(m => m.name.indexOf('gutter:frame') === 0)
-                            .map(m => m.duration),
-                release: ours.filter(m => m.name.indexOf('widths:drag') === 0)
-                             .map(m => m.duration),
-                // A long task is the drag's when it runs across one of the drag's own marks.
-                blocking: window.__long.filter(t => ours.some(m =>
-                  m.startTime < t.until && m.startTime + m.duration > t.at)).map(t => t.ms),
-                long: window.__long.map(t => t.ms), gaps: gaps,
-              };
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, width=1920, height=1080, wide=3)
+        page.evaluate("""() => {
+          if (source) { source.close(); source = null; }
+          performance.clearMeasures();
+          window.__long = [];
+          window.__stamps = [];
+          window.__obs = new PerformanceObserver(list => {
+            list.getEntries().forEach(e => window.__long.push(
+              { at: e.startTime, until: e.startTime + e.duration, ms: Math.round(e.duration) }));
+          });
+          try { window.__obs.observe({ entryTypes: ['longtask'] }); } catch (e) {}
+          window.__ticking = true;
+          const tick = t => { window.__stamps.push(t); if (window.__ticking) requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        }""")
+        x, y = _gutter_point(page, "r00")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        for dx in (40, 80, 120, 80, 20, -40, -80, -40, 30):
+            page.mouse.move(x + dx, y, steps=6)
+            page.wait_for_function(
+                "() => !gutterHeld || gutterHeld.frame === 0", timeout=8000)
+        page.mouse.up()
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        out = page.evaluate("""() => {
+          window.__ticking = false;
+          window.__obs.disconnect();
+          const gaps = [];
+          for (let i = 1; i < window.__stamps.length; i++)
+            gaps.push(window.__stamps[i] - window.__stamps[i - 1]);
+          const ours = performance.getEntriesByType('measure')
+            .filter(m => m.name.indexOf('gutter:frame') === 0 ||
+                         m.name.indexOf('widths:drag') === 0);
+          return {
+            frames: ours.filter(m => m.name.indexOf('gutter:frame') === 0)
+                        .map(m => m.duration),
+            release: ours.filter(m => m.name.indexOf('widths:drag') === 0)
+                         .map(m => m.duration),
+            // A long task is the drag's when it runs across one of the drag's own marks.
+            blocking: window.__long.filter(t => ours.some(m =>
+              m.startTime < t.until && m.startTime + m.duration > t.at)).map(t => t.ms),
+            long: window.__long.map(t => t.ms), gaps: gaps,
+          };
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -1114,11 +1088,10 @@ def test_a_frame_of_the_drag_is_inside_the_budget(fleet_home, tmp_path):
 
 @pytest.mark.browser
 def test_under_reduced_motion_a_preset_applies_at_once_and_the_drag_is_unchanged(fleet_home,
-                                                                                 tmp_path):
+                                                                                 tmp_path, desk_browser):
     """plan-panes §Resizing: under `prefers-reduced-motion` the swap and the presets apply at once
     -- the widths are what they will be before the gesture's own task has ended -- and the gutter
     drag is exactly what it was, because it was never an animation."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -1126,34 +1099,33 @@ def test_under_reduced_motion_a_preset_applies_at_once_and_the_drag_is_unchanged
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            page.emulate_media(reduced_motion="reduce")
-            at_once = page.evaluate("""() => {
-              applyPreset('all');
-              const tilesNow = [...document.querySelectorAll('#grid .tile')];
-              return {
-                wide: document.querySelectorAll('#grid .tile.is-solo').length,
-                transition: inViewTransition,
-                travelling: tilesNow.filter(t => t.style.transform || t.classList.contains('flip'))
-                                    .length,
-              };
-            }""")
-            # The stylesheet's reduced-motion block gives every element a 0.01ms transition, so a
-            # width is drawn a frame later rather than inside the gesture's own task: at once, with
-            # nothing travelling and no view transition in between.
-            page.wait_for_function(
-                """() => { const w = [...document.querySelectorAll('#grid .tile')]
-                                   .map(t => t.getBoundingClientRect().width);
-                           return Math.max(...w) - Math.min(...w) < 1; }""", timeout=5000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            before = _read_settled(page)
-            _drag_gutter(page, "alpha", 50)
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            after = _read_settled(page)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        page.emulate_media(reduced_motion="reduce")
+        at_once = page.evaluate("""() => {
+          applyPreset('all');
+          const tilesNow = [...document.querySelectorAll('#grid .tile')];
+          return {
+            wide: document.querySelectorAll('#grid .tile.is-solo').length,
+            transition: inViewTransition,
+            travelling: tilesNow.filter(t => t.style.transform || t.classList.contains('flip'))
+                                .length,
+          };
+        }""")
+        # The stylesheet's reduced-motion block gives every element a 0.01ms transition, so a
+        # width is drawn a frame later rather than inside the gesture's own task: at once, with
+        # nothing travelling and no view transition in between.
+        page.wait_for_function(
+            """() => { const w = [...document.querySelectorAll('#grid .tile')]
+                               .map(t => t.getBoundingClientRect().width);
+                       return Math.max(...w) - Math.min(...w) < 1; }""", timeout=5000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        before = _read_settled(page)
+        _drag_gutter(page, "alpha", 50)
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        after = _read_settled(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert at_once["wide"] == 3 and at_once["transition"] is False, at_once
@@ -1166,11 +1138,10 @@ def test_under_reduced_motion_a_preset_applies_at_once_and_the_drag_is_unchanged
 
 
 @pytest.mark.browser
-def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_path):
+def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_path, desk_browser):
     """The render contract over the whole document, for a window with widths: `paintWidths` and the
     gutters are written from the record on every pass, so a pass with nothing new must touch
     nothing -- the same arithmetic on the page and in what it wrote is what makes that true."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta"]
     _repos(tmp_path, names, needs=("delta",))
     S.arrange(order=names)
@@ -1179,21 +1150,20 @@ def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_p
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=3)
-            page.wait_for_selector('#grid .tile.needs-human[data-tier="rail"]', timeout=15000)
-            count = page.evaluate(IDLE_PASSES)
-            # And once at a phone's 390 px (#575): the stack's bottom bar is the same rails, drawn
-            # by the same code, so an idle pass there touches nothing either.
-            page.set_viewport_size({"width": 390, "height": 844})
-            page.wait_for_function(
-                """() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'
-                      && document.querySelector('.tile[data-repo="alpha"]').dataset.tier === 'full'""",
-                timeout=10000)
-            phone = page.evaluate(IDLE_PASSES)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=3)
+        page.wait_for_selector('#grid .tile.needs-human[data-tier="rail"]', timeout=15000)
+        count = page.evaluate(IDLE_PASSES)
+        # And once at a phone's 390 px (#575): the stack's bottom bar is the same rails, drawn
+        # by the same code, so an idle pass there touches nothing either.
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function(
+            """() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'
+                  && document.querySelector('.tile[data-repo="alpha"]').dataset.tier === 'full'""",
+            timeout=10000)
+        phone = page.evaluate(IDLE_PASSES)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle desk wrote to the row: {count}"
@@ -1232,12 +1202,11 @@ IDLE_PASSES = """async () => {
 
 
 @pytest.mark.browser
-def test_a_reload_draws_the_widths_it_left_and_writes_none(fleet_home, tmp_path):
+def test_a_reload_draws_the_widths_it_left_and_writes_none(fleet_home, tmp_path, desk_browser):
     """The open pane dragged down to a rail stays one through a reload. The reload answers the
     address's `#tile=`, which names the open pane, and opening the pane that already has the keys
     must not be a swap with itself -- it widened the rail the hand had just made. A press on that
     rail is the hand asking, and does widen it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -1245,42 +1214,41 @@ def test_a_reload_draws_the_widths_it_left_and_writes_none(fleet_home, tmp_path)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            # Opened by the hand, as the operator would have: the address now names it.
-            page.locator('.tile[data-repo="alpha"] .head .repo').click()
-            page.wait_for_function("() => location.hash === '#tile=alpha' && windowWrites === 0",
-                                   timeout=8000)
-            before = _read_settled(page)
-            assert before["alpha"]["wide"] and before["beta"]["wide"], "opening it swapped it"
-            _drag_gutter(page, "alpha", RAIL_PX + 10 - before["alpha"]["width"], steps=16)
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
-            _until(lambda: _record().get("alpha") == 0)
-            assert page.evaluate("() => location.hash") == "#tile=alpha"
-            record = dict(_record())
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        # Opened by the hand, as the operator would have: the address now names it.
+        page.locator('.tile[data-repo="alpha"] .head .repo').click()
+        page.wait_for_function("() => location.hash === '#tile=alpha' && windowWrites === 0",
+                               timeout=8000)
+        before = _read_settled(page)
+        assert before["alpha"]["wide"] and before["beta"]["wide"], "opening it swapped it"
+        _drag_gutter(page, "alpha", RAIL_PX + 10 - before["alpha"]["width"], steps=16)
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
+        _until(lambda: _record().get("alpha") == 0)
+        assert page.evaluate("() => location.hash") == "#tile=alpha"
+        record = dict(_record())
 
-            posts.clear()
-            page.reload(wait_until="domcontentloaded")
-            page.wait_for_function(
-                """() => !document.body.classList.contains('is-stale') && windowWrites === 0
-                         && desk.desk.version !== undefined""", timeout=15000)
-            # The anchor is answered after the desk loads; give it that turn, then read.
-            page.wait_for_function("() => pendingDesk === null", timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read_settled(page)
-            reloaded = list(posts)
-            assert not after["alpha"]["wide"] and after["beta"]["wide"], \
-                f"the reload widened the rail the hand had made: {after}"
+        posts.clear()
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => !document.body.classList.contains('is-stale') && windowWrites === 0
+                     && desk.desk.version !== undefined""", timeout=15000)
+        # The anchor is answered after the desk loads; give it that turn, then read.
+        page.wait_for_function("() => pendingDesk === null", timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        after = _read_settled(page)
+        reloaded = list(posts)
+        assert not after["alpha"]["wide"] and after["beta"]["wide"], \
+            f"the reload widened the rail the hand had made: {after}"
 
-            posts.clear()
-            page.locator('.tile[data-repo="alpha"] .pane-rail').click()
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo:not([data-tier="rail"])',
-                                   timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            pressed = list(posts)
-            assert not errors, errors
-            browser.close()
+        posts.clear()
+        page.locator('.tile[data-repo="alpha"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo:not([data-tier="rail"])',
+                               timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        pressed = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -1290,12 +1258,11 @@ def test_a_reload_draws_the_widths_it_left_and_writes_none(fleet_home, tmp_path)
 
 
 @pytest.mark.browser
-def test_a_desk_an_older_build_wrote_still_draws_its_widths(fleet_home, tmp_path):
+def test_a_desk_an_older_build_wrote_still_draws_its_widths(fleet_home, tmp_path, desk_browser):
     """Data compatibility: a desk.json with #217's `size` and no widths anywhere loads, and a window
     that has never been given widths draws the open pane and the pins wide as before the gutters --
     at the `size.cols` it was left with, which plan-panes' migration makes its weight. Nothing is
     written to make that so."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names, pinned=["beta"], size={"alpha": {"cols": 2, "rows": 3}})
@@ -1311,14 +1278,13 @@ def test_a_desk_an_older_build_wrote_still_draws_its_widths(fleet_home, tmp_path
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=2)
-            panes = _read_settled(page)
-            edge = page.evaluate("() => paneEdge()")
-            mine = page.evaluate("() => myWidths")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=2)
+        panes = _read_settled(page)
+        edge = page.evaluate("() => paneEdge()")
+        mine = page.evaluate("() => myWidths")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert mine is None, "a window with no widths has none until a gesture gives it some"

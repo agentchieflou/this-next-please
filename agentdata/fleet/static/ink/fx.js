@@ -15,6 +15,8 @@ const MOVING = 4;
 const X = px => ({ transform: "translateX(" + px + "px)" });
 const S = n => ({ transform: "scale(" + n + ")" });
 const F = on => ({ filter: on ? "drop-shadow(0 0 4px currentColor)" : "none" });
+const GLYPHS = 128, GLYPHS_CAP = 256;
+const BLANK = /\s/;
 
 export const KINDS = Object.freeze({
   hit: Object.freeze({ ms: 240, easing: "ease-in-out", add: true, frames: [X(0), X(-3), X(3), X(-2), X(0)] }),
@@ -27,6 +29,44 @@ const attrs = sel => Array.from(String(sel || "").matchAll(/\[\s*([\w-]+)/g), m 
 function boxOf(el) {
   const r = el.getBoundingClientRect();
   return { x: r.left, y: r.top, w: r.width, h: r.height };
+}
+
+/** @param {Element} el @returns {Array<{x: number, y: number, w: number, h: number}>} */
+function linesIn(el) {
+  const range = document.createRange(), out = [];
+  range.selectNodeContents(el);
+  for (const b of range.getClientRects()) {
+    if (b.width < 2 || b.height < 2) continue;
+    const cy = (b.top + b.bottom) / 2;
+    const l = out.find(o => Math.abs(o.cy - cy) < Math.max(4, b.height * 0.45));
+    if (l) {
+      l.x0 = Math.min(l.x0, b.left); l.x1 = Math.max(l.x1, b.right);
+      l.y0 = Math.min(l.y0, b.top); l.y1 = Math.max(l.y1, b.bottom); l.cy = (l.y0 + l.y1) / 2;
+    } else {
+      out.push({ x0: b.left, x1: b.right, y0: b.top, y1: b.bottom, cy });
+    }
+  }
+  return out.sort((a, b) => a.y0 - b.y0)
+    .map(o => Object.freeze({ x: o.x0, y: o.y0, w: o.x1 - o.x0, h: o.y1 - o.y0 }));
+}
+
+/** @param {Element} el @param {number} max @returns {Array<{x: number, y: number, w: number, h: number, ch: string}>} */
+function glyphsIn(el, max) {
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), range = document.createRange(), out = [];
+  for (let n = walk.nextNode(); n && out.length < max; n = walk.nextNode()) {
+    const text = /** @type {Text} */ (n).data;
+    for (let i = 0; i < text.length && out.length < max;) {
+      const ch = String.fromCodePoint(/** @type {number} */ (text.codePointAt(i)));
+      if (!BLANK.test(ch)) {
+        range.setStart(n, i);
+        range.setEnd(n, i + ch.length);
+        const b = range.getBoundingClientRect();
+        out.push(Object.freeze({ x: b.left, y: b.top, w: b.width, h: b.height, ch }));
+      }
+      i += ch.length;
+    }
+  }
+  return out;
 }
 
 function all(sel) {
@@ -109,8 +149,26 @@ export function attach(layer, spec) {
     L.onMove();
     return true;
   }
+  const read = new WeakMap();
+  /** @param {Element} el @param {string} what @param {function(Element): Array<Object>} make @returns {Array<Object>} */
+  function cached(el, what, make) {
+    if (!el || !el.isConnected) return [];
+    const r = el.getBoundingClientRect(), key = (el.textContent || "").length + "|" + r.width + "x" + r.height;
+    let c = read.get(el);
+    if (!c || c.key !== key) read.set(el, c = { key, got: new Map() });
+    if (!c.got.has(what)) c.got.set(what, make(el));
+    return c.got.get(what).slice();
+  }
+  /** @param {Element} el */
+  const lines = el => cached(el, "lines", linesIn);
+  /** @param {Element} el @param {number=} max */
+  function glyphs(el, max = GLYPHS) {
+    const n = Math.min(GLYPHS_CAP, Math.max(0, Math.floor(Number(max)) || 0));
+    return cached(el, "glyphs " + n, e => glyphsIn(e, n));
+  }
+  const text = !!(spec && spec.use && spec.use.text === true);
   return {
-    api: Object.freeze({ animate }),
+    api: Object.freeze(text ? { animate, lines, glyphs } : { animate }),
     match() {
       const quiet = QUIET.test(body.className);
       const go = armed && !quiet && !!L.skin && !L.instant();

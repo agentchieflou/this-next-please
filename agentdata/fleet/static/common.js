@@ -161,6 +161,32 @@ function applySkin(skinName) {
   attr(document.body, "data-skin-variant", variant || null);
 }
 
+/** @typedef {{variant: string, skin: string, theme: string, css: Object<string, string>}} AutoSide */
+/** @typedef {{theme?: string, skin?: string, css?: Object<string, string>, auto?: {light: AutoSide, dark: AutoSide}}} ThemeState */
+
+var DARK = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+/** @type {ThemeState|null} */
+var autoState = null;
+
+/** @param {ThemeState} ts */
+function applyThemeState(ts) {
+  if (!ts) return;
+  autoState = ts.auto ? ts : null;
+  var side = ts.auto ? ts.auto[DARK && DARK.matches ? "dark" : "light"] : null;
+  var now = side || ts;
+  if (now.css || now.theme === "none") applyTheme(now.css, now.theme);
+  applySkin(now.skin);
+}
+
+if (DARK) {
+  DARK.addEventListener("change", function () { if (autoState) applyThemeState(autoState); });
+}
+
+(function servedAuto() {
+  var pair = document.body && document.body.getAttribute("data-skin-auto");
+  if (pair) attr(document.body, "data-skin-variant", pair.split(" ")[DARK && DARK.matches ? 1 : 0]);
+})();
+
 function gesture(name) {
   var mark = name + ":" + (Date.now() % 100000);
   try { performance.mark(mark + ":start"); } catch (e) {}

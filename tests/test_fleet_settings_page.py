@@ -32,6 +32,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
+from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, TABLE as INK_TABLE, _set as _ink_set
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -80,12 +81,14 @@ def _looks_on(palette):
 
 
 def _answered(page, body):
-    """Around a pick: wait for the page's `POST /api/theme` with exactly `body` to be answered. Two
-    picks' writes in flight at once may be applied in either order, so a test that reads what was
-    saved serializes its picks on their answers."""
+    """Around a pick: wait for the page's `POST /api/theme` with exactly `body` to be answered. A test
+    that reads what was saved waits on each pick's answer. Every pick also carries its number
+    (`seq`, #483), which the server orders the picks by and which is not part of what was picked."""
     def match(r):
-        return (r.request.method == "POST" and r.url.split("?")[0].endswith("/api/theme")
-                and json.loads(r.request.post_data or "{}") == body)
+        if not (r.request.method == "POST" and r.url.split("?")[0].endswith("/api/theme")):
+            return False
+        sent = json.loads(r.request.post_data or "{}")
+        return isinstance(sent.pop("seq", None), int) and sent == body
     return page.expect_response(match, timeout=10000)
 
 
@@ -519,7 +522,10 @@ def test_the_skin_picker_groups_variants_under_their_skin(fleet_home, tmp_path):
                     assert label not in by_label, f"{name} is a group of one"
                     continue
                 assert label in by_label, f"{name} is not offered: {list(by_label)}"
-                assert set(by_label[label]) == {f"{name}:{v}" for v in skin["variants"]}
+                # and "Auto" last, only on a skin with a light and a dark variant (#342)
+                auto = [f"{name}:auto"] if skin.get("auto") else []
+                assert set(by_label[label]) == {f"{name}:{v}" for v in skin["variants"]} | set(auto)
+                assert by_label[label][len(skin["variants"]):] == auto, by_label[label]
                 assert by_label[label][0] == f"{name}:{skin['default']}", "the default variant leads"
             assert not errors, errors
             browser.close()
@@ -566,12 +572,81 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
                     .startsWith('list: copilot 1.0.90 · checked ')
                 && !!document.querySelector('#fleetpicker button.pill[data-model="byok-model-7"]')
                 && !!document.querySelector('#model-alpha button.pill[data-model=""]')""", timeout=15000)
+
+            # `notebook:auto` (#342), written as a terminal would: this page follows the system's
+            # appearance, and a change of appearance repaints it without a reload.
+            sides = {side: css["--bg"] for side, css in _auto_sides("notebook").items()}
+            page.emulate_media(color_scheme="light")
+            page.evaluate("() => { window.__kept = 1; }")
+            (tmp_path / "cfg.json").write_text(
+                json.dumps({"theme": {"default": "eye-relief-day", "skin": "notebook:auto"}}), encoding="utf-8")
+            page.wait_for_function(AUTO_WORN, arg=["light", sides["light"]], timeout=15000)
+            assert page.evaluate("() => document.getElementById('skin').value") == "notebook:auto"
+            page.emulate_media(color_scheme="dark")
+            page.wait_for_function(AUTO_WORN, arg=["dark", sides["dark"]], timeout=10000)
+            assert page.evaluate("() => window.__kept") == 1, "the page was reloaded"
+
+            # The desk, opened in the dark: the served page and common.js have the dark side on before
+            # the first answer; it follows a switch to light and back; and then an idle desk with ink
+            # on writes nothing and draws nothing.
+            S.arrange(order=["alpha"])
+            S.update_window("main", open="alpha", widths={"alpha": 1})
+            desk_errors = []
+            desk = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme="dark")
+            desk.on("pageerror", lambda e: desk_errors.append(str(e)))
+            desk.add_init_script(COUNT_FETCHES)
+            desk.add_init_script("""document.addEventListener('DOMContentLoaded', () => {
+                window.__atLoad = [document.body.dataset.skinVariant,
+                    getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()];
+                }, { once: true });""")
+            desk.goto(f"http://127.0.0.1:{port}/?t={token}&ink=on", wait_until="domcontentloaded")
+            desk.wait_for_function("""() => document.querySelectorAll('#grid .tile.is-solo').length === 1
+                && !!window.Ink && !document.body.classList.contains('is-stale')""", timeout=15000)
+            assert desk.evaluate("() => window.__atLoad") == ["dark", sides["dark"]]
+            # #342 with #339: the default variant's pane mark does not read on the dark side, so the
+            # pane is sent none and its strip is each side's own `--focus`.
+            focus = {side: _rgb(css["--focus"]) for side, css in _auto_sides("notebook").items()}
+            desk.wait_for_function(STRIP_IS, arg=["", focus["dark"]], timeout=10000)
+            desk.emulate_media(color_scheme="light")
+            desk.wait_for_function(AUTO_WORN, arg=["light", sides["light"]], timeout=10000)
+            desk.wait_for_function(STRIP_IS, arg=["", focus["light"]], timeout=10000)
+            desk.emulate_media(color_scheme="dark")
+            desk.wait_for_function(AUTO_WORN, arg=["dark", sides["dark"]], timeout=10000)
+            # A variant switch redraws the paper's traces, at the notebook's pace; the ink idle
+            # test's fast table draws them in seconds rather than fifteen, and waits for rest.
+            _ink_set(desk, dict(INK_TABLE, speed=4))
+            idle = desk.evaluate(IDLE_LOOP)
+            assert idle["n"] == 0 and idle["renders"] == 0, f"an idle desk on notebook:auto: {idle}"
+            assert not desk_errors, desk_errors
             assert not errors, errors
             browser.close()
     finally:
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+#: The auto skin is worn on this side: the variant attribute and the side's own `--bg`.
+AUTO_WORN = """([side, bg]) => document.body.dataset.skinVariant === side
+    && getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === bg"""
+
+
+#: The first pane's strip: its inline colour and its computed one.
+STRIP_IS = """([inline, computed]) => { const t = document.querySelector('#grid .tile');
+    return t.style.borderLeftColor === inline && getComputedStyle(t).borderLeftColor === computed; }"""
+
+
+def _rgb(hex_colour):
+    """`#RRGGBB` as `getComputedStyle` writes it."""
+    h = hex_colour.lstrip("#")
+    return "rgb({}, {}, {})".format(*(int(h[i:i + 2], 16) for i in (0, 2, 4)))
+
+
+def _auto_sides(family):
+    """The tokens `theme_state` serves for each side of `<family>:auto`, without touching the config."""
+    from agentdata import theme as T
+    return {side: T.to_css(S.theme_or_none(v["base"]), panels=K.panels_on(v["base"]))
+            for side, v in K.get_skin(f"{family}:auto")["auto"].items()}
 
 
 # ------------------------------------------------------------------------------------ the model

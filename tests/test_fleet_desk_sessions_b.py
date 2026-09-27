@@ -25,8 +25,8 @@ from agentdata.fleet import opener as O
 from agentdata.fleet import serve as S
 from agentdata.fleet.registry import Registry, fleet_dir
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_desk_regressions import _drain_and_age
 from test_fleet_events import fleet_home  # noqa: F401
 
@@ -339,8 +339,7 @@ def test_sessions_b_offline_contract():
 # ------------------------------------------------------------------------- browser tests
 
 
-def _page(p, url):
-    browser = launch_chromium(p)
+def _page(browser, url):
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -355,13 +354,12 @@ def _page(p, url):
 
 
 @pytest.mark.browser
-def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_path):  # noqa: F811
+def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_path, desk_browser):  # noqa: F811
     """Acceptance criterion: two windows named `left` and `main` keep different states across a
     server restart on a new port. The state was the needs-only filter, one per window; the filter is
     the *needs me* preset since #234, one write of the window's own widths -- so what each window
     keeps across the restart is its widths: `main` given every agent an even share, `left` never
     given any and drawing its open pane wide."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     asks = make_project(tmp_path / "asks", phase="blocked", ticket="RDSD-1")
     quiet = make_project(tmp_path / "quiet", phase="done")
@@ -378,24 +376,23 @@ def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_
 
     wide = "() => document.querySelectorAll('#grid .tile.is-solo').length"
     try:
-        with sync_playwright() as p:
-            # Window 'main': every agent an even share.
-            b1, page_main, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
-            assert not errs, errs
-            page_main.locator("#preset-all").click()
-            page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
-            # Painted before it is written (#219): the record, not the pixels, is waited on.
-            deadline = time.monotonic() + 10
-            while not (S.desk_state()["windows"].get("main") or {}).get("widths"):
-                assert time.monotonic() < deadline, "the widths never reached the server"
-                time.sleep(0.05)
-            b1.close()
+        # Window 'main': every agent an even share.
+        b1, page_main, errs = _page(desk_browser, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
+        assert not errs, errs
+        page_main.locator("#preset-all").click()
+        page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
+        # Painted before it is written (#219): the record, not the pixels, is waited on.
+        deadline = time.monotonic() + 10
+        while not (S.desk_state()["windows"].get("main") or {}).get("widths"):
+            assert time.monotonic() < deadline, "the widths never reached the server"
+            time.sleep(0.05)
+        close_pages(b1)
 
-            # Window 'left': never given widths, so one pane is open and the other a rail.
-            b2, page_left, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=left")
-            assert not errs, errs
-            page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
-            b2.close()
+        # Window 'left': never given widths, so one pane is open and the other a rail.
+        b2, page_left, errs = _page(desk_browser, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=left")
+        assert not errs, errs
+        page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
+        close_pages(b2)
     finally:
         # Shut down server 1 cleanly (Ctrl-C / shutdown), also when the browser launch skips.
         s1.stopping.set()
@@ -412,19 +409,18 @@ def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_
     assert p2 != p1
 
     try:
-        with sync_playwright() as p:
-            # Reopen window 'main' on the new port: both agents still share the row.
-            b1, page_main, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=main")
-            assert not errs, errs
-            page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
-            b1.close()
+        # Reopen window 'main' on the new port: both agents still share the row.
+        b1, page_main, errs = _page(desk_browser, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=main")
+        assert not errs, errs
+        page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
+        close_pages(b1)
 
-            # Reopen window 'left' on the new port: still one open and one rail.
-            b2, page_left, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=left")
-            assert not errs, errs
-            page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
-            assert page_left.evaluate("() => myWidths") is None
-            b2.close()
+        # Reopen window 'left' on the new port: still one open and one rail.
+        b2, page_left, errs = _page(desk_browser, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=left")
+        assert not errs, errs
+        page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
+        assert page_left.evaluate("() => myWidths") is None
+        close_pages(b2)
     finally:
         s2.stopping.set()
         s2.shutdown()
@@ -432,11 +428,10 @@ def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_
 
 
 @pytest.mark.browser
-def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path):  # noqa: F811
+def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path, desk_browser):  # noqa: F811
     """Acceptance criterion: a rendered-page test reads the same arrangement and selection,
     and the same open agent in the same named window across server restart. It was the grid's
     zoomed tile; the zoom went with the grid (#232), and `open` is what a window keeps."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     alpha = make_project(tmp_path / "alpha", phase="done")
     beta = make_project(tmp_path / "beta", phase="blocked", ticket="RDSD-2")
@@ -451,16 +446,15 @@ def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path)
     p1 = s1.server_address[1]
 
     try:
-        with sync_playwright() as p:
-            b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
-            assert not errs, errs
-            # Open beta from its rail. Waited for rather than slept through: 300ms is the page's budget
-            # on an idle machine, and under `-n auto` on a Windows runner four browsers share the cores
-            # -- which is the load talking, not the page. The selectors are the assertions.
-            page.locator('.tile[data-repo="beta"] .pane-rail').click()
-            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
-            page.wait_for_function("() => windowWrites === 0", timeout=15000)
-            b.close()
+        b, page, errs = _page(desk_browser, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
+        assert not errs, errs
+        # Open beta from its rail. Waited for rather than slept through: 300ms is the page's budget
+        # on an idle machine, and under `-n auto` on a Windows runner four browsers share the cores
+        # -- which is the load talking, not the page. The selectors are the assertions.
+        page.locator('.tile[data-repo="beta"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+        page.wait_for_function("() => windowWrites === 0", timeout=15000)
+        close_pages(b)
     finally:
         # Also when the browser launch skips: a live s1 thread fails the thread guard.
         s1.stopping.set()
@@ -476,13 +470,12 @@ def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path)
     p2 = s2.server_address[1]
 
     try:
-        with sync_playwright() as p:
-            b, page, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&w=main")
-            assert not errs, errs
-            # Beta is the one open, from the window's own record and not the address.
-            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
-            assert "is-solo" not in page.locator('.tile[data-repo="alpha"]').get_attribute("class")
-            b.close()
+        b, page, errs = _page(desk_browser, f"http://127.0.0.1:{p2}/?t={t2}&w=main")
+        assert not errs, errs
+        # Beta is the one open, from the window's own record and not the address.
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+        assert "is-solo" not in page.locator('.tile[data-repo="alpha"]').get_attribute("class")
+        close_pages(b)
     finally:
         s2.stopping.set()
         s2.shutdown()
@@ -490,10 +483,9 @@ def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path)
 
 
 @pytest.mark.browser
-def test_since_you_were_away_strip(fleet_home, tmp_path):  # noqa: F811
+def test_since_you_were_away_strip(fleet_home, tmp_path, desk_browser):  # noqa: F811
     """Acceptance criterion: A window reopened after two tiles changed state shows two
     `since you were away` lines and no more; four agents working normally show none."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata.fleet import notify as N
 
     luna = make_project(tmp_path / "luna", phase="working")
@@ -521,24 +513,23 @@ def test_since_you_were_away_strip(fleet_home, tmp_path):  # noqa: F811
     port = server.server_address[1]
 
     try:
-        with sync_playwright() as p:
-            b, page, errs = _page(p, f"http://127.0.0.1:{port}/?t={token}&layout=grid&w=main")
-            assert not errs, errs
+        b, page, errs = _page(desk_browser, f"http://127.0.0.1:{port}/?t={token}&layout=grid&w=main")
+        assert not errs, errs
 
-            # Strip is visible and has exactly 2 lines
-            strip = page.locator("#away-strip")
-            page.wait_for_selector("#away-strip:not([hidden])", timeout=5000)
-            lines = page.locator("#away-lines li")
-            assert lines.count() == 2, f"expected 2 away lines, got {lines.count()}"
+        # Strip is visible and has exactly 2 lines
+        strip = page.locator("#away-strip")
+        page.wait_for_selector("#away-strip:not([hidden])", timeout=5000)
+        lines = page.locator("#away-lines li")
+        assert lines.count() == 2, f"expected 2 away lines, got {lines.count()}"
 
-            # Click dismiss. The strip leaves over `--motion-base` now (#216), so it is still
-            # painted for a fifth of a second after the click -- which is the point of the
-            # animation. Wait for the attribute the script sets rather than for a clock.
-            page.locator("#dismiss-away").click()
-            page.wait_for_selector("#away-strip[hidden]", state="attached", timeout=5000)
-            page.wait_for_timeout(400)
-            assert strip.is_hidden()
-            b.close()
+        # Click dismiss. The strip leaves over `--motion-base` now (#216), so it is still
+        # painted for a fifth of a second after the click -- which is the point of the
+        # animation. Wait for the attribute the script sets rather than for a clock.
+        page.locator("#dismiss-away").click()
+        page.wait_for_selector("#away-strip[hidden]", state="attached", timeout=5000)
+        page.wait_for_timeout(400)
+        assert strip.is_hidden()
+        close_pages(b)
     finally:
         server.stopping.set()
         server.shutdown()

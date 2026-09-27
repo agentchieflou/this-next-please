@@ -45,12 +45,31 @@ In `marks`, above `{ selector: ".tile.ink-example .head", tool: variant === "red
 
 A class only the tests set, so a test can draw on demand.
 
-### `export const options`
+### `export function options`
 
-Above `export const options = { hand: true, speed: 1 };`:
+Above `export function options(variant) {`:
 
 The table's options: `paper` (a colour or a custom property the layer paints flat when the skin
 has no `paper` hook), `hand` (the travelling pencil; default true), `speed` (0.25x to 4x).
+A function of the variant (ink.js's `valueOf` takes one) since #375: `fx` is the effects'
+`use`, `{text: true}` under `example:text` (the lines and letters helpers) and
+`{pointer: true}` under `example:pointer` (#376); `example` and `example:red` ask for neither
+and keep their behaviour.
+
+### `let handed`
+
+Above `let handed = null;`:
+
+The `api` the layer last handed a hook (#375), so a test can reach `api.fx` from outside:
+`ground`, `paper`, `frame`, `cue` and `tick` each keep it. One layer, one `api`; its `fx` is
+a getter, so it answers for whichever table has effects now.
+
+### `export function helpers`
+
+Above `export function helpers() {`:
+
+For the tests (#375): the `api.fx` the hooks were handed, or `null` before a hook has run or
+while no table has effects. `window.__example.helpers().glyphs(el)`.
 
 ### `export const sampleGround`
 
@@ -104,19 +123,25 @@ every cue this page played, for `inspect`
 
 ### `export function cue`
 
+Beside `const read = [];`:
+
+under `example:text`, what each cue read of its pane's name (#375), for `inspect`
+
 Beside `let quads = [];`:
 
 the quads `tick` is still playing
 
-Above `export function cue({ THREE, scene, tokens }, name, el, box, how) {`:
+Above `export function cue({ THREE, scene, tokens, api }, name, el, box, how) {`:
 
 One cue. `scene` is the effects group, under every frame and mark; `box` is where the element is
 (`arrive`) or last was (`leave`), in viewport CSS px; `how` is "arrived", "unmatched" or
-"removed". Never called under reduced motion. What it adds, `tick` frees.
+"removed". Never called under reduced motion. What it adds, `tick` frees. When `api.fx` has
+`glyphs` (`example:text`, #375), it also reads the letters of the name (`.repo`) of the pane
+the element is in, and records them with the pane's repo.
 
 ### `export function tick`
 
-Above `export function tick() {`:
+Above `export function tick({ api }) {`:
 
 Every frame the layer draws, with the seconds since the last. Answer true to be given another:
 a ground that drifts would, and so does a quad still playing -- it shrinks away, and is freed
@@ -133,4 +158,5 @@ quads included; free what else the skin made (a render target, a texture).
 
 Above `export function inspect() {`:
 
-For the tests: every cue played on this page (`{name, how, box}`), and the quads still playing.
+For the tests: every cue played on this page (`{name, how, box}`), the quads still playing, and
+under `example:text` the letters each cue read (`text`: `{repo, glyphs}`, #375).

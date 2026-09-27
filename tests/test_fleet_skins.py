@@ -279,6 +279,29 @@ def test_a_bare_skin_name_resolves_to_its_default_and_an_unknown_variant_does_no
     assert skins.get_skin("nosuchskin") is None
 
 
+def test_auto_follows_the_system_on_a_skin_with_a_pair_and_is_the_default_variant_elsewhere():
+    """#342: `<skin>:auto` names a light and a dark variant; `base` and `composited_panel` stay the
+    default variant's (the terminal cannot follow the system), and `full` keeps `auto`."""
+    assert skins.split("notebook:auto") == ("notebook", "auto")
+    got = skins.get_skin("notebook:auto")
+    assert got["full"] == "notebook:auto" and got["variant"] == "auto"
+    assert got["base"] == "eye-relief-day" and got["composited_panel"] == "#FBFBF6"
+    assert got["auto"] == {"light": {"variant": "light", "base": "eye-relief-day", "full": "notebook:light"},
+                           "dark": {"variant": "dark", "base": "dark", "full": "notebook:dark"}}
+    assert skins.get_skin("glass:auto")["auto"]["light"]["full"] == "glass:frost"
+    assert skins.get_skin("glass:auto")["base"] == "dark", "glass's default is smoke"
+    # a skin with one appearance: `split`'s unknown-variant rule, and never a raise
+    assert skins.split("legalpad:auto") == ("legalpad", "canary")
+    assert skins.get_skin("legalpad:auto")["full"] == "legalpad:canary"
+    assert "auto" not in skins.get_skin("voxel:auto") and skins.get_skin("voxel:auto")["variant"] == "overworld"
+    # every pair is one variant on a light palette and one on a dark one
+    from agentdata import theme as T
+    for name, skin in skins.SKINS.items():
+        if skin.get("auto"):
+            light, dark = (T.get(skin["variants"][skin["auto"][s]]["base"]) for s in ("light", "dark"))
+            assert light.light and not dark.light, name
+
+
 def test_every_variant_is_actually_drawn_by_its_stylesheet():
     """A variant declared in Python and not written in CSS renders as the default one, and the
     operator gets the palette they chose with somebody else's texture on it."""

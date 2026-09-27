@@ -20,35 +20,33 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 
 @pytest.mark.browser
-def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path, desk_browser):
     _desk_of(tmp_path)
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "glass:azure"}}',
                                                 encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            page.add_init_script(COUNT_FETCHES)
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function(
-                """() => document.querySelectorAll('#grid .tile.is-solo').length === 2
-                     && document.body.dataset.skinVariant === 'azure'
-                     // The skin's stylesheet has arrived (`has-ground` went with the 2D
-                     // ground, and the stylesheet paints no ground of its own, #257).
-                     && !!(document.head.querySelector('link[data-skin]') || {}).sheet
-                     && !document.body.classList.contains('is-stale')""", timeout=15000)
-            count = page.evaluate(IDLE_LOOP)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.add_init_script(COUNT_FETCHES)
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => document.querySelectorAll('#grid .tile.is-solo').length === 2
+                 && document.body.dataset.skinVariant === 'azure'
+                 // The skin's stylesheet has arrived (`has-ground` went with the 2D
+                 // ground, and the stylesheet paints no ground of its own, #257).
+                 && !!(document.head.querySelector('link[data-skin]') || {}).sheet
+                 && !document.body.classList.contains('is-stale')""", timeout=15000)
+        count = page.evaluate(IDLE_LOOP)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle skinned desk wrote to the page: {count}"

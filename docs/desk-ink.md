@@ -714,6 +714,28 @@ nothing is scheduled: the focus and reduced-motion listeners live only while an 
 **The rule.** The layer's only touches on the page are the reveal's `clip-path` while a line is written and fx.js's
 transient animations while a cue plays; neither is there at rest.
 
+### Lines and letters (#375)
+
+A skin that follows the text itself (a hen running in a pane's free rows, ink bleeding into a name's letters) asks
+where an element's lines and letters are. It asks for the helpers in its options, and only then has them:
+
+```js
+export function options(variant) { return { fx: variant === "text" ? { text: true } : undefined }; }
+export function cue({ api }, name, el) { const g = api.fx.glyphs(el.closest(".tile").querySelector(".repo")); }
+```
+
+| Helper | Answers | Cost |
+| --- | --- | --- |
+| `api.fx.lines(el)` | `[{x, y, w, h}]`, one box per line of the element's text, top to bottom: one Range over the element, its rects merged per line as the `lines` shape merges them | one `getClientRects()`: 183 line boxes of a whole pane in 0.2 ms |
+| `api.fx.glyphs(el, max = 128)` | `[{x, y, w, h, ch}]`, the first `max` characters that are not whitespace, each its own Range rect. `max` is clamped to 256 | one Range read a letter: 2,456 glyphs of a pane took about 6.5 ms, so the cap keeps one read under a millisecond |
+
+Boxes are in viewport CSS px, like a cue's `box`. Both are cached per element on its `textContent.length` and its own
+`width x height`: an identical second call reads no Range at all, and a changed text or size reads again. An element
+that has left the page gives `[]`. Without `options.fx.text`, `api.fx` has neither (it still has `animate`). Read a
+name or a line when a cue plays, never a whole pane or transcript on every frame; nothing is rasterised, and neither
+helper writes to the page. `skins/example.js` asks for them under `example:text`, and its `helpers()` hands a test the
+`api.fx` its hooks were given.
+
 ## Following the page
 
 **The page arrives skinned and `ink-off` (#345).** The server writes the chosen skin on `<body>` (`data-skin`,
@@ -784,7 +806,7 @@ bound, because it renders in software).
 | --- | --- | --- |
 | the static payload | 117 KB gzipped for the whole desk since #523 (117,055 bytes as served, every comment stripped on the way out; 202,333 before), the layer's four modules (29,469 bytes gzipped, LF, as served) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 3 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
 | `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`), 43,171 B at #387 (the chalk hand), 43,848 B at #388 (`api.stroke`, 626 B of it; 51 B are #332's underline floor), 29,469 B at #523 (measured as served, without comments; the budget held, not lowered). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
-| `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone; 3,694 B at #372 (the cues); 2,056 B at #523 (no comments). Every later effects card (#374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
+| `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone; 3,694 B at #372 (the cues); 2,056 B at #523 (no comments); 2,973 B at #374 (`animate`); 3,769 B at #375 (`lines`, `glyphs`). Every later effects card (#374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
@@ -870,6 +892,12 @@ nothing. **Cues stay disarmed until the stream's first pass has been drawn**, wh
 cue test calls `_armed(page)` after opening and after every reload: it waits on `ARMED`, `l.fx.armed` and no
 `body.is-replaying`.
 
+The same function covers the lines and letters (#375): under `example:text`, `api.fx.glyphs` of a pane's name
+matches each character's own Range rect within 0.5 px; a wrapped `Range.prototype` counts the reads (some for the
+first call, none for an identical second, some again after the text and again after the width changes); the default
+cap is 128, `max` above 256 is clamped, whitespace is skipped, `lines` stays inside its element, and a removed element
+gives `[]`; the example's cue records the name's letters; and under `example` neither helper exists.
+
 `tests/test_fleet_ink_cues.py` holds every skin module that ships `cues` to the cue contract (#373), with no
 browser: `cue` and `tick` exported, each cue named in a table row of its `docs/skin-<name>.md`, only classes the
 page sets and ids `index.html` has, `hidden` the one attribute, no leave row on an element the page rebuilds or
@@ -883,3 +911,26 @@ following its data, glass's ground drawn by the layer and still under reduced mo
 gradients, and no 2D context, in the files or at run time.
 
 `tests/test_fleet_probe.py` holds three.js to `layer.js` and `probe.js`.
+
+**Skin tests open their pages through the desk harness (#300).** The skins' files (`test_fleet_ink_<skin>.py`,
+`test_fleet_voxel_ink.py`, `test_fleet_napkin.py`), `test_fleet_desk_glass.py`, `test_fleet_trace.py` and the skin
+regressions ask for `desk_browser` (`tests/desk_harness.py`; docs/testing-this-repo.md §Writing a browser test):
+one driver and one Chromium per worker, and every page in a fresh context the harness closes when the test ends. A
+test never starts `sync_playwright()` or calls `browser.close()`; `close_pages(browser)` stands where it closed the
+browser before stopping the desk. Each module's `_serve`, `_stop` and `_open` keep their names and signatures,
+over `serve_desk` and `desk_page`, so the files that import them are unchanged. The skin is still written to the
+config (or chosen with `POST /api/theme`) before the page that shows it opens. The call to copy:
+
+```python
+@pytest.mark.browser
+def test_the_skin_draws(fleet_home, tmp_path, desk_browser):
+    _desk_of(tmp_path)                            # the agents, and the skin in the config, first
+    server, token, port = _serve()
+    try:
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on")
+        ...
+        assert not errors, errors
+        close_pages(desk_browser)
+    finally:
+        _stop(server)
+```

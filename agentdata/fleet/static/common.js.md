@@ -115,6 +115,41 @@ Written only when they change (the render contract's `attr`): every `/api/fleet`
 carries the theme, and a desk that rewrote the same three attributes on each was an idle desk
 making DOM mutations -- and an ink layer, which follows them, repainting for nothing (#254).
 
+### `var DARK`
+
+Above `var DARK = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;`:
+
+`<skin>:auto` (#342): a skin with a light and a dark variant follows the system's appearance. The
+one query every page asks it with; `null` where there is no `matchMedia`, which reads as light.
+
+Beside `var autoState = null;`:
+
+the last `<skin>:auto` state applied, re-applied when the appearance changes; `null` on a fixed choice
+
+### `function applyThemeState`
+
+Above `function applyThemeState(ts) {`:
+
+A `theme_state` payload, applied: its palette through `applyTheme` and its skin through
+`applySkin`, both of which write only on change. For `<skin>:auto` the payload also carries
+`auto.light` and `auto.dark`, each exactly what choosing that variant serves, and the side the
+system is on is the one applied. The palette is applied only from a payload that carries css (or
+names no palette): a payload without css is "not known", never "no palette" (#346).
+
+Above `if (DARK) {`:
+
+A change of appearance re-applies the last auto state, without a reload: the new side's tokens and
+its variant, each written once. The ink layer follows the variant as it follows any skin change.
+
+### the closure `servedAuto`
+
+Above `(function servedAuto() {`:
+
+The served page carries both sides' tokens under `prefers-color-scheme` (`serve.page_theme`), so its
+first frame has the right palette; the variant is an attribute, which a media query cannot pick,
+so the server writes the pair as `data-skin-auto="<light> <dark>"` and this picks one as the file
+runs, before the page's first answer and before ink.js reads the skin.
+
 ## #219: how long a gesture took
 
 Every local gesture -- one the page can answer out of what it already has -- is marked at both

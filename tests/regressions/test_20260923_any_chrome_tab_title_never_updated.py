@@ -18,25 +18,23 @@ from __future__ import annotations
 
 import pytest
 
+from desk_harness import close_pages
 from test_fleet_column import _repos, _serve, fleet_home  # noqa: F401 - fixtures
-from test_fleet_desk_browser import launch_chromium
 
 
 @pytest.mark.browser
-def test_the_tab_says_how_many_agents_need_you_and_refresh_resolves(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_the_tab_says_how_many_agents_need_you_and_refresh_resolves(fleet_home, tmp_path, desk_browser):
     _repos(tmp_path, "alpha", "beta", "gamma", needs=("beta",))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            got = page.evaluate("() => refresh().then(d => ({ok: !!(d && d.ok), title: document.title}))")
-            assert got["ok"], "refresh() ended in its catch instead of answering with the fleet"
-            assert got["title"].startswith("(1) fleet"), got["title"]
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        got = page.evaluate("() => refresh().then(d => ({ok: !!(d && d.ok), title: document.title}))")
+        assert got["ok"], "refresh() ended in its catch instead of answering with the fleet"
+        assert got["title"].startswith("(1) fleet"), got["title"]
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
