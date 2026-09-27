@@ -1763,7 +1763,7 @@ def update_window(w: str = "main", **kwargs) -> dict:
                                  code="widths_stale")
         win = wins.setdefault(w, {
             "focus": False,
-            "section": "tickets",
+            "section": "",
             # Which agent this window has OPEN (#203). Per window, not shared: the left monitor
             # reads one agent while the centre reads another, and `selected` -- which the inspector
             # follows -- stays the one thing every window agrees on.
