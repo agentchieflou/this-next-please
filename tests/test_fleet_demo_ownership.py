@@ -212,11 +212,14 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         still_there = page.evaluate(
             "() => document.querySelectorAll('#grid .tile').length")
         assert still_there == 5, "the desk emptied when the stream went"
+        # The fleet's answer is held until the test has looked (#305): a hold of 1200 ms was a race
+        # with the look itself on a loaded runner, which lost it when the look came later.
         page.add_init_script("""
-              const real = window.fetch;
+              const real = window.fetch, held = [];
+              window.__releaseFleet = () => { window.__fleetFree = true; held.splice(0).forEach(go => go()); };
               window.fetch = function (url, opts) {
-                if (String(url).indexOf('/api/fleet') >= 0) {
-                  return new Promise(go => setTimeout(() => go(real(url, opts)), 1200));
+                if (!window.__fleetFree && String(url).indexOf('/api/fleet') >= 0) {
+                  return new Promise(go => held.push(go)).then(() => real(url, opts));
                 }
                 return real.apply(this, arguments);
               };
@@ -234,6 +237,7 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         assert early["tiles"] == 5, early
         assert early["stale"], "the reconnect did not say the desk was the old one"
         page.screenshot(path=os.path.join(shots, "ownership-stale.png"))
+        page.evaluate("() => window.__releaseFleet()")
         page.wait_for_function(
             "() => !document.body.classList.contains('is-stale')", timeout=15000)
 
