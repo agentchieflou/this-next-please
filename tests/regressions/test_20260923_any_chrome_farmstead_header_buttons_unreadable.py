@@ -16,25 +16,23 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import _serve, _stop, fleet_home  # noqa: F401 - fixtures
 from test_fleet_ink_farmstead import CONTROLS, _choose, _farm_desk, _inked, _page, _ratio
 
 
 @pytest.mark.browser
-def test_farmstead_daytime_header_and_footer_controls_read_at_4_5(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_farmstead_daytime_header_and_footer_controls_read_at_4_5(fleet_home, tmp_path, desk_browser):
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token)
-            _choose(page, "farmstead:daytime")
-            _inked(page, "farmstead:daytime")
-            controls = page.evaluate(CONTROLS)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token)
+        _choose(page, "farmstead:daytime")
+        _inked(page, "farmstead:daytime")
+        controls = page.evaluate(CONTROLS)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     named = {c["what"].split('"')[1] for c in controls}

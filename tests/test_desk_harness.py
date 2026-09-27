@@ -4,8 +4,13 @@ Decision 13 keeps the browser tier's count where it is, so the harness's browser
 `test_fleet_desk_browser.py::test_desk_browser_layouts_and_sync` (a context per page, reduced
 motion, `COUNT_FETCHES`), and what can be told without Chromium is told here, with stand-ins for
 the driver and the browser: the driver starts under the real environment and only once, a browser
-a test closed is launched again, a test's contexts are closed and no one else's, a browser test
-that is not on the harness finds the shared driver stopped, and the desk fixture serves and stops.
+a test closed is launched again, a test's contexts are closed and no one else's, and the desk
+fixture serves and stops. (#303 took out the tests of a browser test off the harness: there is none
+left, and `tests/test_hygiene_harness.py` keeps it so.)
+
+The CPU throttle (#307): where its rate comes from, and that a page is throttled again when its main
+frame navigates. Whether Chromium really runs slower is a verdict on real timings, so that check
+folds into `test_fleet_ink.py::test_a_gesture_keeps_its_budget_while_the_ink_draws` (measured).
 """
 from __future__ import annotations
 import os
@@ -119,55 +124,6 @@ def test_stopping_the_driver_closes_the_browser_first_and_is_safe_twice():
     assert browser.closed == 1 and driver.stopped == 1
 
 
-def test_a_browser_test_off_the_harness_finds_the_shared_driver_stopped():
-    """`pytest_runtest_setup`: a `with sync_playwright()` test cannot start while the shared
-    driver is up in its thread, so the harness stops it before any browser test without
-    `desk_browser`, and leaves it up for a plain test and a harness test."""
-    assert H.off_the_harness(True, ["fleet_home", "tmp_path"])
-    assert not H.off_the_harness(True, ["fleet_home", "desk_browser"])
-    assert not H.off_the_harness(False, ["tmp_path"])
-
-
-# Two modules run in one process: the first leaves the shared driver up (a stand-in, so no Node and
-# no Chromium start), the second is a browser test off the harness whose own driver comes from a
-# module-scoped fixture -- as test_fleet_stream_resume's and test_fleet_theme_switch's `browser` do.
-_FIRST = """
-class Driver:
-    def stop(self):
-        pass
-
-def test_a_harness_test_leaves_the_driver_up(_desk_driver):
-    _desk_driver["pw"] = Driver()
-"""
-_SECOND = """
-import pytest
-
-@pytest.fixture(scope="module")
-def own_driver(_desk_driver):
-    return "pw" in _desk_driver
-
-@pytest.mark.browser
-def test_off_the_harness(own_driver):
-    assert not own_driver, "a module fixture's own sync_playwright() met the shared driver still up"
-"""
-
-
-def test_the_shared_driver_is_stopped_before_a_module_fixture_of_a_test_off_the_harness(tmp_path):
-    """The guard runs before *every* fixture of a test off the harness, a module-scoped one too.
-
-    As an autouse function fixture it ran after them, so a module `browser` fixture that opens its own
-    `sync_playwright()` met the shared driver still up whenever a harness test had just run in the
-    same process, and Playwright raised "using Playwright Sync API inside the asyncio loop"."""
-    (tmp_path / "conftest.py").write_text('pytest_plugins = ["desk_harness"]\n', encoding="utf-8")
-    (tmp_path / "test_a.py").write_text(_FIRST, encoding="utf-8")
-    (tmp_path / "test_b.py").write_text(_SECOND, encoding="utf-8")
-    env = dict(os.environ, PYTHONPATH=os.path.dirname(os.path.abspath(__file__)),
-               PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
-    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tmp_path)],
-                         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
-    assert out.returncode == 0 and "2 passed" in out.stdout, (out.stdout, out.stderr)
-
-
 def test_the_harness_starts_nothing_until_a_test_asks_for_the_browser():
     """A worker that runs no browser test never starts Node: importing the harness imports no
     Playwright, and only `desk_browser` starts the driver."""
@@ -187,3 +143,100 @@ def test_the_desk_fixture_serves_the_page_and_stops(fleet_home, desk_server):
         assert answer.status == 200
     assert desk_server.url("&w=side").endswith(f"/?t={desk_server.token}&w=side")
     assert desk_server.base == f"http://127.0.0.1:{desk_server.port}"
+
+
+# ------------------------------------------------------------------ the CPU throttle (#307)
+
+
+def test_the_throttle_rate_is_the_option_then_the_environment_then_none():
+    """`--desk-cpu-throttle`, else `AGENTDATA_DESK_THROTTLE`, else 1; under 1, or not a number, is a
+    usage error rather than a run that quietly measures nothing."""
+    env = H.THROTTLE_ENV
+    assert env == "AGENTDATA_DESK_THROTTLE"
+    assert H.throttle_rate(None, {}) == 1.0
+    assert H.throttle_rate(None, {env: " "}) == 1.0
+    assert H.throttle_rate(None, {env: "2.5"}) == 2.5
+    assert H.throttle_rate(4.0, {env: "2"}) == 4.0
+    assert H.throttle_rate(1.0, {}) == 1.0
+    for option, environ in ((0.5, {}), (None, {env: "0"}), (None, {env: "fast"})):
+        with pytest.raises(pytest.UsageError):
+            H.throttle_rate(option, environ)
+
+
+class CdpSession:
+    def __init__(self, sent):
+        self.sent = sent
+
+    def send(self, method, params):
+        self.sent.append((method, params))
+
+
+class ThrottledContext:
+    def __init__(self):
+        self.sent: list = []
+        self.sessions = 0
+        self.kwargs: dict = {}
+
+    def new_page(self):
+        self.page = ThrottledPage(self)
+        return self.page
+
+    def new_cdp_session(self, page):
+        assert page is self.page
+        self.sessions += 1
+        return CdpSession(self.sent)
+
+
+class ThrottledPage:
+    def __init__(self, context):
+        self.context = context
+        self.handlers: dict = {}
+        self.main_frame = type("Frame", (), {"parent_frame": None})()
+
+    def on(self, event, handler):
+        self.handlers.setdefault(event, []).append(handler)
+
+    def add_init_script(self, script):
+        pass
+
+    def navigate(self, frame):
+        for handler in self.handlers.get("framenavigated", []):
+            handler(frame)
+
+
+class ThrottledBrowser:
+    def __init__(self):
+        self.context = ThrottledContext()
+
+    def new_context(self, **kwargs):
+        self.context.kwargs = kwargs
+        return self.context
+
+
+def test_a_throttled_page_is_throttled_again_whenever_its_main_frame_navigates(monkeypatch):
+    """`desk_page` sends `Emulation.setCPUThrottlingRate` when the rate is over 1, and again on each
+    navigation of the main frame (a new site is a new renderer process), not of a frame inside it.
+    At the default rate it opens no CDP session at all."""
+    rate = ("Emulation.setCPUThrottlingRate", {"rate": 4.0})
+    browser = ThrottledBrowser()
+    page = H.desk_page(browser, throttle=4)
+    assert browser.context.sessions == 1 and browser.context.sent == [rate]
+    page.navigate(page.main_frame)
+    assert browser.context.sent == [rate, rate]
+    page.navigate(type("Frame", (), {"parent_frame": page.main_frame})())
+    assert browser.context.sent == [rate, rate], "a subframe's navigation is not the page's"
+    assert browser.context.kwargs == {"viewport": {"width": 1400, "height": 900},
+                                      "reduced_motion": "no-preference"}
+
+    monkeypatch.setitem(H.THROTTLE, "rate", 1.0)
+    plain = ThrottledBrowser()
+    H.desk_page(plain)
+    assert plain.context.sessions == 0 and plain.context.sent == []
+
+    monkeypatch.setitem(H.THROTTLE, "rate", 2.0)
+    slowed = ThrottledBrowser()
+    H.desk_page(slowed)
+    assert slowed.context.sent == [("Emulation.setCPUThrottlingRate", {"rate": 2.0})]
+    unslowed = ThrottledBrowser()
+    H.desk_page(unslowed, throttle=1)
+    assert unslowed.context.sessions == 0, "an explicit rate of 1 overrides the option"

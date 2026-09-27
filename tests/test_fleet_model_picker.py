@@ -23,7 +23,6 @@ import pytest
 from agentdata import theme as T
 from agentdata.fleet import models as M, registry, serve as S, skins as K
 
-from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -48,13 +47,10 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 def _catalogue() -> dict:

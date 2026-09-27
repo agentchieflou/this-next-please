@@ -16,7 +16,7 @@ from agentdata.fleet import events as E, handoff as H, launch as L, preflight as
 from agentdata.fleet.registry import Registry, fleet_dir
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 
 @pytest.fixture()
@@ -211,13 +211,12 @@ def _serve(tmp_path):
 
 
 @pytest.mark.browser
-def test_a_dropped_ticket_opens_a_card_that_says_why_it_is_thin(fleet_home, tmp_path, monkeypatch):
+def test_a_dropped_ticket_opens_a_card_that_says_why_it_is_thin(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Acceptance criterion: a rendered-page test drops a ticket and reads the card's verdict text.
 
     The drop is built in page context, because that is the only way to put a `DataTransfer` on a
     synthetic event that the page's own handler will read.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _luna(tmp_path)
 
     # Bypass Jira entirely: the pre-flight cache is the seam, and priming it is what a second drop
@@ -227,15 +226,14 @@ def test_a_dropped_ticket_opens_a_card_that_says_why_it_is_thin(fleet_home, tmp_
                                             "at": time.time()}}})
     server, token, port = _serve(tmp_path)
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
 
-            page.evaluate("""() => {
+        page.evaluate("""() => {
               const tile = document.querySelector('.tile[data-repo="luna"]');
               const dt = new DataTransfer();
               dt.setData('application/x-agentdata-ticket', 'RDSD-118');
@@ -243,28 +241,28 @@ def test_a_dropped_ticket_opens_a_card_that_says_why_it_is_thin(fleet_home, tmp_
               tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
             }""")
 
-            card = page.locator('.tile[data-repo="luna"] .dispatch')
-            page.wait_for_selector('.tile[data-repo="luna"] .dispatch:not([hidden])', timeout=5000)
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="luna"] .verdict').textContent.trim() !== 'reading…'""",
-                timeout=5000)
+        card = page.locator('.tile[data-repo="luna"] .dispatch')
+        page.wait_for_selector('.tile[data-repo="luna"] .dispatch:not([hidden])', timeout=5000)
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="luna"] .verdict').textContent.trim() !== 'reading…'""",
+            timeout=5000)
 
-            # `inner_text` returns the *rendered* text, and the chip is uppercased in CSS.
-            assert card.locator(".verdict").inner_text().strip().lower() == "thin"
-            assert "RDSD-118" in card.locator(".dispatch-key").inner_text()
-            body = card.locator(".dispatch-rows").inner_text()
-            assert "none found" in body, body
-            assert "a title with a full stop is not a specification" in body, body
-            # The card asks for the one thing nothing else in the system knows.
-            assert card.locator(".brief").is_visible()
-            assert card.locator(".dispatch-go").inner_text().strip() == "Start anyway"
-            # Nothing has been started: the card is the decision, not the launch.
-            assert not errors, errors
-            assert not os.path.isfile(os.path.join(fleet_dir(), "agents", "luna", "agent.json"))
+        # `inner_text` returns the *rendered* text, and the chip is uppercased in CSS.
+        assert card.locator(".verdict").inner_text().strip().lower() == "thin"
+        assert "RDSD-118" in card.locator(".dispatch-key").inner_text()
+        body = card.locator(".dispatch-rows").inner_text()
+        assert "none found" in body, body
+        assert "a title with a full stop is not a specification" in body, body
+        # The card asks for the one thing nothing else in the system knows.
+        assert card.locator(".brief").is_visible()
+        assert card.locator(".dispatch-go").inner_text().strip() == "Start anyway"
+        # Nothing has been started: the card is the decision, not the launch.
+        assert not errors, errors
+        assert not os.path.isfile(os.path.join(fleet_dir(), "agents", "luna", "agent.json"))
 
-            page.locator('.tile[data-repo="luna"] .dispatch-close').click()
-            assert card.is_hidden()
-            browser.close()
+        page.locator('.tile[data-repo="luna"] .dispatch-close').click()
+        assert card.is_hidden()
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

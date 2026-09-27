@@ -28,7 +28,7 @@ import fakes
 from test_fleet import make_project
 from test_fleet_board_desk import PHOTO, friction
 from test_fleet_branches import seven_branches
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_handoff_pickup import RICH
 from test_fleet_wrapup import Recorder
 
@@ -96,35 +96,33 @@ def _eventually(cond, timeout=10.0):
     return cond()
 
 
-def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_branches(desk, tmp_path, monkeypatch):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_branches(desk, tmp_path, monkeypatch, desk_browser):
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            errors: list[str] = []
+        browser = desk_browser
+        errors: list[str] = []
 
-            # 1. The board, in glass, beside the agent the operator is reading. The address is the
-            #    board window's, as an old bookmark has it; it opens the desk, and the board is a
-            #    key away.
-            board = browser.new_page(viewport={"width": 1280, "height": 900})
-            board.on("pageerror", lambda e: errors.append(str(e)))
-            board.goto(f"http://127.0.0.1:{port}/?t={token}&layout=roles&view=board", wait_until="domcontentloaded")
-            board.wait_for_selector('.tile[data-repo="sol"].is-solo', timeout=15000)
-            board.evaluate("() => boardPanel(true)")
-            board.wait_for_selector(f"#tickets li[data-key='{TICKET}']", timeout=15000)
-            board.wait_for_selector("#agentrail .rail-chip[data-repo='luna']:not([hidden])", timeout=15000)
-            board.evaluate("(name) => post('theme', { skin: name })", "glass:smoke")
-            board.wait_for_function("() => document.body.getAttribute('data-skin-variant') === 'smoke'", timeout=5000)
-            # The skin has arrived when its stylesheet's tokens are on <body>. Since #257 glass paints
-            # nothing in CSS -- the sidebar is the page's own opaque panel, not frost -- so what is
-            # read is the skin's own input, and the sidebar stays readable as the plain look.
-            board.wait_for_function("""() => getComputedStyle(document.body)
+        # 1. The board, in glass, beside the agent the operator is reading. The address is the
+        #    board window's, as an old bookmark has it; it opens the desk, and the board is a
+        #    key away.
+        board = browser.new_page(viewport={"width": 1280, "height": 900})
+        board.on("pageerror", lambda e: errors.append(str(e)))
+        board.goto(f"http://127.0.0.1:{port}/?t={token}&layout=roles&view=board", wait_until="domcontentloaded")
+        board.wait_for_selector('.tile[data-repo="sol"].is-solo', timeout=15000)
+        board.evaluate("() => boardPanel(true)")
+        board.wait_for_selector(f"#tickets li[data-key='{TICKET}']", timeout=15000)
+        board.wait_for_selector("#agentrail .rail-chip[data-repo='luna']:not([hidden])", timeout=15000)
+        board.evaluate("(name) => post('theme', { skin: name })", "glass:smoke")
+        board.wait_for_function("() => document.body.getAttribute('data-skin-variant') === 'smoke'", timeout=5000)
+        # The skin has arrived when its stylesheet's tokens are on <body>. Since #257 glass paints
+        # nothing in CSS -- the sidebar is the page's own opaque panel, not frost -- so what is
+        # read is the skin's own input, and the sidebar stays readable as the plain look.
+        board.wait_for_function("""() => getComputedStyle(document.body)
                 .getPropertyValue('--glass-fill').trim() !== ''""", timeout=5000)
-            assert board.evaluate("() => getComputedStyle(document.getElementById('side')).backdropFilter") == "none"
+        assert board.evaluate("() => getComputedStyle(document.getElementById('side')).backdropFilter") == "none"
 
-            # The scrollbar the board scrolls with is the skin's thumb, read off the computed style.
-            bar = board.evaluate("""() => {
+        # The scrollbar the board scrolls with is the skin's thumb, read off the computed style.
+        bar = board.evaluate("""() => {
                 const probe = document.createElement('i');
                 probe.style.color = 'var(--scroll-thumb)';
                 document.body.appendChild(probe);
@@ -133,72 +131,72 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
                 const s = getComputedStyle(document.getElementById('side'));
                 return { thumb, bar: s.scrollbarColor, width: s.scrollbarWidth };
             }""")
-            assert bar["thumb"] == "rgba(255, 255, 255, 0.22)", bar
-            assert bar["bar"].startswith(bar["thumb"]) and bar["width"] == "thin", bar
+        assert bar["thumb"] == "rgba(255, 255, 255, 0.22)", bar
+        assert bar["bar"].startswith(bar["thumb"]) and bar["width"] == "thin", bar
 
-            # 2. The drag: the rail lights the one candidate, the drop opens the card under the rail.
-            board.evaluate(f"""() => {{
+        # 2. The drag: the rail lights the one candidate, the drop opens the card under the rail.
+        board.evaluate(f"""() => {{
               const li = document.querySelector('#tickets li[data-key="{TICKET}"]');
               li.dispatchEvent(new DragEvent('dragstart', {{dataTransfer: new DataTransfer(), bubbles: true, cancelable: true}}));
             }}""")
-            assert board.evaluate("() => document.querySelector('#agentrail .rail-chip[data-repo=\"luna\"]').classList.contains('is-candidate')")
-            board.evaluate(f"""() => {{
+        assert board.evaluate("() => document.querySelector('#agentrail .rail-chip[data-repo=\"luna\"]').classList.contains('is-candidate')")
+        board.evaluate(f"""() => {{
               const chip = document.querySelector('#agentrail .rail-chip[data-repo="luna"] .rail-open');
               const dt = new DataTransfer();
               dt.setData('application/x-agentdata-ticket', '{TICKET}');
               dt.setData('text/plain', '{TICKET}');
               chip.dispatchEvent(new DragEvent('drop', {{dataTransfer: dt, bubbles: true, cancelable: true}}));
             }}""")
-            board.wait_for_selector("#railslot #dispatch:not([hidden])", timeout=5000)
-            board.wait_for_function(
-                "() => document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'", timeout=5000)
-            assert board.locator("#dispatch .verdict").inner_text().strip().lower() == "ready"
-            assert f"{TICKET} → luna" in board.locator("#dispatch .dispatch-key").inner_text()
-            assert sum(1 for e in E.read("luna") if e["kind"] == "started") == 0
+        board.wait_for_selector("#railslot #dispatch:not([hidden])", timeout=5000)
+        board.wait_for_function(
+            "() => document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'", timeout=5000)
+        assert board.locator("#dispatch .verdict").inner_text().strip().lower() == "ready"
+        assert f"{TICKET} → luna" in board.locator("#dispatch .dispatch-key").inner_text()
+        assert sum(1 for e in E.read("luna") if e["kind"] == "started") == 0
 
-            # 3. Start. One agent, which looks before it branches.
-            board.locator("#dispatch .dispatch-go").click()
-            board.wait_for_selector("#dispatch[hidden]", state="attached", timeout=10000)
-            assert _eventually(lambda: sum(1 for e in E.read("luna") if e["kind"] == "started") == 1)
-            _settle("luna")
-            E.refresh("luna", desk, repo_state=Registry().get("luna").state())
-            events = E.read("luna")
-            calls = [((e.get("data") or {}).get("arguments") or {}).get("command", "")
-                     for e in events if e["kind"] == "tool_call"]
-            assert [c for c in calls if c.startswith("git for-each-ref refs/heads")]
-            assert not [c for c in calls if c.startswith("git checkout -b")], calls
-            assert not [e for e in events if e["kind"] == "denied"], "the look must be permitted"
-            said = " ".join((e.get("data") or {}).get("text", "") for e in events if e["kind"] == "assistant_text")
-            assert "branches=7 (3 unmerged)" in said and "Continuing on feature/RDSD-7-part-2" in said
-            assert Registry().get("luna").state()["branch"] == "feature/RDSD-7-part-2"
+        # 3. Start. One agent, which looks before it branches.
+        board.locator("#dispatch .dispatch-go").click()
+        board.wait_for_selector("#dispatch[hidden]", state="attached", timeout=10000)
+        assert _eventually(lambda: sum(1 for e in E.read("luna") if e["kind"] == "started") == 1)
+        _settle("luna")
+        E.refresh("luna", desk, repo_state=Registry().get("luna").state())
+        events = E.read("luna")
+        calls = [((e.get("data") or {}).get("arguments") or {}).get("command", "")
+                 for e in events if e["kind"] == "tool_call"]
+        assert [c for c in calls if c.startswith("git for-each-ref refs/heads")]
+        assert not [c for c in calls if c.startswith("git checkout -b")], calls
+        assert not [e for e in events if e["kind"] == "denied"], "the look must be permitted"
+        said = " ".join((e.get("data") or {}).get("text", "") for e in events if e["kind"] == "assistant_text")
+        assert "branches=7 (3 unmerged)" in said and "Continuing on feature/RDSD-7-part-2" in said
+        assert Registry().get("luna").state()["branch"] == "feature/RDSD-7-part-2"
 
-            # 4. A second window, opened on luna the way a toast opens it: the tile's cell reads the
-            #    count, and the pane names the three.
-            grid = browser.new_page(viewport={"width": 1280, "height": 900})
-            grid.on("pageerror", lambda e: errors.append(str(e)))
-            grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=luna",
-                      wait_until="domcontentloaded")
-            grid.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=15000)
-            grid.wait_for_function(
-                """() => /7 branches · 3 never reached main/.test(
+        # 4. A second window, opened on luna the way a toast opens it: the tile's cell reads the
+        #    count, and the pane names the three.
+        grid = browser.new_page(viewport={"width": 1280, "height": 900})
+        grid.on("pageerror", lambda e: errors.append(str(e)))
+        grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=luna",
+                  wait_until="domcontentloaded")
+        grid.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=15000)
+        grid.wait_for_function(
+            """() => /7 branches · 3 never reached main/.test(
                      (document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]') || {}).textContent || '')""",
-                timeout=40000)
-            cell = grid.locator('.tile[data-repo="luna"] .cell[data-cell="git"]')
-            assert cell.evaluate("el => el.classList.contains('warn')")
-            cell.click()
-            grid.wait_for_function(
-                "() => document.querySelectorAll('#inspector:not([hidden]) .branches .branchrow').length === 7", timeout=10000)
-            rows = grid.eval_on_selector_all("#inspector .branches .branchrow", """els => els.map(e => ({
+            timeout=40000)
+        cell = grid.locator('.tile[data-repo="luna"] .cell[data-cell="git"]')
+        assert cell.evaluate("el => el.classList.contains('warn')")
+        cell.click()
+        grid.wait_for_function(
+            "() => document.querySelectorAll('#inspector:not([hidden]) .branches .branchrow').length === 7", timeout=10000)
+        rows = grid.eval_on_selector_all("#inspector .branches .branchrow", """els => els.map(e => ({
                 name: e.querySelector('.bname').textContent, unmerged: e.classList.contains('unmerged') }))""")
-            assert [r["name"] for r in rows if r["unmerged"]] == \
-                ["feature/RDSD-7-part-2", "fix/RDSD-9", "feature/RDSD-7-part-1"], rows
-            assert grid.locator("#inspector .branches-carry").inner_text() == \
-                "two branches carry RDSD-7 (feature/RDSD-7-part-2, feature/RDSD-7-part-1); only one can merge"
+        assert [r["name"] for r in rows if r["unmerged"]] == \
+            ["feature/RDSD-7-part-2", "fix/RDSD-9", "feature/RDSD-7-part-1"], rows
+        assert grid.locator("#inspector .branches-carry").inner_text() == \
+            "two branches carry RDSD-7 (feature/RDSD-7-part-2, feature/RDSD-7-part-1); only one can merge"
 
-            # 5. The project panel fits one screen (#504): the rail, no open friction, one spend line,
-            #    the branches with their seven rows in sight, and a closed *more* holding the facts.
-            grid.wait_for_selector("#inspectordetails > details.more", state="attached", timeout=10000)
-            shape = grid.evaluate("""() => {
+        # 5. The project panel fits one screen (#504): the rail, no open friction, one spend line,
+        #    the branches with their seven rows in sight, and a closed *more* holding the facts.
+        grid.wait_for_selector("#inspectordetails > details.more", state="attached", timeout=10000)
+        shape = grid.evaluate("""() => {
                 const el = document.getElementById('inspector');
                 const body = document.getElementById('inspectordetails');
                 const kids = Array.from(body.children);
@@ -221,19 +219,19 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
                          rowsVisible: rows.filter(r => r.checkVisibility() && r.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom).length,
                          rowHeights: rows.map(r => Math.round(r.getBoundingClientRect().height)) };
             }""")
-            assert shape["scroll"] <= shape["client"] + 1, shape
-            assert shape["rail"] == 0 and shape["friction"] == -1, shape
-            assert 0 < shape["spend"] < shape["branches"] < shape["more"] == shape["last"], shape
-            assert shape["spendCount"] == 1 and shape["spendOneLine"] and "turn" in shape["spendTitle"], shape
-            assert not shape["moreOpen"] and shape["factsInMore"] and shape["facts"] == 1, shape
-            assert not {"project", "path", "branch"} & set(shape["factKeys"]) and "jira" in shape["factKeys"], shape
-            assert shape["summary"].startswith("more") and "facts" in shape["summary"] and \
-                "3 earlier friction" in shape["summary"], shape
-            assert shape["rowsVisible"] == 7, shape
+        assert shape["scroll"] <= shape["client"] + 1, shape
+        assert shape["rail"] == 0 and shape["friction"] == -1, shape
+        assert 0 < shape["spend"] < shape["branches"] < shape["more"] == shape["last"], shape
+        assert shape["spendCount"] == 1 and shape["spendOneLine"] and "turn" in shape["spendTitle"], shape
+        assert not shape["moreOpen"] and shape["factsInMore"] and shape["facts"] == 1, shape
+        assert not {"project", "path", "branch"} & set(shape["factKeys"]) and "jira" in shape["factKeys"], shape
+        assert shape["summary"].startswith("more") and "facts" in shape["summary"] and \
+            "3 earlier friction" in shape["summary"], shape
+        assert shape["rowsVisible"] == 7, shape
 
-            # An open *more* stays open across a desk tick, and a tick with nothing changed writes nothing.
-            grid.evaluate("() => { document.querySelector('#inspectordetails > details.more').open = true; }")
-            ticked = grid.evaluate("""async () => {
+        # An open *more* stays open across a desk tick, and a tick with nothing changed writes nothing.
+        grid.evaluate("() => { document.querySelector('#inspectordetails > details.more').open = true; }")
+        ticked = grid.evaluate("""async () => {
                 const body = document.getElementById('inspectordetails');
                 const seen = [];
                 const watch = new MutationObserver((records) => { for (const r of records) seen.push(r.type + ':' + (r.target.className || r.target.nodeName)); });
@@ -244,19 +242,19 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
                 return { n: seen.length, seen: seen.slice(0, 8),
                          open: document.querySelector('#inspectordetails > details.more').open };
             }""")
-            assert ticked["n"] == 0 and ticked["open"], ticked
-            # A rebuild (a re-read of the branches) keeps both folds as the operator left them.
-            grid.evaluate("() => loadBranches('luna', true)")
-            grid.wait_for_function("""() => document.querySelectorAll('#inspector .branches .branchrow').length === 7
+        assert ticked["n"] == 0 and ticked["open"], ticked
+        # A rebuild (a re-read of the branches) keeps both folds as the operator left them.
+        grid.evaluate("() => loadBranches('luna', true)")
+        grid.wait_for_function("""() => document.querySelectorAll('#inspector .branches .branchrow').length === 7
                 && document.querySelector('#inspectordetails > details.more').open
                 && document.querySelector('#inspector details.branches-list').open""", timeout=10000)
 
-            # 6. Wrap up (#510): `w` on luna's pane opens the project panel with the sheet. #503's `RUN`
-            #    is recorded: push is real git against a bare origin, the comment goes to the fake Jira,
-            #    and the pr and page adapters answer as `main` does until #506 and #507 land.
-            wrapped = _wrap_up_from_the_pane(grid, desk, tmp_path, monkeypatch)
-            assert not errors, errors
-            browser.close()
+        # 6. Wrap up (#510): `w` on luna's pane opens the project panel with the sheet. #503's `RUN`
+        #    is recorded: push is real git against a bare origin, the comment goes to the fake Jira,
+        #    and the pr and page adapters answer as `main` does until #506 and #507 land.
+        wrapped = _wrap_up_from_the_pane(grid, desk, tmp_path, monkeypatch)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

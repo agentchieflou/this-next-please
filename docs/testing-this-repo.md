@@ -287,6 +287,7 @@ browser that is up costs under 0.1 s.
 | `desk_browser` | the worker's Chromium (from `launch_chromium`, relaunched if a test closed it); the contexts the test made are closed at teardown |
 | `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` installed; `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
 | `no_desk_driver` | no shared driver in this thread, for a test that needs `asyncio.run` |
+| `desk_chromium_with` | `launch(args)`: a Chromium of the test's own on the worker's driver, started with extra switches (a Blink flag), closed at teardown |
 
 ```python
 @pytest.mark.browser
@@ -299,9 +300,10 @@ def test_the_open_pane_is_full(fleet_home, tmp_path, desk_server, new_desk_page)
 ```
 
 No `pytest.importorskip("playwright.sync_api")` of its own and no `browser.close()`: the harness does
-both. A test that still opens `with sync_playwright()` works beside it (the harness stops the shared
-driver before any browser test that does not use `desk_browser`, because two sync drivers cannot
-live in one thread), and #300–#303 move the rest over. `tests/test_fleet_desk_browser.py` and
+both. `with sync_playwright()` is gone from the tests (#303): every browser test is on the harness,
+and `tests/test_hygiene_harness.py` fails on a `sync_playwright(` anywhere under `tests/` but the
+harness, or a `launch_chromium(` outside it, and says to use `desk_server`/`new_desk_page` instead.
+A module `browser` fixture is `desk_browser` under its old name. `tests/test_fleet_desk_browser.py` and
 `tests/test_fleet_ink.py` are the pattern; `test_fleet_ink`'s `_serve`, `_stop` and `_open` are thin
 wrappers over the harness, so the modules that import them keep working.
 
@@ -310,6 +312,9 @@ wrappers over the harness, so the modules that import them keep working.
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
 after the change that makes it slow. Each prints what it measured, and the CI browser leg tees
 that into the job summary and uploads the recorded demo beside it.
+
+They share the worker's browser like every other browser test (#303), and it starts at fixture
+setup, so no timed window includes a driver or a Chromium starting.
 
 | Guard | Asserts | In |
 | --- | --- | --- |
@@ -789,8 +794,9 @@ and cap raises. None of them named a cause.
    ([`.github/ISSUE_TEMPLATE/flake.md`](../.github/ISSUE_TEMPLATE/flake.md)) with the job URL, the node id, the
    full failure output (including what `_explain_the_page` printed), the commit, and the runner OS and Python.
 2. **Reproduce before fixing.** Run `-n 8` on 4 cores, several concurrent copies of the one test, or the
-   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did). #307
-   adds a CPU throttle and a stress script to this list. Paste the reproduction in the issue.
+   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did), or
+   the two tools in *Reproducing a CI-only failure* below: `--desk-cpu-throttle` and
+   `.github/scripts/stress_one.py` (#307). Paste the reproduction in the issue.
 3. **Fix the cause**: a missing condition, a stub race, a leaked global, a product defect. A product defect gets
    a regression file, `tests/regressions/test_<yyyymmdd>_<any|shell>_<short>.py`, quoting what the runner
    printed (see *The regression convention*).
@@ -803,6 +809,35 @@ operator's call, one PR at a time**: it happens only at the operator's word for 
 names the check and links its flake issue. Branch protection is the operator's setting and is not changed here;
 the `flake` label the template applies is created by the operator. `tests/test_hygiene_flake_policy.py` keeps
 this section, the template and the rule together.
+
+## Reproducing a CI-only failure
+
+A runner is 1.5 to 3 times slower than a laptop, and Windows-only failures were fixed by guessing because
+nobody could make a laptop that slow (#307). Two tools do it, and both are local: CI runs neither, and neither
+is a reason to raise a ceiling.
+
+| Tool | What it slows | What it does not slow |
+| --- | --- | --- |
+| `--desk-cpu-throttle=RATE` (or `AGENTDATA_DESK_THROTTLE=RATE`; default 1) | the main thread of every desk page the harness opens (`tests/desk_harness.py` `desk_page`, so `new_desk_page` and every helper on it): CDP `Emulation.setCPUThrottlingRate`, sent again whenever the page's main frame navigates, because a navigation to another site starts a new renderer process unthrottled | the Python server, the Playwright driver, and Chromium's GPU process |
+| `python .github/scripts/stress_one.py NODEID [--copies 8] [--rounds 2] [--throttle 1] [--timeout 600]` | everything, by contention: `--copies` processes of the one test fight for the CPU at once, as the tests on a loaded runner do; `--throttle` passes the option above to each copy | nothing in particular: it is the whole machine that is slow, not one thread |
+
+```
+python -m pytest -q -m browser tests/test_fleet_ink_glass.py --desk-cpu-throttle=4
+python .github/scripts/stress_one.py tests/test_fleet_ink_glass.py::test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing
+```
+
+The numbers they were chosen on, in this suite's headless Chromium: a fixed JS loop took 43 ms at rate 1 and
+171 ms at rate 4; 8 copies over 2 rounds of
+`test_fleet_ink_glass.py::test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing`
+took about 115 s each, about 11x slower than under `-n 4`, and all 16 passed.
+
+`stress_one.py` prints a TOON table, `round, copy, outcome, seconds`, and exits 1 when any copy did not pass.
+An outcome is `passed` (exit 0), `failed` (any other exit) or `timeout`. Every copy is started with
+`agentdata.proc.run`, which on POSIX gives it a session of its own and on a timeout kills the whole tree, so a
+copy that ran out of time leaves no driver or Chromium behind. `tests/test_stress_one.py` drives it with the
+node ids in `tests/fixtures/stress_one/target.py`, and
+`test_fleet_ink.py::test_a_gesture_keeps_its_budget_while_the_ink_draws` checks the throttle (a loop at rate 4
+takes at least three times as long, before and after a navigation to another site).
 
 ## What CI runs
 

@@ -30,7 +30,7 @@ import json
 import pytest
 
 from test_fleet_desk_actions import outside_desk               # noqa: F401 - fixture
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
 
 # The answers from one route that still show `busy` adopted, held until the test lets them go. The
@@ -88,36 +88,34 @@ def test_an_actions_row_is_numbered_after_every_snapshot_begun_before_it(fleet_h
 @pytest.mark.browser
 @pytest.mark.parametrize("late", ["/api/fleet", "/api/adopt"],
                          ids=["the-streams-snapshot", "the-adopts-own-answer"])
-def test_an_answer_read_before_the_hand_back_does_not_undo_it(outside_desk, late):  # noqa: F811
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page(viewport={"width": 1440, "height": 900})
-        errors = []
-        page.on("pageerror", lambda e: errors.append(str(e)))
-        page.add_init_script(HOLD_THE_ADOPTED % json.dumps(late))
-        page.goto(outside_desk, wait_until="domcontentloaded")
-        page.wait_for_function(OFFERED, timeout=15000)
+def test_an_answer_read_before_the_hand_back_does_not_undo_it(outside_desk, late, desk_browser):  # noqa: F811
+    browser = desk_browser
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.add_init_script(HOLD_THE_ADOPTED % json.dumps(late))
+    page.goto(outside_desk, wait_until="domcontentloaded")
+    page.wait_for_function(OFFERED, timeout=15000)
 
-        page.click('.tile[data-repo="busy"] .adopt')
-        # The tile shows the adoption from whichever answer was not held, and one that was is on its
-        # way. The page is asked for a snapshot here rather than left to the stream's frame, which
-        # may have come and gone already: this is the same call that frame makes.
-        page.wait_for_function(
-            f"""() => {{ if (!pendingRefresh) refresh();
+    page.click('.tile[data-repo="busy"] .adopt')
+    # The tile shows the adoption from whichever answer was not held, and one that was is on its
+    # way. The page is asked for a snapshot here rather than left to the stream's frame, which
+    # may have come and gone already: this is the same call that frame makes.
+    page.wait_for_function(
+        f"""() => {{ if (!pendingRefresh) refresh();
                         return window.__held.length > 0 && /is driving this repo/.test({OUTSIDE}); }}""",
-            polling=100, timeout=15000)
+        polling=100, timeout=15000)
 
-        page.click('.tile[data-repo="busy"] .adopt')            # hand it back
-        page.wait_for_function(OFFERED, timeout=15000)           # the hand-back's own answer
+    page.click('.tile[data-repo="busy"] .adopt')            # hand it back
+    page.wait_for_function(OFFERED, timeout=15000)           # the hand-back's own answer
 
-        # And now the answer that was read while it was still adopted arrives.
-        page.evaluate("() => __letGo()")
-        page.wait_for_function("() => window.__read > 0", timeout=15000)
-        shown = page.evaluate(f"() => {OUTSIDE}")
-        button = page.inner_text('.tile[data-repo="busy"] .adopt').strip()
-        assert not errors, errors
-        browser.close()
+    # And now the answer that was read while it was still adopted arrives.
+    page.evaluate("() => __letGo()")
+    page.wait_for_function("() => window.__read > 0", timeout=15000)
+    shown = page.evaluate(f"() => {OUTSIDE}")
+    button = page.inner_text('.tile[data-repo="busy"] .adopt').strip()
+    assert not errors, errors
+    close_pages(browser)
 
     assert "the fleet did not start" in shown, shown
     assert button == "adopt it", button
