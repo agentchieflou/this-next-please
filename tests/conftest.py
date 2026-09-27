@@ -25,8 +25,9 @@ import traceback
 
 import pytest
 
-# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317).
-pytest_plugins = ["orphans"]
+# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317);
+# tests/shard.py adds `--shard=K/N`, whole files balanced by tests/durations.json (#310).
+pytest_plugins = ["orphans", "shard"]
 
 from subproc import agentdata_env  # noqa: E402 - after pytest_plugins, which #317 puts right after pytest
 
