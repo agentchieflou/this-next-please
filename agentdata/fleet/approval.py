@@ -21,6 +21,8 @@ classifier allowing a .NET file write after refusing three plainer spellings of 
 permission prompt.
 """
 from __future__ import annotations
+import hashlib
+import json
 import os
 import secrets
 import time
@@ -41,12 +43,17 @@ DEFAULT_TIMEOUT_S = 30 * 60
 POLL_S = 2.0
 KEEP_DECIDED_DAYS = 30
 
+# What the digest covers (#543). `pid` is inside the hash and never leaves the laptop: the phone echoes the digest.
+DIGEST_FIELDS = ("id", "kind", "summary", "payload", "created", "pid")
+DIGEST_MISMATCH = "the decision names a different request (digest mismatch)"
+
 
 class Decision:
     """What came back. `auto` marks the outside-a-fleet path, which is not a decision anyone made."""
 
-    def __init__(self, state: str, *, id: str = "", reason: str = "", by: str = "", auto: bool = False):
-        self.state, self.id, self.reason, self.by, self.auto = state, id, reason, by, auto
+    def __init__(self, state: str, *, id: str = "", reason: str = "", by: str = "", via: str = "",
+                 auto: bool = False):
+        self.state, self.id, self.reason, self.by, self.via, self.auto = state, id, reason, by, via, auto
 
     @property
     def ok(self) -> bool:
@@ -80,6 +87,19 @@ def new_id(agent: str, kind: str) -> str:
     return textio.safe_name(f"{agent}-{kind}-{stamp}-{secrets.token_hex(2)}")
 
 
+def canonical(obj) -> bytes:
+    """The one byte form every digest is taken over: sorted keys, no spaces, UTF-8. `bridge` re-exports it."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def digest(record: dict) -> str:
+    """sha256 over the six fields that make a request that request, so a decision can name which one it answers."""
+    return hashlib.sha256(canonical({k: record.get(k) for k in DIGEST_FIELDS})).hexdigest()
+
+
+_digest_of = digest   # `decide()` takes a `digest=` argument, which shadows the function inside it
+
+
 def timeout_seconds(cfg: dict | None = None) -> int:
     value = C.get(cfg if cfg is not None else C.load(), "fleet.approval_timeout")
     try:
@@ -106,6 +126,7 @@ def require(kind: str, summary: str, payload=None, *, ticket: str = "", cfg: dic
     record = {"id": id, "repo": agent, "ticket": ticket, "kind": kind, "summary": summary,
               "payload": payload, "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
               "pid": os.getpid()}
+    mine = record["digest"] = digest(record)
     try:
         os.makedirs(approvals_dir(), exist_ok=True)
         textio.write_json(_request_path(id), record)
@@ -122,11 +143,15 @@ def require(kind: str, summary: str, payload=None, *, ticket: str = "", cfg: dic
     while True:
         decided = read_decision(id)
         if decided:
-            state = str(decided.get("decision") or DENIED)
+            by, via = str(decided.get("by") or ""), str(decided.get("via") or "")
+            if decided.get("digest") and decided.get("digest") != mine:
+                # MOB-D1: a decision about something else stops the agent rather than releasing it.
+                state, reason = DENIED, DIGEST_MISMATCH
+            else:
+                state, reason = str(decided.get("decision") or DENIED), str(decided.get("reason") or "")
             _emit(agent, "approval_resolved", {"id": id, "kind": kind, "decision": state,
-                                               "by": decided.get("by", "")}, ticket)
-            return Decision(state if state in (APPROVED, DENIED) else DENIED, id=id,
-                            reason=str(decided.get("reason") or ""), by=str(decided.get("by") or ""))
+                                               "by": decided.get("by", ""), "reason": reason}, ticket)
+            return Decision(state if state in (APPROVED, DENIED) else DENIED, id=id, reason=reason, by=by, via=via)
         if time.time() >= deadline:
             return Decision(TIMEOUT, id=id)
         time.sleep(poll)
@@ -172,9 +197,11 @@ def record(kind: str, summary: str, payload=None, *, repo: str, ticket: str = ""
     """
     id = new_id(repo, kind)
     now = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
-    decision = {"id": id, "decision": APPROVED, "reason": "", "by": by, "via": via, "decided": now}
     request = {"id": id, "repo": repo, "ticket": ticket, "kind": kind, "summary": summary, "payload": payload,
                "created": now, "via": via}
+    request["digest"] = digest(request)
+    decision = {"id": id, "decision": APPROVED, "reason": "", "by": by, "via": via, "decided": now,
+                "digest": request["digest"]}
     os.makedirs(approvals_dir(), exist_ok=True)
     textio.write_json(_decision_path(id), decision)
     textio.write_json(_request_path(id), request)
@@ -228,33 +255,45 @@ def history(limit: int = 50) -> list[dict]:
 
 
 class ApprovalError(Exception):
-    def __init__(self, msg: str, hint: str = ""):
+    """Refused, with a hint and a `code` (the `RegistryError` shape), which `_refuse` prints as `refused:`."""
+
+    def __init__(self, msg: str, hint: str = "", code: str = ""):
         super().__init__(msg)
         self.msg = msg
         self.hint = hint
+        self.code = code
 
 
-def decide(id: str, state: str, *, reason: str = "", by: str = "") -> dict:
-    """Answer one request. Idempotent-ish: a second answer is refused rather than silently ignored."""
+def decide(id: str, state: str, *, reason: str = "", by: str = "", digest: str = "", via: str = "laptop") -> dict:
+    """Answer one request. Idempotent-ish: a second answer is refused rather than silently ignored.
+
+    `digest`, when given, must be the request's own (a decision made elsewhere names what it answers);
+    laptop callers pass none. The decision file carries the request's digest and `via` either way.
+    """
     if state not in (APPROVED, DENIED):
-        raise ApprovalError(f"{state!r} is not a decision", f"one of {APPROVED} | {DENIED}")
+        raise ApprovalError(f"{state!r} is not a decision", f"one of {APPROVED} | {DENIED}", code="bad_state")
     record = read_request(id)
     if not record:
         known = [r["id"] for r in pending()]
         raise ApprovalError(f"no approval called {id!r} is waiting",
                             ("waiting: " + ", ".join(known)) if known else
-                            "`ad-fleet approvals` lists what is waiting")
+                            "`ad-fleet approvals` lists what is waiting", code="not_waiting")
+    on_disk = _digest_of(record)
+    if digest and digest != on_disk:
+        raise ApprovalError("the decision names a different request",
+                            "the request on disk has another digest; read it again", code="digest_mismatch")
     existing = read_decision(id)
     if existing:
         raise ApprovalError(f"{id} was already {existing.get('decision')}",
-                            "an approval is answered once; the agent has already been told")
+                            "an approval is answered once; the agent has already been told", code="already_decided")
     if state == DENIED and not reason.strip():
         # The agent logs friction with this sentence in it. "denied" with no reason gives whoever
         # picks the ticket up nothing to act on.
-        raise ApprovalError("a denial needs a reason", 'pass --reason "…"; the agent quotes it')
+        raise ApprovalError("a denial needs a reason", 'pass --reason "…"; the agent quotes it',
+                            code="reason_required")
 
-    decision = {"id": id, "decision": state, "reason": reason, "by": by or _who(),
-                "decided": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+    decision = {"id": id, "decision": state, "reason": reason, "by": by or _who(), "via": via,
+                "decided": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "digest": on_disk}
     os.makedirs(approvals_dir(), exist_ok=True)
     textio.write_json(_decision_path(id), decision)
     _prune()

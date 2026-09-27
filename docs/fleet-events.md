@@ -266,9 +266,14 @@ agent exactly as hard as a contradiction. The fold reads it now: `nit` does not 
 the gate lands it is a new writer and nothing downstream changes.
 
 ```json
-{"schema": 1, "seq": 20, "ts": "2026-01-04T09:38:00", "repo": "luna", "ticket": "RDSD-118", "kind": "needs_approval", "data": {"what": "ad-pbip apply", "diff": ".agent/pending/rdsd-118.diff"}}
-{"schema": 1, "seq": 21, "ts": "2026-01-04T09:39:12", "repo": "luna", "ticket": "RDSD-118", "kind": "approval_resolved", "data": {"what": "ad-pbip apply", "decision": "approved", "by": "operator"}}
+{"schema": 1, "seq": 20, "ts": "2026-01-04T09:38:00", "repo": "luna", "ticket": "RDSD-118", "kind": "needs_approval", "data": {"id": "luna-jira-transition-20260104T093800-3f2a", "kind": "jira-transition", "summary": "RDSD-118: In Progress -> In Review"}}
+{"schema": 1, "seq": 21, "ts": "2026-01-04T09:39:12", "repo": "luna", "ticket": "RDSD-118", "kind": "approval_resolved", "data": {"id": "luna-jira-transition-20260104T093800-3f2a", "kind": "jira-transition", "decision": "approved", "by": "operator", "reason": "and link the PR in the comment"}}
 ```
+
+`approval_resolved.reason` is the operator's approve comment or deny reason (`""` when there was none), so a
+note typed on the desk or at `ad-fleet approve --comment` reaches the agent; the gated command also puts an approve
+comment in its `meta` as `approval_note` (#543). A decision that names a different request by its `digest` resolves
+as `denied` with the reason `the decision names a different request (digest mismatch)`.
 
 ### From the project's own systems (#131), and from the Downloads inbox (#132)
 

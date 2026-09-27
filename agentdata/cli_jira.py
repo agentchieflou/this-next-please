@@ -232,6 +232,8 @@ def cmd_transition(a) -> int:
     if not decision.ok:
         print(toon.encode({"meta": approval.refusal(decision, src)}))
         return 2
+    if decision.reason:
+        meta["approval_note"] = decision.reason           # the approve comment, for the agent to quote (#543)
 
     j.transition(a.key, t["id"], fields or None, a.comment)
     _, now, _ = _issue_state(j, a.key)                    # read it back: a post-function can move it somewhere else
@@ -384,6 +386,8 @@ def cmd_create(a) -> int:
     if not decision.ok:
         print(toon.encode({"meta": approval.refusal(decision, src)}))
         return 2
+    if decision.reason:
+        meta["approval_note"] = decision.reason           # the approve comment, for the agent to quote (#543)
     try:
         res = JC.create(j, body)
     except JC.CreateError as e:
