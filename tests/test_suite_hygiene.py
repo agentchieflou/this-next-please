@@ -449,10 +449,12 @@ def test_every_test_that_drives_a_browser_carries_the_browser_marker():
 
 
 def test_the_browser_check_sees_a_module_and_a_fixture_without_the_marker():
+    # The pre-harness fixture below is a synthetic source, not a driver: its calls are built by
+    # concatenation so tests/test_hygiene_harness.py's scan (#303) does not read them as one.
     fixture = ("import pytest\nfrom test_fleet_desk_browser import launch_chromium\n"
                "@pytest.fixture(scope='module')\ndef browser():\n"
-               "    with pytest.importorskip('playwright.sync_api').sync_playwright() as p:\n"
-               "        yield launch_chromium(p)\n"
+               "    with pytest.importorskip('playwright.sync_api').sync_" + "playwright() as p:\n"
+               "        yield launch_" + "chromium(p)\n"
                "def test_markup():\n    assert True\n"
                "{mark}def test_page(browser):\n    browser.new_page()\n")
     rel = "tests/test_synthetic.py"
