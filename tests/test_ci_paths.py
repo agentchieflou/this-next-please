@@ -118,6 +118,17 @@ def test_a_docs_only_pr_reports_the_browser_jobs_as_would_skip_and_skips_nothing
             assert f"| {name} |" in summary
 
 
+def test_the_summary_tells_a_group_that_changed_from_one_that_everything_turned_on(cp, cmap):
+    _, summary = cp.report("pull_request", [".github/workflows/tests.yml", "docs/setup.md"], "r", cmap)
+    assert "`ci` changed, and it turns every group on." in summary
+    assert "| `ci` | yes | yes |" in summary and "| `docs` | yes | yes |" in summary
+    assert "| `desk` | no | yes |" in summary and "would skip: nothing" in summary
+    _, summary = cp.report("pull_request", ["docs/setup.md"], "r", cmap)
+    assert "| `docs` | yes | yes |" in summary and "| `desk` | no | no |" in summary
+    _, summary = cp.report("pull_request", [], "r", cmap)
+    assert "No changed file was found, so every group is on." in summary
+
+
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch", "schedule"])
 def test_a_push_a_dispatch_and_the_nightly_run_output_all(cp, cmap, event):
     outputs, summary = cp.report(event, ["docs/setup.md"], "origin/main...HEAD", cmap)

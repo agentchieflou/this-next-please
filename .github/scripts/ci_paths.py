@@ -53,8 +53,8 @@ def names(spec: dict, path: str) -> bool:
     return matches(spec.get("paths", ()), path) and not matches(spec.get("except", ()), path)
 
 
-def groups_for(files, cmap: dict) -> tuple[set, list]:
-    """The groups `files` turn on, and the files no group names. Unmapped or `everything` means all."""
+def touched(files, cmap: dict) -> tuple[set, list]:
+    """The groups `files` name directly, and the files no group names."""
     groups, unmapped = set(), []
     for f in files:
         hit = {g for g, spec in cmap["groups"].items() if names(spec, f)}
@@ -63,6 +63,12 @@ def groups_for(files, cmap: dict) -> tuple[set, list]:
     for g, spec in cmap["groups"].items():
         if spec.get("only") and files and all(matches(spec["only"], f) for f in files):
             groups.add(g)
+    return groups, unmapped
+
+
+def groups_for(files, cmap: dict) -> tuple[set, list]:
+    """The groups `files` turn on, and the files no group names. Unmapped or `everything` means all."""
+    groups, unmapped = touched(files, cmap)
     if not files or unmapped or any(cmap["groups"][g].get("everything") for g in groups):
         groups = set(cmap["groups"])
     return groups, unmapped
@@ -103,10 +109,15 @@ def report(event: str, files, rng: str, cmap: dict) -> tuple[dict, str]:
         lines.append(f"`{event}` always runs everything; as a pull request with this diff it " + would)
     else:
         lines.append(would)
+    direct, _ = touched(files or [], cmap)
     if unmapped:
         lines.append("No group names " + ", ".join(f"`{f}`" for f in unmapped[:20]) + ", so every group is on.")
-    lines += ["", "| group | changed |", "|---|---|"]
-    lines += [f"| `{g}` | {'yes' if g in groups else 'no'} |" for g in cmap["groups"]]
+    elif not files:
+        lines.append("No changed file was found, so every group is on.")
+    for g in sorted(g for g in direct if cmap["groups"][g].get("everything")):
+        lines.append(f"`{g}` changed, and it turns every group on.")
+    lines += ["", "| group | changed | on |", "|---|---|---|"]
+    lines += [f"| `{g}` | {'yes' if g in direct else 'no'} | {'yes' if g in groups else 'no'} |" for g in cmap["groups"]]
     lines += ["", "| job | a filter would | turned on by |", "|---|---|---|"]
     for j, spec in cmap["jobs"].items():
         why = "always" if spec.get("always") else ", ".join(f"`{g}`" for g in spec["groups"])
