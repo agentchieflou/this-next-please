@@ -218,6 +218,17 @@ def _read_through_the_highlighter(page, repo, full, plain=False):
     skin_name, variant = full.split(":")
     chosen = [full, theme.to_css(theme.get(skins.SKINS[skin_name]["variants"][variant]["base"]))["--text"].upper()]
     settled = "() => Ink.inspect().plain" if plain else AT_REST
+    if not plain:
+        # The layer draws with the inks it last read off the page: it has to have read this
+        # variant's, whenever its stylesheet arrived (#329's flake: a sheet later than its module).
+        ink = skins.SKINS[skin_name]["variants"][variant]["inks"]["highlighter"].upper()
+        took = f"() => {{ const l = Ink.inspect().layer; return !!l && l.inks.highlighter === '{ink}'; }}"
+        try:
+            page.wait_for_function(took, timeout=15000)
+        except Exception:
+            raise AssertionError((full, "the layer never took the variant's highlighter", ink,
+                                  (_layer(page) or {}).get("inks"))) from None
+        settled = f"() => ({AT_REST})() && ({took})()"
     for _ in range(5):
         # The question is written in the palette's `--text`: once it is, the page has its palette.
         page.wait_for_function(f"([c, repo, rgb]) => ({CHOSEN})(c) && ({settled})()"
@@ -554,7 +565,24 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
             _until(page, '.tile[data-repo="alpha"] .asks:not([hidden]) .ask:not([hidden]) .ask-q')
             inked = [v for v in HIGHLIGHTED if not v.startswith("glass:")]
             inked.remove("notebook:dark")
-            _each_variant_reads_through_its_highlighter(page, "alpha", ["notebook:dark"] + inked)
+            _each_variant_reads_through_its_highlighter(page, "alpha", ["notebook:dark"])
+            # A loaded runner: the next skin's module is up, and the layer has read the page's
+            # colours, before that skin's stylesheet applies. The sheet is held until then; once
+            # it lands the layer must read them again, or its highlighter stays the fallback.
+            late = inked.pop(0)
+            assert late == "farmstead:daytime", late      # light paper after charcoal, a family of its own
+            held = []
+            page.route("**/static/skins/*/skin.css*", lambda route: held.append(route))
+            _choose(page, late)
+            page.wait_for_function("v => { const c = document.querySelector('canvas[data-skin]');"
+                                   " return !!c && c.dataset.skin === v; }", arg=late, timeout=15000)
+            assert len(held) == 1, held
+            daytime = skins.SKINS["farmstead"]["variants"]["daytime"]["inks"]["highlighter"]
+            assert _layer(page)["inks"]["highlighter"] != daytime, "the sheet is held: its inks cannot be read yet"
+            held[0].continue_()
+            page.unroute("**/static/skins/*/skin.css*")
+            _read_through_the_highlighter(page, "alpha", late)
+            _each_variant_reads_through_its_highlighter(page, "alpha", inked)
             plain, perrors, _ = _open(browser, port, token, "&ink=off", reduced=True)
             _each_variant_reads_through_its_highlighter(plain, "alpha", HIGHLIGHTED, plain=True)
             assert not errors and not perrors, (errors, perrors)
