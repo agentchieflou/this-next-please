@@ -585,7 +585,7 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
     records: list[dict] = []
 
     def put(path: str, record: dict, kind: str, repo: str = "") -> None:
-        records.append({"kind": kind, "repo": repo, "file": os.path.relpath(path, folder).replace("\\", "/")})
+        records.append({"kind": kind, "repo": repo, "file": textio.norm_path(os.path.relpath(path, folder))})
         if dry_run:
             written.append(textio.norm_path(path))
         else:
