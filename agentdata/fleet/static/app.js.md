@@ -2123,6 +2123,14 @@ Above `var DRAG_SLOP = 4;`:
 Four pixels before anything moves. A click on the head selects the project, and a gesture that
 began reordering on the first pixel of travel made that click a drag on any trackpad.
 
+### `var LONG_PRESS_MS`
+
+Above `var LONG_PRESS_MS = 400;`:
+
+A finger held this long on a rail is its Shift-click, *open beside* (#577). Under the ~500 ms at
+which the platforms raise their own long-press, so the page answers first; a hold timer, because
+iOS Safari never sends `contextmenu` for a long press.
+
 ### `var dragging`
 
 Above `var dragging = null;`:
@@ -2147,6 +2155,11 @@ Reorder by pointer, on a handle. `host` is what moves and `name` is what it is c
 passes itself and its head, and itself and its rail's face (#233). Both write the same `order`,
 because both are the same arrangement seen from two widths.
 
+Above `var touch = e.pointerType === "touch";`:
+
+In the stack a finger never reorders (#577, MOB-D20): a 4 px drift on a bar rail is still the tap
+that opens it, and the order is `Alt+←/→` there.
+
 Above `var ctrl = e.target.closest("button, input, select, textarea, a");`:
 
 A press on a control inside the handle belongs to that control -- unless the handle *is*
@@ -2166,6 +2179,15 @@ Above `var down = getComputedStyle(host.parentNode).flexDirection === "column";`
 The axis the list runs along is the axis the halves are measured on, or "before" means the
 wrong side of the wrong edge. Read from the list itself rather than from which kind of host
 this is: the row runs across (#233), and the column of bands it replaced ran down.
+
+Above `var hold = touch && handle.classList.contains("pane-rail") ? setTimeout(function () {`:
+
+The long-press, on a rail's face and a touch only: after `LONG_PRESS_MS` it puts the press down
+(`clear`, so nothing lifts after it) and opens the rail beside the pane with the keys, through
+`openBeside` and so through `transitionLayout`. The tap the release makes comes long after
+`swallowNextClick`'s own turn, so it is swallowed from the `pointerup` itself, as `Esc` does.
+`lift` and `clear` cancel it: a finger that moves past the slop is a drag, and one that comes up
+early is a tap.
 
 Above `var lift = function () {`:
 
@@ -2870,9 +2892,13 @@ Above `var one = keyboardPane() || openName();`:
 
 The pane the keyboard is on, else the open one: wide, and every other a rail.
 
-Above `shown.forEach(function (name) { next[name] = 1; });`:
+Above `var n = shown.length, fit = n;`:
 
-An even share each; the tiers decide what that looks like on this glass.
+An even share each; the tiers decide what that looks like on this glass. Outside the stack, when
+every pane cannot be compact (six on a tablet's 820 px row), only the first `fit` are widened and
+the rest are rails: the most that fit at `--compact-from` beside the others' 48 px, the padding and
+the gaps, so the row never scrolls sideways (#577). It says so -- *all that fit: 4 of 6* -- and it
+is still one write that `u` takes back. In the stack every pane is widened, one under another.
 
 Above `var here = openName();`:
 
@@ -3297,10 +3323,16 @@ Above `function groupRails(shown, open) {`:
 /** @param {string[]} shown  @param {string[]} open */
 ```
 
-Above `var need = ROW_PAD_PX + open.length * TIER_COMPACT_FROM + rails.length * RAIL_PX +`:
+Above `var need = STACKED && STACKED.matches`:
 
 Measured against every rail, never the grouped count, so grouping cannot talk itself out of
 being needed on the next pass and flicker.
+
+At 640 px and under (`STACKED`, #575) the rails are not beside the panes: they are the stack's
+bottom bar, one line under the open pane. So what has to fit is the rails alone, at 48 px each,
+across the bar's width, and folding starts only when the bar itself would overflow. The
+`MediaQueryList` is made once and only read here; nothing listens to it, because the grid's own
+`ResizeObserver` already places again when the window crosses the width.
 
 ### `function groupedAway`
 

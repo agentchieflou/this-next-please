@@ -28,6 +28,21 @@ and the transcript, is in [fleet-dashboard.md](fleet-dashboard.md) §The row, an
   opens the one that needs you. Only past that does the row scroll sideways, which is the last
   resort and not the design (plan-panes §Open questions).
 
+## The stack (#575)
+
+At 640 px and under the row does not fit, so it becomes a **stack**: the open pane fills the glass
+and the rails wrap into one 56 px **bottom bar** under it, horizontal, reading as a tab bar. More
+than one pane with a width (the pinned ones, or after `all`) stack one under another, each as wide
+as the glass, and the grid scrolls down. Gutters and grips are gone, and a pane scrolls inside
+itself. A phone on its side (a coarse pointer and 480 px or less of height) keeps the row, and its
+open pane scrolls inside itself so the reply row is always reachable.
+
+What does not change: the window's record (`open`, widths, `section`), the tiers (the open pane at
+390 px is 374 px wide, so `full`, and a bar rail is under `--compact-from`, so `rail`), the one
+`transitionLayout` door (a tap on a bar rail is `openPane`, as a click on a rail is), and `choose()`:
+a tap on a pane still selects it for every window (MOB-D24). `groupRails` folds a project's
+checkouts only when the bar itself would overflow. At 820 px (a tablet) the row is the row.
+
 ## The tiers
 
 What a pane draws is decided by its width, and its width by the widths. `data-tier` is the one
@@ -182,7 +197,9 @@ A rail keeps its gutter, because a rail is pulled wide by one.
   would go back a pane.
 * **A double click** evens the two panes beside it. Its two presses write nothing of their own, and
   neither selects the project nor opens the pane, which is what a click and a double click on a
-  pane mean.
+  pane mean. **A double tap** is the same double click (#577): the page cannot be zoomed, so
+  Chromium and Safari send `dblclick` for two taps, and the gutter's `touch-action: none` keeps the
+  taps from scrolling. No code of its own.
 
 ## Opening one, and opening one beside
 
@@ -194,6 +211,12 @@ A rail keeps its gutter, because a rail is pulled wide by one.
   and the rail's own width, so nothing else in the row moves, and the keys stay where they were.
   `Shift+Enter` on a rail's face is the same. It does not move the rail next to the pane with the
   keys, because the order is every window's and the widths are one window's.
+* **A finger held on a rail** for 400 ms is the Shift-click (#577): open it beside, one write, and
+  the tap its release would make is swallowed so the rail does not also swap in. A finger that
+  moves past the 4 px slop first cancels it. It is a hold timer on `pointerdown`, not `contextmenu`,
+  which iOS Safari never fires for a long press, and the face carries `-webkit-touch-callout: none`
+  so the hold does not open the system's callout. It works on a tablet and on any touch screen
+  outside the stack.
 
 ## The presets
 
@@ -202,7 +225,7 @@ One segmented control in the header, where the arrangement picker was:
 | Preset | Key | Widths |
 | --- | --- | --- |
 | **one** | `1` | the pane the keyboard is on, or else the open one, wide; every other a rail |
-| **all** | `=` | an even share each. The tiers decide what that looks like on this glass: three panes on the laptop panel are compact, the same three on a 2 560 px monitor are full |
+| **all** | `=` | an even share each. The tiers decide what that looks like on this glass: three panes on the laptop panel are compact, the same three on a 2 560 px monitor are full. Where they cannot all be compact (six on a tablet's 820 px), only the first that fit at `--compact-from` are widened, the rest are rails, and it says *all that fit: 4 of 6* (#577). In the stack every pane is widened and the grid scrolls down |
 | **needs me** | `f` | every agent that needs a person wide, the rest rails, and the keys moved to one of them |
 
 Each is one write, undoable from the footer, and applies at once under reduced motion. They are
@@ -224,6 +247,14 @@ Pointer events, with capture. `bindDragToReorder(handle, host, name)`:
 The rule for what a press means: **a press on a control inside the handle belongs to that
 control, unless the handle *is* the control.** A pane's head is a plain `div`, so every button in
 it is somebody else's. A rail's face is one button, so a press anywhere on it is the rail's.
+
+A finger scrolls on heads and rails (`touch-action: pan-y`, #573): the drag needs a sideways start.
+In the stack (640 px and under) a finger never starts a reorder (#577, MOB-D20): `pointerdown` from
+a touch returns at once, so a finger that drifts 4 px on a bar rail is still a tap that opens it,
+and the order is `Alt+←` / `Alt+→` there. `Esc`-back has no touch twin in the stack either: every
+rail is one tap away on the bottom bar, which is where going back would have gone.
+Under a coarse pointer every control is 44 px both ways and every field is set at 16 px (#574); the
+gutter's hit strip is 20 px, widened into the pane on its left. A mouse keeps the 28 px / 13 px scale.
 
 Four pixels of travel before anything moves: a click on the head still selects the project, and a
 click on a rail still swaps it in. Then the host is translated under the cursor, and whatever is
@@ -273,20 +304,22 @@ on the gutter between them.
 
 ## Keys
 
-| Keys | Does |
-| --- | --- |
-| `←` / `→`, `j` / `k` | along the row: the keyboard to the next pane |
-| `Alt+←` / `Alt+→` | move the pane one visible slot (on a rail as well) |
-| `Alt+Shift+←` / `Alt+Shift+→` | the gutter on the pane's right, one step: 40 px, and out of a rail or into one in a single press |
-| `Alt+Enter` | the double click: the pane and the one on its right, evened |
-| `Alt+Home` | pin first |
-| `h` | minimise |
-| `Enter` on a rail | maximise: the swap (#233) |
-| `Shift+Enter` on a rail | open it beside the pane with the keys |
-| `1`, `=`, `f` | the presets: one, all, needs me |
-| `2`–`9` | open the pane with that number |
-| `u` | take the last change of widths back |
-| `Esc` | put a drag down, the gutter's or the reorder's, with nothing written |
+Every gesture has a key, and every key a pointer gesture has a touch one (#577):
+
+| Keys | Does | Touch |
+| --- | --- | --- |
+| `←` / `→`, `j` / `k` | along the row: the keyboard to the next pane | a tap on the pane |
+| `Alt+←` / `Alt+→` | move the pane one visible slot (on a rail as well) | a sideways drag of the head or the rail; on a phone, the key only |
+| `Alt+Shift+←` / `Alt+Shift+→` | the gutter on the pane's right, one step: 40 px, and out of a rail or into one in a single press | a drag of the gutter |
+| `Alt+Enter` | the double click: the pane and the one on its right, evened | a double tap on the gutter |
+| `Alt+Home` | pin first | |
+| `h` | minimise | |
+| `Enter` on a rail | maximise: the swap (#233) | a tap on the rail, or on a bar rail in the stack |
+| `Shift+Enter` on a rail | open it beside the pane with the keys (the Shift-click) | a long press on the rail, 400 ms |
+| `1`, `=`, `f` | the presets: one, all, needs me | a tap on the preset |
+| `2`–`9` | open the pane with that number | |
+| `u` | take the last change of widths back | a tap on the footer's undo |
+| `Esc` | put a drag down, the gutter's or the reorder's, with nothing written | |
 
 The resize is the shifted pair because `Alt+arrows` has moved a tile since #5, and a gesture
 somebody has learned is not one to take away for a new one. `Alt+Shift+↑` / `Alt+Shift+↓` went with
