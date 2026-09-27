@@ -557,10 +557,15 @@ def _notifications_24h(folder: str, now: float) -> int:
         return 0
 
 
-def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: float | None = None) -> dict:
+def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: float | None = None,
+                dry_run: bool = False) -> dict:
     """One pass over the outbox: attention on a digest change, each pending approval once, each laptop decision once,
-    a heartbeat every `HEARTBEAT_S`. Returns `{written: [paths], unchanged: n, how: [...]}`, `how` being each
-    write's `textio` report (`atomic` wherever `os.replace` worked). Refuses as `check_folder` does.
+    a heartbeat every `HEARTBEAT_S`. Returns `{written: [paths], unchanged: n, how: [...], records: [{kind, repo,
+    file}]}`, `how` being each write's `textio` report (`atomic` wherever `os.replace` worked). Refuses as
+    `check_folder` does.
+
+    `dry_run=True` (#552, `ad-fleet mobile export --dry-run`) computes the same pass and writes nothing: no record,
+    no state, no event. `written` and `records` are what it would have written.
     """
     from . import approval
     from . import events as E
@@ -577,6 +582,14 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
     hows: set[str] = set()
     unchanged = 0
     emits: list[tuple[str, str, dict]] = []
+    records: list[dict] = []
+
+    def put(path: str, record: dict, kind: str, repo: str = "") -> None:
+        records.append({"kind": kind, "repo": repo, "file": os.path.relpath(path, folder).replace("\\", "/")})
+        if dry_run:
+            written.append(textio.norm_path(path))
+        else:
+            _put(path, record, written, hows)
 
     def change(state: dict) -> None:
         nonlocal unchanged
@@ -590,7 +603,7 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
                 continue
             seq = int(state["attention_seq"].get(repo) or 0) + 1
             record["seq"] = seq
-            _put(outbox_dir(folder, "attention", _attention_name(repo, seq)), record, written, hows)
+            put(outbox_dir(folder, "attention", _attention_name(repo, seq)), record, "attention", repo)
             state["attention_digests"][repo], state["attention_seq"][repo] = record["digest"], seq
 
         for request in pending:
@@ -601,7 +614,7 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
             record = approval_record(request, scrubber, cfg)
             path = outbox_dir(folder, "approvals", safe_file_name(id) + ".json")
             if not os.path.exists(path):
-                _put(path, record, written, hows)
+                put(path, record, "approval", str(request.get("repo") or ""))
             state["exported"][id] = {"at": _utc(now), "decided": False}
             emits.append((str(request.get("repo") or ""), str(request.get("ticket") or ""),
                           {"id": id, "digest": record["digest"], "expires": record["expires"]}))
@@ -614,7 +627,8 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
                 continue
             path = outbox_dir(folder, "approvals", safe_file_name(id) + ".decision.json")
             if not os.path.exists(path):
-                _put(path, decision_mirror(id, decided, scrubber.scrub), written, hows)
+                put(path, decision_mirror(id, decided, scrubber.scrub), "decision",
+                    str(approval.read_request(id).get("repo") or ""))
             entry["decided"] = True
 
         last = _epoch(state.get("last_heartbeat") or "")
@@ -625,11 +639,15 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
                       "rejected_24h": state.get("rejected_24h", 0)}
             beat = heartbeat_record(cfg, state, counts)
             beat["at"] = _utc(now)
-            _put(outbox_dir(folder, "heartbeat", _time.strftime("%Y%m%d-%H%M", _time.gmtime(now)) + ".json"),
-                 beat, written, hows)
+            put(outbox_dir(folder, "heartbeat", _time.strftime("%Y%m%d-%H%M", _time.gmtime(now)) + ".json"),
+                beat, "heartbeat")
             state["last_heartbeat"] = _utc(now)
         state["last_export"] = _utc(now)
 
+    if dry_run:
+        with _state_lock:
+            change(_read_state_unlocked())                 # a copy: nothing is written back
+        return {"written": written, "unchanged": unchanged, "how": [], "records": records}
     update_state(change)
     # After the state is written, so a failed append can never export an approval twice.
     for repo, ticket, data in emits:
@@ -640,7 +658,7 @@ def export_once(cfg: dict | None = None, snapshot: dict | None = None, *, now: f
                 from ..log import debug_exc
 
                 debug_exc("mobile.exported")
-    return {"written": written, "unchanged": unchanged, "how": sorted(hows)}
+    return {"written": written, "unchanged": unchanged, "how": sorted(hows), "records": records}
 
 
 # ------------------------------------------------------------------------------ pruning
@@ -1128,22 +1146,63 @@ def _rejected_24h(folder: str, now: float) -> int:
                if name.endswith(".why.json") and not _older(os.path.join(directory, name), now - KEEP_OUTBOX_S))
 
 
-def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
+def _row_of(p: _Pass, name: str, record, result: str, code: str = "") -> dict:
+    """One `ad-fleet mobile apply` row: `{file, kind, repo, result, code}`."""
+    kind = record.get("kind") if isinstance(record, dict) and record.get("kind") in ("decision", "reply") else ""
+    return {"file": name, "kind": kind, "repo": _repo_of(p, record)[0], "result": result, "code": code}
+
+
+def _dry_apply(p: _Pass, files: list, report: list) -> dict:
+    """Every inbox file through the same checks as `apply_once`, deciding, sending, moving and recording nothing."""
+    with _state_lock:
+        state = _read_state_unlocked()                     # read_state() would write a missing state file
+    counts = {"would_apply": 0, "would_reject": 0}
+    for entry in files:
+        record = None
+        try:
+            record = _read(entry)
+            _check_common(p, record, state)
+            if record["kind"] == "reply":
+                _check_reply(p, record)
+            else:
+                _check_decision(record)
+            row = _row_of(p, entry.name, record, "would_apply")
+        except _Refused as refused:
+            row = _row_of(p, entry.name, record, "would_reject", refused.code)
+        except Exception:                                  # noqa: BLE001 - one bad file never stops the pass
+            _log(f"mobile inbox {entry.name} (dry run)")
+            row = _row_of(p, entry.name, record, "would_reject", "mobile_unreadable")
+        counts[row["result"]] += 1
+        report.append(row)
+    return {"applied": 0, "rejected": 0, "retried": 0, **counts}
+
+
+def apply_once(cfg: dict | None = None, *, now: float | None = None, dry_run: bool = False,
+               report: list | None = None) -> dict:
     """One pass over `inbox/`: every `*.json` file checked, then applied or rejected. Returns `{applied, rejected,
     retried}`. A missing inbox is an empty one. Refuses as `check_folder` does.
 
     `retried` counts files left for the next tick: an unexpected failure (logged through `debug_exc`; the same one
     twice is `mobile_unreadable`), a move that did not happen, or a reply that met a turn in flight (`mid_turn`, tried
     again every tick until its `expires`, MOB-D7).
+
+    `report`, when given, gets one `{file, kind, repo, result, code}` per file, `result` being `applied`, `rejected`
+    or `retried`. `dry_run=True` (#552, `ad-fleet mobile apply --dry-run`) runs every check and nothing else: no
+    decision, no send, no move, no nonce recorded, no state written; the rows say `would_apply` or `would_reject`
+    and the counts gain `would_apply` and `would_reject`. A reply that would meet a turn in flight is `would_apply`:
+    whether a turn is running is the moment's, not the file's.
     """
     folder = check_folder(cfg)
     p = _Pass(cfg, folder, _time.time() if now is None else now)
     counts = {"applied": 0, "rejected": 0, "retried": 0}
+    rows = report if report is not None else []
     try:
         entries = sorted(os.scandir(textio.longpath(os.path.join(folder, INBOX))), key=lambda e: e.name)
     except OSError:
         entries = []
     files = [e for e in entries if e.name.endswith(".json") and not e.name.startswith("~$") and e.is_file()]
+    if dry_run:
+        return _dry_apply(p, files, rows)
     for entry in files:
         path, name = entry.path, entry.name
         state = read_state()
@@ -1151,6 +1210,7 @@ def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
         try:
             if _retry_move(p, path, name, state):
                 counts["retried"] += 1
+                rows.append(_row_of(p, name, {}, "retried"))
                 continue
             try:
                 record = _read(entry)
@@ -1158,12 +1218,16 @@ def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
                 if record["kind"] == "reply":
                     applied = _apply_reply(p, path, name, record)
                     counts["applied" if applied else "retried"] += 1
+                    rows.append(_row_of(p, name, record, "applied" if applied else "retried",
+                                        "" if applied else "mid_turn"))
                 else:
                     _apply_decision(p, path, name, record)
                     counts["applied"] += 1
+                    rows.append(_row_of(p, name, record, "applied"))
             except _Refused as refused:
                 _reject(p, path, name, record, refused)
                 counts["rejected"] += 1
+                rows.append(_row_of(p, name, record, "rejected", refused.code))
             if name in state["failures"]:
                 update_state(lambda s: s["failures"].pop(name, None))
         except Exception as e:                             # noqa: BLE001 - one bad file never stops the pass
@@ -1178,12 +1242,15 @@ def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
                     _reject(p, path, name, record or {}, _Refused("mobile_unreadable", signature,
                                                                   "it failed the same way twice; see the debug log"))
                     counts["rejected"] += 1
+                    rows.append(_row_of(p, name, record, "rejected", "mobile_unreadable"))
                 except Exception:                          # noqa: BLE001
                     debug_exc(f"mobile inbox {name} (reject)")
                     counts["retried"] += 1
+                    rows.append(_row_of(p, name, record, "retried"))
             else:
                 update_state(lambda s: s["failures"].__setitem__(name, signature))
                 counts["retried"] += 1
+                rows.append(_row_of(p, name, record, "retried"))
 
     def seen(s: dict) -> None:
         if files:
@@ -1292,3 +1359,118 @@ def start(stop: _threading.Event, cfg: dict | None = None) -> _threading.Thread 
     thread = _threading.Thread(target=run_loop, args=(stop, cfg), name=BRIDGE_THREAD, daemon=True)
     thread.start()
     return thread
+
+
+# ============================================================================== the verbs' readers (#552)
+#
+# `ad-fleet mobile init` and `status` (cli_fleet.py prints them). `init`, not `pair` (MOB-D6): no key exchange happens,
+# and `pairing.json` carries no secret, only what the flow and the app need to know which laptop they talk to.
+
+TREE = ("outbox/attention", "outbox/approvals", "outbox/notifications", "outbox/heartbeat", "outbox/results",
+        INBOX, PROCESSED, REJECTED)
+PAIRING = "pairing.json"
+OUTBOX_KINDS = ("attention", "approvals", "notifications", "heartbeat", "results")
+REJECTED_SHOWN = 20
+# `bridge_running`: a pass has exported within this long (the thread or `watch`, at the default tick).
+RUNNING_WITHIN_S = 6 * TICK_S
+_SYNC_ROOTS = ("OneDriveCommercial", "OneDrive", "OneDriveConsumer")
+_FILE_ATTRIBUTE_PINNED = 0x00080000                        # "Always keep on this device" (MS-FSCC 2.6)
+
+__all__ += ["TREE", "PAIRING", "init_tree", "status"]
+
+
+def init_tree(cfg: dict | None = None) -> dict:
+    """The folder's eight directories and `pairing.json`, each created only when missing. Refuses as `check_folder`
+    does, before anything is created. Returns `{folder, pairing, made: [dirs], wrote: bool}`; a second run makes
+    nothing and rewrites nothing, whatever the settings say now."""
+    folder = check_folder(cfg)
+    made = []
+    for rel in TREE:
+        path = os.path.join(folder, *rel.split("/"))
+        if not os.path.isdir(path):
+            os.makedirs(textio.longpath(path), exist_ok=True)
+            made.append(rel)
+    path = os.path.join(folder, PAIRING)
+    if os.path.exists(path):
+        try:
+            record = textio.read_json(path, PAIRING)
+        except (OSError, ValueError):
+            record = {}
+        return {"folder": folder, "pairing": record if isinstance(record, dict) else {}, "made": made, "wrote": False}
+    s = settings(cfg)
+    record = {"schema": MOBILE_SCHEMA, "kind": "pairing", "contract": MOBILE_CONTRACT,
+              "operator": _cap(s["operator"], LIMITS["by"]), "laptop_id": str(read_state()["laptop_id"]),
+              "expire_s": s["expire_s"], "created": _utc()}
+    textio.write_json(path, record)
+    return {"folder": folder, "pairing": record, "made": made, "wrote": True}
+
+
+def _sync_root(folder: str) -> str:
+    """The OneDrive root the folder sits under, from the sync client's own variables; `""` when none holds it.
+    (`ad-doctor`'s row, #553, also asks the registry.)"""
+    for var in _SYNC_ROOTS:
+        root = os.environ.get(var, "")
+        if root and _inside(folder, root):
+            return textio.norm_path(root)
+    return ""
+
+
+def _pinned(folder: str) -> bool | None:
+    """Is the folder "Always keep on this device"? `None` where the file system cannot say (off Windows)."""
+    try:
+        attrs = getattr(os.stat(textio.longpath(folder)), "st_file_attributes", None)
+    except OSError:
+        return None
+    return None if attrs is None else bool(attrs & _FILE_ATTRIBUTE_PINNED)
+
+
+def _newest(directory: str) -> tuple[int, float]:
+    count, newest = 0, 0.0
+    for name in _names(directory):
+        if name.endswith(".json"):
+            count += 1
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(directory, name)))
+            except OSError:
+                pass
+    return count, newest
+
+
+def status(cfg: dict | None = None, *, now: float | None = None) -> tuple[dict, list[dict], list[dict]]:
+    """What `ad-fleet mobile status` prints: the settings and folder facts, the outbox's counts per kind, and the
+    last `REJECTED_SHOWN` rejections. Reads only: a missing state file is not created. A disabled bridge is described,
+    not refused; a refused folder is named by its code in `folder_refused`."""
+    now = _time.time() if now is None else now
+    s = settings(cfg)
+    try:
+        folder, refused = check_folder(cfg, need_enabled=False), ""
+    except BridgeError as e:
+        folder, refused = "", e.code
+    with _state_lock:
+        state = _read_state_unlocked()
+    last_export = str(state.get("last_export") or "")
+    exported = _epoch(last_export)
+    meta = {"enabled": s["enabled"], "folder": folder or s["folder"], "folder_refused": refused,
+            "sync_root": _sync_root(folder) if folder else "", "pinned": _pinned(folder) if folder else None,
+            "operator": s["operator"], "expire_s": s["expire_s"], "notify": s["notify"],
+            "last_export": last_export, "last_inbox": str(state.get("last_inbox_seen") or ""),
+            "serve_up": _serve_up(),
+            "bridge_running": s["enabled"] and exported is not None and 0 <= now - exported <= RUNNING_WITHIN_S}
+    outbox, rejected = [], []
+    if folder:
+        for kind in OUTBOX_KINDS:
+            count, newest = _newest(outbox_dir(folder, kind))
+            outbox.append({"kind": kind, "files": count, "newest": _utc(newest) if newest else ""})
+        directory = os.path.join(folder, REJECTED)
+        whys = [n for n in _names(directory) if n.endswith(".why.json")]
+        whys.sort(key=lambda n: os.path.getmtime(os.path.join(directory, n)) if os.path.exists(
+            os.path.join(directory, n)) else 0.0, reverse=True)
+        for name in whys[:REJECTED_SHOWN]:
+            try:
+                why = textio.read_json(os.path.join(directory, name), "sidecar")
+            except (OSError, ValueError):
+                why = {}
+            why = why if isinstance(why, dict) else {}
+            rejected.append({"at": str(why.get("at") or ""), "file": name[:-len(".why.json")],
+                             "code": str(why.get("code") or "")})
+    return meta, outbox, rejected

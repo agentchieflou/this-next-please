@@ -39,7 +39,8 @@ ad-fleet status
 
 Everything in that loop is also a command, because a fleet you can only drive through a page is a
 fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `renew`, `stop`, `board`,
-`history`, `notify`, `gc`, `doctor`.
+`history`, `notify`, `mobile`, `gc`, `doctor`. `ad-fleet mobile status | init | export | apply | watch` is the
+phone's bridge (epic #538); `--dry-run` on `export` and `apply` changes nothing on disk.
 
 ## After an update: fresh sessions
 
