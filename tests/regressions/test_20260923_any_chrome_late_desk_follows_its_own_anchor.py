@@ -26,7 +26,7 @@ import pytest
 
 from agentdata.fleet import serve as S
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_gutters import (_repos, _serve, _stop,  # noqa: F401 - fixtures
                                 _window_posts, fleet_home)
 
@@ -54,8 +54,7 @@ SETTLED = """() => document.querySelectorAll('#grid .tile.is-solo').length === 2
 
 
 @pytest.mark.browser
-def test_a_pane_pressed_before_the_desk_loads_is_not_opened_again_when_it_does(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_pane_pressed_before_the_desk_loads_is_not_opened_again_when_it_does(fleet_home, tmp_path, desk_browser):
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -63,39 +62,38 @@ def test_a_pane_pressed_before_the_desk_loads_is_not_opened_again_when_it_does(f
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            posts = []
-            page.on("request", lambda r: posts.append((r.url, r.post_data or ""))
-                    if r.method == "POST" else None)
-            page.add_init_script(HOLD_THE_DESK)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function(SETTLED, timeout=15000)
-            assert page.evaluate("() => window.__deskDone") == 0, "the desk was not held"
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        posts = []
+        page.on("request", lambda r: posts.append((r.url, r.post_data or ""))
+                if r.method == "POST" else None)
+        page.add_init_script(HOLD_THE_DESK)
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function(SETTLED, timeout=15000)
+        assert page.evaluate("() => window.__deskDone") == 0, "the desk was not held"
 
-            # The operator opens the inspector and presses a rail, all before the desk answers.
-            page.evaluate("() => section('inspector', true)")
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            posts.clear()
-            page.locator('.tile[data-repo="gamma"] .pane-rail').click()
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            assert page.evaluate("() => location.hash") == "#tile=gamma"
+        # The operator opens the inspector and presses a rail, all before the desk answers.
+        page.evaluate("() => section('inspector', true)")
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        posts.clear()
+        page.locator('.tile[data-repo="gamma"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        assert page.evaluate("() => location.hash") == "#tile=gamma"
 
-            # Now it answers, and whatever it was going to do is done.
-            page.evaluate("() => __releaseDesk()")
-            page.wait_for_function("() => window.__deskDone >= 1 && pendingDesk === null",
-                                   timeout=15000)
-            page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            inspector_shown = page.evaluate("() => !document.getElementById('inspector').hidden")
-            open_now = page.evaluate("() => openName()")
-            sent = list(posts)
-            assert not errors, errors
-            browser.close()
+        # Now it answers, and whatever it was going to do is done.
+        page.evaluate("() => __releaseDesk()")
+        page.wait_for_function("() => window.__deskDone >= 1 && pendingDesk === null",
+                               timeout=15000)
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        inspector_shown = page.evaluate("() => !document.getElementById('inspector').hidden")
+        open_now = page.evaluate("() => openName()")
+        sent = list(posts)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
