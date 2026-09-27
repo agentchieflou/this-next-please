@@ -66,6 +66,9 @@ KINDS = (
     # the mobile bridge (#546): a pending approval was mirrored to the phone's outbox, once per id. Additive:
     # the fold changes no state for it.
     "mobile.exported",
+    # ...and the applier (#547): a phone decision applied through `approval.decide(via="mobile")`, or any inbox file
+    # refused. Additive, like `mobile.exported`: the approval's own `approval_resolved` is what the fold reads.
+    "mobile.decision", "mobile.rejected",
 )
 
 # The same shape `config.py` refuses to store, reused rather than re-invented: a value under a key

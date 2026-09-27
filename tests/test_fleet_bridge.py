@@ -454,3 +454,391 @@ def test_a_result_names_its_decision_or_its_reply_and_says_applied_or_rejected(f
     assert sorted(os.listdir(bridge.outbox_dir(folder, "results"))) == ["9f2c4b7e.result.json", "c0d3.result.json"]
     with pytest.raises(bridge.BridgeError):
         bridge.write_result(folder, "n", "vote", True)
+
+
+# --------------------------------------------------------------------------------- Applier: decisions
+#
+# A real `require()` on a thread (the `_answer` pattern of `test_fleet_approval.py`), the phone's file dropped into
+# `inbox/` by hand, and one `apply_once` per tick: no server, no flow. Every refusal must leave no decision file.
+
+import uuid
+
+from agentdata.fleet import agentstate
+
+from test_fleet_approval import _wait_for_request, as_agent  # noqa: F401 - a fixture, used by name
+
+UPN = "operator@example.com"
+
+
+def _folder(cfg):
+    return bridge.check_folder(cfg)
+
+
+def _phone(request, *, nonce=None, by=UPN, decision="approved", reason="", issued=None, expires=None, **over):
+    """What `FleetDecide` writes: a GUID without dashes, `yyyy-MM-ddTHH:mm:ssZ` times, the invoker's UPN."""
+    now = time.time()
+    record = {"schema": 1, "kind": "decision", "nonce": nonce or uuid.uuid4().hex,
+              "issued": bridge._utc(now if issued is None else issued),
+              "expires": bridge._utc(now + 600 if expires is None else expires),
+              "by": by, "id": request["id"], "digest": request["digest"], "decision": decision, "reason": reason,
+              "device": "iOS"}
+    record.update(over)
+    return record
+
+
+def _drop(cfg, record=None, name=None, *, raw=None) -> str:
+    inbox = os.path.join(_folder(cfg), "inbox")
+    os.makedirs(inbox, exist_ok=True)
+    name = name or f"decision-{record['nonce']}.json"
+    with open(os.path.join(inbox, name), "wb") as f:
+        f.write(raw if raw is not None else json.dumps(record).encode("utf-8"))
+    return name
+
+
+def _why(cfg, name):
+    return textio.read_json(os.path.join(_folder(cfg), "rejected", name + ".why.json"), "why")
+
+
+def _result(cfg, nonce):
+    return textio.read_json(bridge.outbox_dir(_folder(cfg), "results", f"{nonce}.result.json"), "result")
+
+
+def _inbox_names(cfg):
+    try:
+        return sorted(os.listdir(os.path.join(_folder(cfg), "inbox")))
+    except OSError:
+        return []
+
+
+def _events(repo, kind):
+    return [e for e in E.read(repo) if e["kind"] == kind]
+
+
+def _require(result: dict, **kw) -> threading.Thread:
+    def agent():
+        result["d"] = approval.require("jira-transition", "RDSD-131: In Progress -> In Review",
+                                       {"key": "RDSD-131", "transition": "31 In Review"}, ticket="RDSD-131",
+                                       poll=0.02, **kw)
+
+    t = threading.Thread(target=agent, daemon=True)
+    t.start()
+    return t
+
+
+def test_a_matching_decision_is_applied_with_by_mobile_upn_and_via_mobile_and_the_agent_is_released(as_agent, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    result: dict = {}
+    t = _require(result, timeout=20)
+    request = approval.read_request(_wait_for_request())
+    record = _phone(request)
+    name = _drop(cfg, record)
+
+    assert bridge.apply_once(cfg) == {"applied": 1, "rejected": 0, "retried": 0}
+    t.join(timeout=10)
+    d = result["d"]
+    assert d.ok and d.by == f"mobile:{UPN}" and d.via == "mobile" and d.id == request["id"]
+
+    decided = approval.read_decision(request["id"])
+    assert (decided["via"], decided["digest"], decided["nonce"]) == ("mobile", request["digest"], record["nonce"])
+    assert decided["by"] == f"mobile:{UPN}" and decided["late"] is False
+
+    folder = _folder(cfg)
+    assert _inbox_names(cfg) == []
+    assert os.path.isfile(os.path.join(folder, "processed", name))
+    sidecar = textio.read_json(os.path.join(folder, "processed", name + ".result.json"), "sidecar")
+    assert (sidecar["ok"], sidecar["result"], sidecar["kind_of"], sidecar["nonce"]) == (
+        True, "applied", "decision", record["nonce"])
+    res = _result(cfg, record["nonce"])
+    assert (res["ok"], res["result"], res["id"], res["late"]) == (True, "applied", request["id"], False)
+
+    mirror = _load(cfg, f"approvals/{request['id']}.decision.json")
+    assert (mirror["via"], mirror["nonce"], mirror["decision"], mirror["late"]) == (
+        "mobile", record["nonce"], "approved", False)
+
+    [ev] = _events("luna", "mobile.decision")
+    assert ev["data"] == {"id": request["id"], "kind": "decision", "decision": "approved", "by": f"mobile:{UPN}",
+                          "nonce": record["nonce"], "late": False}
+    assert bridge.read_state()["processed"][record["nonce"]]["code"] == ""
+    # The next tick finds nothing to do.
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 0, "retried": 0}
+
+
+def test_a_digest_mismatch_is_refused_and_no_decision_file_is_written(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    record = _phone(request, digest="0" * 64)
+    name = _drop(cfg, record)
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 1, "retried": 0}
+    assert _why(cfg, name)["code"] == "mobile_digest_mismatch"
+    assert approval.read_decision(request["id"]) == {}
+    assert os.path.isfile(os.path.join(_folder(cfg), "rejected", name)) and _inbox_names(cfg) == []
+    res = _result(cfg, record["nonce"])
+    assert (res["ok"], res["result"], res["code"]) == (False, "rejected", "mobile_digest_mismatch")
+    assert approval.pending() and approval.pending()[0]["id"] == request["id"], "the request still waits"
+
+
+def test_an_expired_decision_is_refused(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    now = time.time()
+    past = _drop(cfg, _phone(request, issued=now - 1200, expires=now - 300))
+    # Still in the future, but further from `issued` than `expire_s` (900) allows.
+    too_far = _drop(cfg, _phone(request, issued=now, expires=now + 900 + 60))
+    assert bridge.apply_once(cfg)["rejected"] == 2
+    assert _why(cfg, past)["code"] == _why(cfg, too_far)["code"] == "mobile_expired"
+    assert approval.read_decision(request["id"]) == {}
+
+    # Inside the window, and with the configured `expire_s`, the same shape applies.
+    assert bridge.apply_once(_cfg(tmp_path)) == {"applied": 0, "rejected": 0, "retried": 0}
+    _drop(cfg, _phone(request, issued=now, expires=now + 900))
+    assert bridge.apply_once(cfg)["applied"] == 1
+
+
+def test_a_decision_from_the_wrong_operator_is_refused_case_insensitively_for_the_right_one(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    wrong = _drop(cfg, _phone(request, by="someone.else@example.com"))
+    assert bridge.apply_once(cfg)["rejected"] == 1
+    assert _why(cfg, wrong)["code"] == "mobile_wrong_operator"
+    assert approval.read_decision(request["id"]) == {}
+
+    # No operator configured: nobody may decide from the phone.
+    unset = _cfg(tmp_path)
+    unset["fleet"]["mobile"]["operator"] = ""
+    nobody = _drop(unset, _phone(request))
+    assert bridge.apply_once(unset)["rejected"] == 1 and _why(cfg, nobody)["code"] == "mobile_wrong_operator"
+    assert approval.read_decision(request["id"]) == {}
+
+    right = _phone(request, by="OPERATOR@Example.COM")
+    _drop(cfg, right)
+    assert bridge.apply_once(cfg)["applied"] == 1
+    assert approval.read_decision(request["id"])["by"] == "mobile:OPERATOR@Example.COM"
+
+
+def test_the_same_nonce_is_refused_the_second_time_even_under_a_conflict_copy_name(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request, other = _request("luna"), _request("luna", kind="jira-comment")
+    record = _phone(request)
+    _drop(cfg, record)
+    assert bridge.apply_once(cfg)["applied"] == 1
+
+    # OneDrive's `<name>-<DEVICE>` copy of the same file: the nonce decides, never the name.
+    copy = _drop(cfg, record, f"decision-{record['nonce']}-LT-RDSD-0042.json")
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 1, "retried": 0}
+    assert _why(cfg, copy)["code"] == "mobile_replay"
+    assert _result(cfg, record["nonce"])["result"] == "applied", "a replay never overwrites the verdict"
+
+    # The same nonce naming another request is a replay too, and the sidecars remember it without the state file.
+    bridge.update_state(lambda s: s["processed"].clear())
+    again = _drop(cfg, {**_phone(other), "nonce": record["nonce"]}, "decision-resurrected.json")
+    assert bridge.apply_once(cfg)["rejected"] == 1
+    assert _why(cfg, again)["code"] == "mobile_replay"
+    assert approval.read_decision(other["id"]) == {}
+
+
+def test_a_dead_or_absent_inbox_yields_no_decision_and_the_agents_timeout_refuses_the_write(as_agent, tmp_path,  # noqa: F811
+                                                                                           monkeypatch, capsys):
+    from test_fleet_approval import STORY, _jira_transition
+
+    cfg = _cfg(tmp_path)
+    assert not os.path.exists(os.path.join(_folder(cfg), "inbox"))
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 0, "retried": 0}
+
+    result: dict = {}
+    t = _require(result, timeout=1)
+    while t.is_alive():                                   # the bridge ticks against the missing inbox
+        bridge.apply_once(cfg)
+        time.sleep(0.05)
+    assert result["d"].state == approval.TIMEOUT
+    assert approval.read_decision(result["d"].id) == {}
+
+    # An empty inbox, and the gated command the agent actually runs.
+    os.makedirs(os.path.join(_folder(cfg), "inbox"))
+    out: dict = {}
+
+    def agent():
+        out["rc"], out["out"], out["op"], _ = _jira_transition(
+            monkeypatch, capsys, ["transition", "RDSD-1", "--to", "review"], itype="Story", status="In Progress",
+            transitions=STORY, cfg={"fleet": {"approval_timeout": 1}})
+
+    g = threading.Thread(target=agent, daemon=True)
+    g.start()
+    while g.is_alive():
+        assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 0, "retried": 0}
+        time.sleep(0.05)
+    assert out["rc"] == 2 and "refused: approval_timeout" in out["out"]
+    assert not [c for c in out["op"].calls if c[0].startswith("POST")]
+
+
+def test_a_bom_and_a_utf16_inbox_file_are_read_as_the_same_decision(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    record = _phone(request)
+    text = json.dumps(record)
+    _drop(cfg, name=f"decision-{record['nonce']}.json", raw=b"\xef\xbb\xbf" + text.encode("utf-8"))
+    _drop(cfg, name=f"decision-{record['nonce']}-PHONE.json", raw=("﻿" + text).encode("utf-16-le"))
+    assert bridge.apply_once(cfg) == {"applied": 1, "rejected": 1, "retried": 0}
+    [why] = [n for n in os.listdir(os.path.join(_folder(cfg), "rejected")) if n.endswith(".why.json")]
+    assert _why(cfg, why[:-len(".why.json")])["code"] == "mobile_replay"
+    assert approval.read_decision(request["id"])["nonce"] == record["nonce"]
+    assert len(_events("luna", "mobile.decision")) == 1
+
+
+def test_a_file_over_16kb_or_that_is_not_json_is_rejected_without_being_parsed_further(fleet_home, tmp_path,  # noqa: F811
+                                                                                       monkeypatch):
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    big = _phone(request, reason="x" * (17 * 1024))
+    big_name = _drop(cfg, big)
+    assert os.path.getsize(os.path.join(_folder(cfg), "inbox", big_name)) > bridge.INBOX_MAX_BYTES
+    bad_name = _drop(cfg, name="decision-garbled.json", raw=b'{"schema": 1, "kind": "decision", "nonce": ')
+    schema2 = _drop(cfg, _phone(request, schema=2))
+    listish = _drop(cfg, name="decision-list.json", raw=b"[1, 2, 3]")
+
+    read = []
+    real = textio.read_json
+    monkeypatch.setattr(bridge.textio, "read_json", lambda path, what="file": read.append(path) or real(path, what))
+    assert bridge.apply_once(cfg)["rejected"] == 4
+    assert not [p for p in read if p.endswith(big_name)], "a file over the cap was opened"
+
+    assert _why(cfg, big_name)["code"] == "mobile_too_large"
+    assert _why(cfg, bad_name)["code"] == "mobile_bad_json"
+    assert _why(cfg, schema2)["code"] == _why(cfg, listish)["code"] == "mobile_bad_schema"
+    assert not os.path.exists(bridge.outbox_dir(_folder(cfg), "results", f"{big['nonce']}.result.json")), \
+        "the nonce of an unread file is not known"
+    assert approval.read_decision(request["id"]) == {}
+
+
+def test_every_refusal_lands_in_rejected_with_a_sidecar_naming_its_code_and_emits_mobile_rejected(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    now = time.time()
+    request = _request("luna")
+    done = _request("luna", kind="jira-comment")
+    approval.decide(done["id"], approval.APPROVED, by="operator")
+    E.append("luna", [E.event("luna", "started", {"pid": 1}, ticket="RDSD-131"),
+                      E.event("luna", "turn_started", {}, ticket="RDSD-131")])
+    before = E.read("luna")
+    cases = {
+        "mobile_digest_mismatch": _phone(request, digest="f" * 64),
+        "mobile_expired": _phone(request, issued=now - 1200, expires=now - 300),
+        "mobile_wrong_operator": _phone(request, by="intruder@example.com"),
+        "mobile_already_decided": _phone(done),
+        "mobile_bad_schema": _phone(request, decision="maybe"),
+        "mobile_reason_required": _phone(request, decision="denied", reason=" "),
+        "mobile_bad_time": _phone(request, issued=now + 3600, expires=now + 3900),
+    }
+    names = {code: _drop(cfg, record) for code, record in cases.items()}
+    unknown = _phone({"id": "luna-jira-transition-20260101T000000-dead", "digest": "a" * 64})
+    unknown_name = _drop(cfg, unknown)
+    token = _phone(request, by="intruder@example.com", reason="token=ghp_abcdefghijklmnopqrstuvwxyz0123")
+    token_name = _drop(cfg, token)
+
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": len(cases) + 2, "retried": 0}
+    assert _inbox_names(cfg) == []
+    for code, name in names.items():
+        why = _why(cfg, name)
+        assert why["code"] == code and why["error"] and why["hint"] and why["at"], why
+        assert os.path.isfile(os.path.join(_folder(cfg), "rejected", name))
+        assert _result(cfg, cases[code]["nonce"])["code"] == code
+    assert _why(cfg, unknown_name)["code"] == "mobile_unknown_id"
+    assert _why(cfg, token_name)["code"] == "mobile_wrong_operator"
+    assert approval.read_decision(request["id"]) == {}
+    assert approval.read_decision(unknown["id"]) == {}
+    assert approval.read_decision(done["id"])["by"] == "operator", "a refusal never touches another decision"
+
+    rejected = _events("luna", "mobile.rejected")
+    by_nonce = {e["data"]["nonce"]: e["data"] for e in rejected}
+    assert set(by_nonce) == {r["nonce"] for r in cases.values()} | {token["nonce"]}, \
+        "an id no approval knows names no repo, so it is kept in rejected/ and the state file only"
+    for code, record in cases.items():
+        data = by_nonce[record["nonce"]]
+        assert set(data) == {"nonce", "kind", "code", "why"} and data["code"] == code and data["kind"] == "decision"
+        assert data["why"] and len(data["why"]) <= 200
+    assert "ghp_" not in json.dumps(rejected)
+    assert bridge.read_state()["processed"][unknown["nonce"]]["code"] == "mobile_unknown_id"
+    assert bridge.read_state()["rejected_24h"] == len(cases) + 2
+
+    # Additive: the fold reads the stream with the refusals exactly as it read it without them.
+    def folded(events):
+        return {k: v for k, v in agentstate.derive(events).items() if k != "at"}   # `at` is the newest event's time
+
+    assert folded(E.read("luna")) == folded(before) and folded(before)["state"] == "running"
+    fold = agentstate.Fold()
+    for ev in before:
+        fold.add(ev)
+    snapshot = {k: v for k, v in agentstate.classify(fold).items() if k != "at"}
+    for ev in rejected:
+        fold.add(ev)
+    assert {k: v for k, v in agentstate.classify(fold).items() if k != "at"} == snapshot
+
+
+def test_a_file_that_fails_unexpectedly_twice_is_rejected_as_unreadable(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    record = _phone(request)
+    name = _drop(cfg, record)
+
+    def boom(_record):
+        raise RuntimeError("the disk said no")
+
+    monkeypatch.setattr(bridge, "_check_decision", boom)
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 0, "retried": 1}, "the first failure is retried"
+    assert _inbox_names(cfg) == [name]
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 1, "retried": 0}
+    assert _why(cfg, name)["code"] == "mobile_unreadable" and _inbox_names(cfg) == []
+    assert approval.read_decision(request["id"]) == {}
+
+
+def test_a_denial_without_a_reason_is_refused_before_decide_is_reached(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    calls = []
+    with monkeypatch.context() as m:
+        m.setattr(approval, "decide", lambda *a, **k: calls.append((a, k)))
+        for reason in ("", "   "):
+            name = _drop(cfg, _phone(request, decision="denied", reason=reason))
+            assert bridge.apply_once(cfg)["rejected"] == 1
+            assert _why(cfg, name)["code"] == "mobile_reason_required"
+    assert calls == [] and approval.read_decision(request["id"]) == {}
+
+    _drop(cfg, _phone(request, decision="denied", reason="wrong column"))
+    assert bridge.apply_once(cfg)["applied"] == 1
+    assert approval.read_decision(request["id"])["reason"] == "wrong column"
+
+
+def test_a_late_decision_on_a_timed_out_request_is_recorded_as_late(fleet_home, tmp_path):  # noqa: F811
+    cfg = _cfg(tmp_path, approval_timeout=60)
+    # Created ten minutes ago: its agent's `require()` returned TIMEOUT long since, and a re-run is a new id.
+    request = _request("luna", created=time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 600)))
+    record = _phone(request)
+    _drop(cfg, record)
+    assert bridge.apply_once(cfg)["applied"] == 1
+    assert approval.read_decision(request["id"])["late"] is True
+    assert _result(cfg, record["nonce"])["late"] is True
+    assert _load(cfg, f"approvals/{request['id']}.decision.json")["late"] is True
+    assert _events("luna", "mobile.decision")[0]["data"]["late"] is True
+
+    # One inside the window is not late.
+    fresh = _request("luna", kind="jira-comment")
+    on_time = _phone(fresh)
+    _drop(cfg, on_time)
+    assert bridge.apply_once(cfg)["applied"] == 1
+    assert _result(cfg, on_time["nonce"])["late"] is False
+
+
+def test_a_move_that_fails_is_retried_on_the_next_tick_and_the_decision_is_applied_once(fleet_home, tmp_path,  # noqa: F811
+                                                                                        monkeypatch):
+    cfg = _cfg(tmp_path)
+    request = _request("luna")
+    record = _phone(request)
+    name = _drop(cfg, record)
+    with monkeypatch.context() as m:
+        m.setattr(bridge, "_move", lambda src, dest: False)          # the sync client holds the file
+        assert bridge.apply_once(cfg)["applied"] == 1
+    assert _inbox_names(cfg) == [name] and approval.read_decision(request["id"])["nonce"] == record["nonce"]
+    assert bridge.read_state()["processed"][record["nonce"]]["moved"] is False
+
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 0, "retried": 1}
+    assert _inbox_names(cfg) == [] and os.path.isfile(os.path.join(_folder(cfg), "processed", name))
+    assert bridge.read_state()["processed"][record["nonce"]]["moved"] is True
+    assert _result(cfg, record["nonce"])["result"] == "applied" and len(_events("luna", "mobile.decision")) == 1

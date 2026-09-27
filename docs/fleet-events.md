@@ -333,6 +333,24 @@ Carries `paths, how, by, queued`.
 {"schema": 1, "seq": 29, "ts": "2026-01-04T09:45:25", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.exported", "data": {"id": "luna-jira-transition-20260104T094520-7f3a", "digest": "7d2a9f4c6b1e8d3f5a0c2e4b6d8f1a3c5e7b9d0f2a4c6e8b1d3f5a7c9e0b2d4f", "expires": "2026-01-04T10:15:20Z"}}
 ```
 
+**`mobile.decision`** — the bridge (#547) applied a decision the phone dropped into `inbox/`, after every check
+passed, through `approval.decide(..., via="mobile")`. No state changes: the agent's own `approval_resolved` follows.
+Carries `id, kind, decision, by, nonce, late` (`by` is `mobile:<upn>`; `late` when the request was older than
+`fleet.approval_timeout`, so its agent had already timed out).
+
+```json
+{"schema": 1, "seq": 30, "ts": "2026-01-04T09:47:02", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.decision", "data": {"id": "luna-jira-transition-20260104T094520-7f3a", "kind": "decision", "decision": "approved", "by": "mobile:operator@example.com", "nonce": "9f2c4b7e1a3d4c5b8e6f0a2b4c6d8e0f", "late": false}}
+```
+
+**`mobile.rejected`** — the bridge (#547) refused an inbox file and moved it to `rejected/`; no decision was written.
+On the stream of the repo the file names (a known approval's, or a registered repo); a file naming neither is kept in
+`rejected/` and the state file only. No state changes. Carries `nonce, kind, code, why` (`code` is a `mobile_*`
+refusal, `why` at most 200 characters, scrubbed).
+
+```json
+{"schema": 1, "seq": 31, "ts": "2026-01-04T09:47:30", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.rejected", "data": {"nonce": "c0d3e6f91b2a4d6c8e0f1a3b5c7d9e1f", "kind": "decision", "code": "mobile_digest_mismatch", "why": "the decision names a different request (digest mismatch)"}}
+```
+
 ## The state a tile shows
 
 `agentstate.derive()` folds the stream into one answer. Deterministic, in this order — the first
