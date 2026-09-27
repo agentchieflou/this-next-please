@@ -1405,6 +1405,13 @@ Above `function section(id, open, skipPost) {`:
 
 `open` undefined toggles, true opens, false closes. Opening one closes the rest.
 
+### `document.getElementById("side").addEventListener("click", function (e) {`
+
+The tap outside (#576). At 640 px and under the scrim is `#side::before`, so a click whose target
+is `#side` itself landed on the scrim, not on the sheet's tabs or sections, and closes the
+sidebar through `closeSide`, the same write `Esc` makes. Wider, `#side`'s children cover it, so
+the listener never fires.
+
 ### `document.getElementById("chime").addEventListener("click", function () {`
 
 In `try { localStorage.setItem("fleet.chime", chimeOn ? "1" : "0"); } catch (e) { }`:

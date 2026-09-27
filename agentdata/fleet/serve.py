@@ -649,7 +649,9 @@ def fleet_snapshot() -> dict:
     except Exception:                    # noqa: BLE001 - an unreadable skills folder is not a dead desk
         installed = None
 
-    for row in supervisor.status():
+    # The same registry the states are read from (#586): a second `Registry()` in `status()` could
+    # list a repo registered since, whose `state.json` this snapshot would then never read.
+    for row in supervisor.status(registry):
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
         repo_state: dict = {}                # the previous row's repository (and its state) in hand
@@ -1810,7 +1812,7 @@ def update_window(w: str = "main", **kwargs) -> dict:
                                  code="widths_stale")
         win = wins.setdefault(w, {
             "focus": False,
-            "section": "tickets",
+            "section": "",
             # Which agent this window has OPEN (#203). Per window, not shared: the left monitor
             # reads one agent while the centre reads another, and `selected` -- which the inspector
             # follows -- stays the one thing every window agrees on.

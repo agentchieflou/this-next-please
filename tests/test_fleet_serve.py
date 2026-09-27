@@ -821,3 +821,26 @@ def test_a_file_is_text_whatever_this_machine_calls_it(monkeypatch):
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+def test_a_snapshot_reads_the_registry_once(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """#586: a repo registered while a snapshot is being built is in it whole or not at all. The
+    snapshot read `registry.json` twice -- once for the states, once in `supervisor.status()` -- so
+    one registered between the two was listed with no `state.json` behind it: the pane said
+    "a clean session on no ticket" over a session mid-ticket, for one poll."""
+    from agentdata.fleet import supervisor
+
+    path = make_project(tmp_path / "gamma", phase="querying", ticket="RDSD-1")
+    status = supervisor.status
+
+    def registered_between(registry=None):
+        if "gamma" not in Registry().repos:
+            Registry().add(path, name="gamma")
+            E.append("gamma", [E.event("gamma", "session_id", {"session": "s-gamma"}, ticket="RDSD-1")])
+        return status(registry)
+
+    monkeypatch.setattr(supervisor, "status", registered_between)
+    rows = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
+    assert rows == [] or rows[0]["fresh"]["starts"]["ticket"] == "RDSD-1", rows[0]["fresh"]
+    again = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
+    assert again and again[0]["fresh"]["starts"]["ticket"] == "RDSD-1", again

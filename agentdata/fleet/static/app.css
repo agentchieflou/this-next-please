@@ -273,7 +273,7 @@ body {
 @media (max-width: 900px) {
   #side {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
-    width: min(420px, 92vw); flex-basis: auto;
+    width: min(480px, 60vw); flex-basis: auto;
     box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
   }
 }
@@ -536,6 +536,8 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 @media (max-width: 640px) {
   .keys { display: none; }
   kbd { display: none; }
+  #side { top: calc(48px + env(safe-area-inset-top)); left: 0; right: auto; width: 100vw; }
+  #side::before { content: ""; position: fixed; inset: 0; z-index: -1; background: rgba(0, 0, 0, .3); }
 }
 
 #bell { position: relative; }

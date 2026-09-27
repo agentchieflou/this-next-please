@@ -107,6 +107,15 @@ def test_the_api_takes_either_shape(fleet_home, tmp_path):
     assert S.desk_state()["arrangement"]["size"] == {"alpha": {"cols": 3, "rows": 2}}
 
 
+
+def test_a_new_window_record_names_no_section(fleet_home, tmp_path):
+    """#544: a new record's `section` is `""`, never `"tickets"` -- the board's list, which is not
+    one of the page's sections, and which left the sidebar toggle opening nothing on every fresh
+    `?w=`. The map's `Enter` makes the record this way before any page has read it."""
+    _repos(tmp_path, "alpha")
+    S.update_window(w="phone", open="r00")
+    assert S.desk_state()["windows"]["phone"]["section"] == ""
+
 def test_the_page_reads_the_same_two_numbers_the_server_writes():
     """One arithmetic, on both sides of the wire -- the bug this repository keeps relearning.
 
