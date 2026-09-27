@@ -221,6 +221,12 @@ desk: the server binds 127.0.0.1 only, and the phone's path is #538's.
    the selected tile. A shell names no file type, no size and no repository rule: it posts, and shows
    the answer in the server's own words.
 
+A host that wants the phone's view of the fleet rather than the desk's (#559) reads two tokened
+routes instead of `/api/fleet`: `GET /api/attention` for one allow-listed, scrubbed row per repo
+(the rows the mobile bridge writes to its outbox), and `GET /api/approval?id=<id>` for one waiting
+approval with its `payload_preview`, `digest` and `expires`. Neither carries a path, a pid or the
+transcript ([fleet-dashboard.md](fleet-dashboard.md) §Endpoints).
+
 **A shell contains no rule logic.** Which agents need a person, what to say and when to stay quiet
 are `agentdata/fleet/notify.py`'s, and a second implementation in Kotlin or TypeScript would
 eventually disagree with the tiles beside it. `tests/test_fleet_shells.py` asserts this rather than
