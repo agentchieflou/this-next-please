@@ -195,6 +195,7 @@ function putBack(was) {
 function reflectTheme(cur) {
   if (!cur) return;
   themeNow = cur;
+  if (cur.seq > themeSeq) themeSeq = cur.seq;
   var themeSel = document.getElementById("theme");
   var skinSel = document.getElementById("skin");
   if (themeSel && cur.theme) themeSel.value = cur.theme;

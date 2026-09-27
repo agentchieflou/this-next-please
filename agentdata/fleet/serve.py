@@ -1463,6 +1463,9 @@ def theme_state() -> dict:
         # file changes, and the served page itself (`page_theme`, #345) -- so the settings page's
         # "in effect now" is true of them as it is of the palette.
         "tiers": SET.tiers(cfg),
+        # The highest pick number written (#483): a page numbers its picks above it, so a number a
+        # clock that was ahead stored never leaves the picker refusing every pick until it catches up.
+        "seq": _stored_seq(cfg),
     }
 
 
@@ -2560,14 +2563,13 @@ def act(what: str, body: dict) -> dict:
 
         seq = _theme_seq(body)
         with C.LOCK:
-            wrote, last = _write_theme(C, body, seq)
+            wrote, _ = _write_theme(C, body, seq)
         if wrote:
             _config_changed()
         # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
         # from this answer instead of waiting a tick for the frame to say what it has just chosen.
         # A stale pick (#483) is answered the same way, with what is on, and says it was not written.
         out = theme_state()
-        out["seq"] = last
         if not wrote:
             out["stale"] = True
         return out
@@ -2651,6 +2653,12 @@ def _theme_seq(body: dict) -> int | None:
     return seq
 
 
+def _stored_seq(cfg: dict) -> int:
+    """`theme.seq` as config.json holds it, 0 when it holds none or something that is not a number."""
+    seq = (cfg.get("theme") or {}).get("seq")
+    return seq if isinstance(seq, int) and not isinstance(seq, bool) else 0
+
+
 def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
     """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`.
 
@@ -2662,8 +2670,7 @@ def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
     leaves the number alone. Answers (written, the highest number)."""
     cfg = C.load()
     cfg.setdefault("theme", {})
-    last = cfg["theme"].get("seq")
-    last = last if isinstance(last, int) and not isinstance(last, bool) else 0
+    last = _stored_seq(cfg)
     if seq is not None and seq <= last:
         return False, last
     if seq is not None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -243,6 +244,35 @@ def test_two_theme_writes_that_arrive_out_of_order_end_on_the_later_pick(fleet_h
     assert bad == [409] * 4, bad
 
 
+#: A `theme.seq` written by a clock that was ahead: an NTP step back, a VM resumed, a hand edit.
+AHEAD = 4_102_444_800_000
+
+
+def _pick_seq(last: int) -> int:
+    """How /settings numbers a pick (`settings.js` `choose`): the clock, or one above the last heard."""
+    return max(int(time.time() * 1000), last + 1)
+
+
+def test_a_number_stored_by_a_clock_that_was_ahead_never_locks_the_picker(fleet_home, tmp_path):
+    """#483: the page numbers from the highest `seq` it has heard, and the theme state it loads says
+    it, so a fresh page's first pick wins over a stored number hours ahead of the clock. A pick
+    numbered from the clock alone is stale, and its answer says the number to outrank."""
+    _config(fleet_home, skin="voxel:nether", seq=AHEAD)
+    server, token, port = _serve()
+    try:
+        current = _get(port, token, "/api/themes")["current"]
+        fresh = _post(port, token, "/api/theme", {"skin": "glass:smoke", "seq": _pick_seq(current.get("seq", 0))})
+        clock = _post(port, token, "/api/theme", {"skin": "voxel:overworld", "seq": _pick_seq(0)})
+        after = _post(port, token, "/api/theme", {"skin": "voxel:overworld", "seq": _pick_seq(clock["seq"])})
+        on = S.theme_state()
+    finally:
+        _stop(server)
+    assert "stale" not in fresh and fresh["skin"] == "glass:smoke", "a fresh page's first pick wins"
+    assert current["seq"] == AHEAD, current
+    assert clock["stale"] is True and clock["seq"] == AHEAD + 1, clock
+    assert "stale" not in after and on["skin"] == "voxel:overworld" and on["seq"] == AHEAD + 2, on
+
+
 @pytest.mark.browser
 @pytest.mark.parametrize("order", ["stream", "themes"])
 @pytest.mark.parametrize("theme", [{"default": "nfl-browns"}, {"skin": "voxel:nether"}],
@@ -428,10 +458,11 @@ def test_leaving_settings_waits_for_the_write(browser, fleet_home, tmp_path, ans
 @pytest.mark.browser
 def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp_path):
     """Folded in (#483, decision 13): two picks made back to back, with the first one's answer held
-    until the second has been answered, leave the page on the second pick."""
+    until the second has been answered, leave the page on the second pick. The config holds a pick
+    number from a clock that was ahead (`AHEAD`), which the page numbers above."""
     _desk_of(tmp_path, ("alpha",))
     last = _state_of(fleet_home, skin="voxel:overworld")
-    _config(fleet_home, skin="voxel:nether")
+    _config(fleet_home, skin="voxel:nether", seq=AHEAD)
     server, token, port = _serve()
     try:
         page, errors = _page(browser)
@@ -452,6 +483,9 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
         assert read, frames
         assert all(r[1] >= 4.5 for r in read), read
         assert all(f["inkOff"] for f in frames if f["inkOff"] is not None), "ink-off stays on /settings"
+
+        page.wait_for_function("() => pendingTheme === null", timeout=15000)
+        assert S.theme_state()["skin"] == "farmstead:daytime", "a fresh page's first pick is written"
 
         # #483: two quick picks; the first answer lands after the second has been applied.
         page.evaluate("() => { document.getElementById('saved').hidden = true; }")

@@ -112,9 +112,11 @@ has written (`serve._write_theme`), so the last pick wins whatever order the wri
 
 The number is the wall clock in milliseconds, or one more than the last if that is not above it:
 every tab on the machine reads the same clock, so a slow write from one tab cannot overwrite a
-later pick made in another. An answer carries the server's highest number; a page that hears a
-higher one than its own numbers from there, so a clock set back costs at most one pick, which the
-server answers `stale` with what is on and the page then shows.
+later pick made in another. The theme state carries the server's highest number (`seq`) in every
+form the page hears it -- `/api/themes`'s `current`, the stream's `theme` frame and each answer --
+and the page numbers above the highest it has heard. So a number stored by a clock that was ahead
+(an NTP step back, a VM resumed, a hand edit) never makes a fresh page's picks stale: without the
+seed, every pick was refused until the clock caught up, hours in the worst case.
 
 ### `function paletteCss`
 
@@ -170,6 +172,11 @@ Above `function reflectTheme(cur) {`:
 
 One place that puts the server's answer into the two controls, so a change made in the terminal
 or in another window shows up here rather than leaving the picker saying something else.
+
+Above `if (cur.seq > themeSeq) themeSeq = cur.seq;`:
+
+Every server state reaches the page through here, so this is where the page learns the number to
+pick above (#483, `var themeSeq`). A state the page made itself has no `seq` and changes nothing.
 
 Above `[themeSel, skinSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selec …`:
 
