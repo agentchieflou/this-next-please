@@ -499,6 +499,21 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
             m.wait_for_selector('#grid .tile.is-solo[data-tier="full"]', timeout=5000)
             m.wait_for_timeout(300)
             tablet = m.evaluate(STACK)
+            # #577: `all` on the tablet widens only the panes that fit, rails the rest and says
+            # so, in one write that `u` takes back in one press.
+            posts = []
+            m.on("request", lambda r: posts.append(r.url + " " + (r.post_data or "")) if r.method == "POST" else None)
+            m.locator("#preset-all").tap()
+            m.wait_for_function("() => /^all that fit: \\d+ of 6$/.test(document.getElementById('notice').textContent)"
+                                " && windowWrites === 0 && !inViewTransition && [...document.querySelectorAll('#grid .tile')]"
+                                ".every((t) => !t.style.transform && t.getAnimations().length === 0)", timeout=10000)
+            capped = m.evaluate(STACK)
+            capped["said"] = m.evaluate("() => document.getElementById('notice').textContent")
+            capped["posts"] = list(posts)
+            m.keyboard.press("u")
+            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1"
+                                " && windowWrites === 0", timeout=10000)
+            capped["undone"] = list(posts)
             m.set_viewport_size({"width": 390, "height": 844})
             m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'",
                                 timeout=5000)
@@ -549,6 +564,15 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
     assert tablet["wrap"] == "nowrap" and len(tablet["open"]) == 1 and tablet["open"][0]["tier"] == "full", tablet
     assert len({round(t["y"]) for t in tablet["open"] + tablet["bar"]}) == 1, tablet
     assert all(r["tier"] == "rail" for r in tablet["bar"]), tablet
+    # `all` at 820x1180 (#577): the panes that fit at the compact minimum, the rest rails, nothing
+    # sideways, one write, and `u` one more.
+    fit = int(capped["said"].split(": ")[1].split(" of ")[0])
+    assert 1 < fit < 6 and capped["wrap"] == "nowrap" and capped["sw"] <= capped["cw"], capped
+    assert len(capped["open"]) == fit and all(t["width"] >= 160 for t in capped["open"]), capped
+    assert len(capped["bar"]) == 6 - fit and all(r["tier"] == "rail" for r in capped["bar"]), capped
+    writes = [u for u in capped["posts"] if '"widths"' in u]
+    assert len(writes) == 1 and all("/api/window" in u for u in capped["posts"]), capped
+    assert len([u for u in capped["undone"] if '"widths"' in u]) == 2, capped
     # `all` at 390: the panes stack and the grid scrolls down, never sideways.
     assert len(spread["open"]) == 6 and spread["sw"] <= spread["cw"] and spread["sh"] > spread["ch"], spread
 
