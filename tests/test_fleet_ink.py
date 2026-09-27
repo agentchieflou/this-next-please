@@ -1502,7 +1502,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert helper["slow"]["settled"] and helper["slow"]["answered"] and helper["slow"]["waited"] >= 1400, helper["slow"]
     assert "wrote to the page" in helper["late"] and "attributes data-late" in helper["late"], helper["late"]
     assert helper["own"]["refreshes"] >= 1 and helper["own"]["mutations"] == 0, helper["own"]
-    assert helper["throttled"]["settled"] and helper["throttled"]["frames"] >= 20, helper["throttled"]
+    # Settled only once the 20 busy frames had all been written, and the last taken away.
+    assert helper["throttled"]["settled"] and helper["throttled"]["busy"] == [20, True], helper["throttled"]
     # From the first byte: the parser putting `<html>` into the document is its first record.
     assert helper["loaded"]["count"] > 50 and helper["loaded"]["records"][0] == "childList  #document", helper["loaded"]
     assert count["mutations"] == 0, f"an idle desk with ink on it wrote to the page: {count}"
@@ -1536,6 +1537,7 @@ def _the_waits_on_an_idle_desk(page, monkeypatch):
     from desk_harness import throttle_page
 
     out = {}
+    settle(page)  # the click on beta's row opened it, with a view transition
     # A layer that renders every frame for ever (`Ink.sample` draws one), against a short ceiling.
     page.evaluate("""() => { window.__spin = true;
       const f = () => { if (!window.__spin) return; Ink.sample({ x: 0, y: 0, w: 1, h: 1 }); requestAnimationFrame(f); };
@@ -1575,11 +1577,12 @@ def _the_waits_on_an_idle_desk(page, monkeypatch):
     out["own"] = observe_quiet(page, passes=1, drive=False)
     # Busy for 20 frames under a CPU throttle of 4, then still.
     throttle_page(page, 4)
-    page.evaluate("""() => { let n = 0;
-      const f = () => { document.body.dataset.busy = String(++n); if (n < 20) requestAnimationFrame(f);
-                        else delete document.body.dataset.busy; };
+    page.evaluate("""() => { window.__busy = 0;
+      const f = () => { document.body.dataset.busy = String(++window.__busy);
+                        if (window.__busy < 20) requestAnimationFrame(f); else delete document.body.dataset.busy; };
       requestAnimationFrame(f); }""")
     out["throttled"] = settle(page)
+    out["throttled"]["busy"] = page.evaluate("() => [window.__busy, document.body.dataset.busy === undefined]")
     throttle_page(page, 1)
     # A recorder from the page's first byte: the load's own writes.
     loaded = record_mutations(page, init=True)

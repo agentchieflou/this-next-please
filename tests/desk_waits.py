@@ -75,9 +75,11 @@ WATCH = """;(() => {
     h.stop = () => { h.flush(); obs.disconnect(); return h; };
     return h;
   };
+  // The next frame (true), or 100 ms without one (false): a page that draws no frame still has its
+  // ceiling looked at, but only a frame counts towards being still.
   const tick = () => new Promise(done => {
-    let went = false; const go = () => { if (!went) { went = true; done(); } };
-    requestAnimationFrame(go); later(go, 100);
+    let went = false; const go = drawn => { if (!went) { went = true; done(drawn); } };
+    requestAnimationFrame(() => go(true)); later(() => go(false), 100);
   });
   const layer = () => { try { return window.Ink ? Ink.inspect().layer : null; } catch (e) { return null; } };
   const renders = () => { const l = layer(); return l ? l.renders : 0; };
@@ -132,11 +134,12 @@ WATCH = """;(() => {
     let calm = 0, frames = 0, why = [], last = t0, seen = f0;
     try {
       for (;;) {
-        await tick();
-        frames += 1;
-        const now = moving(o, w, was);
-        if (now.length) { calm = 0; why = now; }
-        else if (++calm >= o.quiet) return { settled: true, frames, ms: Math.round(performance.now() - t0) };
+        if (await tick()) {
+          frames += 1;
+          const now = moving(o, w, was);
+          if (now.length) { calm = 0; why = now; }
+          else if (++calm >= o.quiet) return { settled: true, frames, ms: Math.round(performance.now() - t0) };
+        }
         if (drawn() > seen) { seen = drawn(); last = performance.now(); }
         if (performance.now() - last > o.ms) return { settled: false, moving: why, frames };
         if (seen - f0 > o.ms * 60 / 1000)
