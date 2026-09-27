@@ -28,6 +28,21 @@ and the transcript, is in [fleet-dashboard.md](fleet-dashboard.md) §The row, an
   opens the one that needs you. Only past that does the row scroll sideways, which is the last
   resort and not the design (plan-panes §Open questions).
 
+## The stack (#575)
+
+At 640 px and under the row does not fit, so it becomes a **stack**: the open pane fills the glass
+and the rails wrap into one 56 px **bottom bar** under it, horizontal, reading as a tab bar. More
+than one pane with a width (the pinned ones, or after `all`) stack one under another, each as wide
+as the glass, and the grid scrolls down. Gutters and grips are gone, and a pane scrolls inside
+itself. A phone on its side (a coarse pointer and 480 px or less of height) keeps the row, and its
+open pane scrolls inside itself so the reply row is always reachable.
+
+What does not change: the window's record (`open`, widths, `section`), the tiers (the open pane at
+390 px is 374 px wide, so `full`, and a bar rail is under `--compact-from`, so `rail`), the one
+`transitionLayout` door (a tap on a bar rail is `openPane`, as a click on a rail is), and `choose()`:
+a tap on a pane still selects it for every window (MOB-D24). `groupRails` folds a project's
+checkouts only when the bar itself would overflow. At 820 px (a tablet) the row is the row.
+
 ## The tiers
 
 What a pane draws is decided by its width, and its width by the widths. `data-tier` is the one
@@ -146,6 +161,12 @@ it with **widths**, in each window's own record:
   `drawer`, `found`, `inspector`. A new record starts at `""` (#544). The page ignores any other
   value, so an older record's `"tickets"` (the board's list, not a section) no longer leaves the
   sidebar toggle opening nothing. No `desk.json` is migrated.
+* **The sidebar on a phone or a tablet** (#576). At 640 px and under the sidebar is a full-width
+  sheet that starts 48 px below the top, over a scrim (`#side::before`) that dims the rest of the
+  page. A tap on the scrim closes it, and so does `Esc`; a tap inside the sheet does not. Closing
+  it writes `section: ""`, as the toggle does. At 900 px and under it is an overlay of
+  `min(480px, 60vw)`, so at 820 px the open pane stays visible beside it. Wider, it is the column
+  beside the row, with no scrim.
 
 `size` is still read and kept by the server (`serve.size_cell`, both of its spellings, columns
 capped at 4) because desk.json files written before this carry it. `POST /api/arrange` still takes

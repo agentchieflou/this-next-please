@@ -671,11 +671,37 @@ def test_the_page_is_laid_out_for_a_phone_viewport_and_unchanged_on_a_desktop():
     assert any(("display", "none") in ds for body in narrow for s, ds in _css_rules(body) if s == "kbd"), \
         "no (max-width: 640px) rule hides kbd"
 
+    # #576: at 640 px and under the sidebar is a full-width sheet over a scrim, `#side::before`,
+    # and a tap on the scrim closes it; the tablet's overlay leaves the row visible beside it.
+    phone = {s: dict(ds) for body in narrow for s, ds in _css_rules(body)}
+    assert phone.get("#side", {}).get("width") == "100vw", phone.get("#side")
+    scrim = phone.get("#side::before", {})
+    assert scrim.get("content") == '""' and scrim.get("position") == "fixed" and scrim.get("inset") == "0", scrim
+    tablet = re.findall(r"@media \(max-width: 900px\) \{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}", raw)
+    assert any(dict(ds).get("width") == "min(480px, 60vw)" for body in tablet for s, ds in _css_rules(body)
+               if s == "#side"), "the tablet overlay is not min(480px, 60vw)"
+    assert raw.count("#side::before") == sum(body.count("#side::before") for body in narrow) == 1, \
+        "#side::before outside the (max-width: 640px) block: a desktop would get a scrim"
+    with open(os.path.join(STATIC, "app.js"), encoding="utf-8") as f:
+        js = f.read()
+    assert re.search(r'getElementById\("side"\)\.addEventListener\("click", function \(e\) \{\s*'
+                     r'if \(e\.target === e\.currentTarget\) closeSide\(\);', js), "no tap-outside on #side"
+
     handles = dict(decls(".tile .head, .pane-rail"))
     assert handles.get("touch-action") == "pan-y", handles
     assert not any(p == "touch-action" and v == "none" for s, ds in rules if ".tile .head" in s.split(", ")
                    for p, v in ds), "a .tile .head rule still says touch-action: none"
     assert dict(decls(".gutter")).get("touch-action") == "none", decls(".gutter")
+
+    # #575: at 640 px and under the row wraps into a stack, the open pane first.
+    stack = [(s, dict(ds)) for body in narrow for s, ds in _css_rules(body)]
+    assert any(s == "#grid" and d.get("flex-wrap") == "wrap" for s, d in stack), stack
+    assert any(s == ".tile.is-solo" and d.get("order") == "-1" for s, d in stack), stack
+    wide = raw
+    for body in narrow:
+        wide = wide.replace(body, "")
+    assert all(d.get("flex-wrap", "nowrap") == "nowrap" for s, d in
+               ((s, dict(ds)) for s, ds in _css_rules(wide)) if s == "#grid"), "the row wraps outside the stack"
 
     for page in ("index.html", "settings.html", "map.html", "probe.html"):
         with open(os.path.join(STATIC, page), encoding="utf-8") as f:

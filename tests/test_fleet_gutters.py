@@ -1093,7 +1093,24 @@ def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_p
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=3)
             page.wait_for_selector('#grid .tile.needs-human[data-tier="rail"]', timeout=15000)
-            count = page.evaluate("""async () => {
+            count = page.evaluate(IDLE_PASSES)
+            # And once at a phone's 390 px (#575): the stack's bottom bar is the same rails, drawn
+            # by the same code, so an idle pass there touches nothing either.
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.wait_for_function(
+                """() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'
+                      && document.querySelector('.tile[data-repo="alpha"]').dataset.tier === 'full'""",
+                timeout=10000)
+            phone = page.evaluate(IDLE_PASSES)
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    assert count["n"] == 0, f"an idle desk wrote to the row: {count}"
+    assert phone["n"] == 0, f"an idle desk at 390 px wrote to the stack: {phone}"
+
+
+IDLE_PASSES = """async () => {
               // Idle means the same answer: a live `/api/fleet` carries ages that are MEANT to
               // move a chip once a second, so the answer is replayed byte for byte (as
               // `test_fleet_panes` does for the whole document).
@@ -1121,12 +1138,7 @@ def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_p
               obs.takeRecords().forEach(() => { n += 1; });
               obs.disconnect();
               return { n: n, seen: seen };
-            }""")
-            assert not errors, errors
-            browser.close()
-    finally:
-        _stop(server)
-    assert count["n"] == 0, f"an idle desk wrote to the row: {count}"
+            }"""
 
 
 @pytest.mark.browser

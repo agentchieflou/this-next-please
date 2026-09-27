@@ -78,6 +78,12 @@ desktop window, where every `env(safe-area-inset-*)` is 0:
   scrolls (never `position: fixed`).
 - At 640 px and under, every `kbd` hint is hidden beside the `.keys` popover (MOB-D17's
   breakpoint): a phone has no keyboard to name.
+- At 640 px and under, `#side` is a full-width sheet (#576) that starts 48 px below the top (plus
+  the notch's inset), and `#side::before` is its scrim: fixed over the whole viewport at
+  `z-index: -1` inside the sheet's own stacking context, so it darkens the page and never the
+  sheet. The scrim is part of `#side`, so a tap on it is a click whose target is `#side` itself,
+  which is how `app.js` tells a tap outside from a tap inside. The 48 px strip is what a thumb
+  taps to dismiss; a sheet that covered the whole screen would have no outside.
 
 ### `.toolbar-group`
 
@@ -147,6 +153,9 @@ Above `@media (max-width: 900px) {`:
 
 A narrow window -- JCEF's tool window, Simple Browser in a split -- cannot afford a column
 beside the grid, so the sidebar goes back to being an overlay there and says so with a shadow.
+
+`min(480px, 60vw)` (#576): at a tablet's 820 px the overlay is 480 px, so the open pane stays
+visible beside it; the phone rule below takes over at 640 px and under.
 
 ## the row (#233)
 
@@ -610,6 +619,33 @@ Above `.hiddencount, .undo {`:
 
 The footer's count of what is put away, and the one press that brings it all back -- and beside
 it, the one press that takes the last change of widths back (#234).
+
+### `@media (max-width: 640px)` (the stack, #575)
+
+Above the stack's `@media (max-width: 640px) {`:
+
+A phone cannot hold the row: five 48 px rails and a 160 px pane are 466 px in a 390 px grid, and
+`groupRails` folds only the checkouts of one project. So at 640 px and under (MOB-D17, the key
+map's breakpoint) the row wraps into a stack. Every pane with a width fills the glass's width
+(`order: -1`, one under another when there are several, and the grid scrolls down), and its height
+leaves one 56 px line under it, where the rails wrap into a bottom bar that reads as a tab bar:
+horizontal, their names across. The pane scrolls inside itself.
+
+The bar's rails are `.tile:not(.is-solo)`, not `[data-tier="rail"]`, and never wider than
+`--compact-from` less a pixel: the tier is written from the width, so a rule keyed on the tier that
+grew a rail past 160 px would make it compact, drop the rule, shrink it back, and flip forever.
+The gutters and grips go: there is no width to pull on a phone. The toolbar is two rows, the live
+dot, the presets and the alerts on the first and the `see` group on the second; the brand and the
+chime give up their room for it (the day button, #511, came after the audit's two rows were
+counted).
+
+### `@media (pointer: coarse) and (max-height: 480px)`
+
+A phone on its side (#575): at 844 x 390 the grid is about 130 px tall, the reply row sat below
+the screen and the grid never scrolls down. The open pane scrolls inside itself instead, so its
+reply row is reached without scrolling the page. Coarse only, because a mouse's 8 px gutter hangs
+7 px outside the pane, and a scrolling pane would clip it; under a finger the gutter is inside
+(#574).
 
 ## hide, refresh and the model (#205)
 

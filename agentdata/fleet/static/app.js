@@ -1345,6 +1345,11 @@ function servedTiers() {
 
 window.addEventListener("pageshow", function (e) { if (e.persisted) refresh(); });
 
+document.addEventListener("visibilitychange", function () {
+  if (source) { source.close(); source = null; }
+  if (document.visibilityState === "visible") refresh().then(connect);
+});
+
 window.addEventListener("pagehide", function () { if (lastFleet) cacheSnapshot(lastFleet); });
 
 function restoreCached() {
@@ -1756,6 +1761,10 @@ function closeSide() {
   syncSide();
   saveWindow({ section: "" });
 }
+
+document.getElementById("side").addEventListener("click", function (e) {
+  if (e.target === e.currentTarget) closeSide();
+});
 
 function drawer(open) { return section("drawer", open); }
 
@@ -4555,6 +4564,7 @@ var TIER_FULL_FROM = 360;
 var TIER_SLACK = 8;
 var RAIL_PX = 48;
 var ROW_GAP_PX = 6;
+var STACKED = window.matchMedia ? window.matchMedia("(max-width: 640px)") : null;
 var ROW_PAD_PX = 16;
 
 var TIER_DEFAULTS = /** @type {{rail: number, compact: number, full: number, slack: number}} */ ({ rail: RAIL_PX, compact: TIER_COMPACT_FROM, full: TIER_FULL_FROM,
@@ -4710,8 +4720,10 @@ function groupRails(shown, open) {
   railGroups = new Map();
   groupedInto = new Map();
   var rails = shown.filter(function (name) { return open.indexOf(name) < 0; });
-  var need = ROW_PAD_PX + open.length * TIER_COMPACT_FROM + rails.length * RAIL_PX +
-             Math.max(0, shown.length - 1) * ROW_GAP_PX;
+  var need = STACKED && STACKED.matches
+    ? ROW_PAD_PX + rails.length * RAIL_PX + Math.max(0, rails.length - 1) * ROW_GAP_PX
+    : ROW_PAD_PX + open.length * TIER_COMPACT_FROM + rails.length * RAIL_PX +
+      Math.max(0, shown.length - 1) * ROW_GAP_PX;
   if (!rowWidth || need <= rowWidth) return;
   var byProject = new Map();
   rails.forEach(function (name) {

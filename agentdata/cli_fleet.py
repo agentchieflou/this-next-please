@@ -27,7 +27,7 @@ from . import textio
 from . import toon
 from . import ui
 from .console import prompt as ask_line, utf8_stdout
-from .fleet import (agentstate, approval, board as B, catalogue as CAT,
+from .fleet import (agentstate, approval, board as B, bridge as BR, catalogue as CAT,
                     console as fleet_console, events as E, handoff,
                     inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
                     poll as P, preflight as PF, probe as PR, scan as SC, serve as S, supervisor)
@@ -1443,6 +1443,7 @@ def cmd_quickstart(a) -> int:
         except S.ServeError as e:
             return _refuse("ad-fleet quickstart", e)
         _refresh_models(server)
+        BR.start(server.stopping)
         url = S.url_for(server, token)
         S.record(server, token)
 
@@ -1975,6 +1976,113 @@ def cmd_notify(a) -> int:
     return EXIT_OK
 
 
+def _live_serve_pid() -> int:
+    """The pid `serve.json` names, when that process is alive; else 0."""
+    try:
+        pid = int(O.serve_record().get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    return pid if pid and supervisor.pid_alive(pid) else 0
+
+
+def _serve_running(pid: int) -> "BR.BridgeError":
+    return BR.BridgeError(f"ad-fleet serve is running (pid {pid}) and already sweeps",
+                          "stop it, or let it run the bridge", code="mobile_serve_running")
+
+
+def cmd_mobile(a) -> int:
+    """The bridge to the phone (epic #538): `status`, `init`, one `export` or `apply` pass, or `watch`.
+
+    `export --dry-run` and `apply --dry-run` change nothing on disk: the flow builder validates a file its flow wrote
+    without deciding anything (#557). `watch` runs the bridge's loop in the foreground, for a laptop with no desk
+    running; beside a live `ad-fleet serve`, which already runs it as a thread, it refuses, and so does a real `apply`
+    (two appliers could both send one reply; two sweepers split `notify.state.json`'s one cursor, #356).
+    """
+    source = f"ad-fleet mobile {a.what}"
+    try:
+        if a.what == "status":
+            meta, outbox, rejected = BR.status()
+            if ui.on():
+                ui.facts(list(meta.items()), title=source)
+                ui.table(["kind", "files", "newest"], [[r["kind"], r["files"], r["newest"]] for r in outbox],
+                         title="outbox")
+                ui.table(["at", "file", "code"], [[r["at"], r["file"], r["code"]] for r in rejected],
+                         title="rejected")
+                return EXIT_OK
+            _emit(source, meta)
+            print(toon.table("outbox", ["kind", "files", "newest"],
+                             [[r["kind"], r["files"], r["newest"]] for r in outbox]))
+            print(toon.table("rejected", ["at", "file", "code"],
+                             [[r["at"], r["file"], r["code"]] for r in rejected]))
+            return EXIT_OK
+        if a.what == "init":
+            return _mobile_init(a, source)
+        if a.what == "export":
+            got = BR.export_once(dry_run=a.dry_run)
+            _emit(source, {"dry_run": a.dry_run, "written": len(got["written"]), "unchanged": got["unchanged"],
+                           **({"note": "a dry run: nothing was written"} if a.dry_run else {})})
+            print(toon.table("records", ["kind", "repo", "file"],
+                             [[r["kind"], r["repo"], r["file"]] for r in got["records"]]))
+            return EXIT_OK
+        if a.what == "apply":
+            pid = 0 if a.dry_run else _live_serve_pid()
+            if pid:
+                return _refuse(source, _serve_running(pid))
+            rows: list[dict] = []
+            got = BR.apply_once(dry_run=a.dry_run, report=rows)
+            meta = {"dry_run": a.dry_run, "applied": got["applied"], "rejected": got["rejected"],
+                    "retried": got["retried"]}
+            if a.dry_run:
+                meta.update(would_apply=got["would_apply"], would_reject=got["would_reject"],
+                            note="a dry run: nothing was decided, sent, moved or recorded")
+            _emit(source, meta)
+            print(toon.table("inbox", ["file", "kind", "repo", "result", "code"],
+                             [[r["file"], r["kind"], r["repo"], r["result"], r["code"]] for r in rows]))
+            return EXIT_OK
+        return _mobile_watch(a, source)
+    except BR.BridgeError as e:
+        return _refuse(source, e)
+
+
+def _mobile_init(a, source: str) -> int:
+    """The tree and `pairing.json`. `--folder` and `--operator` are checked with the rest and saved only once the
+    folder has passed: a refused folder is neither created nor remembered."""
+    cfg = C.load()
+    changed = False
+    for key, value in (("folder", a.folder), ("operator", a.operator)):
+        if value is not None and C.get(cfg, f"fleet.mobile.{key}") != value:
+            C.put(cfg, f"fleet.mobile.{key}", value)
+            changed = True
+    got = BR.init_tree(cfg)
+    if changed:
+        C.save(cfg)
+    pairing = got["pairing"]
+    _emit(source, {"folder": got["folder"], "operator": pairing.get("operator", ""),
+                   "contract": pairing.get("contract", ""), "created": pairing.get("created", ""),
+                   "made": len(got["made"]), "wrote_pairing": got["wrote"],
+                   "point_the_app_at": textio.norm_path(os.path.join(got["folder"], BR.PAIRING)),
+                   **({"saved": C.display_path(C.path())} if changed else {})})
+    return EXIT_OK
+
+
+def _mobile_watch(a, source: str) -> int:
+    import threading
+
+    pid = _live_serve_pid()
+    if pid:
+        return _refuse(source, _serve_running(pid))
+    folder = BR.check_folder()
+    every = max(1.0, float(a.every))
+    _emit(source, {"folder": folder, "operator": BR.settings()["operator"], "every": every,
+                   "note": "stop with Ctrl-C"})
+    sys.stdout.flush()
+    try:
+        BR.run_loop(threading.Event(), tick=every)
+    except KeyboardInterrupt:
+        pass
+    return EXIT_OK
+
+
 def _serve_url() -> str:
     """Where the dashboard is, if one is running. A toast that cannot deep-link still notifies."""
     try:
@@ -2011,6 +2119,7 @@ def cmd_serve(a) -> int:
     except S.ServeError as e:
         return _refuse("ad-fleet serve", e)
     _refresh_models(server)
+    BR.start(server.stopping)
     url = S.url_for(server, token)
     S.record(server, token)
     # `--fresh` (#511, DAY-D4): the page opens the fresh day's preview. The server launches nothing,
@@ -2390,6 +2499,18 @@ def build_parser() -> argparse.ArgumentParser:
                       help="list: recent; test: one of each severity; tail: what would fire now")
     note.add_argument("--limit", type=int, default=50, help="how many to list")
     note.set_defaults(fn=cmd_notify)
+
+    mob = sub.add_parser("mobile", help="the bridge to the phone: its outbox and inbox on OneDrive")
+    mob.add_argument("what", choices=["status", "init", "export", "apply", "watch"],
+                     help="status: settings, folder and outbox; init: the folder's tree and pairing.json; "
+                          "export, apply: one pass; watch: run the bridge when no ad-fleet serve is running")
+    mob.add_argument("--dry-run", action="store_true",
+                     help="export, apply: check and report, change nothing on disk")
+    mob.add_argument("--folder", help="init: set fleet.mobile.folder first")
+    mob.add_argument("--operator", help="init: set fleet.mobile.operator (your UPN) first")
+    mob.add_argument("--every", type=float, default=BR.TICK_S, help="watch: seconds between passes")
+    mob.add_argument("--pretty", action="store_true", help="human-readable output")
+    mob.set_defaults(fn=cmd_mobile)
 
     srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
     srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")

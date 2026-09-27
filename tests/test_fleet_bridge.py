@@ -1100,3 +1100,171 @@ def test_a_reply_naming_an_unregistered_repo_is_refused_with_wrong_repo(fleet_ho
         assert _result(cfg, nonce)["code"] == code
     assert spawns["launched"] == [] and _typed(tmp_path) == []
     assert not _events("nowhere", "mobile.rejected")
+
+
+# ------------------------------------------------------------------------------------------ Thread and watch
+#
+# The loop's work is counted, not done: `export_once`, `apply_once` and the sweep are replaced by counters, so what is
+# tested is who starts the thread, when it stops, and that one failing step never stops the next (#550).
+
+from agentdata import cli_fleet, config as C, log as LOG
+from agentdata.fleet import serve as S
+
+
+@pytest.fixture()
+def passes(monkeypatch):
+    """Counters in place of the loop's three steps; `raise_export` makes the next export raise once."""
+    seen = {"sweep": 0, "export": 0, "apply": 0, "raise_export": 0, "logged": []}
+
+    def export_once(cfg=None, snapshot=None, *, now=None):
+        seen["export"] += 1
+        if seen["raise_export"]:
+            seen["raise_export"] -= 1
+            raise OSError("the outbox is not there today")
+        return {"written": [], "unchanged": 0, "how": []}
+
+    monkeypatch.setattr(bridge, "export_once", export_once)
+    monkeypatch.setattr(bridge, "apply_once", lambda cfg=None, *, now=None: seen.__setitem__("apply", seen["apply"] + 1))
+    monkeypatch.setattr(S, "sweep_if_due", lambda url, every=S.NOTIFY_EVERY_S: seen.__setitem__("sweep", seen["sweep"] + 1))
+    monkeypatch.setattr(LOG, "debug_exc", lambda where, exc=None: seen["logged"].append(where))
+    return seen
+
+
+def _bridge_threads() -> list:
+    return [t for t in threading.enumerate() if t.name == bridge.BRIDGE_THREAD and t.is_alive()]
+
+
+def _until(check, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_build_never_starts_the_bridge_and_cmd_serve_starts_it_only_when_enabled(fleet_home, tmp_path,  # noqa: F811
+                                                                                   monkeypatch, capsys, passes):
+    C.save(_cfg(tmp_path))
+    server, _token = S.build(0)
+    try:
+        assert not _bridge_threads(), "S.build started the bridge: every browser test would run it"
+    finally:
+        server.server_close()
+
+    built: list = []
+    monkeypatch.setattr(S, "run", built.append)
+    empty = tmp_path / "checkouts"
+    empty.mkdir()
+
+    def started(argv) -> list:
+        assert cli_fleet.main(argv) == 0, capsys.readouterr().out
+        threads = _bridge_threads()
+        built[-1].server_close()
+        for t in threads:
+            t.join(bridge.TICK_S + 1)
+            assert not t.is_alive()
+        return threads
+
+    serve = ["serve", "--port", "0"]
+    quick = ["quickstart", str(empty), "--yes", "--port", "0", "--folder-watch", str(empty)]
+    assert len(started(serve)) == 1 and len(started(quick)) == 1
+    assert passes["export"] >= 2 and passes["apply"] >= 2 and passes["sweep"] >= 2
+
+    C.save(_cfg(tmp_path, mobile={"enabled": False, "folder": str(tmp_path / "OneDrive" / "FleetAgent")}))
+    assert started(serve) == [] and started(quick) == [] and passes["logged"] == []
+
+    C.save(_cfg(tmp_path, mobile={"enabled": True, "folder": str(fleet_home / "outbox")}))
+    assert started(serve) == [] and passes["logged"] == ["bridge start"], "a refused folder is not logged"
+    assert len(built) == 5, "a refused bridge stopped the desk from serving"
+
+
+def test_the_bridge_thread_ends_with_the_server(fleet_home, tmp_path, passes):  # noqa: F811
+    server, _token = S.build(0)
+    try:
+        thread = bridge.start(server.stopping, _cfg(tmp_path))
+        assert thread is not None and thread.daemon and thread.name == bridge.BRIDGE_THREAD
+        assert _until(lambda: passes["apply"] >= 1), "the first pass never ran"
+    finally:
+        server.server_close()
+    thread.join(bridge.TICK_S + 1)
+    assert not thread.is_alive(), "the bridge outlived its server"
+    assert passes["sweep"] == passes["export"] == passes["apply"]
+
+
+def test_a_step_that_raises_is_logged_and_the_next_step_and_the_next_pass_still_run(fleet_home, tmp_path,  # noqa: F811
+                                                                                     passes):
+    stop = threading.Event()
+    passes["raise_export"] = 1
+    thread = threading.Thread(target=bridge.run_loop, args=(stop, _cfg(tmp_path)), kwargs={"tick": 0.01})
+    thread.start()
+    try:
+        assert _until(lambda: passes["export"] >= 2)
+    finally:
+        stop.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert passes["logged"] == ["bridge export"]
+    assert passes["apply"] >= 2, "the failed export's pass skipped apply_once"
+
+
+def test_a_wall_clock_jump_writes_one_heartbeat_and_resets_the_prune_stamp(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """The laptop slept for an hour (or its clock was stepped back): one heartbeat on waking, never a burst, and a
+    clock stepped back cannot hold the next beat off until the old stamp comes round again."""
+    cfg = _cfg(tmp_path)
+    monkeypatch.setattr(S, "sweep_if_due", lambda url, every=S.NOTIFY_EVERY_S: [])
+    monkeypatch.setattr(S, "fleet_snapshot", lambda: {"repos": [], "approvals": []})
+    pruned: list = []
+    real_prune = bridge.prune
+    monkeypatch.setattr(bridge, "prune", lambda folder, state, now=None: pruned.append(now) or real_prune(folder, state, now))
+
+    def beats() -> int:
+        return len([n for n in _outbox(cfg) if n.startswith("heartbeat/")])
+
+    stamps: dict = {"tick": bridge.TICK_S}
+    t0 = 1_790_000_000.0
+    bridge._one_pass(cfg, stamps, t0)
+    assert beats() == 1 and pruned == [t0]
+    bridge._one_pass(cfg, stamps, t0 + 5)
+    assert beats() == 1 and pruned == [t0]
+
+    bridge._one_pass(cfg, stamps, t0 + 3600)                 # slept an hour: one beat, not twelve
+    assert beats() == 2 and pruned == [t0], "a wake pruned at once instead of a whole interval later"
+    bridge._one_pass(cfg, stamps, t0 + 3605)
+    assert beats() == 2
+
+    bridge._one_pass(cfg, stamps, t0 + 1800)                 # stepped back half an hour: one beat now
+    assert beats() == 3
+    ticks = int(bridge.PRUNE_EVERY_S // bridge.TICK_S)
+    for n in range(1, ticks + 1):                            # then a tick at a time: the next prune is due after one
+        bridge._one_pass(cfg, stamps, t0 + 1800 + n * bridge.TICK_S)   # whole interval, counted from the jump
+    assert pruned == [t0, t0 + 1800 + ticks * bridge.TICK_S]
+    assert beats() == 3 + int(bridge.PRUNE_EVERY_S // bridge.HEARTBEAT_S), "the beat did not resume its cadence"
+
+
+def test_watch_refuses_beside_a_live_serve_and_runs_when_none_is_up(fleet_home, tmp_path, monkeypatch,  # noqa: F811
+                                                                    capsys, passes):
+    C.save(_cfg(tmp_path))
+    os.makedirs(str(fleet_home), exist_ok=True)
+    record = os.path.join(str(fleet_home), "serve.json")
+    with open(record, "w", encoding="utf-8") as f:
+        json.dump({"url": "http://127.0.0.1:8765/?t=tok", "token": "tok", "pid": os.getpid()}, f)
+    assert cli_fleet.main(["mobile", "watch"]) == 2
+    out = capsys.readouterr().out
+    assert "refused: mobile_serve_running" in out and f"pid {os.getpid()}" in out
+    assert passes["export"] == 0
+
+    loops: list = []
+    real_loop = bridge.run_loop
+    monkeypatch.setattr(bridge, "run_loop", lambda stop, cfg=None, *, tick=bridge.TICK_S, once=False:
+                        loops.append(tick) or real_loop(stop, cfg, tick=tick, once=True))
+    with open(record, "w", encoding="utf-8") as f:
+        json.dump({"url": "http://127.0.0.1:8765/?t=tok", "token": "tok", "pid": 0}, f)
+    assert cli_fleet.main(["mobile", "watch", "--every", "7"]) == 0
+    out = capsys.readouterr().out
+    assert "ok: true" in out and "operator: operator@example.com" in out and "every: 7" in out
+    assert "FleetAgent" in out and loops == [7.0]
+    assert (passes["sweep"], passes["export"], passes["apply"]) == (1, 1, 1)
+
+    os.remove(record)
+    assert cli_fleet.main(["mobile", "watch"]) == 0 and loops == [7.0, bridge.TICK_S]

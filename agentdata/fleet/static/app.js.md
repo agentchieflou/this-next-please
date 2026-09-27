@@ -1110,6 +1110,16 @@ Above `window.addEventListener("pageshow", function (e) { if (e.persisted) refre
 Back into a page the browser kept whole (bfcache): what it shows is from before it was left, and
 a theme chosen meanwhile reaches it only by asking again.
 
+### `document.addEventListener("visibilitychange", function () {`
+
+The stream, across a trip to the background (#579). iOS 17 closes a backgrounded `EventSource`
+after about 20 s and fires `error` on return, which `onerror` already handles; iOS 18 fires
+nothing and leaves `readyState` at 1 on a stream that is gone, and Chrome freezes hidden pages and
+keeps a page with an open stream out of the bfcache. So a hidden page closes its own stream, and a
+shown one re-reads `/api/fleet` once and reconnects through `connect`, whose `since` is the
+per-agent cursors, so nothing is replayed twice. `readyState` is never taken as proof the stream is
+alive.
+
 ### `window.addEventListener("pagehide", function () { if (lastFleet) cache …`
 
 Above `window.addEventListener("pagehide", function () { if (lastFleet) cacheSnapshot(lastFleet …`:
@@ -1404,6 +1414,13 @@ the function name the rest of this file already calls.
 Above `function section(id, open, skipPost) {`:
 
 `open` undefined toggles, true opens, false closes. Opening one closes the rest.
+
+### `document.getElementById("side").addEventListener("click", function (e) {`
+
+The tap outside (#576). At 640 px and under the scrim is `#side::before`, so a click whose target
+is `#side` itself landed on the scrim, not on the sheet's tabs or sections, and closes the
+sidebar through `closeSide`, the same write `Esc` makes. Wider, `#side`'s children cover it, so
+the listener never fires.
 
 ### `document.getElementById("chime").addEventListener("click", function () {`
 
@@ -3297,10 +3314,16 @@ Above `function groupRails(shown, open) {`:
 /** @param {string[]} shown  @param {string[]} open */
 ```
 
-Above `var need = ROW_PAD_PX + open.length * TIER_COMPACT_FROM + rails.length * RAIL_PX +`:
+Above `var need = STACKED && STACKED.matches`:
 
 Measured against every rail, never the grouped count, so grouping cannot talk itself out of
 being needed on the next pass and flicker.
+
+At 640 px and under (`STACKED`, #575) the rails are not beside the panes: they are the stack's
+bottom bar, one line under the open pane. So what has to fit is the rails alone, at 48 px each,
+across the bar's width, and folding starts only when the bar itself would overflow. The
+`MediaQueryList` is made once and only read here; nothing listens to it, because the grid's own
+`ResizeObserver` already places again when the window crosses the width.
 
 ### `function groupedAway`
 
