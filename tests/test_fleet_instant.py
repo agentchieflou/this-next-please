@@ -23,6 +23,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from desk_waits import install
 from desk_harness import close_pages
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -480,9 +481,12 @@ def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path
             timeout=15000)
 
         # Every on and off of the class, with how many refusals the page held at that moment.
+        install(page)
         page.evaluate("""() => {
               window.__replaying = [];
-              new MutationObserver(function (records) {
+              __deskWaits.watch(document.body, { subtree: false, childList: false, characterData: false,
+                                                 attributeFilter: ['class'], attributeOldValue: true },
+                                function (records) {
                 records.forEach(function (r) {
                   var was = (r.oldValue || '').split(/\\s+/).indexOf('is-replaying') >= 0;
                   var now = r.target.classList.contains('is-replaying');
@@ -490,8 +494,7 @@ def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path
                   window.__replaying.push({ on: now,
                     denied: document.querySelectorAll('.transcript li.denied').length });
                 });
-              }).observe(document.body, { attributes: true, attributeFilter: ['class'],
-                                          attributeOldValue: true });
+              });
             }""")
         page.evaluate("() => { tiles.get('alpha').seq = 0; connect(); }")
         page.wait_for_function(

@@ -23,6 +23,8 @@ import pytest
 from agentdata import theme as T
 from agentdata.fleet import models as M, registry, serve as S, skins as K
 
+from desk_waits import WATCH
+
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -91,15 +93,12 @@ MOUNT = """(cat) => {
 DRAW = """([which, state]) => drawModelPicker(window[which], Object.assign({ catalogue: window.__cat }, state))"""
 
 # Draws a state, then draws an equal copy of it under a MutationObserver: the records it took.
-EQUAL_AGAIN = """([which, state]) => {
+EQUAL_AGAIN = """([which, state]) => { """ + WATCH + """
   const s = Object.assign({ catalogue: window.__cat }, state);
   drawModelPicker(window[which], s);
-  const mo = new MutationObserver(() => {});
-  mo.observe(window[which], { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(window[which]);
   drawModelPicker(window[which], JSON.parse(JSON.stringify(s)));
-  const n = mo.takeRecords().length;
-  mo.disconnect();
-  return n;
+  return w.stop().n;
 }"""
 
 # What the keyboard is on: the pill's model or effort, or the element's class.

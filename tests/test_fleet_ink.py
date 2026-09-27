@@ -35,6 +35,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import COUNT_FETCHES, close_pages, desk_page, serve_desk  # noqa: F401 - re-exported
+from desk_waits import AT_REST, assert_idle, observe_quiet, record_mutations, settle  # noqa: F401 - AT_REST re-exported
 from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,9 +129,9 @@ def _facts(**over) -> dict:
 def _open(browser, port, token, extra="", *, panes=2, width=1400, height=900, reduced=False,
           count=False):
     """A desk page, waited on until every pane has its width and the ink module has run. `panes`
-    is how many have a width. `count` counts its fetches in flight, for `IDLE_LOOP`."""
-    page = desk_page(browser, width=width, height=height, reduced=reduced,
-                     init_scripts=(COUNT_FETCHES,) if count else ())
+    is how many have a width. Every desk page counts its fetches and timers (`desk_page`), for
+    `desk_waits.settle`; `count` is kept for the callers that still ask for it."""
+    page = desk_page(browser, width=width, height=height, reduced=reduced)
     errors, asked = [], []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("request", lambda r: asked.append(r.url))
@@ -166,13 +167,11 @@ def _marks(page):
     return (_layer(page) or {"marks": []})["marks"]
 
 
-#: The paper has come to rest: nothing queued or drawing in any lane, and no hand still lifting off.
-AT_REST = """() => { const l = Ink.inspect().layer;
-  return !!l && !l.busy && !Object.values(l.lanes).some(x => x.hand); }"""
-
-
 def _rest(page, also="true", timeout=20000):
-    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=timeout)
+    """The desk settled (`desk_waits.settle`): the paper on the page and at rest (`AT_REST`, the
+    predicate settle uses) and nothing else moving, with `also` true. `timeout` is kept for its callers; the one
+    ceiling is `desk_waits.DESK_WAIT_MS`."""
+    settle(page, also=f"!!Ink.inspect().layer && ({also})")
 
 
 #: Where each mark's anchor is on the page now, against where the layer has its mesh.
@@ -409,8 +408,8 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path, desk
             page.wait_for_selector('.tile[data-repo="alpha"] .freshtoggle:not([hidden])', timeout=10000)
             # And the bottom row's *Start fresh* on every full pane with an empty box (#509).
             page.wait_for_function(FULL_PANE_STARTS_FRESH, timeout=10000)
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            count = observe_quiet(page, passes=8)
+            assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
             assert not errors, errors
             page.close()
         close_pages(browser)
@@ -424,53 +423,6 @@ FULL_PANE_STARTS_FRESH = """() => {
   const starts = [...document.querySelectorAll('.tile .bottom .start')].filter(b => b.offsetParent !== null
       && !b.closest('.tile').querySelector('.say').value);
   return starts.length > 0 && starts.every(b => b.textContent === 'Start fresh');
-}"""
-
-
-#: The idle desk (`test_fleet_panes`): `/api/fleet` replayed byte for byte, every path drawn once,
-#: then eight more passes watched by a MutationObserver over the whole document. Opened with
-#: `COUNT_FETCHES`, it first waits for every live answer already asked for: a refresh the stream
-#: started just before the replay would otherwise bring a newer age into the watched passes.
-IDLE_LOOP = """async () => {
-  const pause = ms => new Promise(done => setTimeout(done, ms));
-  const frame = () => new Promise(done => requestAnimationFrame(() => done()));
-  const real = window.fetch.bind(window);
-  const body = await (await real(q('/api/fleet'))).text();
-  window.fetch = function (url, opts) {
-    if (String(url).indexOf('/api/fleet') >= 0) {
-      return Promise.resolve(new Response(body, {
-        status: 200, headers: { 'Content-Type': 'application/json' } }));
-    }
-    return real(url, opts);
-  };
-  for (let i = 0; i < 400 && (window.__inflight || 0) > 0; i++) await pause(25);
-  await refresh(); place(); redrawAll(); bell();
-  await frame(); await frame(); await pause(200);
-  // The warm-up refresh above applies a body the server built just now, and a trace that moved on
-  // a minute since the page's last poll is drawn by the layer (#257) -- a frame that can land after
-  // two frames on a slow runner. Settle first: the layer at rest, and no render across a frame. A
-  // ground that moves never settles, so this is bounded.
-  for (let i = 0, was = -1; i < 40; i++) {
-    const l = Ink.inspect().layer;
-    if (!l || (!l.busy && l.renders === was)) break;
-    was = l.renders;
-    await frame(); await pause(50);
-  }
-  const before = Ink.inspect().layer;
-  let n = 0;
-  const seen = [];
-  const obs = new MutationObserver(records => {
-    n += records.length;
-    records.slice(0, 5).forEach(r => seen.push(r.type + ' ' + (r.attributeName || '') + ' ' +
-                                               (r.target.id || r.target.className || r.target.nodeName)));
-  });
-  obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true,
-                                          characterData: true });
-  for (let i = 0; i < 8; i++) { await refresh(); place(); redrawAll(); bell(); await frame(); await pause(150); }
-  obs.takeRecords().forEach(() => { n += 1; });
-  obs.disconnect();
-  const after = Ink.inspect().layer;
-  return { n, seen, renders: before && after ? after.renders - before.renders : 0 };
 }"""
 
 
@@ -783,19 +735,16 @@ def test_the_marks_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_
             _mark(page, repo, cls)
         _rest(page, "Ink.inspect().layer.marks.length === 4")
         page.evaluate("""(drift) => {
-          window.__follow = { frames: 0, worst: 0, writes: [] };
+          window.__follow = { frames: 0, worst: 0 };
           const check = new Function('return (' + drift + ')();');
           new ResizeObserver(() => {
             const d = check();
             window.__follow.frames += 1;
             window.__follow.worst = Math.max(window.__follow.worst, ...d, 0);
           }).observe(document.querySelector('.tile[data-repo="beta"]'));
-          new MutationObserver(rs => rs.forEach(r => {
-            if (r.target.id === 'ink' || (r.attributeName === 'style' && r.target.style &&
-                                          r.target.style.getPropertyValue('clip-path')))
-              window.__follow.writes.push(r.attributeName || r.type);
-          })).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
         }""", DRIFT)
+        writes = record_mutations(page, where="""r => r.target.id === 'ink' || (r.attributeName === 'style'
+          && r.target.style && r.target.style.getPropertyValue('clip-path'))""")
         before = page.evaluate(DRIFT)
         x, y = _gutter_point(page, "alpha")
         page.mouse.move(x, y)
@@ -809,6 +758,7 @@ def test_the_marks_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_
         _rest(page)
         after = page.evaluate(DRIFT)
         follow = page.evaluate("() => window.__follow")
+        follow["writes"] = writes.stop().records()
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -959,14 +909,14 @@ def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path, desk_browser):
             assert erasing, "no frame showed the eraser at the pencil"
             models = {f["model"] for f in frames}
             # The render contract holds with the chalk: at rest, nothing written, nothing drawn.
-            count = page.evaluate(IDLE_LOOP)
+            count = observe_quiet(page, passes=8)
             assert not errors, errors
             page.close()
             assert drew == [pencil, pen], (hand, drew)
             # Every sampled frame: the last hand shown is the pen that drew, or the eraser.
             assert models <= {pen, eraser}, (hand, models)
             assert {f["model"] for f in erasing} == {eraser}, (hand, erasing[:3])
-            assert count["n"] == 0 and count["renders"] == 0, (hand, count)
+            assert count["mutations"] == 0 and count["renders"] == 0, (hand, count)
 
         # Reduced motion: the marks are drawn at once, and no hand at all -- chalk or not.
         page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
@@ -1326,10 +1276,8 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path, de
         out = page.evaluate("""async (table) => {
           // What the fallback could write: a stylesheet element, or a style on an element.
           // (app.js goes on drawing the desk meanwhile, and its writes are its own.)
-          let n = 0;
-          const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style' ||
-            [...r.addedNodes].some(a => a.nodeName === 'STYLE' || a.nodeName === 'LINK')).length; });
-          obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
+          const w = __deskWaits.watch(document.documentElement, { characterData: false }, { where: r =>
+            r.attributeName === 'style' || [...r.addedNodes].some(a => a.nodeName === 'STYLE' || a.nodeName === 'LINK') });
           const drawn = (await Ink.setSkin(table)).drawn;
           const a = document.querySelector('.tile[data-repo="alpha"]');
           const b = document.querySelector('.tile[data-repo="beta"]');
@@ -1352,8 +1300,7 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path, de
           b.classList.remove('ink-hl', 'ink-done', 'ink-x');
           const gone = look();
           await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-          obs.disconnect();
-          return { drawn, bare, marked, gone, writes: n, rules: document.adoptedStyleSheets
+          return { drawn, bare, marked, gone, writes: w.stop().n, rules: document.adoptedStyleSheets
                      .flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n') };
         }""", dict(TABLE, marks=TABLE["marks"] + OX["marks"]))
         assert not errors, errors
@@ -1502,7 +1449,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
         # A *start fresh* button is on the glass through every loop below (#489).
         assert page.is_visible('.tile[data-repo="alpha"] .freshtoggle')
         assert page.evaluate(FULL_PANE_STARTS_FRESH), "#509: a full pane's empty box reads Start fresh"
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
         in_place = page.evaluate(RUNS_IN_PLACE)
         # And with the model card open on it (#366): `m` on a pane, the list drawn, the keyboard
@@ -1512,7 +1459,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
         page.wait_for_function("""() => !document.getElementById('modelcard').hidden
             && document.activeElement.matches('#modelcard .mp-models button.pill[aria-pressed="true"]')""",
                                timeout=10000)
-        carded = page.evaluate(IDLE_LOOP)
+        carded = observe_quiet(page, passes=8)
         assert page.evaluate("document.activeElement.closest('#modelcard') !== null")
         # And with the dispatch card open on a pane instead (#368): a ticket dropped on alpha,
         # its pre-flight read and its model picker drawn.
@@ -1529,7 +1476,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             && document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'
             && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
                                timeout=10000)
-        dispatched = page.evaluate(IDLE_LOOP)
+        dispatched = observe_quiet(page, passes=8)
         # And with the wrap-up sheet open (#510): `w` on the pane, the rows drawn, nothing running.
         page.keyboard.press("Escape")
         page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
@@ -1541,20 +1488,30 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
         assert WRAP.wait("alpha", 10) and WRAP.job_state("alpha")["state"] == "planned"
         page.wait_for_function("() => !/reading/.test(document.querySelector('.wrapsheet .wrap-status').textContent)",
                                timeout=5000)
-        wrapping = page.evaluate(IDLE_LOOP)
+        wrapping = observe_quiet(page, passes=8)
         # Last, because its click opens beta.
         sibs = page.evaluate(SIBS_IN_PLACE)
+        helper = _the_waits_on_an_idle_desk(page, monkeypatch)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle desk with ink on it wrote to the page: {count}"
+    # `desk_waits` itself (#304), on this desk (decision 13: folded, no browser test of its own).
+    assert "renders went" in helper["forever"], helper["forever"]
+    assert helper["slow"]["settled"] and helper["slow"]["answered"] and helper["slow"]["waited"] >= 1400, helper["slow"]
+    assert "wrote to the page" in helper["late"] and "attributes data-late" in helper["late"], helper["late"]
+    assert helper["own"]["refreshes"] >= 1 and helper["own"]["mutations"] == 0, helper["own"]
+    # Settled only once the 20 busy frames had all been written, and the last taken away.
+    assert helper["throttled"]["settled"] and helper["throttled"]["busy"] == [20, True], helper["throttled"]
+    # From the first byte: the parser putting `<html>` into the document is its first record.
+    assert helper["loaded"]["count"] > 50 and helper["loaded"]["records"][0] == "childList  #document", helper["loaded"]
+    assert count["mutations"] == 0, f"an idle desk with ink on it wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle paper was redrawn {count['renders']} times"
-    assert carded["n"] == 0, f"an idle desk with the model card open wrote to the page: {carded}"
+    assert carded["mutations"] == 0, f"an idle desk with the model card open wrote to the page: {carded}"
     assert carded["renders"] == 0, f"an idle paper under the model card was redrawn {carded['renders']} times"
-    assert dispatched["n"] == 0, f"an idle desk with the dispatch card open wrote to the page: {dispatched}"
+    assert dispatched["mutations"] == 0, f"an idle desk with the dispatch card open wrote to the page: {dispatched}"
     assert dispatched["renders"] == 0, f"an idle paper under the dispatch card was redrawn {dispatched['renders']} times"
-    assert wrapping["n"] == 0, f"an idle desk with the wrap-up sheet open wrote to the page: {wrapping}"
+    assert wrapping["mutations"] == 0, f"an idle desk with the wrap-up sheet open wrote to the page: {wrapping}"
     assert wrapping["renders"] == 0, f"an idle paper beside the wrap-up sheet was redrawn {wrapping['renders']} times"
     assert re.fullmatch(r"run 1 · RDSD-1 · [\w-]+ \(\d\d:\d\d–\d\d:\d\d\)", first["words"]), first
     assert first["hidden"] is False, first
@@ -1566,6 +1523,73 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert sibs["kept"] == [True, True, True] and sibs["rows"] == [1, 1, 1], sibs
     assert "working" in sibs["moved"] and "9s" in sibs["moved"] and sibs["back"] == sibs["was"], sibs
     assert sibs["opened"] == ["beta"], sibs
+
+
+def _the_waits_on_an_idle_desk(page, monkeypatch):
+    """`desk_waits` on a real desk, each claim of #304's in turn, and the page put back after each:
+    a layer that renders every frame for ever makes `settle` raise naming its renders; a fetch
+    answered after 1.5 s makes it wait; a DOM write 300 ms after `refresh()` is caught by
+    `assert_idle`; `observe_quiet(drive=False)` returns after a refresh the page started itself;
+    a desk that is busy for 20 frames under CPU throttle 4 settles; and `record_mutations(init=True)`
+    sees the writes of a page load."""
+    import desk_waits as DW
+
+    out = {}
+    settle(page)  # the click on beta's row opened it, with a view transition
+    # A layer that renders every frame for ever (`Ink.sample` draws one), against a short ceiling.
+    page.evaluate("""() => { window.__spin = true;
+      const f = () => { if (!window.__spin) return; Ink.sample({ x: 0, y: 0, w: 1, h: 1 }); requestAnimationFrame(f); };
+      requestAnimationFrame(f); }""")
+    with monkeypatch.context() as m:
+        m.setattr(DW, "DESK_WAIT_MS", 1500)
+        try:
+            settle(page)
+            out["forever"] = "settled"
+        except AssertionError as e:
+            out["forever"] = str(e)
+    page.evaluate("() => { window.__spin = false; }")
+    # A fetch answered after 1.5 s: held by the route, let go from here.
+    held = []
+    page.route("**/desk-waits-slow", lambda route: held.append(route))
+    page.evaluate("""() => { window.__t0 = performance.now(); window.__answered = false;
+      fetch('/desk-waits-slow').then(() => { window.__answered = performance.now() - window.__t0; });
+      window.__slow = __deskWaits.settle({ quiet: 6, ms: 20000 })
+        .then(r => Object.assign(r, { waited: performance.now() - window.__t0 })); }""")
+    page.wait_for_function("() => window.__inflight > 0", timeout=10000)
+    page.wait_for_timeout(1500)
+    held[0].fulfill(status=200, body="ok")
+    out["slow"] = page.evaluate("async () => Object.assign(await window.__slow, { answered: window.__answered })")
+    page.unroute("**/desk-waits-slow")
+    # A write 300 ms after every refresh: caught by `assert_idle`, whose passes wait the timer out.
+    page.evaluate("""() => { const real = window.refresh; window.__realRefresh = real;
+      window.refresh = function () { const p = real.apply(this, arguments);
+        setTimeout(() => { document.body.dataset.late = String(performance.now()); }, 300); return p; }; }""")
+    try:
+        assert_idle(page)
+        out["late"] = "no write seen"
+    except AssertionError as e:
+        out["late"] = str(e)
+    page.evaluate("() => { window.refresh = window.__realRefresh; delete document.body.dataset.late; }")
+    # The page's own refresh (the stream's `refreshSoon`), waited for as page work.
+    page.evaluate("() => refreshSoon()")
+    out["own"] = observe_quiet(page, passes=1, drive=False)
+    # Busy for 20 frames under a CPU throttle of 4, then still.
+    cdp = page.context.new_cdp_session(page)  # CDP's CPU throttle, on this page only, until set back to 1
+    cdp.send("Emulation.setCPUThrottlingRate", {"rate": 4})
+    page.evaluate("""() => { window.__busy = 0;
+      const f = () => { document.body.dataset.busy = String(++window.__busy);
+                        if (window.__busy < 20) requestAnimationFrame(f); else delete document.body.dataset.busy; };
+      requestAnimationFrame(f); }""")
+    out["throttled"] = settle(page)
+    out["throttled"]["busy"] = page.evaluate("() => [window.__busy, document.body.dataset.busy === undefined]")
+    cdp.send("Emulation.setCPUThrottlingRate", {"rate": 1})
+    cdp.detach()
+    # A recorder from the page's first byte: the load's own writes.
+    loaded = record_mutations(page, init=True)
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector('#grid .tile[data-repo="alpha"]', timeout=15000)
+    out["loaded"] = {"count": loaded.count(), "records": loaded.records()}
+    return out
 
 
 #: Alpha's runs list, under its session pill.
@@ -1607,11 +1631,9 @@ RUNS_IN_PLACE = """() => {
   drawRuns(list, [one]);
   const li = list.firstChild;
   drawRuns(list, [Object.assign({}, one, { ended: '2026-09-25T10:05:00Z' })]);
-  const obs = new MutationObserver(() => {});
-  obs.observe(list, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(list);
   drawRuns(list, [Object.assign({}, one, { ended: '2026-09-25T10:05:00Z' })]);
-  const equal = obs.takeRecords().length;
-  obs.disconnect();
+  const equal = w.stop().n;
   const words = li.textContent;
   drawRuns(list, [Object.assign({}, one, { ended: '2026-09-25T10:05:00Z' }),
                   { n: 2, state: 'running', started: '2026-09-25T10:06:00Z', ended: '' }]);
@@ -1678,7 +1700,10 @@ def test_the_handwriting_reveal_uncovers_the_text_and_leaves_the_page_as_it_foun
 @pytest.mark.measured
 def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, desk_browser):
     """Ground rule 5's other half: the ink draws after the gesture, never inside it. The page's own
-    gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget."""
+    gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget.
+
+    And the pointer (#376): the same gestures, on a table that asks for `api.fx.pointer`, taken while
+    a `pointermove` loop drives the layer a frame a move, stay inside the budget too."""
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
@@ -1702,6 +1727,12 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
             .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration })) };
         }""")
         assert not errors, errors
+        # #376: a table that asks for the pointer, and the gestures again while a move a frame reaches it.
+        page.evaluate(POINTER_TABLE, dict(TABLE, speed=0.25))
+        page.wait_for_function("() => { const l = Ink.inspect().layer; return !!(l && l.fx && l.fx.pointer); }",
+                               timeout=10000)
+        pointed = page.evaluate(GESTURES_WHILE_POINTING)
+        assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
@@ -1711,6 +1742,50 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+    moving = pointed["measures"]
+    worst = max(m["ms"] for m in moving) if moving else 0
+    print(f"  gestures while the pointer moves: {len(moving)} marked, worst {worst:.1f}ms, "
+          f"{pointed['moves']} moves, {pointed['renders']} renders")
+    assert pointed["moves"] >= 3 and pointed["renders"] >= 1, pointed
+    assert len(moving) >= 4, moving
+    assert [m for m in moving if m["ms"] > LOCAL_BUDGET_MS] == [], moving
+
+
+#: A table that asks for the pointer (#376), with the test table's marks and hooks that draw nothing of their own.
+POINTER_TABLE = """t => Ink.setSkin(Object.assign({}, t, { fx: { cues: [], use: { pointer: true } } }),
+                                  { cue() {}, tick() { return false; } })"""
+
+#: The gesture set, taken while a `pointermove` a frame crosses alpha (#376): the loop starts, three moves reach
+#: the layer, the gestures run, three frames more, and the loop stops. The moves the effects took, the frames the
+#: layer rendered meanwhile, and the gestures' marks.
+GESTURES_WHILE_POINTING = """async () => {
+  const fx = () => Ink.inspect().layer.fx.pointer, frame = () => new Promise(requestAnimationFrame);
+  const alpha = document.querySelector('.tile[data-repo="alpha"]'), r = alpha.getBoundingClientRect();
+  const m0 = fx().moves, r0 = Ink.inspect().layer.renders;
+  let on = true, i = 0;
+  const move = () => {
+    if (!on) return;
+    i += 1;
+    alpha.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true,
+      clientX: r.left + 20 + (i % 40), clientY: r.top + r.height / 2 }));
+    requestAnimationFrame(move);
+  };
+  requestAnimationFrame(move);
+  while (fx().moves - m0 < 3) await frame();
+  performance.clearMeasures();
+  setHidden('beta', true);
+  setHidden('beta', false);
+  moveTile('gamma', 1);
+  moveTile('gamma', -1);
+  stepGutter(alpha, -1);
+  evenGutter(alpha);
+  const measures = performance.getEntriesByType('measure')
+    .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration }));
+  for (let k = 0; k < 3; k++) await frame();
+  on = false;
+  await frame();
+  return { moves: fx().moves - m0, renders: Ink.inspect().layer.renders - r0, measures };
+}"""
 
 
 #: The pixels three.js drew at points in viewport boxes, read back from a frame drawn for the
@@ -1825,8 +1900,8 @@ def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_pat
         assert line1["r"] > line0["r"] + 15 and abs(head1["r"] - line1["r"]) <= 2, arrow["bounds"]
         assert head1["x"] > head0["x"] + 15, "the arrowhead stayed where the line was"
 
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
         assert not errors, errors
         page.close()
@@ -1938,8 +2013,8 @@ def test_the_o_and_the_x(fleet_home, tmp_path, desk_browser):
         assert (by["cross"]["tool"], by["cross"]["strokes"]) == ("red", 2), by
         _hugs(page.evaluate(RING))
 
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
 
         # A two-digit number: the O widens with it and still stays off the name.
@@ -2082,8 +2157,8 @@ def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path, desk_
         assert ticks[0][2] < ticks[0][3] / 2 and all(t[4] is False for t in ticks), ticks
         assert _layer(page)["skin"]["strokes"] == 1, _layer(page)["skin"]
 
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
 
         # At head 0 the line is nowhere.
@@ -2128,9 +2203,14 @@ def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path, desk_
         assert not errors, errors
         page.close()
 
-        # Reduced motion: the whole line on the first tick, and on the paper to its end.
+        # Reduced motion: the whole line on the first tick, and on the paper to its end. Settled
+        # first (#604): under reduced motion app.css gives every element a 0.01ms transition of
+        # `all`, so the pane that went from rail to full as the page loaded keeps the rail's zero
+        # padding until a frame starts the transition. A `frame` hook called in that frame builds
+        # the group, and the 8px the padding then adds builds it again, drawing the line twice.
         page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
         page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
+        settle(page)
         assert page.evaluate(MATERIAL) == "ink"
         _rest(page, DRAWN)
         ticks = page.evaluate("() => __m.ticks")

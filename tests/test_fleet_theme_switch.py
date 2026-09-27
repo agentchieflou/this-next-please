@@ -19,9 +19,10 @@ from agentdata import theme as T
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
+from desk_waits import WATCH
 from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home)  # noqa: F401
 
-SAMPLER = """
+SAMPLER = WATCH + """
 (() => {
   window.__frames = [];
   window.__firstPaint = null;
@@ -60,7 +61,9 @@ SAMPLER = """
   } catch (e) {}
   // Every write to what the theme is: <html>'s style and data-theme, <body>'s data-skin and
   // data-skin-variant, and the skin link's href. The parser's own attributes are not mutations.
-  new MutationObserver(records => {
+  window.__deskWaits.watch(document, { childList: false, characterData: false,
+                                       attributeFilter: ["style", "data-theme", "data-skin", "data-skin-variant", "href"] },
+                          records => {
     for (const r of records) {
       const el = r.target;
       const theme = (el === document.documentElement && (r.attributeName === "style" || r.attributeName === "data-theme"))
@@ -68,8 +71,7 @@ SAMPLER = """
         || (el.matches && el.matches("link[data-skin]") && r.attributeName === "href");
       if (theme) window.__writes.push({ el: el.tagName, name: r.attributeName, t: Math.round(performance.now() - t0) });
     }
-  }).observe(document, { subtree: true, attributes: true,
-                         attributeFilter: ["style", "data-theme", "data-skin", "data-skin-variant", "href"] });
+  });
   addEventListener("pageshow", e => { if (e.persisted) window.__frames = []; });
 })();
 """

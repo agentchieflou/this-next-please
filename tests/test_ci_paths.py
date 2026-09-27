@@ -169,8 +169,9 @@ def test_the_push_range_is_read_from_git(cp, tmp_path, monkeypatch):
 
 def test_every_job_needs_changes_and_nothing_reads_its_outputs_yet():
     jobs = _workflow()["jobs"]
-    assert list(jobs) == ["changes", *JOBS_BEFORE], "the job count and names are unchanged apart from `changes`"
-    for job_id in JOBS_BEFORE:
+    assert list(jobs) == ["changes", "smoke", *JOBS_BEFORE[:-2], "order-independence-nightly", *JOBS_BEFORE[-2:],
+                          "ci-ok"], "the job count and names are unchanged apart from `changes` and CI-3's (#595)"
+    for job_id in ["smoke", *JOBS_BEFORE, "order-independence-nightly"]:
         assert jobs[job_id]["needs"] == "changes", job_id
         assert "needs." not in str(jobs[job_id].get("if", "")), f"{job_id}: report only (D2)"
         for step in jobs[job_id].get("steps") or []:
@@ -198,3 +199,4 @@ def test_the_map_and_its_script_are_in_the_ci_lane():
         lanes = json.load(f)["lanes"]
     assert ".github/ci-paths.json" in lanes["ci"]["paths"]
     assert ".github/scripts/ci_paths.py" in lanes["ci"]["paths"], "it decides what CI runs: CI config in effect"
+    assert ".github/scripts/ci_ok.py" in lanes["ci"]["paths"], "it decides whether CI passed: CI config in effect"

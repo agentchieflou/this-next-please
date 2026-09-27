@@ -167,8 +167,32 @@ export function attach(layer, spec) {
     return cached(el, "glyphs " + n, e => glyphsIn(e, n));
   }
   const text = !!(spec && spec.use && spec.use.text === true);
+  const point = !!(spec && spec.use && spec.use.pointer === true);
+  let pointer = null, moves = 0;
+  /** @param {PointerEvent} e */
+  const onPointer = e => {
+    if (L.instant()) return;
+    const el = e.target instanceof Element ? e.target : null, pane = el && el.closest(LANE);
+    pointer = Object.freeze({ x: e.clientX, y: e.clientY, repo: pane ? /** @type {HTMLElement} */ (pane).dataset.repo : null, el });
+    moves += 1;
+    L.api.request();
+  };
+  const onLeave = () => {
+    if (L.instant() || !pointer) return;
+    pointer = null;
+    L.api.request();
+  };
+  const pointing = on => {
+    const how = on ? "addEventListener" : "removeEventListener";
+    document[how]("pointermove", onPointer, { capture: true, passive: true });
+    document.documentElement[how]("pointerleave", onLeave, { passive: true });
+  };
+  if (point) pointing(true);
+  const api = { animate };
+  if (text) Object.assign(api, { lines, glyphs });
+  if (point) Object.defineProperty(api, "pointer", { get: () => pointer, enumerable: true });
   return {
-    api: Object.freeze(text ? { animate, lines, glyphs } : { animate }),
+    api: Object.freeze(api),
     match() {
       const quiet = QUIET.test(body.className);
       const go = armed && !quiet && !!L.skin && !L.instant();
@@ -226,6 +250,8 @@ export function attach(layer, spec) {
     detach() {
       if (gone) return null;
       gone = true;
+      if (point) pointing(false);
+      pointer = null;
       stillAll();
       mo.disconnect();
       queue = [];
@@ -237,9 +263,11 @@ export function attach(layer, spec) {
     inspect() {
       let zero = 0;
       for (const c of rows) if (c.on === "leave") for (const e of c.live.values()) if (e.zeroAt) zero += 1;
-      return { loaded: true, rows: rows.length, delivered, queued: queue.length, dropped, armed, reaped, zero,
-               children: group.children.length, refused, animating: moving.size, animated: Object.assign({}, animated),
-               skipped };
+      const out = { loaded: true, rows: rows.length, delivered, queued: queue.length, dropped, armed, reaped, zero,
+                    children: group.children.length, refused, animating: moving.size, animated: Object.assign({}, animated),
+                    skipped };
+      if (point) out.pointer = { at: pointer && { x: pointer.x, y: pointer.y, repo: pointer.repo }, moves };
+      return out;
     },
   };
 }

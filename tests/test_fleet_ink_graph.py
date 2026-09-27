@@ -35,8 +35,9 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet, settle
 from test_fleet_ink import _serve, _stop  # noqa: F401 - over the harness's serve_desk; re-exported
-from test_fleet_ink import AT_REST, COUNT_FETCHES, IDLE_LOOP, RECORD, catch_up_frames
+from test_fleet_ink import RECORD, catch_up_frames
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -124,8 +125,7 @@ def _open(browser, port, token, extra="&ink=on", *, panes=2, width=1500, height=
     """A desk page with the skin's table in force, waited on until every pane has its width."""
     page = browser.new_page(viewport={"width": width, "height": height},
                             reduced_motion="reduce" if reduced else "no-preference")
-    if count:
-        page.add_init_script(COUNT_FETCHES)
+    counted(page)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "ink:" in m.text else None)
@@ -146,7 +146,9 @@ def _tile_has(page, repo, cls, timeout=20000):
 
 
 def _rest(page, also="true", timeout=30000):
-    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=timeout)
+    """Settled (`desk_waits.settle`) with the layer on the page, and `also`. `timeout` is kept for
+    its callers; the one ceiling is `DESK_WAIT_MS`."""
+    settle(page, also=f"!!Ink.inspect().layer && ({also})")
 
 
 def _marks(page):
@@ -630,7 +632,7 @@ def test_an_idle_graph_desk_writes_nothing_draws_nothing_and_caught_up_in_bounde
                                timeout=20000)
         rec = page.evaluate(RECORD, [[]])
         _rest(page, "Ink.inspect().layer.skin.frames === 2")
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -642,5 +644,5 @@ def test_an_idle_graph_desk_writes_nothing_draws_nothing_and_caught_up_in_bounde
     bound = catch_up_frames(last["marks"])
     print(f"\n  graph paper caught up in {frames} frames (bound {bound})")
     assert frames <= bound, (frames, bound)
-    assert count["n"] == 0, f"an idle graph desk wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle graph desk wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle graph paper was redrawn {count['renders']} times"

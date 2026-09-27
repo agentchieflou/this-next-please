@@ -35,7 +35,8 @@ from agentdata.fleet import agentstate, events as E, skins, supervisor
 
 from desk_harness import close_pages
 from test_fleet_gutters import _gutter_point
-from test_fleet_ink import (IDLE_LOOP, COUNT_FETCHES, _desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
+from desk_waits import counted, observe_quiet, settle
+from test_fleet_ink import (_desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
                             fleet_home)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -282,10 +283,11 @@ FARM = "() => window.__farm ? window.__farm.inspect() : null"
 
 LOAD_FARM = """async () => { window.__farm = await import(q('/static/ink/skins/farmstead.js')); }"""
 
-#: At rest: the layer has nothing queued or lifting, the sheet has been drawn into its textures,
-#: no crop is still growing, and every pane on the glass has its frame.
+#: The farm at rest, as the skin says it (`__farm.inspect()`): the sheet has been drawn into its
+#: textures, no crop is still growing, and every pane on the glass has its frame. The predicate
+#: `desk_waits.settle` is given; it waits for the layer's rest and everything else itself.
 AT_REST = """() => { const l = Ink.inspect().layer; const f = window.__farm && window.__farm.inspect();
-  if (!l || l.busy || Object.values(l.lanes).some(x => x.hand) || !f || !f.loaded) return false;
+  if (!l || !f || !f.loaded) return false;
   const panes = document.querySelectorAll('#grid .tile[data-repo]').length;
   return l.skin && l.skin.frames === panes && Object.values(f.panes).every(p => !p.growing.length); }"""
 
@@ -303,8 +305,7 @@ def _page(browser, port, token, extra="&ink=on", *, panes=2, width=1400, height=
     """The desk, waited on until every pane has its width and the ink module has run."""
     page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=dpr,
                             reduced_motion="reduce" if reduced else "no-preference")
-    if count:
-        page.add_init_script(COUNT_FETCHES)
+    counted(page)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "farmstead" in m.text else None)
@@ -328,7 +329,9 @@ def _choose(page, skin):
 
 
 def _settle(page, also="true", timeout=30000):
-    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=timeout)
+    """`desk_waits.settle` with the farm at rest (`AT_REST`) and `also`. `timeout` is kept for its
+    callers; the one ceiling is `DESK_WAIT_MS`."""
+    settle(page, also=f"({AT_REST})() && ({also})")
 
 
 def _inked(page, name, panes=2):
@@ -943,12 +946,12 @@ def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path, des
         browser = desk_browser
         page, errors = _page(browser, port, token, count=True)
         _inked(page, "farmstead:daytime")
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle farm wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle farm wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle farm drew {count['renders']} frames"
 
 

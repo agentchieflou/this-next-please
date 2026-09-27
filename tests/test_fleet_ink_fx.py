@@ -21,6 +21,11 @@ Lines and letters (#375, docs/desk-ink.md §Lines and letters): under `options.f
 character's own box, cached per element on its text length and size, capped and clamped, whitespace skipped, `[]` for
 an element that left the page; `api.fx.lines(el)` gives the element's line boxes; without it, `api.fx` has neither.
 
+The pointer (#376, docs/desk-ink.md §Pointer): under `options.fx.pointer`, a move is one frame at most and the square the
+example draws follows it, nothing while the pointer is still, a leave takes it away, a table without it takes its
+listeners, and under reduced motion moves draw nothing and `api.fx.pointer` stays `null`. Its measured half is in
+tests/test_fleet_ink.py's gesture-budget test.
+
 The budgets (`FX_BUDGET`, `INK_BUDGET`) are held in tests/test_fleet_ink.py.
 """
 from __future__ import annotations
@@ -28,7 +33,8 @@ from __future__ import annotations
 import pytest
 
 from desk_harness import close_pages
-from test_fleet_ink import (IDLE_LOOP, TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
+from desk_waits import observe_quiet
+from test_fleet_ink import (TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
                             fleet_home)
 
 #: The test table with effects, and hooks shaped like a skin module's (`cue` is #372's hook).
@@ -76,8 +82,8 @@ def test_fx_js_is_fetched_only_by_a_table_with_effects(fleet_home, tmp_path, des
         assert page.evaluate("() => Object.keys(Ink.inspect().layer).includes('fx')")
 
         # At rest with effects attached: nothing written, nothing drawn.
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0, f"an idle desk with effects attached wrote to the page: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk with effects attached wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle paper with effects was redrawn {count['renders']} times"
 
         # Detached by a table without effects.
@@ -167,16 +173,13 @@ ARRIVE = """async ([repo, n]) => {
   const frame = () => new Promise(done => requestAnimationFrame(() => done()));
   const el = tiles.get(repo).el, r = el.getBoundingClientRect();
   el.classList.add('ink-cue');
-  const seen = [], obs = new MutationObserver(rs => rs.forEach(x => seen.push(x.type + ' ' +
-    (x.attributeName || '') + ' ' + (x.target.id || x.target.className || x.target.nodeName))));
-  obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(document.documentElement);
   for (let i = 0; i < 600; i++) {
     const l = Ink.inspect().layer;
     if (l.fx.delivered > n && !l.fx.queued && !l.fx.children && !window.__example.inspect().quads) break;
     await frame();
   }
-  obs.takeRecords().forEach(x => seen.push(x.type));
-  obs.disconnect();
+  const seen = w.stop().records();
   return { box: { x: r.left, y: r.top, w: r.width, h: r.height }, seen };
 }"""
 #: A pane that arrives already matching the arrive row: made by the test, outside the grid.
@@ -225,9 +228,7 @@ MOVED = """async (repo) => {
   const before = { style: el.getAttribute('style'), css: el.style.cssText, box: box() };
   window.__went = undefined;
   el.classList.add('ink-cue');
-  const seen = [], obs = new MutationObserver(rs => rs.forEach(x => seen.push(x.type + ' ' +
-    (x.attributeName || '') + ' ' + (x.target.id || x.target.className || x.target.nodeName))));
-  obs.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(document.body);
   const samples = [];
   let i = 0, anim = null, finished = -1, timing = null, frames = null;
   for (; i < 600; i++) {
@@ -245,8 +246,7 @@ MOVED = """async (repo) => {
   }
   const gone = i;
   for (let k = 0; k < 10; k++) await frame();
-  obs.takeRecords().forEach(x => seen.push(x.type));
-  obs.disconnect();
+  const seen = w.stop().records();
   return { went: window.__went, before, after: { style: el.getAttribute('style'), css: el.style.cssText, box: box() },
            samples, timing, frames, finished, gone, seen, fx: Ink.inspect().layer.fx };
 }"""
@@ -294,6 +294,28 @@ CAPS = """() => { const h = window.__example.helpers(), d = document.createEleme
            gone: [h.glyphs(d).length, h.lines(d).length] }; }"""
 
 
+#: The pointer (#376): the layer's renders, the effects' own pointer counts and what the example drew with them.
+POINTED = """() => { const l = Ink.inspect().layer;
+  return { renders: l.renders, fx: l.fx && l.fx.pointer, drew: window.__example.inspect().pointer,
+           api: window.__example.helpers() ? window.__example.helpers().pointer : undefined }; }"""
+
+
+def _hover(page, repo):
+    """One pointer move to a point low in a pane, where the moves that follow keep the same hover; the point."""
+    box = page.evaluate(BOX, repo)
+    x, y = round(box["x"] + box["w"] / 2), round(box["y"] + box["h"] - 24)
+    page.mouse.move(x, y)
+    return x, y
+
+
+def _moves(page, at, n=10):
+    """`n` pointer moves from `at`, a pixel apart to the right; the point of the last."""
+    x, y = at
+    for i in range(1, n + 1):
+        page.mouse.move(x + i, y)
+    return x + n, y
+
+
 def _same(moved):
     """The pane's style attribute and `cssText` never changed: before, on every frame and after."""
     first = [moved["before"]["style"], moved["before"]["css"]]
@@ -339,9 +361,11 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
     refusals, #374: a cue that moves its pane, on the pane as styled and with a transform of its
     own, then where `animate` may not run and what takes it back; and #375: under `example:text`
     the letters of a pane's name, their cache, their caps and the lines of a made element, the
-    letters a cue reads, and neither helper under `example`. Then a page under reduced
-    motion, where nothing is queued and no pane moves, and one with `?ink=off`, where nothing
-    happens, nothing is fetched and nothing animates."""
+    letters a cue reads, and neither helper under `example`; and #376: under `example:pointer`
+    ten moves are at most ten frames and none while the pointer is still, a leave takes the
+    square away, and `example` takes the listeners with it. Then a page under reduced
+    motion, where nothing is queued, no pane moves and the pointer is never read, and one with
+    `?ink=off`, where nothing happens, nothing is fetched and nothing animates."""
     from agentdata.fleet import events as E
     from agentdata.fleet.registry import Registry
     from test_fleet_ink import _choose, _mark, _no_skin_css
@@ -461,9 +485,9 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
 
         # At rest after them all: nothing written, nothing drawn, nothing delivered or left.
         before = page.evaluate(CUED)
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         after = page.evaluate(CUED)
-        assert count["n"] == 0, f"an idle desk after its cues wrote to the page: {count}"
+        assert count["mutations"] == 0, f"an idle desk after its cues wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle desk after its cues was redrawn {count['renders']} times"
         assert after["fx"]["delivered"] == before["fx"]["delivered"], (before["fx"], after["fx"])
         assert (after["quads"], after["fx"]["reaped"], after["fx"]["dropped"]) == (0, 0, 0), after
@@ -509,8 +533,8 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
             assert moved["fx"]["animating"] == 0, moved["fx"]
         assert moved["fx"]["animated"] == {"hit": 2, "pop": 0, "flash": 0}, moved["fx"]
         page.evaluate("s => tiles.get('alpha').el.setAttribute('style', s)", own)
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0 and count["renders"] == 0, f"an idle desk after a pane moved: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0 and count["renders"] == 0, f"an idle desk after a pane moved: {count}"
 
         # Where it may not run: the pane focused, a selection inside it, already moving, an unknown kind (said
         # once); and a focus arriving mid-animation, and `Ink.setSkin(null)` mid-animation, take it back.
@@ -575,6 +599,49 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
         page.wait_for_function("() => !!window.__example.helpers()", timeout=20000)
         assert page.evaluate(HELPERS) == ["animate"]
 
+        # The pointer (#376): `example:pointer` asks for it with `options.fx.pointer`. A move records where the
+        # pointer is and asks for one frame, which the layer coalesces; the example's `tick` draws its square there.
+        f = _frames(page)
+        _choose(page, "example:pointer")
+        page.wait_for_function("() => Ink.inspect().table === 'example:pointer' && !!window.__example.helpers()"
+                               " && 'pointer' in window.__example.helpers()", timeout=20000)
+        _armed(page)
+        assert page.evaluate(HELPERS) == ["animate", "pointer"]
+        at = _hover(page, "alpha")
+        _still(page, f)
+        before = page.evaluate(POINTED)
+        f = _frames(page)
+        x, y = _moves(page, at)
+        page.wait_for_function("n => Ink.inspect().layer.fx.pointer.moves >= n", arg=before["fx"]["moves"] + 10,
+                               timeout=20000)
+        _still(page, f)
+        after = page.evaluate(POINTED)
+        assert after["fx"]["moves"] - before["fx"]["moves"] == 10, (before, after)
+        assert 1 <= after["renders"] - before["renders"] <= 10, (before, after)
+        assert after["fx"]["at"] == {"x": x, "y": y, "repo": "alpha"} == after["drew"]["at"], after
+        assert after["api"]["repo"] == "alpha" and after["drew"]["shown"] is True, after
+        # ... and nothing while the pointer is still: the idle loop writes nothing and draws nothing.
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0 and count["renders"] == 0, f"an idle desk with the pointer still: {count}"
+        # The pointer leaves the page: no pointer, one last frame, and the square is gone.
+        page.evaluate("() => document.documentElement.dispatchEvent(new PointerEvent('pointerleave'))")
+        page.wait_for_function("() => { const d = window.__example.inspect().pointer; return d.at === null && !d.shown; }",
+                               timeout=20000)
+        assert page.evaluate(POINTED)["api"] is None
+        # A table without the pointer takes its listeners with it: moves then draw nothing.
+        _choose(page, "example")
+        page.wait_for_function("() => Ink.inspect().table === 'example' && !!Ink.inspect().layer.fx"
+                               " && !!window.__example.helpers() && !('pointer' in window.__example.helpers())",
+                               timeout=20000)
+        _armed(page)
+        page.wait_for_function("() => !Ink.inspect().layer.busy", timeout=20000)
+        observe_quiet(page, passes=2, drive=False)
+        before = page.evaluate(POINTED)
+        _moves(page, _hover(page, "alpha"))
+        observe_quiet(page, passes=2, drive=False)
+        after = page.evaluate(POINTED)
+        assert after["renders"] == before["renders"] and after["fx"] is None, (before, after)
+
         # Refused rows, last: the whole table is refused, naming the row and why, and said in the
         # console; the marks draw on.
         refused = page.evaluate(REFUSE, [TABLE, [rows for rows, _, _ in BAD]])
@@ -606,6 +673,21 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
         assert page.evaluate("() => Ink.inspect().layer.reduced") is True
         assert fx["rows"] == 3 and fx["armed"] is True, fx
         assert got["cues"] == [] and (fx["queued"], fx["delivered"], fx["dropped"]) == (0, 0, 0), got
+        # ... and the pointer (#376) is never read: moves ask for no frame, and `api.fx.pointer` stays null.
+        _choose(page, "example:pointer")
+        page.wait_for_function("() => Ink.inspect().table === 'example:pointer' && !!window.__example.helpers()"
+                               " && 'pointer' in window.__example.helpers()", timeout=20000)
+        _armed(page)
+        page.wait_for_function("() => !Ink.inspect().layer.busy", timeout=20000)
+        observe_quiet(page, passes=2, drive=False)
+        before = page.evaluate(POINTED)
+        _moves(page, _hover(page, "alpha"))
+        observe_quiet(page, passes=2, drive=False)
+        after = page.evaluate(POINTED)
+        assert after["renders"] == before["renders"], (before, after)
+        assert after["api"] is None and after["fx"] == {"at": None, "moves": 0}, after
+        _choose(page, "example")
+        page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=20000)
         # ... and no pane moves (#374): `animate` answers false, and nothing animates.
         page.evaluate(MOVE, TABLE)
         page.wait_for_function("() => !!(window.__api && window.__api.fx)", timeout=20000)
