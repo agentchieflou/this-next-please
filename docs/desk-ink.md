@@ -196,13 +196,20 @@ its border box inset 1px (#331), so a row that pads outward is cut away rather t
   Glass draws no stale outline: round the note it still ran over the chip's age at 700px, and the note's own words
   say it. Since #334 it underlines the name, as every skin does, and gives the compact head the same room.
 
-`tests/test_fleet_ink_bounds.py` holds one look per module at 1400px and 700px, with a blocking question, a running
-turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
+`tests/test_fleet_ink_bounds.py` is the HIG guard (#340; #332 took one look per module): every variant of every
+skin (`skins.every_variant()`, 17 today), switched in one page per param, at 1400px and 700px, ink on and ink off,
+with a blocking question, a running turn, an error and a stale done. Ink on: no stroke more than 2px outside its pane, none outside the viewport, none cut away
 whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
 element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word
-but its own. The same desk holds #335's order: the pane waiting on the operator's answer carries at least the
+but its own; and the finished agent has its check. The same desk holds #335's order: the pane waiting on the operator's answer carries at least the
 errored pane's ink (each drawn mark's `len` times its tool's width), and, ink off, the question card has the
-marker's 2px outline and the errored pane none of its own. The full sweep, every variant, is #340's.
+marker's 2px outline and the errored pane none of its own. Ink off, every ring the plain sheet draws (a row whose
+`PLAIN` rule is an outline: `outline`, `loop`, `ellipse`, `outline-offset` out and `outline-width` thick, read from
+the page once nothing is transitioning) is on no visible word by 6 px² (`tests/hig_audit.py`: `TEXT_RUNS`,
+`PLAIN_RINGS`, `ring_collisions`). One assertion lists every failure. At 1400px the guard checks itself: a test
+table's outline padded 20px out of the pane and a check on the name are reported, and, ink off, a loop round the
+chip's word whose ring lands on its age. It found nothing in the skins as #335 left them. It reads the page only;
+pixel contrast is #341's.
 
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |
@@ -987,7 +994,8 @@ page sets and ids `index.html` has, `hidden` the one attribute, no leave row on 
 trims, and arrive rows on transcript lines only for `li.denied`, `li.friction` and `li.error`.
 
 `tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
-words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).
+words, on every variant at 1400px and 700px, ink on and off (#340; #332 took one look per module), and every pane
+outline and loop padded inside it (#332).
 
 `tests/test_fleet_trace.py` covers the page's own drawing: the trace drawn in its pane's lane from its series and
 following its data, glass's ground drawn by the layer and still under reduced motion, the fallback's SVG and

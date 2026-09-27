@@ -347,6 +347,14 @@ setup, so no timed window includes a driver or a Chromium starting.
 | the ground | a repaint under 4 ms, and the drift timer off under reduced motion | `test_fleet_trace.py` |
 | latency | every marked local gesture under 50 ms, hiding a tile painted against a server held for two seconds, and one round trip per action | `test_fleet_instant.py` |
 
+**The HIG guard (#340)** is `tests/test_fleet_ink_bounds.py::test_skin_marks_keep_inside_their_pane_and_off_other_words`,
+the ink skins' one full sweep: every variant of every skin, at 1400px and 700px, ink on and ink off (four params, one
+server and one page each, the looks switched in the page). It fails when a mark leaves its pane, lands on another
+element's words or a finished agent goes unmarked, and ink off when a plain ring lands on a word; its helpers are in
+`tests/hig_audit.py`, which #341's pixel pass shares. It is a `browser` test, not `slow`. Wall time, serially on the
+shared 4-core box with Chrome for Testing 153: about 26 s and 21 s for the two ink-on params and 6 s for each ink-off
+one, about 59 s for the four (target 200 s).
+
 The payload budgets are plain tests. Each measures what the server sends (`serve.static_body`, gzip level 6), and
 none is raised by a card (decisions 18 and 19 on #429):
 
