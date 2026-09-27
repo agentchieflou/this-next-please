@@ -3464,8 +3464,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(413, "body too large",
                                 "raise `fleet.attach.max_mb`, or drop the file from inside the "
                                 "checkout so it is scoped rather than copied")
+        raw = self.rfile.read(length)
+        if len(raw) < length:
+            # The connection ended before the body did: a request that never arrived (#584). A read at
+            # the end of the stream is `b""`, which `or b"{}"` below would act on as an empty object; a
+            # closing page's `/api/load` cut off after its headers was once kept as a fourth, empty load.
+            # Nothing is done and nothing answered: nobody is left to read it.
+            self.close_connection = True
+            return None
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
         except ValueError:
             return self._refuse(400, "body is not JSON")
         if not isinstance(body, dict):
