@@ -1534,7 +1534,6 @@ def _the_waits_on_an_idle_desk(page, monkeypatch):
     a desk that is busy for 20 frames under CPU throttle 4 settles; and `record_mutations(init=True)`
     sees the writes of a page load."""
     import desk_waits as DW
-    from desk_harness import throttle_page
 
     out = {}
     settle(page)  # the click on beta's row opened it, with a view transition
@@ -1576,14 +1575,16 @@ def _the_waits_on_an_idle_desk(page, monkeypatch):
     page.evaluate("() => refreshSoon()")
     out["own"] = observe_quiet(page, passes=1, drive=False)
     # Busy for 20 frames under a CPU throttle of 4, then still.
-    throttle_page(page, 4)
+    cdp = page.context.new_cdp_session(page)  # CDP's CPU throttle, on this page only, until set back to 1
+    cdp.send("Emulation.setCPUThrottlingRate", {"rate": 4})
     page.evaluate("""() => { window.__busy = 0;
       const f = () => { document.body.dataset.busy = String(++window.__busy);
                         if (window.__busy < 20) requestAnimationFrame(f); else delete document.body.dataset.busy; };
       requestAnimationFrame(f); }""")
     out["throttled"] = settle(page)
     out["throttled"]["busy"] = page.evaluate("() => [window.__busy, document.body.dataset.busy === undefined]")
-    throttle_page(page, 1)
+    cdp.send("Emulation.setCPUThrottlingRate", {"rate": 1})
+    cdp.detach()
     # A recorder from the page's first byte: the load's own writes.
     loaded = record_mutations(page, init=True)
     page.reload(wait_until="domcontentloaded")

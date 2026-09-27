@@ -87,7 +87,7 @@ def test_every_desk_page_counts_what_settle_reads():
         def new_context(self, **kw):
             return Context()
 
-    H.desk_page(Browser(), init_scripts=("window.__mine = 1;",), throttle=1)
+    H.desk_page(Browser(), init_scripts=("window.__mine = 1;",))
     assert installed == [H.COUNT_FETCHES, DW.COUNT_TIMERS, "window.__mine = 1;"]
     assert DW.COUNT_REFRESHES in DW.COUNT_TIMERS and DW.WATCH in DW.COUNT_TIMERS
     assert NEEDLE in DW.WATCH and NEEDLE not in DW.COUNT_TIMERS.replace(DW.WATCH, "")
