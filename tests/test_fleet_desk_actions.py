@@ -27,8 +27,8 @@ from agentdata.fleet import serve as S
 from agentdata.fleet import supervisor
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_desk_regressions import _drain_and_age
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
 
@@ -140,8 +140,7 @@ def desk(fleet_home, tmp_path):                                 # noqa: F811
         server.server_close()
 
 
-def _page(p, url):
-    browser = launch_chromium(p)
+def _page(browser, url):
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -190,7 +189,7 @@ def _wide(page, repo: str) -> bool:
 
 
 @pytest.mark.browser
-def test_the_tile_you_just_acted_on_does_not_vanish_after_needs_me(desk):
+def test_the_tile_you_just_acted_on_does_not_vanish_after_needs_me(desk, desk_browser):
     """The defect: answering an agent hid the agent you answered.
 
     Focus mode showed only what `#94`'s fold says needs a person. Replying is what makes an agent
@@ -206,122 +205,114 @@ def test_the_tile_you_just_acted_on_does_not_vanish_after_needs_me(desk):
     changing and through the operator opening another beside it -- with no hold, no note and
     nothing to let go of.
     """
-    playwright_module = pytest.importorskip("playwright.sync_api")
-    with playwright_module.sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
+    browser, page, errors = _page(desk_browser, desk)
 
-        page.click("#preset-needs")
-        page.wait_for_selector('.tile[data-repo="quiet"][data-tier="rail"]', timeout=5000)
-        page.wait_for_function("() => windowWrites === 0", timeout=5000)
-        assert _wide(page, "asks"), "the agent with an open question is what needs me is for"
-        assert _visible(page, "quiet"), "a quiet agent nobody touched is a rail, on the glass"
+    page.click("#preset-needs")
+    page.wait_for_selector('.tile[data-repo="quiet"][data-tier="rail"]', timeout=5000)
+    page.wait_for_function("() => windowWrites === 0", timeout=5000)
+    assert _wide(page, "asks"), "the agent with an open question is what needs me is for"
+    assert _visible(page, "quiet"), "a quiet agent nobody touched is a rail, on the glass"
 
-        # Act on it. `stop` on an agent with no live process answers ok and changes nothing on
-        # disk, so this is the operator's click without a real process in the fixture.
-        page.click('.tile[data-repo="asks"] .stop')
+    # Act on it. `stop` on an agent with no live process answers ok and changes nothing on
+    # disk, so this is the operator's click without a real process in the fixture.
+    page.click('.tile[data-repo="asks"] .stop')
 
-        # Now make it genuinely stop needing the human, which is what a real reply does: the agent
-        # opens a turn, and an open turn is `running` -- the first branch of the fold, ahead of the
-        # question that is still on its record.
-        E.append("asks", [E.event("asks", "turn_started", {}, ticket="RDSD-1")])
-        page.evaluate("() => refresh()")
-        page.wait_for_function(
-            """() => !document.querySelector('.tile[data-repo="asks"]')
-                        .classList.contains('needs-human')""", timeout=8000)
-        assert _wide(page, "asks"), "the agent the operator acted on lost its width"
+    # Now make it genuinely stop needing the human, which is what a real reply does: the agent
+    # opens a turn, and an open turn is `running` -- the first branch of the fold, ahead of the
+    # question that is still on its record.
+    E.append("asks", [E.event("asks", "turn_started", {}, ticket="RDSD-1")])
+    page.evaluate("() => refresh()")
+    page.wait_for_function(
+        """() => !document.querySelector('.tile[data-repo="asks"]')
+                    .classList.contains('needs-human')""", timeout=8000)
+    assert _wide(page, "asks"), "the agent the operator acted on lost its width"
 
-        # The operator opens another beside it, and the one they acted on is still on the glass,
-        # at a width -- which a hold used to be needed for.
-        page.click('.tile[data-repo="third"] .pane-rail', modifiers=["Shift"])
-        page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
-        page.wait_for_function("() => windowWrites === 0", timeout=5000)
-        assert _wide(page, "asks"), "opening another took the width off the one acted on"
-        assert page.locator(".holdnote, .release").count() == 0, "there is no hold to let go of"
-        assert not errors, errors
+    # The operator opens another beside it, and the one they acted on is still on the glass,
+    # at a width -- which a hold used to be needed for.
+    page.click('.tile[data-repo="third"] .pane-rail', modifiers=["Shift"])
+    page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
+    page.wait_for_function("() => windowWrites === 0", timeout=5000)
+    assert _wide(page, "asks"), "opening another took the width off the one acted on"
+    assert page.locator(".holdnote, .release").count() == 0, "there is no hold to let go of"
+    assert not errors, errors
 
 
 @pytest.mark.browser
-def test_a_reset_button_is_on_every_tile_and_names_what_it_does(desk):
+def test_a_reset_button_is_on_every_tile_and_names_what_it_does(desk, desk_browser):
     """The operator could not work out what to do from the page, so the page says it."""
-    playwright_module = pytest.importorskip("playwright.sync_api")
-    with playwright_module.sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
-        button = page.query_selector('.tile[data-repo="asks"] .reset')
-        assert button is not None, "the one control for 'it is stuck, make it go again'"
-        assert button.inner_text().strip().lower() == "reset"
-        assert "resume the same session" in (button.get_attribute("title") or "")
-        box = button.bounding_box()
-        assert box and box["width"] > 0, "and it is on the screen, not merely in the template"
-        assert not errors, errors
+    browser, page, errors = _page(desk_browser, desk)
+    button = page.query_selector('.tile[data-repo="asks"] .reset')
+    assert button is not None, "the one control for 'it is stuck, make it go again'"
+    assert button.inner_text().strip().lower() == "reset"
+    assert "resume the same session" in (button.get_attribute("title") or "")
+    box = button.bounding_box()
+    assert box and box["width"] > 0, "and it is on the screen, not merely in the template"
+    assert not errors, errors
 
 
 @pytest.mark.browser
-def test_a_tile_never_ends_up_painted_away_from_where_the_layout_put_it(desk):
+def test_a_tile_never_ends_up_painted_away_from_where_the_layout_put_it(desk, desk_browser):
     """Re-ordering moves tiles visibly (#5), and leaves no tile behind when it is done.
 
     The animation is a transform applied to a grid that is already in its final state, so the thing
     worth asserting is not that it moved but that nothing is left offset: a stuck `transform` paints
     a tile somewhere its own layout box is not, and every click on it then lands on empty space.
     """
-    playwright_module = pytest.importorskip("playwright.sync_api")
-    with playwright_module.sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
-        # Three tiles side by side, so a move is a move on the glass: two pinned beside the open
-        # one. Only the open agents are laid out now (#232), and a tile that is not laid out has
-        # nowhere to travel from.
-        page.evaluate("() => post('arrange', { pinned: ['quiet', 'third'] })")
-        page.wait_for_function("() => document.querySelectorAll('.tile.is-solo').length === 3",
-                               timeout=5000)
+    browser, page, errors = _page(desk_browser, desk)
+    # Three tiles side by side, so a move is a move on the glass: two pinned beside the open
+    # one. Only the open agents are laid out now (#232), and a tile that is not laid out has
+    # nowhere to travel from.
+    page.evaluate("() => post('arrange', { pinned: ['quiet', 'third'] })")
+    page.wait_for_function("() => document.querySelectorAll('.tile.is-solo').length === 3",
+                           timeout=5000)
 
-        before = page.evaluate("() => Array.from(document.querySelectorAll('.tile')).map(t => t.dataset.repo)")
-        assert len(before) == 3
+    before = page.evaluate("() => Array.from(document.querySelectorAll('.tile')).map(t => t.dataset.repo)")
+    assert len(before) == 3
 
-        # The invert is applied synchronously, inside the same call that re-orders the DOM, so it is
-        # on the tiles the moment this returns. Without it the tile simply appears in its new place.
-        inverted = page.evaluate("""() => {
-            moveTile(document.querySelectorAll('.tile')[0].dataset.repo, 1);
-            return Array.from(document.querySelectorAll('.tile')).filter(t => t.style.transform).length;
-        }""")
-        assert inverted > 0, "a re-ordered tile travels to its new place; it does not teleport"
+    # The invert is applied synchronously, inside the same call that re-orders the DOM, so it is
+    # on the tiles the moment this returns. Without it the tile simply appears in its new place.
+    inverted = page.evaluate("""() => {
+        moveTile(document.querySelectorAll('.tile')[0].dataset.repo, 1);
+        return Array.from(document.querySelectorAll('.tile')).filter(t => t.style.transform).length;
+    }""")
+    assert inverted > 0, "a re-ordered tile travels to its new place; it does not teleport"
 
-        page.wait_for_timeout(1200)                             # longer than the 260ms transition
+    page.wait_for_timeout(1200)                             # longer than the 260ms transition
 
-        after = page.evaluate("() => Array.from(document.querySelectorAll('.tile')).map(t => t.dataset.repo)")
-        assert after[0] == before[1] and after[1] == before[0], "the move actually happened"
+    after = page.evaluate("() => Array.from(document.querySelectorAll('.tile')).map(t => t.dataset.repo)")
+    assert after[0] == before[1] and after[1] == before[0], "the move actually happened"
 
-        offsets = page.evaluate("""() => Array.from(document.querySelectorAll('.tile')).map(t => {
-            const style = getComputedStyle(t);
-            return { repo: t.dataset.repo, transform: style.transform };
-        })""")
-        for row in offsets:
-            assert row["transform"] in ("none", "matrix(1, 0, 0, 1, 0, 0)"), \
-                f"{row['repo']} is still painted away from its layout box: {row['transform']}"
-        assert not errors, errors
+    offsets = page.evaluate("""() => Array.from(document.querySelectorAll('.tile')).map(t => {
+        const style = getComputedStyle(t);
+        return { repo: t.dataset.repo, transform: style.transform };
+    })""")
+    for row in offsets:
+        assert row["transform"] in ("none", "matrix(1, 0, 0, 1, 0, 0)"), \
+            f"{row['repo']} is still painted away from its layout box: {row['transform']}"
+    assert not errors, errors
 
 
 @pytest.mark.browser
-def test_a_viewer_who_asked_for_less_motion_gets_no_transform_at_all(desk):
+def test_a_viewer_who_asked_for_less_motion_gets_no_transform_at_all(desk, desk_browser):
     """`prefers-reduced-motion` is honoured before the measurement, not only in the stylesheet.
 
     The global rule zeroes the duration, which is enough to stop the movement being *seen*; the
     script also skips measuring, so the work is not done either.
     """
-    playwright_module = pytest.importorskip("playwright.sync_api")
-    with playwright_module.sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page(viewport={"width": 1440, "height": 900},
-                                reduced_motion="reduce")
-        page.goto(desk, wait_until="domcontentloaded")
-        page.wait_for_selector(".tile.is-solo", timeout=15000)
-        page.wait_for_timeout(900)
+    browser = desk_browser
+    page = browser.new_page(viewport={"width": 1440, "height": 900},
+                            reduced_motion="reduce")
+    page.goto(desk, wait_until="domcontentloaded")
+    page.wait_for_selector(".tile.is-solo", timeout=15000)
+    page.wait_for_timeout(900)
 
-        assert page.evaluate("() => reduceMotion()") is True
-        page.evaluate("() => moveTile(document.querySelectorAll('.tile')[0].dataset.repo, 1)")
-        # Immediately: with motion reduced there is no inverted frame to catch.
-        stuck = page.evaluate("""() => Array.from(document.querySelectorAll('.tile'))
-            .filter(t => t.style.transform).length""")
-        assert stuck == 0
-        browser.close()
+    assert page.evaluate("() => reduceMotion()") is True
+    page.evaluate("() => moveTile(document.querySelectorAll('.tile')[0].dataset.repo, 1)")
+    # Immediately: with motion reduced there is no inverted frame to catch.
+    stuck = page.evaluate("""() => Array.from(document.querySelectorAll('.tile'))
+        .filter(t => t.style.transform).length""")
+    assert stuck == 0
+    close_pages(browser)
 
 
 # --------------------------------------------------- sessions the fleet did not start (#2)
@@ -789,7 +780,7 @@ def outside_desk(fleet_home, tmp_path):                         # noqa: F811
 
 @pytest.mark.browser
 def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_desk, no_copilot_home,  # noqa: F811
-                                                                    launches, tmp_path):
+                                                                    launches, tmp_path, desk_browser):
     """#2, from the operator's side.
 
     They have a `copilot` going in a `cmd.exe` window; the tile for that repository was showing the
@@ -797,175 +788,173 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
     there is something here it did not start, and one click makes that session the repository's
     current one.
     """
-    playwright_module = pytest.importorskip("playwright.sync_api")
-    with playwright_module.sync_playwright() as p:
-        browser, page, errors = _page(p, outside_desk)
+    browser, page, errors = _page(desk_browser, outside_desk)
 
-        strip = page.query_selector('.tile[data-repo="busy"] .outside')
-        assert strip is not None
-        box = strip.bounding_box()
-        assert box and box["width"] > 0, "the offer is on the screen, not merely in the template"
-        offer = page.inner_text('.tile[data-repo="busy"] .outside')
-        assert "the fleet did not start" in offer, offer
-        assert "inferred from recent activity" in offer, "it says how strong the claim is"
+    strip = page.query_selector('.tile[data-repo="busy"] .outside')
+    assert strip is not None
+    box = strip.bounding_box()
+    assert box and box["width"] > 0, "the offer is on the screen, not merely in the template"
+    offer = page.inner_text('.tile[data-repo="busy"] .outside')
+    assert "the fleet did not start" in offer, offer
+    assert "inferred from recent activity" in offer, "it says how strong the claim is"
 
-        # #530: `busy` is idle on a fleet run two days old, with a ticket, so the day line above the
-        # grid counts it. A snapshot is read now and handed over only after the adopt's answer.
-        page.wait_for_selector("#day-strip:not([hidden])", timeout=15000)
-        # #534: a poll of the page's own (the stream's `refreshSoon`) can be in flight when the hold
-        # goes in, and `refresh()` hands back that poll instead of asking again. One is parked here
-        # so that it always is, and the snapshot held below is asked for after it.
-        parked = []
+    # #530: `busy` is idle on a fleet run two days old, with a ticket, so the day line above the
+    # grid counts it. A snapshot is read now and handed over only after the adopt's answer.
+    page.wait_for_selector("#day-strip:not([hidden])", timeout=15000)
+    # #534: a poll of the page's own (the stream's `refreshSoon`) can be in flight when the hold
+    # goes in, and `refresh()` hands back that poll instead of asking again. One is parked here
+    # so that it always is, and the snapshot held below is asked for after it.
+    parked = []
 
-        def park(route):
-            if parked:
-                route.continue_()
-            else:
-                parked.append(route)
-        page.route(re.compile(r"/api/fleet\?"), park)
-        page.evaluate("() => { refresh(); }")
-        deadline = time.time() + 15
-        while not parked and time.time() < deadline:
-            page.wait_for_timeout(20)
-        assert parked, "the poll already in flight was never asked for"
-        held, released = [], []
+    def park(route):
+        if parked:
+            route.continue_()
+        else:
+            parked.append(route)
+    page.route(re.compile(r"/api/fleet\?"), park)
+    page.evaluate("() => { refresh(); }")
+    deadline = time.time() + 15
+    while not parked and time.time() < deadline:
+        page.wait_for_timeout(20)
+    assert parked, "the poll already in flight was never asked for"
+    held, released = [], []
 
-        def hold(route):
-            if released:
-                route.continue_()
-            else:
-                held.append((route, route.fetch()))     # read by the server now, handed over later
-        page.route(re.compile(r"/api/fleet\?"), hold)
-        page.evaluate("() => { refreshAfterNow(); }")
-        parked[0].continue_()
-        deadline = time.time() + 15
-        while not held and time.time() < deadline:
-            page.wait_for_timeout(20)
-        assert held, "the snapshot before the adopt was never asked for"
+    def hold(route):
+        if released:
+            route.continue_()
+        else:
+            held.append((route, route.fetch()))     # read by the server now, handed over later
+    page.route(re.compile(r"/api/fleet\?"), hold)
+    page.evaluate("() => { refreshAfterNow(); }")
+    parked[0].continue_()
+    deadline = time.time() + 15
+    while not held and time.time() < deadline:
+        page.wait_for_timeout(20)
+    assert held, "the snapshot before the adopt was never asked for"
 
-        _press(page, '.tile[data-repo="busy"] .adopt')
-        # Waited for, not slept through (#227): the tile changes on the adopt's answer, and on the
-        # Windows 3.14 leg of #269 that answer took over 3 s (the adoption's first write, into a
-        # fleet directory the antivirus was still looking at). 900 ms was a guess at a clock.
-        page.wait_for_function(
-            """() => /is driving this repo/.test(
-                   document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
-            timeout=15000)
-        # The line goes with the answer, not a snapshot later: the grid moves once, and no press that
-        # follows lands on the pane under where its button was (#530).
-        assert page.evaluate("() => document.getElementById('day-strip').hidden"), \
-            "the answer's own row takes its pane off the day line"
-        page.wait_for_function(_LINES, timeout=15000)
-        where = "t => t.getBoundingClientRect().top"
-        at_answer = page.eval_on_selector('.tile[data-repo="busy"]', where)
-        # The held snapshot, read before the adopt, looked at the moment it is drawn and before anything
-        # newer can be; then one read after the adopt. Neither counts the pane back or moves the grid.
-        drawn = "() => refresh().then(() => document.getElementById('day-strip').hidden)"
-        page.evaluate(f"() => {{ window.olderDrawn = ({drawn})(); }}")
-        released.append(True)
-        for route, response in held:
-            route.fulfill(response=response)
-        assert page.evaluate("() => window.olderDrawn"), "an older snapshot counted the pane back"
-        assert page.evaluate(drawn)
-        page.wait_for_function(_LINES, timeout=15000)
-        assert page.eval_on_selector('.tile[data-repo="busy"]', where) == at_answer
+    _press(page, '.tile[data-repo="busy"] .adopt')
+    # Waited for, not slept through (#227): the tile changes on the adopt's answer, and on the
+    # Windows 3.14 leg of #269 that answer took over 3 s (the adoption's first write, into a
+    # fleet directory the antivirus was still looking at). 900 ms was a guess at a clock.
+    page.wait_for_function(
+        """() => /is driving this repo/.test(
+               document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
+        timeout=15000)
+    # The line goes with the answer, not a snapshot later: the grid moves once, and no press that
+    # follows lands on the pane under where its button was (#530).
+    assert page.evaluate("() => document.getElementById('day-strip').hidden"), \
+        "the answer's own row takes its pane off the day line"
+    page.wait_for_function(_LINES, timeout=15000)
+    where = "t => t.getBoundingClientRect().top"
+    at_answer = page.eval_on_selector('.tile[data-repo="busy"]', where)
+    # The held snapshot, read before the adopt, looked at the moment it is drawn and before anything
+    # newer can be; then one read after the adopt. Neither counts the pane back or moves the grid.
+    drawn = "() => refresh().then(() => document.getElementById('day-strip').hidden)"
+    page.evaluate(f"() => {{ window.olderDrawn = ({drawn})(); }}")
+    released.append(True)
+    for route, response in held:
+        route.fulfill(response=response)
+    assert page.evaluate("() => window.olderDrawn"), "an older snapshot counted the pane back"
+    assert page.evaluate(drawn)
+    page.wait_for_function(_LINES, timeout=15000)
+    assert page.eval_on_selector('.tile[data-repo="busy"]', where) == at_answer
 
-        after = page.inner_text('.tile[data-repo="busy"] .outside')
-        assert "is driving this repo" in after, after
-        assert page.inner_text('.tile[data-repo="busy"] .adopt').strip() == "stop following it"
-        # Nothing on the tile may still claim the repository is unsupervised.
-        assert "nothing is supervised" not in page.inner_text('.tile[data-repo="busy"] .why')
-        # And the controls that cannot reach somebody else's stdin say so instead of lying.
-        assert page.get_attribute('.tile[data-repo="busy"] .send', "disabled") is not None
-        # #489: *start fresh* on the head and first in the strip; Stop and Reset are not offered
-        # on the operator's own chat, and say why. Send and Start keep their own words.
-        assert page.is_visible('.tile[data-repo="busy"] .freshtoggle')
-        assert page.is_visible('.tile[data-repo="busy"] .outside .fresh-strip')
-        assert page.eval_on_selector('.tile[data-repo="busy"] .outside', "o => o.querySelector('button:not([hidden])').className") == "fresh-strip"
-        for control in ("stop", "reset"):
-            assert page.get_attribute(f'.tile[data-repo="busy"] .{control}', "disabled") is not None, control
-            assert "start fresh leaves it" in page.get_attribute(f'.tile[data-repo="busy"] .{control}', "title")
-        assert "not the fleet's to drive" in page.get_attribute('.tile[data-repo="busy"] .start', "title")
-        # Stop is refused for it (#487): the operator's own chat is theirs to close, and the page
-        # reads the supervisor's own words and hint, not a button that seemed to do nothing. The
-        # button is not offered any more (#489), so the page's own action asks what it would have.
-        page.evaluate("""() => action(document.querySelector('.tile[data-repo="busy"]'), 'stop', { repo: 'busy' })""")
-        page.wait_for_function(
-            """() => /your own Copilot chat/.test(
-                   document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
-            timeout=15000)
-        refused = page.inner_text('.tile[data-repo="busy"] .err')
-        assert "close it in its own window" in refused and "ad-fleet release busy" in refused, refused
-        assert page.is_visible('.tile[data-repo="busy"] .err'), "the refusal is on the screen"
+    after = page.inner_text('.tile[data-repo="busy"] .outside')
+    assert "is driving this repo" in after, after
+    assert page.inner_text('.tile[data-repo="busy"] .adopt').strip() == "stop following it"
+    # Nothing on the tile may still claim the repository is unsupervised.
+    assert "nothing is supervised" not in page.inner_text('.tile[data-repo="busy"] .why')
+    # And the controls that cannot reach somebody else's stdin say so instead of lying.
+    assert page.get_attribute('.tile[data-repo="busy"] .send', "disabled") is not None
+    # #489: *start fresh* on the head and first in the strip; Stop and Reset are not offered
+    # on the operator's own chat, and say why. Send and Start keep their own words.
+    assert page.is_visible('.tile[data-repo="busy"] .freshtoggle')
+    assert page.is_visible('.tile[data-repo="busy"] .outside .fresh-strip')
+    assert page.eval_on_selector('.tile[data-repo="busy"] .outside', "o => o.querySelector('button:not([hidden])').className") == "fresh-strip"
+    for control in ("stop", "reset"):
+        assert page.get_attribute(f'.tile[data-repo="busy"] .{control}', "disabled") is not None, control
+        assert "start fresh leaves it" in page.get_attribute(f'.tile[data-repo="busy"] .{control}', "title")
+    assert "not the fleet's to drive" in page.get_attribute('.tile[data-repo="busy"] .start', "title")
+    # Stop is refused for it (#487): the operator's own chat is theirs to close, and the page
+    # reads the supervisor's own words and hint, not a button that seemed to do nothing. The
+    # button is not offered any more (#489), so the page's own action asks what it would have.
+    page.evaluate("""() => action(document.querySelector('.tile[data-repo="busy"]'), 'stop', { repo: 'busy' })""")
+    page.wait_for_function(
+        """() => /your own Copilot chat/.test(
+               document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
+        timeout=15000)
+    refused = page.inner_text('.tile[data-repo="busy"] .err')
+    assert "close it in its own window" in refused and "ad-fleet release busy" in refused, refused
+    assert page.is_visible('.tile[data-repo="busy"] .err'), "the refusal is on the screen"
 
-        _press(page, '.tile[data-repo="busy"] .adopt')            # hand it back
-        page.wait_for_function(
-            """() => /the fleet did not start/.test(
-                   document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
-            timeout=15000)
-        assert "the fleet did not start" in page.inner_text('.tile[data-repo="busy"] .outside')
+    _press(page, '.tile[data-repo="busy"] .adopt')            # hand it back
+    page.wait_for_function(
+        """() => /the fleet did not start/.test(
+               document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
+        timeout=15000)
+    assert "the fleet did not start" in page.inner_text('.tile[data-repo="busy"] .outside')
 
-        # #489: start fresh from the adopted pane. The chat is known by its session file (pid 0),
-        # so the first press is refused `chat_open` and relabels the button; the second releases
-        # the adoption and launches one clean agent on the ticket, never a `--resume`.
-        busy = Registry().get("busy").path
-        _session_file(no_copilot_home, "native-busy", busy)
-        _press(page, '.tile[data-repo="busy"] .adopt')
-        page.wait_for_function(
-            """() => /is driving this repo/.test(
-                   document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
-            timeout=15000)
-        page.wait_for_selector('.tile[data-repo="busy"] .freshtoggle:not([hidden])', timeout=15000)
-        _press(page, '.tile[data-repo="busy"] .freshtoggle')
-        page.wait_for_function(
-            """() => /may still be open/.test(document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
-            timeout=15000)
-        assert page.is_visible('.tile[data-repo="busy"] .err')
-        assert page.inner_text('.tile[data-repo="busy"] .freshtoggle') == "start fresh — it is closed"
-        assert launches == [], "the first press launches nothing"
-        _press(page, '.tile[data-repo="busy"] .freshtoggle')
-        deadline = time.time() + 15
-        while not launches and time.time() < deadline:
-            time.sleep(0.05)
-        assert len(launches) == 1 and "--resume" not in launches[0], launches
-        assert "RDSD-3" in launches[0][launches[0].index("-p") + 1]
-        page.wait_for_function("() => /busy: left/.test(document.getElementById('notice').textContent)",
-                               timeout=15000)
-        # *Earlier (n)*: the chat that was left reads `your chat` and `left`, without a hover.
-        _press(page, '.tile[data-repo="busy"] .spill')
-        page.wait_for_function(
-            """() => [...document.querySelectorAll('.tile[data-repo="busy"] .sessions .session-row:not([hidden])')]
-                      .some(li => li.querySelector('.ss-src').textContent === 'your chat'
-                                  && /^left · /.test(li.querySelector('.ss-chip').textContent))""",
-            timeout=15000)
-        page.keyboard.press("Escape")
+    # #489: start fresh from the adopted pane. The chat is known by its session file (pid 0),
+    # so the first press is refused `chat_open` and relabels the button; the second releases
+    # the adoption and launches one clean agent on the ticket, never a `--resume`.
+    busy = Registry().get("busy").path
+    _session_file(no_copilot_home, "native-busy", busy)
+    _press(page, '.tile[data-repo="busy"] .adopt')
+    page.wait_for_function(
+        """() => /is driving this repo/.test(
+               document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
+        timeout=15000)
+    page.wait_for_selector('.tile[data-repo="busy"] .freshtoggle:not([hidden])', timeout=15000)
+    _press(page, '.tile[data-repo="busy"] .freshtoggle')
+    page.wait_for_function(
+        """() => /may still be open/.test(document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
+        timeout=15000)
+    assert page.is_visible('.tile[data-repo="busy"] .err')
+    assert page.inner_text('.tile[data-repo="busy"] .freshtoggle') == "start fresh — it is closed"
+    assert launches == [], "the first press launches nothing"
+    _press(page, '.tile[data-repo="busy"] .freshtoggle')
+    deadline = time.time() + 15
+    while not launches and time.time() < deadline:
+        time.sleep(0.05)
+    assert len(launches) == 1 and "--resume" not in launches[0], launches
+    assert "RDSD-3" in launches[0][launches[0].index("-p") + 1]
+    page.wait_for_function("() => /busy: left/.test(document.getElementById('notice').textContent)",
+                           timeout=15000)
+    # *Earlier (n)*: the chat that was left reads `your chat` and `left`, without a hover.
+    _press(page, '.tile[data-repo="busy"] .spill')
+    page.wait_for_function(
+        """() => [...document.querySelectorAll('.tile[data-repo="busy"] .sessions .session-row:not([hidden])')]
+                  .some(li => li.querySelector('.ss-src').textContent === 'your chat'
+                              && /^left · /.test(li.querySelector('.ss-chip').textContent))""",
+        timeout=15000)
+    page.keyboard.press("Escape")
 
-        # A compact pane (#489): `=` puts five panes on the glass at once, and a stale one's head
-        # still carries *start fresh*, which works from there.
-        for name in ("c1", "c2", "c3", "c4"):
-            Registry().add(make_project(tmp_path / name, ticket="RDSD-4"), name=name)
-            E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-4"),
-                            E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-4")])
-        page.evaluate("() => refresh()")
-        page.wait_for_selector('.tile[data-repo="c4"]', state="attached", timeout=15000)
-        page.evaluate("() => document.activeElement && document.activeElement.blur()")
-        page.keyboard.press("=")
-        page.wait_for_selector('.tile[data-repo="c1"][data-tier="compact"]', timeout=15000)
-        page.wait_for_selector('.tile[data-repo="c1"] .freshtoggle:not([hidden])', timeout=15000)
-        assert page.is_visible('.tile[data-repo="c1"] .freshtoggle')
-        _press(page, '.tile[data-repo="c1"] .freshtoggle')
-        deadline = time.time() + 15
-        while len(launches) < 2 and time.time() < deadline:
-            time.sleep(0.05)
-        assert len(launches) == 2 and "--resume" not in launches[1], launches
-        assert not errors, errors
+    # A compact pane (#489): `=` puts five panes on the glass at once, and a stale one's head
+    # still carries *start fresh*, which works from there.
+    for name in ("c1", "c2", "c3", "c4"):
+        Registry().add(make_project(tmp_path / name, ticket="RDSD-4"), name=name)
+        E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-4"),
+                        E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-4")])
+    page.evaluate("() => refresh()")
+    page.wait_for_selector('.tile[data-repo="c4"]', state="attached", timeout=15000)
+    page.evaluate("() => document.activeElement && document.activeElement.blur()")
+    page.keyboard.press("=")
+    page.wait_for_selector('.tile[data-repo="c1"][data-tier="compact"]', timeout=15000)
+    page.wait_for_selector('.tile[data-repo="c1"] .freshtoggle:not([hidden])', timeout=15000)
+    assert page.is_visible('.tile[data-repo="c1"] .freshtoggle')
+    _press(page, '.tile[data-repo="c1"] .freshtoggle')
+    deadline = time.time() + 15
+    while len(launches) < 2 and time.time() < deadline:
+        time.sleep(0.05)
+    assert len(launches) == 2 and "--resume" not in launches[1], launches
+    assert not errors, errors
 
 
 # ------------------------------------------------------- the skins, rendered (#4)
 
 
 @pytest.mark.browser
-def test_every_skin_variant_actually_repaints_the_page(desk):
+def test_every_skin_variant_actually_repaints_the_page(desk, desk_browser):
     """The contrast test proves the numbers; this proves the page uses them.
 
     A variant that is declared in Python, measured by the contrast test and then not written into
@@ -973,39 +962,37 @@ def test_every_skin_variant_actually_repaints_the_page(desk):
     somebody else's texture. So each variant is applied for real and the panel colour the browser
     computes is compared with the one `skins.py` declared and the contrast test measured.
     """
-    playwright_module = pytest.importorskip("playwright.sync_api")
     from agentdata.fleet import skins as K
 
-    with playwright_module.sync_playwright() as p:
-        browser, page, errors = _page(p, desk)
-        seen = {}
-        for skin_name, variant, spec in K.every_variant():
-            full = f"{skin_name}:{variant}"
-            page.evaluate("(name) => post('theme', { skin: name })", full)
-            page.wait_for_timeout(450)
-            page.evaluate("() => refresh()")
-            page.wait_for_timeout(650)
+    browser, page, errors = _page(desk_browser, desk)
+    seen = {}
+    for skin_name, variant, spec in K.every_variant():
+        full = f"{skin_name}:{variant}"
+        page.evaluate("(name) => post('theme', { skin: name })", full)
+        page.wait_for_timeout(450)
+        page.evaluate("() => refresh()")
+        page.wait_for_timeout(650)
 
-            body = page.evaluate("""() => ({
-                skin: document.body.getAttribute('data-skin'),
-                variant: document.body.getAttribute('data-skin-variant'),
-                // What the pane's text is read on: the tile's own fill, or -- for a paper skin whose
-                // panes are regions ruled on the page (#253) -- the first ancestor that paints one.
-                tile: (() => { for (let e = document.querySelector('.tile'); e; e = e.parentElement) {
-                  const c = getComputedStyle(e).backgroundColor;
-                  if (c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') return c; }
-                  return ''; })(),
-                sheets: Array.from(document.head.querySelectorAll('link[data-skin]')).length,
-            })""")
-            assert body["skin"] == skin_name, (full, body)
-            assert body["variant"] == variant, (full, body)
-            assert body["sheets"] == 1, "one stylesheet per skin, never two stacked"
-            seen[full] = body["tile"]
+        body = page.evaluate("""() => ({
+            skin: document.body.getAttribute('data-skin'),
+            variant: document.body.getAttribute('data-skin-variant'),
+            // What the pane's text is read on: the tile's own fill, or -- for a paper skin whose
+            // panes are regions ruled on the page (#253) -- the first ancestor that paints one.
+            tile: (() => { for (let e = document.querySelector('.tile'); e; e = e.parentElement) {
+              const c = getComputedStyle(e).backgroundColor;
+              if (c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') return c; }
+              return ''; })(),
+            sheets: Array.from(document.head.querySelectorAll('link[data-skin]')).length,
+        })""")
+        assert body["skin"] == skin_name, (full, body)
+        assert body["variant"] == variant, (full, body)
+        assert body["sheets"] == 1, "one stylesheet per skin, never two stacked"
+        seen[full] = body["tile"]
 
-        # Each variant of a skin must paint its panel differently from its siblings; two variants
-        # that compute to the same colour means one of them is not in the stylesheet at all.
-        for skin_name, skin in K.SKINS.items():
-            panels = {v: seen[f"{skin_name}:{v}"] for v in skin["variants"]}
-            assert len(set(panels.values())) == len(panels), \
-                f"{skin_name} variants do not repaint distinctly: {panels}"
-        assert not errors, errors
+    # Each variant of a skin must paint its panel differently from its siblings; two variants
+    # that compute to the same colour means one of them is not in the stylesheet at all.
+    for skin_name, skin in K.SKINS.items():
+        panels = {v: seen[f"{skin_name}:{v}"] for v in skin["variants"]}
+        assert len(set(panels.values())) == len(panels), \
+            f"{skin_name} variants do not repaint distinctly: {panels}"
+    assert not errors, errors
