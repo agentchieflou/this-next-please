@@ -26,6 +26,7 @@ import math
 import os
 import re
 import statistics
+import sys
 import urllib.request
 
 import pytest
@@ -36,6 +37,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import COUNT_FETCHES, close_pages, desk_page, serve_desk  # noqa: F401 - re-exported
+from desk_harness import THROTTLE_LOOP, THROTTLE_TAKES_EFFECT, cpu_name, throttle_ratio, throttle_refusal
 from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1684,7 +1686,10 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     And the throttle a slow runner is reproduced with (#307, `--desk-cpu-throttle`), checked here
     because it is a verdict on real timings (decision 13 folds it): on a desk page throttled at 4, a
     fixed loop takes at least three times what it takes unthrottled, and still does after the page
-    goes to a second address on another site, which Chromium gives a new renderer process."""
+    goes to a second address on another site, which Chromium gives a new renderer process. On the
+    one kind of Windows host where CDP throttling is measured to do nothing
+    (`THROTTLE_HAS_NO_EFFECT_ON`), it checks instead that it still does nothing and that the option
+    is refused there."""
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
@@ -1726,8 +1731,8 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
                 tab.goto(url, wait_until="domcontentloaded")
             for _ in range(7):
                 for rate, tab in timed.items():
-                    runs[rate].append(tab.evaluate(FIXED_LOOP))
-            loops.append({1: min(runs[1]), 4: statistics.median(runs[4])})
+                    runs[rate].append(tab.evaluate(THROTTLE_LOOP))
+            loops.append({1: min(runs[1]), 4: statistics.median(runs[4]), "runs": runs})
         close_pages(browser)
     finally:
         _stop(server)
@@ -1738,15 +1743,28 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
     own = min(loop[1] for loop in loops)
+    cpu = cpu_name()
     for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
-        print(f"  a fixed loop {where}: {loop[1]:.1f}ms, throttled at 4 {loop[4]:.1f}ms")
-        assert loop[4] >= 3 * own, (where, own, loops)
+        print(f"  a fixed loop {where}: {loop[1]:.1f}ms, throttled at 4 {loop[4]:.1f}ms ({cpu})")
+    effect = min(throttle_ratio(loop["runs"]) for loop in loops)
+    if sys.platform == "win32" and any(host in cpu for host in THROTTLE_HAS_NO_EFFECT_ON):
+        # Where the throttle is known to do nothing, the check is that it still does nothing and
+        # that the option says so instead of running the tests unthrottled. The day Chromium or the
+        # host changes, this fails and the host comes off the list.
+        assert effect < THROTTLE_TAKES_EFFECT, (cpu, "the throttle now takes effect here", loops)
+        assert throttle_refusal(effect, 4) is not None, (cpu, effect)
+    else:
+        for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
+            assert loop[4] >= 3 * own, (where, own, cpu, loops)
+        assert throttle_refusal(effect, 4) is None, (cpu, effect)
 
 
-#: A fixed piece of main-thread work, timed on the page in ms (#307: about 40 ms unthrottled).
-FIXED_LOOP = """() => { const t0 = performance.now(); let x = 0;
-  for (let i = 0; i < 2e7; i++) x += i % 7;
-  return x > 0 ? performance.now() - t0 : -1; }"""
+#: Hosts on which CDP CPU throttling is measured to have no effect on Windows (#307): in run
+#: 36349924909's twenty Windows runners, the two on an AMD EPYC 9V45 ran a CPU-bound loop 1.04-1.23x
+#: slower at rates 2, 4 and 8 and at 15, 60 and 250 ms alike, while the other eighteen (EPYC 7763
+#: and 9V74, Xeon Platinum 8370C and 8573C) ran it 3.5-5.5x slower at rate 4. Train 20's failure,
+#: `{1: 15, 4: 17.4}` in run 36346175771, is the same 15 ms loop.
+THROTTLE_HAS_NO_EFFECT_ON = ("AMD EPYC 9V45",)
 
 
 #: The pixels three.js drew at points in viewport boxes, read back from a frame drawn for the

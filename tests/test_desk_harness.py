@@ -240,3 +240,28 @@ def test_a_throttled_page_is_throttled_again_whenever_its_main_frame_navigates(m
     unslowed = ThrottledBrowser()
     H.desk_page(unslowed, throttle=1)
     assert unslowed.context.sessions == 0, "an explicit rate of 1 overrides the option"
+
+
+def test_a_throttle_that_slows_nothing_is_refused_once_per_process(monkeypatch):
+    """#307: on a host where CDP throttling has no effect (Windows on an AMD EPYC 9V45 ran the loop
+    1.04-1.23x slower at rate 4), `--desk-cpu-throttle` fails the tests rather than run them
+    unthrottled. The slowdown is the median throttled run over the quickest unthrottled one, it is
+    measured once per process, and a throttle that works (3.5x and more on every other runner) passes."""
+    assert H.throttle_ratio({1: [30.0, 25.0, 40.0], 4: [110.0, 100.0, 400.0]}) == 110.0 / 25.0
+    assert H.throttle_refusal(4.5, 4) is None
+    assert H.throttle_refusal(H.THROTTLE_TAKES_EFFECT, 4) is None
+    refusal = H.throttle_refusal(1.07, 3)
+    assert refusal and "--desk-cpu-throttle=3 would slow nothing here" in refusal and "1.07x" in refusal
+    assert "stress_one.py" in refusal
+
+    measured = []
+    monkeypatch.setattr(H, "throttle_effect", lambda browser: measured.append(browser) or 1.07)
+    held: dict = {}
+    for _ in range(2):
+        with pytest.raises(pytest.fail.Exception, match="would slow nothing here"):
+            H.check_throttle(held, "browser", 4)
+    assert measured == ["browser"], "measured once, refused every time"
+
+    monkeypatch.setattr(H, "throttle_effect", lambda browser: 4.6)
+    H.check_throttle({}, "browser", 4)
+    assert H.cpu_name().strip()
