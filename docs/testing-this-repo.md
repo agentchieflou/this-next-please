@@ -149,7 +149,7 @@ test in a file runs contiguously and that reset holds; interleaved it does not. 
 own weakness, surfaced rather than caused by the tiers, and it is #227. **The cause is fixed at its
 root** (#298): the desk's process state now has one owner that resets all of it for every test
 (§Isolation), and a test that leaves a desk server thread running fails where it did it. Windows
-stays serial until #313 moves it to shards; the leg costs nothing against what it did before.
+stays serial **within each shard** (#311: whole files per job, below) until #313 tries `-n auto` inside them.
 
 **Shards** (#310). `--shard=K/N` (1-based; `tests/shard.py`, listed in conftest's `pytest_plugins`) keeps
 the K-th of N shards of whatever the rest of the command line selected, and prints
@@ -166,7 +166,21 @@ files; the estimate line is printed only by a serial run). **The union guarantee
 pairwise disjoint and add up to exactly the selection. `tests/test_hygiene_shards.py` checks the packing, the
 weighting and the plugin in a throwaway project serially and under `-n 2`; the `scale` test
 `test_the_expensive_tiers_are_a_small_part_of_the_suite` checks the real suite's `--shard=K/3`, with and without
-`-m`, under `--shuffle-seed`. Wiring shards into CI is #311 (Windows) and #312 (Linux).
+`-m`, under `--shuffle-seed`. Windows runs in shards (#311, *What CI runs*); Linux is #312.
+
+**The Windows shards** (#311). The one serial Windows 3.14 job outgrew every cap it was given (its pytest step
+took 28-32 minutes of 35), so Windows is six parallel jobs, each capped at 20 minutes: 3.14 in three
+`--shard=K/3` jobs that select exactly what the old step did (`not slow and not measured and not scale`), a 3.14
+`packaging and shells` job, and 3.12 in two `--shard=K/2` jobs. A shard is whole files, so each module still runs
+contiguously in one process, which is what #227 needs. The `windows` times in `tests/durations.json` put each
+3.14 shard near 9.3 minutes and each 3.12 shard near 4.7; a file the table does not know weighs the median, so a
+new or renamed file can unbalance the shards until the table is refreshed (§Step budgets). What each job runs is
+decided by its matrix row and each step's `if:`, and `tests/test_hygiene_windows_shards.py` checks that locally:
+it expands the rows as Actions does, evaluates every `if:`, and checks that every 3.14 shard K/3 and 3.12 shard
+K/2 exists once, that every 3.14 job installs and requires Chromium and no 3.12 job relies on a browser skip, that
+each shell, encoding and floor step runs in exactly one job per Python, and that each job reports its own junit
+files against its caps into an artifact of its own name. How long a shard takes, and whether the job names still
+match any required status check, only a run shows.
 
 The coverage job stays serial on purpose: `coverage run -m pytest -n auto` measures the controller
 process and none of the workers, which would quietly report a fraction of the truth.
@@ -727,22 +741,24 @@ A red job is handled as *When CI is red* says: a flake issue and a reproduction 
 | Job | What it proves |
 |---|---|
 | `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core, then `measured` + `scale` with the machine to themselves, then `slow` serially. The 3.12 leg first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236) |
-| `windows · 3.12 / 3.14` | the same tiers but **serially** (see *Parallelism* — #227), plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
+| `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf false` |
+| `windows · python 3.14 · packaging and shells` | `measured` + `scale` with the machine to themselves, the `slow` tier, and the pwsh 7 / Git Bash / cmd smoke, completion, encoding and 5.1-refusal steps |
+| `windows · python 3.12 · shard K/2` (K = 1, 2) | the floor, `core.autocrlf true`, no browser: `not browser and not slow and not measured and not scale` in two shards; shard 1 also runs `measured` + `scale` (`and not browser`) and the smoke, completion and code-page steps |
 | `floor · pip refuses the wheel on 3.11` | `Requires-Python` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
 | `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact |
 | `suite · shuffled` | two seeded shuffles, to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything |
-| `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
+| `windows · python 3.14 · packaging and shells` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
-| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): both ubuntu legs and the Windows 3.14 leg (a `require_browser` matrix field; the 3.12 leg installs no browser and leaves it empty). A skipped `browser` test fails there, and every other skip prints its reason |
+| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): both ubuntu legs and every Windows 3.14 job (a `require_browser` matrix field; the 3.12 jobs install no browser, leave it empty, and deselect the `browser` tier). A skipped `browser` test fails there, and every other skip prints its reason |
 | every pytest step | its own `timeout-minutes` and a `--junitxml=junit/<job>-<step>.xml` (#309); every job with one has a job cap and ends with the `if: always()` step *durations · the per-step table* |
 
 ### Step budgets and the durations table
 
 Every CI step that runs pytest has its own cap: about 1.5x its last green time, rounded up to 5 minutes, with
 the run and the times in a comment above the step. A job that had no cap got the sum of its step caps plus 5, at
-most 20. The Windows job keeps its 40 until #311 splits it. **A cap is never raised to make a run green**
+most 20. The Windows jobs are capped at 20 since #311 split them into shards. **A cap is never raised to make a run green**
 (*When CI is red*): a step that outgrows its cap is a finding, and the table below names the file that grew.
 `tests/test_hygiene_ci_budgets.py` fails a pytest step with no `timeout-minutes` or no `--junitxml`, a job with no
 cap or no summary step, and a step cap above its job's cap. The `--collect-only` laptop check is out of its scope.

@@ -208,34 +208,39 @@ jobs:
           if-no-files-found: warn
 
   windows:
-    name: windows · python ${{ matrix.python }}
+    name: windows · python ${{ matrix.python }} · ${{ matrix.part }}
     runs-on: windows-latest
     # Decision 7 (the merge train, #429): the slowest job waits for a PR that is ready for review,
     # and always runs on a push to main. Builders' cars are tested locally; the train PR is not a draft.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    # The 3.14 leg runs the `slow` marker, which includes the install/update lifecycle: a real venv
-    # and a real `pip install` from a `git+file://` clone. Venv creation is the entire cost and it
-    # is minutes on a Windows runner -- four venvs blew straight through an 18-minute cap, so the
-    # lifecycle is one venv stepped through, and the module shares one pip cache.
-    # 20, not 15: the 3.14 leg's green runs took 12m44s, 13m39s and 15m00s on 23 September 2026,
-    # and the last was cancelled at the cap one second after every step had passed. A hang is still
-    # caught where it happens: `pytest · slow` keeps its own 10-minute cap.
-    # 25, not 20: the ink skins (#249-#253) each bring a browser file of their own, and the serial
-    # pytest step alone took 15m04s on the legal pad's run (#251), whose job was cancelled at the
-    # cap three seconds before its last step, with every step before it green.
-    # 40, not 25: with every ink skin in (#249-#257) the 3.14 leg's green runs took 24m44s (#284),
-    # 25m and 25m (#285, #276), and K's guard and trace tests (#257) took it past the cap. Five
-    # minutes at a time has been outgrown three times in a day, so this leaves room rather than
-    # another hair's breadth. A hang is still caught where it happens (`pytest · slow`, 10
-    # minutes); the lasting answer is the browser files in a Windows job of their own, in parallel.
-    timeout-minutes: 40
+    # #311: shards of whole files, serial within a shard until #313. One serial 3.14 job outgrew
+    # every cap it was given (15, 20, 25, 40 minutes; the pytest step alone took 28-32 minutes of
+    # its 35 in runs 36258816693 and 36242056205), so the Windows legs are now six jobs in parallel:
+    #   - 3.14 in three `--shard=K/3` jobs (tests/shard.py, #310): the old step's selection, each
+    #     file whole in one shard, packed by the `windows` times in tests/durations.json, so a
+    #     module still runs contiguously in one process as #227 needs;
+    #   - 3.14 packaging and shells: the measured and scale tiers with the machine to themselves,
+    #     the slow tier (the lifecycle's real venvs; one browser+slow test), and every shell step;
+    #   - 3.12 in two `--shard=K/2` jobs that deselect the browser tier rather than skip it (no
+    #     Chromium is installed); shard 1 also runs 3.12's measured tier and its shell steps.
+    # Every job's cap is 20 and each pytest step keeps its own. tests/test_hygiene_windows_shards.py
+    # expands these rows the way Actions does and checks what each job runs; only a run shows how
+    # long it takes.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        # require_browser (#296): a job that installs Chromium may not skip a browser test.
+        # extras: which non-shard steps the row runs ("3.14": packaging and shells; "3.12": the
+        # floor's measured tier and shells). key: the row's junit file and artifact names.
         include:
-          # require_browser (#296): only the leg that installs Chromium may not skip a browser test.
-          - {python: "3.12", autocrlf: "true", require_browser: ""}     # the floor, checked out the way Git for Windows defaults
-          - {python: "3.14", autocrlf: "false", require_browser: "1"}   # the laptop, with line endings left alone
+          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "shard 1/3", shard: "1/3", extras: "", key: "3.14-shard-1"}
+          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "shard 2/3", shard: "2/3", extras: "", key: "3.14-shard-2"}
+          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "shard 3/3", shard: "3/3", extras: "", key: "3.14-shard-3"}
+          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "packaging and shells", shard: "", extras: "3.14", key: "3.14-packaging"}
+          # the floor, checked out the way Git for Windows defaults; the 3.14 rows leave line endings alone
+          - {python: "3.12", autocrlf: "true", require_browser: "", part: "shard 1/2", shard: "1/2", extras: "3.12", key: "3.12-shard-1"}
+          - {python: "3.12", autocrlf: "true", require_browser: "", part: "shard 2/2", shard: "2/2", extras: "", key: "3.12-shard-2"}
     steps:
       # A Windows checkout's line endings depend on core.autocrlf, and the fixtures' bytes are the
       # point of several tests. Run the matrix both ways rather than pinning one and hoping.
@@ -253,28 +258,34 @@ jobs:
       # Edge, PyCharm's JCEF window and VS Code's Simple Browser on the operator's laptop, and all
       # three are Chromium. The job cap is why only one leg pays for the download.
       - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
-        if: matrix.python == '3.14'
+        if: matrix.require_browser == '1'
         shell: pwsh
         run: python -m playwright install chromium
 
-      # the suite. The slow marker builds wheels and venvs: run it on the laptop's Python, on the OS
-      # where packaging actually goes wrong.
-      # Serial, and that is not an oversight. Under `-n auto` this leg failed on three of four
-      # tries -- a DIFFERENT fleet test each time, never the same one twice, never on Linux. That
-      # is concurrency-sensitivity the suite already had (process-level state in `serve`, reset by
-      # per-module autouse fixtures that `--dist load` interleaves straight through) rather than
-      # anything the tiers introduced, and it is #227. Chasing it one test at a time from here
-      # would be guessing. Running serially costs this leg nothing against what it did before.
+      # the suite, one shard of whole files per job. Serial within a shard, and that is not an
+      # oversight. Under `-n auto` this leg failed on three of four tries -- a DIFFERENT fleet test
+      # each time, never the same one twice, never on Linux. That is concurrency-sensitivity the
+      # suite had (process-level state in `serve`, reset by per-module autouse fixtures that
+      # `--dist load` interleaves straight through), and it is #227; #313 revisits it.
       #
-      # #309: step caps at about 1.5x the 3.14 leg's last green time, rounded up to 5 (run
-      # 36035530921: pytest 22m11s, measured and scale 2m20s, slow 1m38s under its existing 10).
-      # That run's job took 27m48s of its 40; the summary step prints the pytest share of it.
-      - name: pytest
+      # #311: step cap 15. The `windows` times in tests/durations.json put each 3.14 shard at about
+      # 9.3 minutes and each 3.12 shard at about 4.7 (the serial step's last runs: 28-32 minutes on
+      # 3.14, 14m16s on 3.12 in run 36258816693).
+      # No Chromium on 3.12, so the browser tier is deselected, not left to skip.
+      - name: pytest · no browser
+        if: matrix.python == '3.12' && matrix.shard != ''
         shell: pwsh
-        timeout-minutes: 35
+        timeout-minutes: 15
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "not slow and not measured and not scale" --junitxml=junit/windows-pytest.xml
+        run: python -m pytest -q -rs --shard=${{ matrix.shard }} -m "not browser and not slow and not measured and not scale" --junitxml=junit/windows-${{ matrix.key }}-pytest.xml
+      - name: pytest
+        if: matrix.python == '3.14' && matrix.shard != ''
+        shell: pwsh
+        timeout-minutes: 15
+        env:
+          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
+        run: python -m pytest -q -rs --shard=${{ matrix.shard }} -m "not slow and not measured and not scale" --junitxml=junit/windows-${{ matrix.key }}-pytest.xml
       # #435: late in the serial step Chromium has failed to fetch a script with
       # `net::ERR_NO_BUFFER_SPACE` (Winsock WSAENOBUFS), and the desk has logged WinError 10053.
       # #465's TIME_WAIT count read 4 on a green run and 2 on a red one (train 7): not the port range.
@@ -290,33 +301,44 @@ jobs:
           netsh int ipv4 show dynamicport tcp
           exit 0
       - name: the measured and scale tiers, with the machine to themselves
+        if: matrix.extras == '3.14'
         shell: pwsh
         timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "(measured or scale) and not slow" --junitxml=junit/windows-measured.xml
+        run: python -m pytest -q -rs -m "(measured or scale) and not slow" --junitxml=junit/windows-${{ matrix.key }}-measured.xml
+      - name: the measured and scale tiers, no browser
+        if: matrix.extras == '3.12'
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
+        run: python -m pytest -q -rs -m "(measured or scale) and not slow and not browser" --junitxml=junit/windows-${{ matrix.key }}-measured.xml
 
       # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
       # take the whole job down and `-q` never said which test it was in -- the log simply stopped
       # at a percentage. `-v` names each test as it starts, so the last line printed is the one.
       - name: pytest · slow
-        if: matrix.python == '3.14'
+        if: matrix.extras == '3.14'
         shell: pwsh
         timeout-minutes: 10
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -m slow -v -rs --durations=0 --capture=tee-sys --junitxml=junit/windows-slow.xml
+        run: python -m pytest -m slow -v -rs --durations=0 --capture=tee-sys --junitxml=junit/windows-${{ matrix.key }}-slow.xml
 
       # one step per shell, so a red job names the shell rather than "Windows"
       - name: smoke · pwsh 7
+        if: matrix.extras != ''
         shell: pwsh
         run: .\.github\scripts\smoke.ps1
 
       - name: smoke · Git Bash
+        if: matrix.extras != ''
         shell: bash
         run: bash .github/scripts/smoke.sh
 
       - name: smoke · cmd
+        if: matrix.extras != ''
         shell: cmd
         run: .github\scripts\smoke.cmd
 
@@ -324,6 +346,7 @@ jobs:
       # the old script was a guaranteed no-op: it needed `register-python-argcomplete` on PATH, and
       # that ships into the Scripts directory Windows does not add to PATH.
       - name: completion · Git Bash
+        if: matrix.extras != ''
         shell: bash
         run: |
           set -e
@@ -333,6 +356,7 @@ jobs:
           complete -p ad-graph | grep -q _agentdata_complete
 
       - name: completion · pwsh 7
+        if: matrix.extras != ''
         shell: pwsh
         run: |
           Invoke-Expression (python -m agentdata setup --print-completion powershell | Out-String)
@@ -346,6 +370,7 @@ jobs:
       # The console code page is still 437/1252 on a US laptop even under pwsh 7, so the ASCII
       # fallback in ui.glyphs() has to keep working -- and 65001 has to keep the box drawing.
       - name: encoding · code page 437 falls back to ASCII
+        if: matrix.extras != ''
         shell: cmd
         run: |
           chcp 437
@@ -354,6 +379,7 @@ jobs:
           python -c "import sys; t=open('cp437.toon',encoding='utf-8').read(); sys.exit(0 if '✓' not in t and '✗' not in t else 1)"
 
       - name: encoding · code page 65001 keeps the glyphs
+        if: matrix.extras != ''
         shell: cmd
         run: |
           chcp 65001
@@ -362,7 +388,7 @@ jobs:
       # pwsh 7 writes UTF-8 without a BOM through >, Out-File and Set-Content. Proving it here is
       # what lets docs/setup.md drop the 5.1-era [IO.File]::WriteAllText guidance.
       - name: encoding · pwsh redirection is UTF-8 without a BOM, and byte-identical to Linux
-        if: matrix.python == '3.14'
+        if: matrix.extras == '3.14'
         shell: pwsh
         run: |
           $env:AGENTDATA_COLOR = 'never'
@@ -375,7 +401,7 @@ jobs:
       # --- the floor guards. Both are red the moment a floor is loosened by accident. ---
 
       - name: floor · Windows PowerShell 5.1 is refused, and the doctor says why
-        if: matrix.python == '3.14'
+        if: matrix.extras == '3.14'
         shell: powershell            # the ONLY 5.1 step in this workflow; it proves the refusal
         run: |
           # cmd.exe does the redirection: in 5.1 a native command's stderr piped through `2>&1`
@@ -413,21 +439,22 @@ jobs:
         if: always()
         shell: bash
         env:
-          JOB_NAME: windows · python ${{ matrix.python }}
+          JOB_NAME: windows · python ${{ matrix.python }} · ${{ matrix.part }}
+          KEY: ${{ matrix.key }}
         run: |
           s=.github/scripts/durations.py
           report() { [ -f "junit/$1.xml" ] && python "$s" summarize "junit/$1.xml" --step "$2" --cap-minutes "$3" | tee -a "$GITHUB_STEP_SUMMARY"; true; }
-          report windows-pytest "pytest" 35
-          report windows-measured "the measured and scale tiers" 5
-          report windows-slow "pytest · slow" 10
+          report windows-$KEY-pytest "pytest" 15
+          report windows-$KEY-measured "the measured and scale tiers" 5
+          report windows-$KEY-slow "pytest · slow" 10
           if ls junit/*.xml >/dev/null 2>&1; then
-            python "$s" job junit/*.xml --job "$JOB_NAME" --cap-minutes 40 | tee -a "$GITHUB_STEP_SUMMARY"
+            python "$s" job junit/*.xml --job "$JOB_NAME" --cap-minutes 20 | tee -a "$GITHUB_STEP_SUMMARY"
           fi
       - name: durations · upload the junit files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-windows-${{ matrix.python }}
+          name: junit-windows-${{ matrix.key }}
           path: junit/
           retention-days: 14
           if-no-files-found: warn
