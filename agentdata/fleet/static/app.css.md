@@ -917,3 +917,14 @@ Above `@media (max-width: 640px) {` (the one after the coarse block):
 
 Approve, the reason and Deny each get a full-width line on a phone: side by side at 390 px the
 reason field was 22 px wide.
+
+### `@media (max-width: 640px)` (the settings page, #578)
+
+Above the last `@media (max-width: 640px) {` in the file:
+
+/settings on a phone. At 390 px the page scrolled sideways (`scrollWidth` 596): the 190 px label
+column, 140 px fields, the `.twocol` halves' 260 px floor and a long `code` token set the page's
+width. Here each label takes its own line over a full-width field, the halves stack, the `main`
+is held to the window (its auto margins would otherwise size it to its widest word), `.why`
+breaks anywhere, and a table wider than the window scrolls inside itself rather than the page.
+Every selector keeps the `body.settings-page` prefix: the block is still the settings page's.

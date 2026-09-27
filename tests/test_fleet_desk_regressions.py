@@ -726,3 +726,23 @@ def test_a_coarse_pointer_gets_44_px_targets_and_16_px_fields_and_a_mouse_keeps_
     wrap = dict(d for s, ds in narrow if s == ".approval .row" for d in ds)
     assert wrap.get("flex-wrap") == "wrap", narrow
     assert ("flex", "1 1 100%") in [d for s, ds in narrow if s == ".approval .row > *" for d in ds], narrow
+
+
+def test_the_settings_rows_wrap_on_a_phone_and_keep_their_column_on_a_desktop():
+    """#578 (epic #541). /settings scrolled sideways at 390 px (`scrollWidth` 596): a 190 px label
+    column, 140 px fields, a `.twocol` of 260 px halves and a long `code` token. At 640 px and under
+    the rows wrap, still under `body.settings-page`; the 190 px column outside it is untouched."""
+    with open(os.path.join(STATIC, "app.css"), encoding="utf-8") as f:
+        raw = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    narrow = [r for body in _media_bodies(raw, "(max-width: 640px)") for r in _css_rules(body)]
+    got = {s: dict(ds) for s, ds in narrow if s.startswith("body.settings-page")}
+    assert got.get("body.settings-page .setrow", {}).get("flex-wrap") == "wrap", got
+    assert any("body.settings-page .setrow > label" in s.split(", ") and d.get("flex") == "1 1 100%"
+               for s, d in got.items()), got
+    assert got.get("body.settings-page .twocol > div", {}).get("min-width") == "0", got
+    assert all(s.startswith("body.settings-page") for s, _ in narrow if "settings-page" in s), narrow
+    outside = raw
+    for body in _media_bodies(raw, "(max-width: 640px)"):
+        outside = outside.replace(body, "")
+    wide = dict(d for s, ds in _css_rules(outside) if s == "body.settings-page .setrow > label" for d in ds)
+    assert wide.get("flex") == "0 0 190px", wide
