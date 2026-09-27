@@ -12,13 +12,23 @@ on:
   # ready_for_review: a draft skips the Windows and IDE jobs below, so marking it ready has to run them.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # #309: a run on demand, so "N consecutive green runs" no longer needs N pushes.
+  # #309: a run on demand, so "N consecutive green runs" no longer needs N pushes. `nightly` (#595)
+  # makes a dispatch a rehearsal of the nightly run: it adds the dated shuffle as well.
   workflow_dispatch:
+    inputs:
+      nightly:
+        description: "also run the nightly job: the suite shuffled on today's date as the seed"
+        type: boolean
+        default: false
+  # #595 (CI-3, D4): a full run every night at 03:17 UTC, plus `suite · shuffled · seed of the day`.
+  schedule:
+    - cron: "17 3 * * *"
 
 # Decision 7 (the merge train, #429): a newer push to the same ref cancels the run it supersedes,
-# so a train rebuilt without a red car does not queue behind the run that found it.
+# so a train rebuilt without a red car does not queue behind the run that found it. #595: one group
+# per event as well, so the nightly run and a merge push to main never cancel each other.
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -70,6 +80,60 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
         run: python .github/scripts/ci_paths.py .github/ci-paths.json
+
+  # #595 (CI-3, plan §4.4): the tier that always runs, whatever a path filter skips (CI-4). A plain
+  # install and the two commands every user types first, then the entry-point, refusal, onramp, PR-check
+  # and hygiene tests on every core. About 2 minutes.
+  smoke:
+    name: smoke · install, doctor, entry points and hygiene
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # #309: its one step cap (5) plus 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e .
+      # The contract, not a clean bill of health: a runner has no pncli, so a row fails, and
+      # check_doctor.py holds what that must look like (exit 1, TOON, a hint on every fail row).
+      - name: ad-doctor
+        run: |
+          set +e
+          out="$(ad-doctor --quiet 2>/dev/null)"
+          rc=$?
+          set -e
+          printf '%s' "$out" | python .github/scripts/check_doctor.py --exit-code "$rc" --shell bash
+      - run: python -m agentdata --help
+      - run: pip install -e ".[dev]"
+      # tests/test_hygiene_ci_ok.py holds this list to every tests/test_hygiene_*.py.
+      - name: pytest · smoke
+        timeout-minutes: 5
+        run: >-
+          python -m pytest -q -rs -n auto -m "not browser and not measured and not scale and not slow" --junitxml=junit/smoke.xml
+          tests/test_entrypoints.py tests/test_refusals.py tests/test_agent_onramp.py tests/test_agent_pr_check.py
+          tests/test_hygiene_checkout.py tests/test_hygiene_ci_budgets.py tests/test_hygiene_ci_cache.py tests/test_hygiene_ci_ok.py
+          tests/test_hygiene_ci_paths.py tests/test_hygiene_flake_policy.py tests/test_hygiene_harness.py tests/test_hygiene_linux_shards.py
+          tests/test_hygiene_orphans.py tests/test_hygiene_process_state.py tests/test_hygiene_shards.py
+          tests/test_hygiene_tier_matrix.py tests/test_hygiene_windows_shards.py
+      - name: durations · the per-step table
+        if: always()
+        run: |
+          s=.github/scripts/durations.py
+          if [ -f junit/smoke.xml ]; then
+            python "$s" summarize junit/smoke.xml --step "pytest · smoke" --cap-minutes 5 | tee -a "$GITHUB_STEP_SUMMARY"
+            python "$s" job junit/*.xml --job "smoke" --cap-minutes 10 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-smoke
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
 
   pytest:
     name: ${{ matrix.os }} · python ${{ matrix.python }}
@@ -837,6 +901,50 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  # #595 (CI-3, D4): the nightly run's own job. One more order, seeded with the date (UTC), so each night
+  # tries a new one and a red one names the seed that replays it. Nightly only: a dispatch with
+  # `nightly` rehearses it; a push, a PR and a plain dispatch skip it, and ci-ok takes a skip as a pass.
+  order-independence-nightly:
+    name: suite · shuffled · seed of the day
+    needs: changes
+    if: github.event_name == 'schedule' || inputs.nightly == true
+    runs-on: ubuntu-latest
+    # #309: the step cap plus 5, as `suite · shuffled · seed N`.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: the seed of the day
+        id: seed
+        run: echo "seed=$(date -u +%Y%m%d)" | tee -a "$GITHUB_OUTPUT"
+      - name: pytest · shuffled
+        timeout-minutes: 15
+        run: python -m pytest -q -p no:cacheprovider -m "not browser" --shuffle-seed ${{ steps.seed.outputs.seed }} --junitxml=junit/shuffled-nightly.xml
+      - name: durations · the per-step table
+        if: always()
+        env:
+          SEED: ${{ steps.seed.outputs.seed }}
+        run: |
+          s=.github/scripts/durations.py
+          if [ -f junit/shuffled-nightly.xml ]; then
+            python "$s" summarize junit/shuffled-nightly.xml --step "shuffled, seed $SEED (the date)" \
+              --cap-minutes 15 | tee -a "$GITHUB_STEP_SUMMARY"
+            python "$s" job junit/*.xml --job "suite · shuffled · seed of the day" --cap-minutes 20 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-shuffled-nightly
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
+
   # ---------------------------------------------------------------- the IDE shells (#100)
   #
   # Separate jobs, because a Gradle IntelliJ build downloads an IDE and neither shell can break
@@ -901,3 +1009,36 @@ jobs:
         with:
           name: agentdata-fleet-plugin
           path: ide/jetbrains/build/distributions/*.zip
+
+  # #595 (CI-3, plan §4.4): the one check a protection rule or a READY post names (D5). It needs every
+  # job above and runs whatever they did; a job that failed or was cancelled fails it, and a job that
+  # was skipped (a draft's Windows and IDE jobs, the nightly job by day, CI-4's filters) does not.
+  # tests/test_hygiene_ci_ok.py pins `needs:` to every other job, so a new job cannot be left out of it.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs:
+      - changes
+      - smoke
+      - pytest
+      - browser
+      - windows
+      - floor-python
+      - lint-shell-scripts
+      - floor-lints
+      - coverage
+      - order-independence
+      - order-independence-browser
+      - order-independence-nightly
+      - vscode-extension
+      - jetbrains-plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: every job passed or was skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 .github/scripts/ci_ok.py

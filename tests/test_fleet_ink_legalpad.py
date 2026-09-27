@@ -34,7 +34,8 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
-from test_fleet_ink import (IDLE_LOOP, INK, STATIC, _layer, _marks, _open, _rest, _serve,
+from desk_waits import observe_quiet
+from test_fleet_ink import (INK, STATIC, _layer, _marks, _open, _rest, _serve,
                             _stop, catch_up_frames, fleet_home)
 
 __all__ = ["fleet_home"]     # a fixture, used by name
@@ -557,7 +558,7 @@ def test_the_header_count_is_handwritten_and_the_old_number_struck_beside_the_ne
                           " return [b.left, b.top, b.height]; }")
         left = page.evaluate(PIXELS, [[r[0] - dx, r[1] + dy] for dx in range(3, 16) for dy in range(0, int(r[2]))])
         props = page.evaluate(PROPS)
-        idle = page.evaluate(IDLE_LOOP)
+        idle = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -566,7 +567,7 @@ def test_the_header_count_is_handwritten_and_the_old_number_struck_beside_the_ne
     assert struck["now"] == "2" and struck["old"] == "0" and struck["strike"] == 1, struck
     assert struck["pieces"] == 2, "the old digit and the pen line through it"
     assert sum(_near(px, props["--ink-pen"], 90) for px in left) >= 4, "no struck number beside the count"
-    assert idle["n"] == 0 and idle["renders"] == 0, f"the count kept drawing: {idle}"
+    assert idle["mutations"] == 0 and idle["renders"] == 0, f"the count kept drawing: {idle}"
 
 
 @pytest.mark.browser
@@ -586,17 +587,19 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
         # the check is on the paper.
         page.evaluate("""() => { const idle = document.querySelector('.tile[data-repo="idle"]');
           const ticked = () => Ink.inspect().layer.marks.some(m => m.shape === 'check' && !m.strikeOf);
-          const seen = new MutationObserver(async () => {
-            if (!idle.classList.contains('is-done')) return;
-            seen.disconnect();
+          let fired = false;
+          const seen = __deskWaits.watch(idle, { subtree: false, childList: false, characterData: false,
+                                                 attributeFilter: ['class'] }, async () => {
+            if (fired || !idle.classList.contains('is-done')) return;
+            fired = true;
+            seen.stop();
             const l0 = Ink.inspect().layer.frames;
             document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
             unread.set('idle', 1); bell();
             let waited = 0;
             do { await new Promise(d => requestAnimationFrame(d)); waited += 1; } while (!ticked() && waited < 120);
             window.__went = { frames: Ink.inspect().layer.frames - l0, waited };
-          });
-          seen.observe(idle, { attributes: true, attributeFilter: ['class'] }); }""")
+          }); }""")
         E.append("idle", [_ev("idle", "phase_changed", {"from": "", "to": "done"})])
         page.wait_for_function("() => window.__went !== undefined", timeout=15000)
         went = page.evaluate(f"""async () => {{
@@ -659,12 +662,12 @@ def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(flee
             pencil: body.getPropertyValue('--ink-pencil').trim(),
             sheet: document.adoptedStyleSheets.flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n'),
           }; }""")
-        writes = page.evaluate("""async () => { let n = 0;
-          const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style').length; });
-          obs.observe(document.documentElement, { subtree: true, attributes: true });
+        writes = page.evaluate("""async () => {
+          const w = __deskWaits.watch(document.documentElement, { childList: false, characterData: false },
+                                      { where: r => r.attributeName === 'style' });
           document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
           await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-          obs.disconnect();
+          const n = w.stop().n;
           return { n, circled: getComputedStyle(document.querySelector('.ask-choice[aria-pressed="true"]')).outlineWidth,
                    question: getComputedStyle(document.querySelector('.ask:not([hidden]) .ask-q')).backgroundColor }; }""")
         props = page.evaluate(PROPS)
@@ -709,7 +712,7 @@ def test_an_idle_legal_pad_writes_nothing_and_its_ink_catches_up_in_frames(fleet
         _rest(page, "Ink.inspect().layer.marks.length >= 5")
         # Idle first: the catch-up below sets a class by hand, which the page's next redraw
         # would put back -- and the ink would still be answering that inside the idle window.
-        idle = page.evaluate(IDLE_LOOP)
+        idle = observe_quiet(page, passes=8)
         rec = page.evaluate("""async () => {
           document.querySelector('.tile[data-repo="asks"]').classList.replace('state-needs_human', 'state-done');
           const frames = [];
@@ -735,5 +738,5 @@ def test_an_idle_legal_pad_writes_nothing_and_its_ink_catches_up_in_frames(fleet
     bound = catch_up_frames(check)
     print(f"\n  the check caught up in {frames} frames (bound {bound})")
     assert 2 <= frames <= bound, (frames, bound)
-    assert idle["n"] == 0, f"an idle legal pad wrote to the page: {idle}"
+    assert idle["mutations"] == 0, f"an idle legal pad wrote to the page: {idle}"
     assert idle["renders"] == 0, f"an idle legal pad was redrawn {idle['renders']} times"

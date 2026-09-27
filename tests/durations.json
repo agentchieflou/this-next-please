@@ -113,6 +113,9 @@
   "tests/test_agent_onramp.py": {
    "default": 0.0
   },
+  "tests/test_agent_pr_check.py": {
+   "default": 2.0
+  },
   "tests/test_bash_floor.py": {
    "default": 0.1
   },
@@ -507,11 +510,38 @@
   "tests/test_hygiene_ci_budgets.py": {
    "default": 2.7
   },
+  "tests/test_hygiene_ci_cache.py": {
+   "default": 0.2
+  },
+  "tests/test_hygiene_ci_ok.py": {
+   "default": 0.5
+  },
+  "tests/test_hygiene_ci_paths.py": {
+   "default": 4.5
+  },
   "tests/test_hygiene_flake_policy.py": {
    "default": 0.0
   },
+  "tests/test_hygiene_harness.py": {
+   "default": 0.1
+  },
+  "tests/test_hygiene_linux_shards.py": {
+   "default": 0.7
+  },
   "tests/test_hygiene_orphans.py": {
    "default": 6.3
+  },
+  "tests/test_hygiene_process_state.py": {
+   "default": 12.1
+  },
+  "tests/test_hygiene_shards.py": {
+   "default": 2.9
+  },
+  "tests/test_hygiene_tier_matrix.py": {
+   "default": 0.2
+  },
+  "tests/test_hygiene_windows_shards.py": {
+   "default": 0.6
   },
   "tests/test_install.py": {
    "default": 0.1,
@@ -1243,6 +1273,9 @@
    "default": 0.8
   },
   "tests/test_hygiene_flake_policy.py": {
+   "default": 0.1
+  },
+  "tests/test_hygiene_harness.py": {
    "default": 0.1
   },
   "tests/test_hygiene_orphans.py": {

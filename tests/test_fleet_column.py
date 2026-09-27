@@ -29,6 +29,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet, settle
 from test_fleet import make_project
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -333,7 +334,7 @@ def test_another_window_writing_the_old_zoom_to_the_same_record_does_not_move_th
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         _open(page, port, token)
@@ -343,16 +344,25 @@ def test_another_window_writing_the_old_zoom_to_the_same_record_does_not_move_th
         answer = other.evaluate("""() => post('window', {
           w: 'main', zoomed: 'gamma', layout: 'grid', view: 'all', screen: 0 })""")
         assert answer["ok"], answer
-        page.wait_for_timeout(600)
+        # Until this window holds the record the other one wrote -- the desk frame with its
+        # version -- and has drawn it.
+        page.wait_for_function("(v) => !!desk.desk && desk.desk.version >= v",
+                               arg=answer["version"], timeout=10000)
+        settle(page)
         record = S.desk_state()["windows"]["main"]
         for gone in ("zoomed", "layout", "view", "screen"):
             assert gone not in record, f"the server kept {gone}: {record}"
 
         page.click(_rail("beta"))
         page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
-        page.wait_for_timeout(1500)
-        assert page.evaluate(SOLO) == "beta"
+        # The page's own write, and then its frame back from the server, before the passes: the
+        # bug re-opened the other agent on every frame after the click, so three passes of
+        # refresh, place and redraw over the record the server holds must leave beta open.
         _until(lambda: S.desk_state()["windows"]["main"]["open"] == "beta")
+        page.wait_for_function("(v) => desk.desk.version >= v && windowWrites === 0",
+                               arg=S.desk_state()["version"], timeout=10000)
+        observe_quiet(page, passes=3)
+        assert page.evaluate(SOLO) == "beta"
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -371,7 +381,7 @@ def test_a_reload_opens_the_agent_that_was_clicked_not_the_one_the_address_named
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column#tile=gamma",
                   wait_until="domcontentloaded")
         page.wait_for_function(f"() => document.querySelector('.tile.is-solo') && {SOLO} === 'gamma'",
@@ -386,7 +396,8 @@ def test_a_reload_opens_the_agent_that_was_clicked_not_the_one_the_address_named
 
         page.reload(wait_until="domcontentloaded")
         page.wait_for_selector(".tile.is-solo", timeout=10000)
-        page.wait_for_timeout(800)
+        # The reload's own work -- the fleet, the desk and `followHash` after it -- done.
+        settle(page)
         assert page.evaluate(SOLO) == "beta"
         assert S.desk_state()["windows"]["main"]["open"] == "beta"
         close_pages(browser)
@@ -408,7 +419,7 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path, desk
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         _open(page, port, token)
@@ -443,8 +454,10 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path, desk
             "desk.desk.windows && desk.desk.windows.main.open === 'beta'", timeout=5000)
         after = page.evaluate("desk.desk.version")
 
-        page.evaluate("() => { window.__release(); }")
-        page.wait_for_timeout(800)
+        # Released, and waited on to the end: the held answer is the refresh in flight, and
+        # `refresh()` resolves once it has patched the rows, accepted the desk and placed.
+        page.evaluate("async () => { const held = pendingRefresh; window.__release(); await held; }")
+        settle(page)
         assert page.evaluate(SOLO) == "beta", "the stale answer put the old agent back"
         assert page.evaluate("desk.desk.version") >= after, "the stale answer rolled the version back"
         assert not errors, errors
@@ -466,12 +479,16 @@ def test_four_opens_in_one_frame_leave_the_record_on_the_last(fleet_home, tmp_pa
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         _open(page, port, token)
         page.evaluate("() => { openPane('beta'); openPane('gamma'); openPane('delta'); openPane('alpha'); }")
         page.wait_for_function("() => windowWrites === 0", timeout=10000)
         assert S.desk_state()["windows"]["main"]["open"] == "alpha"
-        page.wait_for_timeout(800)
+        # Every frame the four writes sent back is in -- the page holds the server's version --
+        # and drawn.
+        page.wait_for_function("(v) => desk.desk.version >= v", arg=S.desk_state()["version"],
+                               timeout=10000)
+        settle(page)
         assert page.evaluate(SOLO) == "alpha"
         close_pages(browser)
     finally:
@@ -871,12 +888,15 @@ def test_the_same_three_controls_are_on_every_pane_and_their_keys_reach_a_rail(f
         page.keyboard.press("Escape")
         page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
 
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
         page.focus(_rail("delta"))
-        page.keyboard.press("r")
-        deadline = 50
-        while "delta" not in S._refreshed_at and deadline:
-            page.wait_for_timeout(100)
-            deadline -= 1
+        # Until the page's `/api/refresh` is answered: the server marks the repo before it answers.
+        try:
+            with page.expect_response(lambda r: "/api/refresh" in r.url, timeout=5000):
+                page.keyboard.press("r")
+        except PlaywrightTimeout:
+            pass                                  # the assertion below says what went wrong
         assert "delta" in S._refreshed_at, "`r` on a rail re-read nothing"
 
         page.focus(_rail("delta"))

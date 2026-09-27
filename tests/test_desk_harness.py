@@ -170,6 +170,9 @@ class CdpSession:
     def send(self, method, params):
         self.sent.append((method, params))
 
+    def detach(self):
+        self.sent.append(("detach", None))
+
 
 class ThrottledContext:
     def __init__(self):
@@ -195,6 +198,9 @@ class ThrottledPage:
 
     def on(self, event, handler):
         self.handlers.setdefault(event, []).append(handler)
+
+    def remove_listener(self, event, handler):
+        self.handlers[event].remove(handler)
 
     def add_init_script(self, script):
         pass
@@ -265,3 +271,15 @@ def test_a_throttle_that_slows_nothing_is_refused_once_per_process(monkeypatch):
     monkeypatch.setattr(H, "throttle_effect", lambda browser: 4.6)
     H.check_throttle({}, "browser", 4)
     assert H.cpu_name().strip()
+
+
+def test_a_throttle_released_sets_the_page_back_and_stays_released():
+    """`throttle_page` returns `release()` (#304's settle check throttles for a while): it sends rate 1,
+    stops re-sending the rate on a navigation, and detaches the session."""
+    browser = ThrottledBrowser()
+    page = browser.new_context().new_page()
+    release = H.throttle_page(page, 4)
+    release()
+    page.navigate(page.main_frame)
+    assert browser.context.sent == [("Emulation.setCPUThrottlingRate", {"rate": 4}),
+                                    ("Emulation.setCPUThrottlingRate", {"rate": 1}), ("detach", None)]

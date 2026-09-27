@@ -32,7 +32,8 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
-from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, TABLE as INK_TABLE, _set as _ink_set
+from desk_waits import counted, observe_quiet
+from test_fleet_ink import TABLE as INK_TABLE, _set as _ink_set
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -581,7 +582,7 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         desk_errors = []
         desk = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme="dark")
         desk.on("pageerror", lambda e: desk_errors.append(str(e)))
-        desk.add_init_script(COUNT_FETCHES)
+        counted(desk)
         desk.add_init_script("""document.addEventListener('DOMContentLoaded', () => {
             window.__atLoad = [document.body.dataset.skinVariant,
                 getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()];
@@ -594,6 +595,35 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         # pane is sent none and its strip is each side's own `--focus`.
         focus = {side: _rgb(css["--focus"]) for side, css in _auto_sides("notebook").items()}
         desk.wait_for_function(STRIP_IS, arg=["", focus["dark"]], timeout=10000)
+        # #610: a live switch repaints the strip from the `theme` frame alone. notebook:light sends
+        # its palette's mark, which a fleet read paints; back on notebook:auto the answer is none,
+        # so the strip is the dark side's `--focus` before the desk reads `/api/fleet` again.
+        (tmp_path / "cfg.json").write_text(
+            json.dumps({"theme": {"default": "eye-relief-day", "skin": "notebook:light"}}), encoding="utf-8")
+        mark = _rgb(S.fleet_snapshot()["repos"][0]["accent"])
+        desk.wait_for_function("""(m) => document.body.dataset.skinVariant === 'light'
+            && (document.querySelector('#grid .tile').style.borderLeftColor === m || (refresh(), false))""",
+                               arg=mark, timeout=15000, polling=250)
+        # A stream that connects again is sent the theme the page already wears: the strip keeps
+        # its mark, unwritten, rather than cleared by the frame and painted back by the next read.
+        again = desk.evaluate("""async () => {
+            const w = __deskWaits.watch(document.getElementById('grid'), { childList: false, characterData: false },
+                                        { where: r => r.attributeName === 'style' && r.target.classList.contains('tile') });
+            const n0 = themeEvents;
+            source.close(); connect();
+            for (let i = 0; themeEvents === n0 && i < 600; i++) await new Promise(requestAnimationFrame);
+            const framed = themeEvents > n0;
+            await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+            return { framed, writes: w.stop().n, strip: document.querySelector('#grid .tile').style.borderLeftColor }; }""")
+        assert again == {"framed": True, "writes": 0, "strip": mark}, f"a reconnect's theme frame: {again}"
+        fleet_reads = []
+        desk.on("request", lambda r: fleet_reads.append(r.url) if "/api/fleet?" in r.url else None)
+        (tmp_path / "cfg.json").write_text(
+            json.dumps({"theme": {"default": "eye-relief-day", "skin": "notebook:auto"}}), encoding="utf-8")
+        desk.wait_for_function(AUTO_WORN, arg=["dark", sides["dark"]], timeout=15000)
+        strip = desk.evaluate("""() => { const t = document.querySelector('#grid .tile');
+            return [t.style.borderLeftColor, getComputedStyle(t).borderLeftColor]; }""")
+        assert (strip, fleet_reads) == (["", focus["dark"]], []), f"the strip after a live switch: {strip}"
         desk.emulate_media(color_scheme="light")
         desk.wait_for_function(AUTO_WORN, arg=["light", sides["light"]], timeout=10000)
         desk.wait_for_function(STRIP_IS, arg=["", focus["light"]], timeout=10000)
@@ -602,8 +632,8 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         # A variant switch redraws the paper's traces, at the notebook's pace; the ink idle
         # test's fast table draws them in seconds rather than fifteen, and waits for rest.
         _ink_set(desk, dict(INK_TABLE, speed=4))
-        idle = desk.evaluate(IDLE_LOOP)
-        assert idle["n"] == 0 and idle["renders"] == 0, f"an idle desk on notebook:auto: {idle}"
+        idle = observe_quiet(desk, passes=8)
+        assert idle["mutations"] == 0 and idle["renders"] == 0, f"an idle desk on notebook:auto: {idle}"
         assert not desk_errors, desk_errors
         assert not errors, errors
         close_pages(browser)

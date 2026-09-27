@@ -100,6 +100,15 @@ One pane's frame. `scene` is that pane's own group, already at its top-left, so 
 pane in its own coordinates ({x: 0, y: 0, w, h}); it moves with the pane without a call, and is
 made again only when the pane changes size. `el` is the pane (`.tile`), to read, never write.
 
+### `let sheet, square`
+
+Above `let sheet = null, square = null;`:
+
+The pointer's square (#376): `sheet` is the paper group `paper()` was last handed, and `square`
+the one mesh `tick` moves under the pointer, made in that group the first time there is a
+pointer to draw and again after the layer rebuilt the paper. `pointed` is what `inspect` reports:
+where the square was last put and how many frames drew it.
+
 ### `export const cues`
 
 Above `export const cues = [`:
@@ -141,11 +150,14 @@ the element is in, and records them with the pane's repo.
 
 ### `export function tick`
 
-Above `export function tick({ api }) {`:
+Above `export function tick({ THREE, tokens, api }) {`:
 
 Every frame the layer draws, with the seconds since the last. Answer true to be given another:
 a ground that drifts would, and so does a quad still playing -- it shrinks away, and is freed
-after `LIFE` frames. Under reduced motion the answer is not honoured.
+after `LIFE` frames. Under reduced motion the answer is not honoured. Under `example:pointer`
+(`api.fx.pointer`, #376) it puts a square in the palette's accent under the pointer, or hides it
+when the pointer has left; it never asks for another frame for it, because each move asks for
+its own.
 
 ### `export function dispose`
 
@@ -158,5 +170,6 @@ quads included; free what else the skin made (a render target, a texture).
 
 Above `export function inspect() {`:
 
-For the tests: every cue played on this page (`{name, how, box}`), the quads still playing, and
-under `example:text` the letters each cue read (`text`: `{repo, glyphs}`, #375).
+For the tests: every cue played on this page (`{name, how, box}`), the quads still playing,
+under `example:text` the letters each cue read (`text`: `{repo, glyphs}`, #375), and under
+`example:pointer` the square (`pointer`: `{at, draws, shown}`, #376).

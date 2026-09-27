@@ -31,9 +31,10 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet, record_mutations, settle
 from test_fleet_ink import _serve, _stop  # noqa: F401 - over the harness's serve_desk; re-exported
 from test_fleet_gutters import _gutter_point
-from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, catch_up_frames
+from test_fleet_ink import catch_up_frames
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -47,10 +48,9 @@ VARIANTS = tuple(SK.SKINS["voxel"]["variants"])
 #: `ink.js` imported, so the same instance.
 VOXEL = "() => window.__voxel.inspect()"
 IMPORT = "async () => { window.__voxel = await import(q('/static/ink/skins/voxel.js')); }"
-#: The paper has come to rest and the voxel skin is on it.
-AT_REST = """() => { const l = Ink.inspect().layer;
-  return !!l && !l.busy && !Object.values(l.lanes).some(x => x.hand)
-         && !!l.skin && (Ink.inspect().table || '').startsWith('voxel'); }"""
+#: The voxel skin is on the paper: its predicate for `desk_waits.settle`, which waits for the rest.
+ON_PAPER = """() => { const l = Ink.inspect().layer;
+  return !!l && !!l.skin && (Ink.inspect().table || '').startsWith('voxel'); }"""
 
 
 @pytest.fixture()
@@ -132,8 +132,7 @@ def _open(browser, port, token, extra="&ink=on", *, panes, width=1600, height=90
     the gate is on -- the voxels are on the paper."""
     page = browser.new_page(viewport={"width": width, "height": height},
                             reduced_motion="reduce" if reduced else "no-preference")
-    if count:
-        page.add_init_script(COUNT_FETCHES)
+    counted(page)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://127.0.0.1:{port}/?t={token}{extra}", wait_until="domcontentloaded")
@@ -151,8 +150,9 @@ def _open(browser, port, token, extra="&ink=on", *, panes, width=1600, height=90
 
 
 def _rest(page, also="true", timeout=20000):
-    """At rest, and `also` holds."""
-    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=timeout)
+    """Settled (`desk_waits.settle`) with the voxel skin on the paper, and `also` holds. `timeout`
+    is kept for its callers; the one ceiling is `DESK_WAIT_MS`."""
+    settle(page, also=f"({ON_PAPER})() && ({also})")
 
 
 def _voxel(page):
@@ -578,16 +578,14 @@ def test_the_slabs_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_
         page.evaluate("""([drift]) => {
           const m = window.__voxel;
           const check = new Function('v', 'return (' + drift + ')(v);');
-          window.__follow = { frames: 0, worst: 0, writes: [] };
+          window.__follow = { frames: 0, worst: 0 };
           new ResizeObserver(() => {
             const d = check(m.inspect());
             window.__follow.frames += 1;
             window.__follow.worst = Math.max(window.__follow.worst, ...d, 0);
           }).observe(document.querySelector('.tile[data-repo="beta"]'));
-          new MutationObserver(rs => rs.forEach(r => {
-            if (r.target.id === 'ink') window.__follow.writes.push(r.attributeName || r.type);
-          })).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
         }""", [SLAB_DRIFT])
+        writes = record_mutations(page, where="r => r.target.id === 'ink'")
         before = page.evaluate(f"() => ({SLAB_DRIFT})(({VOXEL})())")
         x, y = _gutter_point(page, "alpha")
         page.mouse.move(x, y)
@@ -600,6 +598,7 @@ def test_the_slabs_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_
         _rest(page)
         after = page.evaluate(f"() => ({SLAB_DRIFT})(({VOXEL})())")
         follow = page.evaluate("() => window.__follow")
+        follow["writes"] = writes.stop().records()
         calls = _voxel(page)["drawCalls"]
         assert not errors, errors
         close_pages(browser)
@@ -623,13 +622,13 @@ def test_an_idle_voxel_desk_writes_nothing_and_draws_nothing(fleet_home, tmp_pat
         browser = desk_browser
         page, errors = _open(browser, port, token, panes=2, count=True)
         _rest(page, f"({VOXEL})().panes.every(p => p.stack.lift === 5)")
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         timer = _voxel(page)["timer"]
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle voxel desk wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle voxel desk wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle voxel desk was drawn {count['renders']} times"
     assert not timer, "nothing is running, so nothing is scheduled"
 

@@ -229,14 +229,20 @@ def test_the_workflow_is_shaped_for_the_merge_train():
     assert on["push"]["branches"] == ["main"]
     assert on["pull_request"]["types"] == ["opened", "synchronize", "reopened", "ready_for_review"]
 
-    assert wf["concurrency"] == {"group": "tests-${{ github.ref }}", "cancel-in-progress": True}
+    # #595: one group per event, so the nightly run and a merge push to main never cancel each other
+    assert wf["concurrency"] == {"group": "tests-${{ github.event_name }}-${{ github.ref }}", "cancel-in-progress": True}
 
     draft_gate = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
     gated = ("windows", "vscode-extension", "jetbrains-plugin")
     for name in gated:
         assert wf["jobs"][name]["if"] == draft_gate, name
+    # #595: the two other `if:`s -- the nightly job runs on nightly runs only, and ci-ok runs always
+    others = {"order-independence-nightly": "github.event_name == 'schedule' || inputs.nightly == true",
+              "ci-ok": "always()"}
     for name, job in wf["jobs"].items():
-        if name not in gated:
+        if name in others:
+            assert job["if"] == others[name], name
+        elif name not in gated:
             assert "if" not in job, f"only the Windows and IDE jobs are gated on draft, not {name}"
 
 

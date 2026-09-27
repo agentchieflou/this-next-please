@@ -16,9 +16,9 @@ test's contexts are closed when it ends, so nothing one test stored reaches the 
   created are closed at teardown; `close_pages(browser)` does it early, where a test used to call
   `browser.close()` before stopping its desk.
 * `new_desk_page` -- `open(desk, extra="", *, width=1400, height=900, reduced=False,
-  init_scripts=())` returns `(page, record)`: a page in a fresh context, with `COUNT_FETCHES` and
-  `init_scripts` installed, at the desk's address, and a record of its page errors, console errors
-  and warnings, failed requests and non-2xx answers.
+  init_scripts=())` returns `(page, record)`: a page in a fresh context, with `COUNT_FETCHES`,
+  `desk_waits.COUNT_TIMERS` and `init_scripts` installed, at the desk's address, and a record of
+  its page errors, console errors and warnings, failed requests and non-2xx answers.
 * `no_desk_driver` -- stops the worker's driver for a test that needs `asyncio.run`.
 * `desk_chromium_with` -- `launch(args)`: a Chromium of the test's own on the worker's driver, with
   extra command-line switches (#384's Blink flag), closed at teardown.
@@ -48,21 +48,24 @@ import threading
 
 import pytest
 
+from desk_waits import COUNT_TIMERS
+
 #: The environment this process started with, before `isolated_home` moves `~` for a test. The driver
 #: is started under it: Playwright copies `os.environ` when it spawns Node, and a driver that lives
 #: for the whole worker must not keep the first test's temporary HOME.
 REAL_ENVIRON = dict(os.environ)
 
-#: Every fetch the page makes, counted while it is in flight -- so the idle loop in
-#: `test_fleet_ink.IDLE_LOOP` starts only once no answer the page asked for before the replay can
-#: still land in the middle of it.
-COUNT_FETCHES = """
+#: Every fetch the page makes, counted while it is in flight -- so `desk_waits.settle` knows when no
+#: answer the page asked for can still land. Every `desk_page` has it; a second copy is a no-op.
+COUNT_FETCHES = """;(() => {
+  if (typeof window.__inflight === 'number') return;
   window.__inflight = 0;
   const realFetch = window.fetch;
   window.fetch = function () {
     window.__inflight += 1;
     return realFetch.apply(this, arguments).finally(() => { window.__inflight -= 1; });
   };
+})();
 """
 
 
@@ -100,18 +103,25 @@ def pytest_configure(config):  # pragma: no cover - CLI plumbing
     THROTTLE["rate"] = throttle_rate(config.getoption("--desk-cpu-throttle", None), os.environ)
 
 
-def throttle_page(page, rate: float) -> None:
+def throttle_page(page, rate: float):
     """Slow `page`'s main thread `rate` times (CDP `Emulation.setCPUThrottlingRate`), and keep it
     slowed: a navigation can move the page to a new renderer process, which starts unthrottled, so
-    the rate is sent again whenever the main frame navigates."""
+    the rate is sent again whenever the main frame navigates. Returns `release()`, which sets the
+    page back to 1, stops re-sending and detaches (#304's settle check throttles for a while)."""
     cdp = page.context.new_cdp_session(page)
 
     def again(frame):
         if frame.parent_frame is None:
             cdp.send("Emulation.setCPUThrottlingRate", {"rate": rate})
 
+    def release():
+        page.remove_listener("framenavigated", again)
+        cdp.send("Emulation.setCPUThrottlingRate", {"rate": 1})
+        cdp.detach()
+
     cdp.send("Emulation.setCPUThrottlingRate", {"rate": rate})
     page.on("framenavigated", again)
+    return release
 
 
 #: A fixed piece of main-thread work, timed on the page in ms: 15-35 ms unthrottled on a CI runner,
@@ -390,16 +400,17 @@ def desk_chromium_with(desk_browser, _desk_driver):
 
 def desk_page(browser, *, width=1400, height=900, reduced=False, init_scripts=(), throttle=None):
     """A page in a fresh context of its own: `browser.new_page()` as the tests always had it, with
-    the viewport, reduced motion or not, and `init_scripts` added before anything loads. Its CPU is
-    throttled at `--desk-cpu-throttle` (`throttle_page`), or at `throttle` when one is given; a rate
-    of 1 sends nothing."""
+    the viewport, reduced motion or not, and `init_scripts` added before anything loads -- after
+    `COUNT_FETCHES` and `desk_waits.COUNT_TIMERS`, which every desk page has, so `desk_waits.settle`
+    can tell when it is still (#304). Its CPU is throttled at `--desk-cpu-throttle` (`throttle_page`),
+    or at `throttle` when one is given; a rate of 1 sends nothing (#307)."""
     context = browser.new_context(viewport={"width": width, "height": height},
                                   reduced_motion="reduce" if reduced else "no-preference")
     page = context.new_page()
     rate = THROTTLE["rate"] if throttle is None else float(throttle)
     if rate > 1:
         throttle_page(page, rate)
-    for script in init_scripts:
+    for script in (COUNT_FETCHES, COUNT_TIMERS) + tuple(init_scripts):
         page.add_init_script(script)
     return page
 
@@ -428,9 +439,10 @@ def open_desk(browser, url, *, width=1400, height=900, reduced=False, init_scrip
 @pytest.fixture()
 def new_desk_page(desk_browser):
     """`open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())`: a desk
-    (or an address) in a fresh context with `COUNT_FETCHES` installed, as `(page, record)`."""
+    (or an address) in a fresh context with `COUNT_FETCHES` and `COUNT_TIMERS` installed (as every
+    `desk_page` is), as `(page, record)`."""
     def open_(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=()):
         url = desk if isinstance(desk, str) else desk.url(extra)
         return open_desk(desk_browser, url, width=width, height=height, reduced=reduced,
-                         init_scripts=(COUNT_FETCHES,) + tuple(init_scripts))
+                         init_scripts=init_scripts)
     return open_

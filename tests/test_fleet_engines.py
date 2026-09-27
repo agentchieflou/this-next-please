@@ -22,6 +22,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import counted
 from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -164,7 +165,7 @@ def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                   wait_until="domcontentloaded")
         page.wait_for_selector(".tile.is-solo", timeout=15000)
@@ -219,7 +220,7 @@ def test_the_webgl_row_is_what_the_probe_measured(fleet_home, desk_browser):
     posts = []
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 720}))
         page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
         page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
                   wait_until="domcontentloaded")
@@ -274,7 +275,7 @@ def test_the_feature_rows_are_what_the_probe_recorded_in_this_engine(fleet_home,
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 720}))
         page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
                   wait_until="domcontentloaded")
         page.wait_for_function(
@@ -316,7 +317,7 @@ def test_the_gutter_keeps_the_pointer_when_the_hand_leaves_its_strip(fleet_home,
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -388,7 +389,7 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.add_init_script("""

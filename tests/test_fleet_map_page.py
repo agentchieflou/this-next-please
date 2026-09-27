@@ -18,6 +18,7 @@ from agentdata.fleet import serve as S
 from agentdata.fleet import supervisor as SV
 from agentdata.fleet.registry import AGENT_ENV, Registry
 
+from desk_waits import WATCH
 from test_fleet import make_project
 from test_fleet_ink import _serve, _stop
 from test_fleet_map import _worktree, fleet_home, row, snap  # noqa: F401
@@ -33,10 +34,8 @@ PHONE_LOOK = """() => { const d = document.documentElement, li = [...document.qu
            needs: li.filter(e => e.classList.contains('needs-human')).map(e => e.dataset.rowkey),
            told: FleetPhone.rows.filter(r => r.needs_human).map(r => r.repo) }; }"""
 #: Every write to the phone page from now, and the ticks and refreshes so far.
-PHONE_WATCH = """() => { window.__muts = 0; window.__refreshes = FleetPhone.stream.refreshes;
-  window.__mobs = new MutationObserver(r => { window.__muts += r.length; });
-  window.__mobs.observe(document.documentElement, { subtree: true, childList: true, attributes: true,
-                                                    characterData: true });
+PHONE_WATCH = """() => { """ + WATCH + """ window.__refreshes = FleetPhone.stream.refreshes;
+  window.__mobs = __deskWaits.watch(document.documentElement);
   return FleetPhone.stream.ticks; }"""
 
 
@@ -222,10 +221,10 @@ def _synthetic():
     return g
 
 
-OBSERVE = """() => { window.__muts = 0;
-  window.__obs = new MutationObserver(r => { window.__muts += r.length; });
-  window.__obs.observe(document.getElementById('maptree'),
-                       { subtree: true, childList: true, attributes: true, characterData: true }); }"""
+OBSERVE = """() => { """ + WATCH + """ if (window.__obs) window.__obs.stop();
+  window.__obs = __deskWaits.watch(document.getElementById('maptree')); }"""
+#: What the watch `OBSERVE` put on the tree has seen since.
+MUTS = "() => window.__obs.count()"
 
 
 @pytest.mark.browser
@@ -239,7 +238,7 @@ def test_redraws_of_one_graph_touch_nothing_and_keep_what_the_operator_opened(
         assert page.evaluate("() => FleetMap.paused") is True
         page.evaluate(OBSERVE)
         page.evaluate("g => FleetMap.draw(g)", g)
-        assert page.evaluate("() => window.__muts") == 0
+        assert page.evaluate(MUTS) == 0
 
         agents = page.evaluate("""() => [...document.querySelectorAll('#maptree [data-node^="a:"]')]
             .map(li => ({sub: +li.dataset.subagents, stale: li.classList.contains('stale'),
@@ -264,10 +263,10 @@ def test_redraws_of_one_graph_touch_nothing_and_keep_what_the_operator_opened(
         page.wait_for_function(f"() => document.querySelector('{group}').getAttribute('aria-expanded') === 'true'",
                                timeout=5000)
         assert page.is_visible('[data-node="b:luna:main"]')
-        page.evaluate("() => { window.__muts = 0; }")
+        page.evaluate(OBSERVE)
         for _ in range(3):
             page.evaluate("g => FleetMap.draw(g)", g)
-        assert page.evaluate("() => window.__muts") == 0
+        assert page.evaluate(MUTS) == 0
         assert page.get_attribute(group, "aria-expanded") == "true"
         assert not errors, errors
         page.close()
@@ -370,7 +369,7 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
         # Idle: nothing written from here to the stream's next tick.
         ticks = page.evaluate(PHONE_WATCH)
         page.wait_for_function("t => FleetPhone.stream.ticks > t", arg=ticks, timeout=30000)
-        idle = page.evaluate("() => { window.__mobs.disconnect(); return { n: window.__muts,"
+        idle = page.evaluate("() => { window.__mobs.stop(); return { n: window.__mobs.n,"
                              " refreshes: FleetPhone.stream.refreshes - window.__refreshes }; }")
         assert idle == {"n": 0, "refreshes": 0}, f"an idle /m wrote to the page: {idle}"
 
