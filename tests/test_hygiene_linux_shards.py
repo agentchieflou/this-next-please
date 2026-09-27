@@ -7,6 +7,7 @@ evaluated with pytest's own marker grammar against the marker sets a test can ca
 takes only a run can say; the step budgets are tests/test_hygiene_ci_budgets.py's (#309).
 """
 from __future__ import annotations
+import ast
 import itertools
 import os
 import re
@@ -118,6 +119,23 @@ def test_the_browser_tier_runs_once_on_ubuntu_3_14_in_two_shards_plus_once_shuff
         assert re.search(r"--shuffle-seed 1(\s|$)", s["run"]) and "-p no:cacheprovider" in s["run"], name
 
 
+def carries_browser_marker(rel: str) -> bool:
+    """`mark.browser` in the code: a decorator, `pytestmark`, a `param(marks=...)`, `pytest.` or a bare `mark`.
+    A file that only names the marker in a string or a comment (a hygiene test about it, #595's smoke) is not
+    a browser test."""
+    with open(os.path.join(REPO_ROOT, rel), encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=rel)
+    return any(isinstance(n, ast.Attribute) and n.attr == "browser"
+               and ((isinstance(n.value, ast.Attribute) and n.value.attr == "mark")
+                    or (isinstance(n.value, ast.Name) and n.value.id == "mark")) for n in ast.walk(tree))
+
+
+def test_the_marker_check_reads_code_not_strings():
+    assert carries_browser_marker("tests/test_fleet_settings_page.py")
+    assert not carries_browser_marker("tests/test_hygiene_ci_paths.py"), "it names the marker only in a docstring"
+    assert not carries_browser_marker("tests/test_entrypoints.py")
+
+
 def test_a_job_that_installs_chromium_requires_it_and_a_job_that_does_not_selects_no_browser_test():
     for job in linux_jobs():
         if installs_chromium(job):
@@ -130,8 +148,7 @@ def test_a_job_that_installs_chromium_requires_it_and_a_job_that_does_not_select
         else:
             for s in pytest_steps(job):
                 for name in named_files(s["run"]):
-                    with open(os.path.join(REPO_ROOT, name), encoding="utf-8") as f:
-                        assert "mark.browser" not in f.read(), f"{job['name']}: runs {name} with no browser"
+                    assert not carries_browser_marker(name), f"{job['name']}: runs {name} with no browser"
                 for kind in BROWSER_KINDS if whole_suite(s["run"]) else ():
                     assert not selects(s["run"], kind), (
                         f"{job['name']} / {s['name']} selects {sorted(kind)} tests with no Chromium "

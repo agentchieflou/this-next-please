@@ -5,7 +5,7 @@ A path filter's one real risk is a file that affects a job but does not turn it 
 
 - every tracked file belongs to a group (an unnamed one would run everything, which hides the gap);
 - every group turns on a job, and every job but the always-on ones has a group; the map's jobs and
-  their names are the workflow's; once CI-3 adds `ci-ok`, it `needs:` every job;
+  their names are the workflow's; `ci-ok` (CI-3, #595) exists and `needs:` every job;
 - `desk`, the only group that turns on the four Linux browser jobs, names every module in the `ast`
   import closure of `agentdata.fleet.serve`, `agentdata.cli_fleet` and every test file carrying the
   `browser` marker, and names each of those test files. A new import into the closure fails here until
@@ -35,7 +35,7 @@ WORKFLOW = os.path.join(ROOT, ".github", "workflows", "tests.yml")
 
 #: The desk's roots: the server and the CLI that starts it. Every browser test is a root as well.
 DESK_ROOTS = ("agentdata/fleet/serve.py", "agentdata/cli_fleet.py")
-#: Jobs that run on every change and so need no group (plan §4.4); `smoke` and `ci-ok` arrive with CI-3.
+#: Jobs that run on every change and so need no group (plan §4.4); `smoke` and `ci-ok` came with CI-3 (#595).
 ALWAYS = {"changes", "lint-shell-scripts", "floor-lints", "smoke", "ci-ok"}
 #: The closure had 121 modules (230 files with the browser tests and their helpers) when this was
 #: written; a much smaller number means the walk stopped resolving imports, not that the desk shrank.
@@ -168,7 +168,9 @@ def job_problems(cmap: dict, workflow: dict) -> list[str]:
                 problems.append(f"{group}: `everything`/`smoke_only` and a job list at once: {turns_on}")
         elif not turns_on:
             problems.append(f"{group}: turns on no job")
-    if "ci-ok" in jobs:  # CI-3 (#595)
+    if "ci-ok" not in jobs:  # CI-3 (#595)
+        problems.append("ci-ok: no such job, so nothing sums the run up")
+    else:
         needs = jobs["ci-ok"].get("needs") or []
         missing = sorted(set(jobs) - {"ci-ok"} - set([needs] if isinstance(needs, str) else needs))
         if missing:
@@ -202,6 +204,9 @@ def test_the_job_check_fails_on_a_job_with_no_group_a_renamed_job_and_a_ci_ok_th
     with_ci_ok = copy.deepcopy(wf)
     with_ci_ok["jobs"]["ci-ok"] = {"name": "ci-ok", "needs": [j for j in wf["jobs"] if j != "browser"]}
     assert "ci-ok: does not need ['browser']" in job_problems(cmap, with_ci_ok)
+    without = copy.deepcopy(wf)
+    del without["jobs"]["ci-ok"]
+    assert "ci-ok: no such job, so nothing sums the run up" in job_problems(cmap, without)
 
 
 def test_desk_names_the_import_closure_of_serve_cli_fleet_and_every_browser_test():
