@@ -146,6 +146,12 @@ it with **widths**, in each window's own record:
   `drawer`, `found`, `inspector`. A new record starts at `""` (#544). The page ignores any other
   value, so an older record's `"tickets"` (the board's list, not a section) no longer leaves the
   sidebar toggle opening nothing. No `desk.json` is migrated.
+* **The sidebar on a phone or a tablet** (#576). At 640 px and under the sidebar is a full-width
+  sheet that starts 48 px below the top, over a scrim (`#side::before`) that dims the rest of the
+  page. A tap on the scrim closes it, and so does `Esc`; a tap inside the sheet does not. Closing
+  it writes `section: ""`, as the toggle does. At 900 px and under it is an overlay of
+  `min(480px, 60vw)`, so at 820 px the open pane stays visible beside it. Wider, it is the column
+  beside the row, with no scrim.
 
 `size` is still read and kept by the server (`serve.size_cell`, both of its spellings, columns
 capped at 4) because desk.json files written before this carry it. `POST /api/arrange` still takes
