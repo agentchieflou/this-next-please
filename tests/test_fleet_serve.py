@@ -118,14 +118,15 @@ def test_a_request_whose_host_is_not_the_loopback_address_is_refused_before_any_
     loopback peer, so the peer check passes; only `Host` still carries the hostile name."""
     base, token, server = running
     port = server.server_address[1]
-    for host in (f"evil.example:{port}", "evil.example", None, "127.0.0.1", f"127.0.0.1:{port + 1}",
+    for host in (f"evil.example:{port}", "evil.example", None, "127.0.0.1",
                  f"127.0.0.2:{port}", f"::1:{port}", f"localhost.evil.example:{port}"):
         for path in ("/", f"/?t={token}", "/open", "/open?w=vscode", "/api/ping",
                      f"/api/fleet?t={token}"):
             code, body, _ = _as_host(port, path, host)
             assert code == 403, (host, path, code)
             assert json.loads(body)["error"] == "not authorized", (host, path)
-    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"LOCALHOST:{port}"):
+    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"LOCALHOST:{port}",
+                 f"127.0.0.1:{port + 1}"):
         code, body, headers = _as_host(port, "/open?w=vscode", host)
         assert code == 302, host
         assert headers["Location"] == f"/?t={token}&w=vscode", host
@@ -149,6 +150,27 @@ def test_a_request_whose_host_is_not_the_loopback_address_is_refused_before_any_
             assert json.loads(answer.read())["error"] == "not authorized", host
         finally:
             conn.close()
+
+
+def test_a_loopback_host_on_a_forwarded_port_is_served_and_a_rebinding_name_on_it_is_not(running):
+    """Decision 22 on #429: an IDE that forwards the desk to another local port sends that port in
+    `Host`. The name carries the rebinding protection, so a loopback name passes on any port."""
+    base, token, server = running
+    port = server.server_address[1]
+    for forwarded in (port + 1, 8080, 1, 65535):
+        for host in (f"localhost:{forwarded}", f"127.0.0.1:{forwarded}", f"[::1]:{forwarded}"):
+            code, body, headers = _as_host(port, "/open?w=vscode", host)
+            assert code == 302 and headers["Location"] == f"/?t={token}&w=vscode", host
+            code, body, _ = _as_host(port, f"/?t={token}", host)
+            assert code == 200 and "<title>fleet</title>" in body, host
+        for host in (f"evil.example:{forwarded}", f"localhost.evil.example:{forwarded}",
+                     f"127.0.0.2:{forwarded}", f"10.0.0.1:{forwarded}", f"::1:{forwarded}"):
+            code, body, _ = _as_host(port, "/open?w=vscode", host)
+            assert code == 403 and json.loads(body)["error"] == "not authorized", host
+    for host in ("localhost:", "localhost:x", f"localhost:{port}x", "localhost:65536", "localhost:0",
+                 "localhost:\u00b2"):
+        code, _, _ = _as_host(port, "/api/ping", host)
+        assert code == 403, host
 
 
 def test_every_response_carries_the_headers_that_keep_the_page_local(running):

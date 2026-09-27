@@ -66,9 +66,10 @@ MAX_BODY = 64 * 1024
 # a new route it must call, or a changed meaning for one it already calls.
 CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
-# What a request's `Host` may name, with this server's port (#551). The peer check above cannot see
+# What a request's `Host` may name, on any port (#551, decision 22). The peer check above cannot see
 # DNS rebinding: a hostile name that re-resolves to 127.0.0.1 connects from loopback, and once it is
-# same-origin it could read `/open`'s redirect. Only the `Host` header still carries that name.
+# same-origin it could read `/open`'s redirect. Only the `Host` header still carries that name, so the
+# name is the check; the port is not, because an IDE may forward the desk to another local port.
 HOSTS_ALLOWED = ("127.0.0.1", "localhost", "[::1]")
 
 POLL_EVERY_S = 5.0           # the floor between two ticks of the shared poller, however many tabs
@@ -3033,10 +3034,10 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------ plumbing
 
     def _host_ok(self) -> bool:
-        """`Host` is a loopback name with this server's port, or the request is refused (#551)."""
+        """`Host` is a loopback name with a port, any port, or the request is refused (#551)."""
         given = (self.headers.get("Host") or "").strip().lower()
         name, _, port = given.rpartition(":")
-        return name in HOSTS_ALLOWED and port == str(self.server.server_address[1])
+        return name in HOSTS_ALLOWED and port.isascii() and port.isdigit() and 0 < int(port) < 65536
 
     def _authorized(self, query: dict) -> bool:
         host = (self.client_address[0] or "").strip("[]")

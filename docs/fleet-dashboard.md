@@ -73,9 +73,10 @@ reload does not open it again. No parameter confirms anything: only the strip's 
 the ticked `repos`, and `/open` needs no token, so an address from anywhere may open a preview and no
 more (DAY-D4).
 
-Every request's `Host` header must also be `127.0.0.1`, `localhost` or `[::1]` with the server's
-port, `/open` and `/api/ping` included (#551), so a hostile name that re-resolves to the laptop (DNS
-rebinding) gets the same `403 not authorized` before any route, even though it connects from loopback.
+Every request's `Host` header must also be `127.0.0.1`, `localhost` or `[::1]` with a port, `/open`
+and `/api/ping` included (#551), so a hostile name that re-resolves to the laptop (DNS rebinding) gets
+the same `403 not authorized` before any route, even though it connects from loopback. Any port passes,
+so an IDE that forwards the desk to another local port still reaches it: the name is the protection.
 
 This is loopback security, not authentication. It is the right size for a tool that runs on the
 operator's own machine and is never reachable from another one. Remote access is out of scope.
