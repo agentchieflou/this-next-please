@@ -29,8 +29,8 @@ from agentdata import textio
 from agentdata.fleet import approval, events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -145,10 +145,9 @@ PINS = {3: [], 6: ["r01"], 12: ["r01", "r02"]}
 @pytest.mark.browser
 @pytest.mark.parametrize("width", [1280, 1920, 2560])
 @pytest.mark.parametrize("agents", [3, 6, 12])
-def test_the_fixture_desk_fits_the_glass_in_every_tier(fleet_home, tmp_path, agents, width):
+def test_the_fixture_desk_fits_the_glass_in_every_tier(fleet_home, tmp_path, agents, width, desk_browser):
     """The acceptance criterion of #233, nine times over: no horizontal scroll, each pane in its
     tier, the red rail red and wearing its glyph, and an `aria-label` on every rail."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(agents)]
     red = names[-1]
     _repos(tmp_path, names, needs=(red,))
@@ -159,17 +158,16 @@ def test_the_fixture_desk_fits_the_glass_in_every_tier(fleet_home, tmp_path, age
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, width)
-            page.wait_for_function(
-                f"() => document.querySelectorAll('#grid .tile[data-tier]').length === {agents}",
-                timeout=15000)
-            page.wait_for_timeout(300)                  # a settled frame, not the first one
-            out = page.evaluate(READ_ROW)
-            page.screenshot(path=os.path.join(shots, f"panes-{agents}-{width}.png"))
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, width)
+        page.wait_for_function(
+            f"() => document.querySelectorAll('#grid .tile[data-tier]').length === {agents}",
+            timeout=15000)
+        page.wait_for_timeout(300)                  # a settled frame, not the first one
+        out = page.evaluate(READ_ROW)
+        page.screenshot(path=os.path.join(shots, f"panes-{agents}-{width}.png"))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -218,7 +216,7 @@ def test_the_fixture_desk_fits_the_glass_in_every_tier(fleet_home, tmp_path, age
 
 
 @pytest.mark.browser
-def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path):
+def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path, desk_browser):
     """The render contract's rule 1 over the whole document, not one component at a time: with
     nothing new to say, the stream running, and every draw path driven by hand -- the fleet
     answer, `place()`, every pane redrawn, the unread badges, the tier observer -- the page writes
@@ -227,67 +225,65 @@ def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path):
 
     Idle means the same answer: `/api/fleet` is replayed byte for byte once the page has settled,
     because a live answer carries ages that are MEANT to change a chip once a second."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(6)]
     _repos(tmp_path, names, needs=("r04",))
     S.arrange(order=names, pinned=["r01"], hidden=["r05"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, 1920, 1000)
-            page.wait_for_selector('#grid .tile.needs-human[data-tier="rail"]', timeout=15000)
-            page.wait_for_function(
-                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
-                timeout=15000)
-            page.wait_for_timeout(400)
-            count = page.evaluate("""async () => {
-              const real = window.fetch.bind(window);
-              const body = await (await real(q('/api/fleet'))).text();
-              window.fetch = function (url, opts) {
-                if (String(url).indexOf('/api/fleet') >= 0) {
-                  return Promise.resolve(new Response(body, {
-                    status: 200, headers: { 'Content-Type': 'application/json' } }));
-                }
-                return real(url, opts);
-              };
-              const pause = ms => new Promise(done => setTimeout(done, ms));
-              const frame = () => new Promise(done => requestAnimationFrame(() => done()));
-              // One pass of every path first: the replayed answer may carry an age that moved
-              // since the last live one, and a badge nobody has counted yet is written the first
-              // time it is -- both news. Everything after this pass is not.
-              await refresh();
-              place();
-              redrawAll();
-              bell();
-              await frame(); await frame(); await pause(200);
+        browser = desk_browser
+        page, errors = _page(browser, port, token, 1920, 1000)
+        page.wait_for_selector('#grid .tile.needs-human[data-tier="rail"]', timeout=15000)
+        page.wait_for_function(
+            "() => document.getElementById('hiddencount').textContent === '1 hidden'",
+            timeout=15000)
+        page.wait_for_timeout(400)
+        count = page.evaluate("""async () => {
+          const real = window.fetch.bind(window);
+          const body = await (await real(q('/api/fleet'))).text();
+          window.fetch = function (url, opts) {
+            if (String(url).indexOf('/api/fleet') >= 0) {
+              return Promise.resolve(new Response(body, {
+                status: 200, headers: { 'Content-Type': 'application/json' } }));
+            }
+            return real(url, opts);
+          };
+          const pause = ms => new Promise(done => setTimeout(done, ms));
+          const frame = () => new Promise(done => requestAnimationFrame(() => done()));
+          // One pass of every path first: the replayed answer may carry an age that moved
+          // since the last live one, and a badge nobody has counted yet is written the first
+          // time it is -- both news. Everything after this pass is not.
+          await refresh();
+          place();
+          redrawAll();
+          bell();
+          await frame(); await frame(); await pause(200);
 
-              let n = 0;
-              const seen = [];
-              const obs = new MutationObserver(records => {
-                n += records.length;
-                records.slice(0, 5).forEach(r => seen.push(
-                  r.type + ' ' + (r.attributeName || '') + ' ' +
-                  (r.target.className || r.target.nodeName)));
-              });
-              obs.observe(document.documentElement, { subtree: true, childList: true,
-                                                      attributes: true, characterData: true });
-              for (let i = 0; i < 8; i++) {
-                await refresh();
-                place();
-                redrawAll();
-                bell();
-                await frame();
-                await pause(150);
-              }
-              obs.takeRecords().forEach(() => { n += 1; });
-              obs.disconnect();
-              return { n: n, seen: seen };
-            }""")
-            assert not errors, errors
-            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
-            browser.close()
+          let n = 0;
+          const seen = [];
+          const obs = new MutationObserver(records => {
+            n += records.length;
+            records.slice(0, 5).forEach(r => seen.push(
+              r.type + ' ' + (r.attributeName || '') + ' ' +
+              (r.target.className || r.target.nodeName)));
+          });
+          obs.observe(document.documentElement, { subtree: true, childList: true,
+                                                  attributes: true, characterData: true });
+          for (let i = 0; i < 8; i++) {
+            await refresh();
+            place();
+            redrawAll();
+            bell();
+            await frame();
+            await pause(150);
+          }
+          obs.takeRecords().forEach(() => { n += 1; });
+          obs.disconnect();
+          return { n: n, seen: seen };
+        }""")
+        assert not errors, errors
+        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -296,7 +292,7 @@ def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path):
+def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path, desk_browser):
     """The hysteresis, read off the one function that decides it: a pane sitting on 360 -- a
     window edge being dragged, a scrollbar coming and going -- does not redraw itself between two
     tiers on every frame.
@@ -304,22 +300,20 @@ def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path
     Only between compact and full since the gutters (#234). A pane is a 48px rail or at least 160px
     wide, so nothing sits on the rail's boundary to flicker across it; the slack that was there drew
     a rail pulled out to exactly the compact minimum as a rail's face 160px wide."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, ["alpha", "beta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, 1280)
-            got = page.evaluate("""() => ({
-              fresh: [47, 48, 159, 160, 359, 360, 2000].map(w => paneTier(w, '')),
-              fromCompact: [151, 152, 160, 359, 367, 368].map(w => paneTier(w, 'compact')),
-              fromFull: [351, 352, 360].map(w => paneTier(w, 'full')),
-              fromRail: [48, 167, 168, 400].map(w => paneTier(w, 'rail')),
-            })""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, 1280)
+        got = page.evaluate("""() => ({
+          fresh: [47, 48, 159, 160, 359, 360, 2000].map(w => paneTier(w, '')),
+          fromCompact: [151, 152, 160, 359, 367, 368].map(w => paneTier(w, 'compact')),
+          fromFull: [351, 352, 360].map(w => paneTier(w, 'full')),
+          fromRail: [48, 167, 168, 400].map(w => paneTier(w, 'rail')),
+        })""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert got["fresh"] == ["rail", "rail", "rail", "compact", "compact", "full", "full"]
@@ -415,7 +409,7 @@ SIDEWAYS = """() => {
 
 
 @pytest.mark.browser
-def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp_path):
+def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp_path, desk_browser):
     """The draw skips what a tier does not show -- a compact pane paints no trace and builds no
     cells -- so a change of tier has to draw the pane again, in the same frame, or a pane made wide
     by a bigger window would sit there without its cells until the next event.
@@ -430,100 +424,98 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
     the five rails are one bottom bar on the grid's foot; the decision row stays on the glass as the
     pane scrolls. At 844x390 the pane scrolls to its reply row, at 820x1180 the row is the row, and
     `all` at 390 stacks the panes and the grid scrolls down."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(6)]
     _repos(tmp_path, names)
     S.arrange(order=names, pinned=["r01", "r02"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, 900)
-            page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=15000)
-            page.wait_for_timeout(300)
-            before = page.evaluate("""() => {
-              const t = document.querySelector('.tile[data-repo="r00"]');
-              return { cells: t.querySelectorAll('.cells .cell').length,
-                       trace: t.querySelector('.trace').getAttribute('aria-label') || '' };
-            }""")
-            page.set_viewport_size({"width": 1920, "height": 900})
-            page.wait_for_selector('.tile[data-repo="r00"][data-tier="full"]', timeout=5000)
-            after = page.evaluate("""() => {
-              const t = document.querySelector('.tile[data-repo="r00"]');
-              return { trace: t.querySelector('.trace').getAttribute('aria-label') || '',
-                       runline: getComputedStyle(t.querySelector('.runline')).display };
-            }""")
-            # And back: the rails stay rails whatever the window does, and nothing scrolls.
-            page.set_viewport_size({"width": 900, "height": 900})
-            page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=5000)
-            rails = page.evaluate("""() => [...document.querySelectorAll(
-              '#grid .tile[data-tier="rail"]')].map(t => Math.round(t.getBoundingClientRect().width))""")
-            page.set_viewport_size({"width": 1400, "height": 900})
-            page.wait_for_selector(".gutter", state="attached", timeout=5000)
-            mouse = page.evaluate(FINE_SCALE)
-            assert not errors, errors
+        browser = desk_browser
+        page, errors = _page(browser, port, token, 900)
+        page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=15000)
+        page.wait_for_timeout(300)
+        before = page.evaluate("""() => {
+          const t = document.querySelector('.tile[data-repo="r00"]');
+          return { cells: t.querySelectorAll('.cells .cell').length,
+                   trace: t.querySelector('.trace').getAttribute('aria-label') || '' };
+        }""")
+        page.set_viewport_size({"width": 1920, "height": 900})
+        page.wait_for_selector('.tile[data-repo="r00"][data-tier="full"]', timeout=5000)
+        after = page.evaluate("""() => {
+          const t = document.querySelector('.tile[data-repo="r00"]');
+          return { trace: t.querySelector('.trace').getAttribute('aria-label') || '',
+                   runline: getComputedStyle(t.querySelector('.runline')).display };
+        }""")
+        # And back: the rails stay rails whatever the window does, and nothing scrolls.
+        page.set_viewport_size({"width": 900, "height": 900})
+        page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=5000)
+        rails = page.evaluate("""() => [...document.querySelectorAll(
+          '#grid .tile[data-tier="rail"]')].map(t => Math.round(t.getBoundingClientRect().width))""")
+        page.set_viewport_size({"width": 1400, "height": 900})
+        page.wait_for_selector(".gutter", state="attached", timeout=5000)
+        mouse = page.evaluate(FINE_SCALE)
+        assert not errors, errors
 
-            # A pending approval on the open pane, then the same desk on a phone.
-            os.makedirs(approval.approvals_dir(), exist_ok=True)
-            rid = approval.new_id("r01", "jira-transition")
-            textio.write_json(os.path.join(approval.approvals_dir(), rid + ".json"), {
-                "id": rid, "repo": "r01", "ticket": "RDSD-1", "kind": "jira-transition",
-                "summary": "RDSD-1: In Progress -> In Review",
-                "payload": {"lines": ["line %d of the dry run" % n for n in range(80)]},
-                "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "pid": os.getpid()})
-            phone = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3,
-                                        is_mobile=True, has_touch=True)
-            m = phone.new_page()
-            m.on("pageerror", lambda e: errors.append(str(e)))
-            m.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            m.wait_for_selector('.tile.is-solo[data-repo="r01"] .approval:not([hidden])', timeout=15000)
-            finger = m.evaluate(COARSE_TARGETS)
-            card = m.evaluate(DECISION_ROW)
-            scroll = m.evaluate(PANE_SCROLL)
+        # A pending approval on the open pane, then the same desk on a phone.
+        os.makedirs(approval.approvals_dir(), exist_ok=True)
+        rid = approval.new_id("r01", "jira-transition")
+        textio.write_json(os.path.join(approval.approvals_dir(), rid + ".json"), {
+            "id": rid, "repo": "r01", "ticket": "RDSD-1", "kind": "jira-transition",
+            "summary": "RDSD-1: In Progress -> In Review",
+            "payload": {"lines": ["line %d of the dry run" % n for n in range(80)]},
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "pid": os.getpid()})
+        phone = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3,
+                                    is_mobile=True, has_touch=True)
+        m = phone.new_page()
+        m.on("pageerror", lambda e: errors.append(str(e)))
+        m.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        m.wait_for_selector('.tile.is-solo[data-repo="r01"] .approval:not([hidden])', timeout=15000)
+        finger = m.evaluate(COARSE_TARGETS)
+        card = m.evaluate(DECISION_ROW)
+        scroll = m.evaluate(PANE_SCROLL)
 
-            # #575: the stack. Unpinned, one pane is open and the other five are the bottom bar.
-            S.arrange(order=names, pinned=[])
-            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1",
-                                timeout=10000)
-            m.wait_for_function("""() => [...document.querySelectorAll('#grid .tile')]
-                                     .every((t) => t.dataset.tier === (t.classList.contains('is-solo') ? 'full' : 'rail'))""",
-                                timeout=10000)
-            stack = m.evaluate(STACK)
-            m.set_viewport_size({"width": 844, "height": 390})
-            m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'nowrap'",
-                                timeout=5000)
-            m.wait_for_timeout(300)
-            sideways = m.evaluate(SIDEWAYS)
-            m.set_viewport_size({"width": 820, "height": 1180})
-            m.wait_for_selector('#grid .tile.is-solo[data-tier="full"]', timeout=5000)
-            m.wait_for_timeout(300)
-            tablet = m.evaluate(STACK)
-            # #577: `all` on the tablet widens only the panes that fit, rails the rest and says
-            # so, in one write that `u` takes back in one press.
-            posts = []
-            m.on("request", lambda r: posts.append(r.url + " " + (r.post_data or "")) if r.method == "POST" else None)
-            m.locator("#preset-all").tap()
-            m.wait_for_function("() => /^all that fit: \\d+ of 6$/.test(document.getElementById('notice').textContent)"
-                                " && windowWrites === 0 && !inViewTransition && [...document.querySelectorAll('#grid .tile')]"
-                                ".every((t) => !t.style.transform && t.getAnimations().length === 0)", timeout=10000)
-            capped = m.evaluate(STACK)
-            capped["said"] = m.evaluate("() => document.getElementById('notice').textContent")
-            capped["posts"] = list(posts)
-            m.keyboard.press("u")
-            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1"
-                                " && windowWrites === 0", timeout=10000)
-            capped["undone"] = list(posts)
-            m.set_viewport_size({"width": 390, "height": 844})
-            m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'",
-                                timeout=5000)
-            m.locator("#preset-all").tap()
-            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 6",
-                                timeout=10000)
-            m.wait_for_timeout(300)
-            spread = m.evaluate(STACK)
-            assert not errors, errors
-            browser.close()
+        # #575: the stack. Unpinned, one pane is open and the other five are the bottom bar.
+        S.arrange(order=names, pinned=[])
+        m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1",
+                            timeout=10000)
+        m.wait_for_function("""() => [...document.querySelectorAll('#grid .tile')]
+                                 .every((t) => t.dataset.tier === (t.classList.contains('is-solo') ? 'full' : 'rail'))""",
+                            timeout=10000)
+        stack = m.evaluate(STACK)
+        m.set_viewport_size({"width": 844, "height": 390})
+        m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'nowrap'",
+                            timeout=5000)
+        m.wait_for_timeout(300)
+        sideways = m.evaluate(SIDEWAYS)
+        m.set_viewport_size({"width": 820, "height": 1180})
+        m.wait_for_selector('#grid .tile.is-solo[data-tier="full"]', timeout=5000)
+        m.wait_for_timeout(300)
+        tablet = m.evaluate(STACK)
+        # #577: `all` on the tablet widens only the panes that fit, rails the rest and says
+        # so, in one write that `u` takes back in one press.
+        posts = []
+        m.on("request", lambda r: posts.append(r.url + " " + (r.post_data or "")) if r.method == "POST" else None)
+        m.locator("#preset-all").tap()
+        m.wait_for_function("() => /^all that fit: \\d+ of 6$/.test(document.getElementById('notice').textContent)"
+                            " && windowWrites === 0 && !inViewTransition && [...document.querySelectorAll('#grid .tile')]"
+                            ".every((t) => !t.style.transform && t.getAnimations().length === 0)", timeout=10000)
+        capped = m.evaluate(STACK)
+        capped["said"] = m.evaluate("() => document.getElementById('notice').textContent")
+        capped["posts"] = list(posts)
+        m.keyboard.press("u")
+        m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1"
+                            " && windowWrites === 0", timeout=10000)
+        capped["undone"] = list(posts)
+        m.set_viewport_size({"width": 390, "height": 844})
+        m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'",
+                            timeout=5000)
+        m.locator("#preset-all").tap()
+        m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 6",
+                            timeout=10000)
+        m.wait_for_timeout(300)
+        spread = m.evaluate(STACK)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert before["cells"] == 0, "a compact pane built cells it does not show"
@@ -578,39 +570,37 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
 
 
 @pytest.mark.browser
-def test_a_pane_that_has_just_arrived_does_not_travel_into_its_slot(fleet_home, tmp_path):
+def test_a_pane_that_has_just_arrived_does_not_travel_into_its_slot(fleet_home, tmp_path, desk_browser):
     """Panes are made in the order `/api/fleet` lists them and then put in the arrangement's. In
     the column that first move happened to tiles nobody could see; in the row every agent is on the
     glass, so it played as a FLIP -- the rails shuffling into place for a fifth of a second on every
     load, and a press aimed at one in that time landing beside it (a test's drag did, one run in
     twenty under load). Where a pane first appears is not a move the operator made. A real move
     still travels."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "delta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=["gamma", "delta", "beta", "alpha"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors = _page(browser, port, token, 1400)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile[data-tier]').length === 4",
-                timeout=15000)
-            arrived = page.evaluate("""() => ({
-              order: [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo),
-              travelled: [...document.querySelectorAll('#grid .tile')]
-                           .filter(t => t.classList.contains('flip') || t.style.transform)
-                           .map(t => t.dataset.repo),
-            })""")
-            moved = page.evaluate("""() => {
-              moveTile('delta', 1);
-              return [...document.querySelectorAll('#grid .tile')]
-                       .filter(t => t.style.transform).map(t => t.dataset.repo);
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors = _page(browser, port, token, 1400)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile[data-tier]').length === 4",
+            timeout=15000)
+        arrived = page.evaluate("""() => ({
+          order: [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo),
+          travelled: [...document.querySelectorAll('#grid .tile')]
+                       .filter(t => t.classList.contains('flip') || t.style.transform)
+                       .map(t => t.dataset.repo),
+        })""")
+        moved = page.evaluate("""() => {
+          moveTile('delta', 1);
+          return [...document.querySelectorAll('#grid .tile')]
+                   .filter(t => t.style.transform).map(t => t.dataset.repo);
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert arrived["order"] == ["gamma", "delta", "beta", "alpha"], arrived
@@ -622,13 +612,12 @@ def test_a_pane_that_has_just_arrived_does_not_travel_into_its_slot(fleet_home, 
 
 
 @pytest.mark.browser
-def test_when_the_rails_do_not_fit_a_projects_checkouts_share_one(fleet_home, tmp_path):
+def test_when_the_rails_do_not_fit_a_projects_checkouts_share_one(fleet_home, tmp_path, desk_browser):
     """plan-panes §Open questions, D's default: when even the rails do not fit, a project's
     checkouts share one rail -- as the dock grouped them (#175) -- rather than the row scrolling
     sideways, which is how the agent that needs you ends up off the glass. The shared rail is red
     when any of its checkouts needs a person, says which in its label, and a press on it opens
     that one."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(16)]
     projects = {name: "proj-%d" % (n % 4) for n, name in enumerate(names)}
     _repos(tmp_path, names, needs=("r06",), projects=projects)
@@ -636,25 +625,24 @@ def test_when_the_rails_do_not_fit_a_projects_checkouts_share_one(fleet_home, tm
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            # Sixteen rails and an open pane need about 1 000px; this window has 800.
-            page, errors = _page(browser, port, token, 800)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile.is-grouped').length > 0",
-                timeout=15000)
-            page.wait_for_timeout(300)
-            out = page.evaluate(READ_ROW)
-            red = page.evaluate("""() => {
-              const face = document.querySelector('#grid .pane-rail.needs-human');
-              return { repo: face.closest('.tile').dataset.repo,
-                       label: face.getAttribute('aria-label') };
-            }""")
-            page.click(f'.tile[data-repo="{red["repo"]}"] .pane-rail')
-            page.wait_for_selector('.tile[data-repo="r06"].is-solo[data-tier="full"]',
-                                   timeout=5000)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        # Sixteen rails and an open pane need about 1 000px; this window has 800.
+        page, errors = _page(browser, port, token, 800)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile.is-grouped').length > 0",
+            timeout=15000)
+        page.wait_for_timeout(300)
+        out = page.evaluate(READ_ROW)
+        red = page.evaluate("""() => {
+          const face = document.querySelector('#grid .pane-rail.needs-human');
+          return { repo: face.closest('.tile').dataset.repo,
+                   label: face.getAttribute('aria-label') };
+        }""")
+        page.click(f'.tile[data-repo="{red["repo"]}"] .pane-rail')
+        page.wait_for_selector('.tile[data-repo="r06"].is-solo[data-tier="full"]',
+                               timeout=5000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
