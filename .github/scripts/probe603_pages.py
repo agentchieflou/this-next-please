@@ -80,7 +80,7 @@ def main():
             if browser is None or (VARIANT == "recycle" and i % 25 == 0) or VARIANT == "fresh":
                 if browser is not None:
                     browser.close()
-                browser = p.chromium.launch(headless=True, **({"executable_path": os.environ["AGENTDATA_CHROMIUM"]} if os.environ.get("AGENTDATA_CHROMIUM") else {}))
+                browser = p.chromium.launch(headless=True, args=(["--disable-features=TcpSocketIoCompletionPortWin"] if VARIANT == "noiocp" else []), **({"executable_path": os.environ["AGENTDATA_CHROMIUM"]} if os.environ.get("AGENTDATA_CHROMIUM") else {}))
             i += 1
             s = serve()
             ctx = browser.new_context()

@@ -39,6 +39,24 @@ env:
   HYPOTHESIS_PROFILE: ci
 
 jobs:
+  churn:
+    name: churn · ${{ matrix.n }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: connect with and without an explicit bind to port 0 first
+        shell: pwsh
+        env:
+          CHURN_ITER: "8000"
+        run: python .github/scripts/probe603_churn.py
   pages:
     name: pages · ${{ matrix.variant }} · ${{ matrix.n }}
     runs-on: windows-latest
@@ -46,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [shared, recycle, fresh, close]
+        variant: [shared, noiocp]
         n: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4

@@ -38,6 +38,15 @@ def one(variant, outcomes, events):
     for _ in range(BURST):
         s = socket.socket()
         s.setblocking(False)
+        if variant.startswith("bind0"):
+            try:
+                s.bind(("0.0.0.0" if variant == "bind0-any" else "127.0.0.1", 0))
+            except OSError as e:
+                outcomes[f"bind {e.errno or e.winerror}"] += 1
+                if len(events) < 10:
+                    events.append((variant, port, tw()))
+                s.close()
+                continue
         rc = s.connect_ex(("127.0.0.1", port))
         if rc in (0, errno.EWOULDBLOCK, 10035, errno.EINPROGRESS):
             cs.append(s)
@@ -89,7 +98,7 @@ def one(variant, outcomes, events):
 print("excluded port ranges:")
 if os.name == "nt": print(subprocess.run(["netsh", "int", "ipv4", "show", "excludedportrange", "protocol=tcp"],
                      capture_output=True, text=True).stdout)
-for variant in ("client-first", "server-first", "rst"):
+for variant in os.environ.get("CHURN_VARIANTS", "client-first,bind0,bind0-any").split(","):
     outcomes, events = collections.Counter(), []
     t0 = time.time()
     for _ in range(ITER):
