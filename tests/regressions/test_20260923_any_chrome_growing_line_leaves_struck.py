@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import (_desk_of, _marks, _open, _rest, _serve,  # noqa: F401 - fixtures
                             _stop, fleet_home)
 
@@ -44,22 +44,20 @@ BOTH_AT_ONCE = """() => {
 
 @pytest.mark.browser
 @pytest.mark.parametrize("reduced", [True, False])
-def test_a_growing_line_that_leaves_as_its_pane_grows_is_struck_and_stays_struck(fleet_home, tmp_path, reduced):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_growing_line_that_leaves_as_its_pane_grows_is_struck_and_stays_struck(fleet_home, tmp_path, reduced, desk_browser):
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=reduced)
-            page.evaluate("t => Ink.setSkin(t)", dict(TABLE, speed=4))
-            page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"]').classList.add('ink-run')")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.state === 'drawn')")
-            page.evaluate(BOTH_AT_ONCE)
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf && m.state === 'drawn')")
-            marks = _marks(page)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=reduced)
+        page.evaluate("t => Ink.setSkin(t)", dict(TABLE, speed=4))
+        page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"]').classList.add('ink-run')")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.state === 'drawn')")
+        page.evaluate(BOTH_AT_ONCE)
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf && m.state === 'drawn')")
+        marks = _marks(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     line = [m for m in marks if not m["strikeOf"]]

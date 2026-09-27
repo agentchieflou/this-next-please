@@ -17,7 +17,6 @@ import calendar
 import json
 import os
 import re
-import threading
 import time
 
 import pytest
@@ -26,7 +25,8 @@ from agentdata.fleet import events as E, registry, serve as S, trace as T
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
+from test_fleet_ink import _serve  # noqa: F401 - over the harness's serve_desk; re-exported
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -56,14 +56,6 @@ def _busy_hour(now: float):
 def _agent(tmp_path, name, rows):
     Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name)
     E.append(name, [E.event(name, r["kind"], {}, ticket="RDSD-1", ts=r["ts"]) for r in rows])
-
-
-def _serve():
-    server, token = S.build(0)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05},
-                              daemon=True)
-    thread.start()
-    return server, token, server.server_address[1]
 
 
 # ------------------------------------------------------------------------------ sixty numbers
@@ -266,11 +258,10 @@ READ_TRACE = """repo => {
 
 @pytest.mark.browser
 def test_the_drawn_trace_has_a_point_a_minute_and_the_red_ones_are_the_palettes(
-        fleet_home, tmp_path):
+        fleet_home, tmp_path, desk_browser):
     """Read back off what the page drew -- its own SVG, which is what every shell without ink shows
     (#257; it was a canvas read with `getImageData`). Anything less is asserting that a function was
     called."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
     _agent(tmp_path, "beta", [{"ts": _at(now, 5), "kind": "tool_call"}])
@@ -278,24 +269,23 @@ def test_the_drawn_trace_has_a_point_a_minute_and_the_red_ones_are_the_palettes(
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"]', timeout=15000)
-            page.wait_for_function(
-                """() => { const e = tiles.get('alpha');
-                           return e && e.row.trace && e.row.trace.total >= 40
-                                  && !!e.el.querySelector('.trace').getAttribute('aria-label'); }""",
-                timeout=15000)
-            out = page.evaluate(READ_TRACE, "alpha")
-            got = page.evaluate("() => tiles.get('alpha').row.trace")
-            human = _theme_rgb(page, "--human")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"]', timeout=15000)
+        page.wait_for_function(
+            """() => { const e = tiles.get('alpha');
+                       return e && e.row.trace && e.row.trace.total >= 40
+                              && !!e.el.querySelector('.trace').getAttribute('aria-label'); }""",
+            timeout=15000)
+        out = page.evaluate(READ_TRACE, "alpha")
+        got = page.evaluate("() => tiles.get('alpha').row.trace")
+        human = _theme_rgb(page, "--human")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -326,47 +316,45 @@ def test_the_drawn_trace_has_a_point_a_minute_and_the_red_ones_are_the_palettes(
 
 
 @pytest.mark.browser
-def test_the_trace_follows_the_palette_with_nothing_drawn_again(fleet_home, tmp_path):
+def test_the_trace_follows_the_palette_with_nothing_drawn_again(fleet_home, tmp_path, desk_browser):
     """A canvas held pixels, not rules, and had to be repainted when the palette changed (#218; the
     accent stripe was the same bug in CSS, #215). The trace is the stylesheet's colours now (#257):
     the palette changes and it is already the new colour, with no script run to draw it again."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
     S.arrange(order=["alpha"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"]', timeout=15000)
-            page.wait_for_function(
-                """() => { const e = tiles.get('alpha');
-                           return e && e.row.trace && e.row.trace.total >= 40
-                                  && !!e.el.querySelector('.trace').getAttribute('data-ink-ticks'); }""",
-                timeout=15000)
-            before = page.evaluate(READ_TRACE, "alpha")
-            assert before["tickStroke"] == _theme_rgb(page, "--human")
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"]', timeout=15000)
+        page.wait_for_function(
+            """() => { const e = tiles.get('alpha');
+                       return e && e.row.trace && e.row.trace.total >= 40
+                              && !!e.el.querySelector('.trace').getAttribute('data-ink-ticks'); }""",
+            timeout=15000)
+        before = page.evaluate(READ_TRACE, "alpha")
+        assert before["tickStroke"] == _theme_rgb(page, "--human")
 
-            S.act("theme", {"skin": "glass:noir"})
-            page.wait_for_function(
-                """() => document.body.dataset.skin === 'glass'
-                         && document.body.dataset.skinVariant === 'noir'""", timeout=8000)
-            page.wait_for_function(
-                """() => { const probe = document.createElement('span');
-                   probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--human').trim();
-                   document.body.appendChild(probe); const c = getComputedStyle(probe).color; probe.remove();
-                   return getComputedStyle(document.querySelector('.tile[data-repo="alpha"] .tr-ticks')).stroke === c; }""",
-                timeout=8000)
-            after = page.evaluate(READ_TRACE, "alpha")
-            human = _theme_rgb(page, "--human")
-            assert not errors, errors
-            browser.close()
+        S.act("theme", {"skin": "glass:noir"})
+        page.wait_for_function(
+            """() => document.body.dataset.skin === 'glass'
+                     && document.body.dataset.skinVariant === 'noir'""", timeout=8000)
+        page.wait_for_function(
+            """() => { const probe = document.createElement('span');
+               probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--human').trim();
+               document.body.appendChild(probe); const c = getComputedStyle(probe).color; probe.remove();
+               return getComputedStyle(document.querySelector('.tile[data-repo="alpha"] .tr-ticks')).stroke === c; }""",
+            timeout=8000)
+        after = page.evaluate(READ_TRACE, "alpha")
+        human = _theme_rgb(page, "--human")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -378,7 +366,7 @@ def test_the_trace_follows_the_palette_with_nothing_drawn_again(fleet_home, tmp_
 
 @pytest.mark.browser
 @pytest.mark.measured
-def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home, tmp_path):
+def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home, tmp_path, desk_browser):
     """A pixel a second is the difference between a still image and a room with a window in it.
     Reduced motion stops it (and reduced transparency, which Chromium cannot emulate yet) -- the
     second is the one people forget, and it is the setting somebody turns on *because* a moving
@@ -389,7 +377,6 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
     with `?ink=on`. What it costs is counted in frames rather than milliseconds, because CI draws in
     software (plan-ink ground rule 5): it draws while motion is allowed, and none at all when it is
     not."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
     S.arrange(order=["alpha"])
@@ -397,45 +384,44 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for reduced in (False, True):
-                page = browser.new_page(viewport={"width": 1400, "height": 900},
-                                        reduced_motion="reduce" if reduced else "no-preference")
-                errors = []
-                page.on("pageerror", lambda e: errors.append(str(e)))
-                page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
-                          wait_until="domcontentloaded")
-                page.wait_for_selector(".tile.is-solo", timeout=15000)
-                page.wait_for_function("() => { const l = window.Ink && Ink.inspect().layer; return !!l && !!l.skin && l.skin.ground > 0; }", timeout=20000)
+        browser = desk_browser
+        for reduced in (False, True):
+            page = browser.new_page(viewport={"width": 1400, "height": 900},
+                                    reduced_motion="reduce" if reduced else "no-preference")
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            page.wait_for_function("() => { const l = window.Ink && Ink.inspect().layer; return !!l && !!l.skin && l.skin.ground > 0; }", timeout=20000)
 
-                state = page.evaluate("() => Ink.inspect().layer.skin")
-                assert "ground" in state["hooks"] and state["ground"] >= 1 and state["errors"] == [], state
-                assert page.evaluate("() => Ink.inspect().layer.reduced") is reduced
+            state = page.evaluate("() => Ink.inspect().layer.skin")
+            assert "ground" in state["hooks"] and state["ground"] >= 1 and state["errors"] == [], state
+            assert page.evaluate("() => Ink.inspect().layer.reduced") is reduced
 
-                # What it costs: frames while it drifts, and none while it holds still.
-                if reduced:
-                    cost = page.evaluate("""async () => {
-                      // From rest: the frames the page's arrival asked for (its stylesheet, its
-                      // palette) are drawn, and 600ms have passed without one.
-                      const pause = ms => new Promise(done => setTimeout(done, ms));
-                      let last = Ink.inspect().layer.renders, quiet = performance.now();
-                      while (performance.now() - quiet < 600) {
-                        await pause(50);
-                        const n = Ink.inspect().layer.renders;
-                        if (n !== last) { last = n; quiet = performance.now(); }
-                      }
-                      const l0 = Ink.inspect().layer;
-                      await new Promise(done => setTimeout(done, 2200));
-                      const l1 = Ink.inspect().layer;
-                      return { renders: l1.renders - l0.renders }; }""")
-                    assert cost == {"renders": 0}, f"a still ground drew {cost}"
-                else:
-                    r0 = page.evaluate("() => Ink.inspect().layer.renders")
-                    page.wait_for_function(f"() => Ink.inspect().layer.renders >= {r0 + 2}", timeout=10000)
-                assert not errors, errors
-                page.close()
-            browser.close()
+            # What it costs: frames while it drifts, and none while it holds still.
+            if reduced:
+                cost = page.evaluate("""async () => {
+                  // From rest: the frames the page's arrival asked for (its stylesheet, its
+                  // palette) are drawn, and 600ms have passed without one.
+                  const pause = ms => new Promise(done => setTimeout(done, ms));
+                  let last = Ink.inspect().layer.renders, quiet = performance.now();
+                  while (performance.now() - quiet < 600) {
+                    await pause(50);
+                    const n = Ink.inspect().layer.renders;
+                    if (n !== last) { last = n; quiet = performance.now(); }
+                  }
+                  const l0 = Ink.inspect().layer;
+                  await new Promise(done => setTimeout(done, 2200));
+                  const l1 = Ink.inspect().layer;
+                  return { renders: l1.renders - l0.renders }; }""")
+                assert cost == {"renders": 0}, f"a still ground drew {cost}"
+            else:
+                r0 = page.evaluate("() => Ink.inspect().layer.renders")
+                page.wait_for_function(f"() => Ink.inspect().layer.renders >= {r0 + 2}", timeout=10000)
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -460,12 +446,11 @@ def _pixel(page, x, y):
 
 
 @pytest.mark.browser
-def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
+def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path, desk_browser):
     """#257: under glass with ink on, the ground the panes frost is drawn by the ink layer. Put an
     opaque sheet between the stylesheet's own gradients and the canvas, and the blob is still
     there; take the canvas away and it is gone. (Taking the gradients themselves away would tell
     the layer there is no ground, which it reads from them.)"""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
     S.arrange(order=["alpha"])
@@ -473,34 +458,33 @@ def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900}, reduced_motion="reduce")
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_function(
-                "() => { const l = window.Ink && Ink.inspect().layer; return !!l && !!l.skin && l.skin.ground > 0 && !l.busy; }",
-                timeout=20000)
-            # The centre of the blue blob (16% 10%). Everything on the page but the layer's canvas
-            # goes out of sight, and an opaque magenta sheet goes under the canvas, over the
-            # stylesheet's own gradients: the stylesheet is left as it is (the layer reads its ground
-            # from it), and the only thing that can put the blob over the magenta is the canvas.
-            x, y = int(1400 * 0.16), int(900 * 0.10)
-            page.add_style_tag(content="body > *:not(#ink):not(#cover) { visibility: hidden !important; }"
-                                       " #cover { position: fixed; inset: 0; z-index: -2; background: #f0f; }")
-            page.evaluate("() => { const c = document.createElement('div'); c.id = 'cover'; document.body.appendChild(c); }")
-            page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-            inked = _pixel(page, x, y)
-            ground = page.evaluate("() => Ink.inspect().layer.skin")
-            page.evaluate("() => { document.getElementById('ink').style.visibility = 'hidden'; }")
-            page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-            cover = _pixel(page, x, y)
-            assert not errors, errors
-            page.close()
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900}, reduced_motion="reduce")
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_function(
+            "() => { const l = window.Ink && Ink.inspect().layer; return !!l && !!l.skin && l.skin.ground > 0 && !l.busy; }",
+            timeout=20000)
+        # The centre of the blue blob (16% 10%). Everything on the page but the layer's canvas
+        # goes out of sight, and an opaque magenta sheet goes under the canvas, over the
+        # stylesheet's own gradients: the stylesheet is left as it is (the layer reads its ground
+        # from it), and the only thing that can put the blob over the magenta is the canvas.
+        x, y = int(1400 * 0.16), int(900 * 0.10)
+        page.add_style_tag(content="body > *:not(#ink):not(#cover) { visibility: hidden !important; }"
+                                   " #cover { position: fixed; inset: 0; z-index: -2; background: #f0f; }")
+        page.evaluate("() => { const c = document.createElement('div'); c.id = 'cover'; document.body.appendChild(c); }")
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        inked = _pixel(page, x, y)
+        ground = page.evaluate("() => Ink.inspect().layer.skin")
+        page.evaluate("() => { document.getElementById('ink').style.visibility = 'hidden'; }")
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        cover = _pixel(page, x, y)
+        assert not errors, errors
+        page.close()
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -512,12 +496,11 @@ def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_path):
+def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_path, desk_browser):
     """#257, the fallback: a shell the gate turned off -- every shell nothing has measured as
     hardware -- has no canvas on the page at all. The trace is its SVG, with its minutes and its
     red ticks, and the ground is the one plain look every skin shares: the palette's own colour,
     with nothing painted on it and nothing moving (glass included, whose mesh is its module's)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
     S.arrange(order=["alpha"])
@@ -525,32 +508,31 @@ def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for extra in ("", "&ink=off"):
-                page = browser.new_page(viewport={"width": 1400, "height": 900})
-                errors = []
-                page.on("pageerror", lambda e: errors.append(str(e)))
-                page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid{extra}",
-                          wait_until="domcontentloaded")
-                page.wait_for_function(
-                    """() => !!window.Ink && document.body.dataset.skin === 'glass'
-                             && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')
-                             && !!(document.head.querySelector('link[data-skin]') || {}).sheet""",
-                    timeout=15000)
-                out = page.evaluate(READ_TRACE, "alpha")
-                page_state = page.evaluate("""() => ({
-                  off: document.body.classList.contains('ink-off'),
-                  canvases: document.querySelectorAll('canvas').length, layer: Ink.inspect().layer,
-                  ground: (getComputedStyle(document.body).backgroundImage.match(/radial-gradient/g) || []).length,
-                  moving: getComputedStyle(document.body).animationName })""")
-                assert not errors, errors
-                page.close()
-                assert page_state["off"] and page_state["canvases"] == 0 and page_state["layer"] is None, page_state
-                assert page_state["ground"] == 0 and page_state["moving"] == "none", page_state
-                assert out["shown"] == "visible" and out["display"] != "none", out
-                assert len(out["points"]) == 60 and len(out["tickXs"]) == 2, out
-            browser.close()
+        browser = desk_browser
+        for extra in ("", "&ink=off"):
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid{extra}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function(
+                """() => !!window.Ink && document.body.dataset.skin === 'glass'
+                         && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')
+                         && !!(document.head.querySelector('link[data-skin]') || {}).sheet""",
+                timeout=15000)
+            out = page.evaluate(READ_TRACE, "alpha")
+            page_state = page.evaluate("""() => ({
+              off: document.body.classList.contains('ink-off'),
+              canvases: document.querySelectorAll('canvas').length, layer: Ink.inspect().layer,
+              ground: (getComputedStyle(document.body).backgroundImage.match(/radial-gradient/g) || []).length,
+              moving: getComputedStyle(document.body).animationName })""")
+            assert not errors, errors
+            page.close()
+            assert page_state["off"] and page_state["canvases"] == 0 and page_state["layer"] is None, page_state
+            assert page_state["ground"] == 0 and page_state["moving"] == "none", page_state
+            assert out["shown"] == "visible" and out["display"] != "none", out
+            assert len(out["points"]) == 60 and len(out["tickXs"]) == 2, out
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -558,12 +540,11 @@ def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_
 
 
 @pytest.mark.browser
-def test_with_ink_the_trace_is_a_mark_in_its_panes_lane_and_follows_its_data(fleet_home, tmp_path):
+def test_with_ink_the_trace_is_a_mark_in_its_panes_lane_and_follows_its_data(fleet_home, tmp_path, desk_browser):
     """#257: where a skin draws with ink, the trace is the layer's -- a line in pen and a red tick
     through each minute that needed somebody, drawn in the pane's own lane from the series `drawTrace`
     wrote on the element, while the SVG steps aside. New numbers are a new line where it stands; a
     minute that no longer needs anybody loses its tick; an hour that empties is erased."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from test_fleet_ink import AT_REST, _choose, _no_skin_css
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
@@ -571,49 +552,48 @@ def test_with_ink_the_trace_is_a_mark_in_its_panes_lane_and_follows_its_data(fle
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            _no_skin_css(page)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
-                      wait_until="domcontentloaded")
-            page.wait_for_function(
-                """() => !!window.Ink && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')""",
-                timeout=20000)
-            assert page.evaluate("() => Ink.inspect().layer") is None, \
-                "no skin draws with ink yet, so there is no layer and the SVG is the trace"
-            _choose(page, "example")
-            page.wait_for_function(
-                f"""() => ({AT_REST})() && Ink.inspect().table === 'example'
-                         && Ink.inspect().layer.series.length === 2""", timeout=20000)
-            first = page.evaluate("() => Ink.inspect().layer.series")
-            el = page.evaluate(READ_TRACE, "alpha")
-            inked = page.evaluate("s => Ink.sample({x: s.x - 2, y: s.y - 2, w: s.w + 4, h: s.h + 4})",
-                                  first[0]["box"])
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        _no_skin_css(page)
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
+                  wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => !!window.Ink && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')""",
+            timeout=20000)
+        assert page.evaluate("() => Ink.inspect().layer") is None, \
+            "no skin draws with ink yet, so there is no layer and the SVG is the trace"
+        _choose(page, "example")
+        page.wait_for_function(
+            f"""() => ({AT_REST})() && Ink.inspect().table === 'example'
+                     && Ink.inspect().layer.series.length === 2""", timeout=20000)
+        first = page.evaluate("() => Ink.inspect().layer.series")
+        el = page.evaluate(READ_TRACE, "alpha")
+        inked = page.evaluate("s => Ink.sample({x: s.x - 2, y: s.y - 2, w: s.w + 4, h: s.h + 4})",
+                              first[0]["box"])
 
-            # New numbers: the row's hour, a minute on, with nobody asked for anything.
-            page.evaluate("""() => { const e = tiles.get('alpha');
-              const row = JSON.parse(JSON.stringify(e.row));
-              row.trace.n = row.trace.n.slice(1).concat([3]);
-              row.trace.needs = row.trace.n.map(() => 0);
-              drawTrace(e.el.querySelector('.trace'), row); }""")
-            page.wait_for_function(
-                f"""() => ({AT_REST})() && Ink.inspect().layer.series.length === 1
-                         && Ink.inspect().layer.series[0].series.endsWith(' 1')""", timeout=20000)
-            moved = page.evaluate("() => Ink.inspect().layer.series")
+        # New numbers: the row's hour, a minute on, with nobody asked for anything.
+        page.evaluate("""() => { const e = tiles.get('alpha');
+          const row = JSON.parse(JSON.stringify(e.row));
+          row.trace.n = row.trace.n.slice(1).concat([3]);
+          row.trace.needs = row.trace.n.map(() => 0);
+          drawTrace(e.el.querySelector('.trace'), row); }""")
+        page.wait_for_function(
+            f"""() => ({AT_REST})() && Ink.inspect().layer.series.length === 1
+                     && Ink.inspect().layer.series[0].series.endsWith(' 1')""", timeout=20000)
+        moved = page.evaluate("() => Ink.inspect().layer.series")
 
-            # An hour with nothing in it: there is no line to draw, and the one there was is erased.
-            page.evaluate("""() => { const e = tiles.get('alpha');
-              const row = JSON.parse(JSON.stringify(e.row));
-              row.trace.n = row.trace.n.map(() => 0); row.trace.needs = row.trace.n.map(() => 0);
-              row.trace.says = 'nothing in the last hour';
-              drawTrace(e.el.querySelector('.trace'), row); }""")
-            page.wait_for_function(f"() => ({AT_REST})() && Ink.inspect().layer.series.length === 0",
-                                   timeout=20000)
-            assert not errors, errors
-            browser.close()
+        # An hour with nothing in it: there is no line to draw, and the one there was is erased.
+        page.evaluate("""() => { const e = tiles.get('alpha');
+          const row = JSON.parse(JSON.stringify(e.row));
+          row.trace.n = row.trace.n.map(() => 0); row.trace.needs = row.trace.n.map(() => 0);
+          row.trace.says = 'nothing in the last hour';
+          drawTrace(e.el.querySelector('.trace'), row); }""")
+        page.wait_for_function(f"() => ({AT_REST})() && Ink.inspect().layer.series.length === 0",
+                               timeout=20000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -630,7 +610,7 @@ def test_with_ink_the_trace_is_a_mark_in_its_panes_lane_and_follows_its_data(fle
 
 
 @pytest.mark.browser
-def test_nothing_on_the_page_asks_for_a_2d_context(fleet_home, tmp_path):
+def test_nothing_on_the_page_asks_for_a_2d_context(fleet_home, tmp_path, desk_browser):
     """#257, at run time: every call to `getContext` on the desk, with ink on under glass (the
     layer's ground) and an ink skin (its traces), and with ink off. No canvas on the page is ever
     asked for a 2D context: the layer's is WebGL, and with ink off there is none. This is the half
@@ -638,7 +618,6 @@ def test_nothing_on_the_page_asks_for_a_2d_context(fleet_home, tmp_path):
     one ask of its own: a 1x1 `OffscreenCanvas`, never on the page, to learn whether it could
     resize a texture off-screen. It draws nothing with it, and the file is pinned by its sha256
     (#247), so that one ask is named here rather than patched out."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from test_fleet_ink import AT_REST, _choose, _no_skin_css
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
@@ -648,41 +627,40 @@ def test_nothing_on_the_page_asks_for_a_2d_context(fleet_home, tmp_path):
     asked = {}
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for extra in ("&ink=on", ""):
-                context = browser.new_context(viewport={"width": 1400, "height": 900})
-                context.add_init_script("""
-                  window.__contexts = [];
-                  for (const C of [window.HTMLCanvasElement, window.OffscreenCanvas]) {
-                    if (!C) continue;
-                    const real = C.prototype.getContext;
-                    C.prototype.getContext = function (kind) {
-                      window.__contexts.push({ kind: String(kind), on: C.name, size: [this.width, this.height],
-                                               three: /three[.]module[.]min[.]js/.test(String(new Error().stack)) });
-                      return real.apply(this, arguments);
-                    };
-                  }""")
-                page = context.new_page()
-                errors = []
-                page.on("pageerror", lambda e: errors.append(str(e)))
-                _no_skin_css(page)
-                page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid{extra}",
-                          wait_until="domcontentloaded")
+        browser = desk_browser
+        for extra in ("&ink=on", ""):
+            context = browser.new_context(viewport={"width": 1400, "height": 900})
+            context.add_init_script("""
+              window.__contexts = [];
+              for (const C of [window.HTMLCanvasElement, window.OffscreenCanvas]) {
+                if (!C) continue;
+                const real = C.prototype.getContext;
+                C.prototype.getContext = function (kind) {
+                  window.__contexts.push({ kind: String(kind), on: C.name, size: [this.width, this.height],
+                                           three: /three[.]module[.]min[.]js/.test(String(new Error().stack)) });
+                  return real.apply(this, arguments);
+                };
+              }""")
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _no_skin_css(page)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid{extra}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => !!window.Ink && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')",
+                timeout=20000)
+            if extra:
                 page.wait_for_function(
-                    "() => !!window.Ink && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')",
-                    timeout=20000)
-                if extra:
-                    page.wait_for_function(
-                        "() => { const l = window.Ink && Ink.inspect().layer; return !!l && !!l.skin && l.skin.ground > 0; }", timeout=20000)
-                    _choose(page, "example")
-                    page.wait_for_function(
-                        f"() => ({AT_REST})() && Ink.inspect().layer.series.length === 2", timeout=20000)
-                    page.evaluate("() => Ink.sample({x: 0, y: 0, w: 40, h: 40})")
-                asked[extra or "off"] = page.evaluate("() => window.__contexts")
-                assert not errors, errors
-                context.close()
-            browser.close()
+                    "() => { const l = window.Ink && Ink.inspect().layer; return !!l && !!l.skin && l.skin.ground > 0; }", timeout=20000)
+                _choose(page, "example")
+                page.wait_for_function(
+                    f"() => ({AT_REST})() && Ink.inspect().layer.series.length === 2", timeout=20000)
+                page.evaluate("() => Ink.sample({x: 0, y: 0, w: 40, h: 40})")
+            asked[extra or "off"] = page.evaluate("() => window.__contexts")
+            assert not errors, errors
+            context.close()
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -696,12 +674,11 @@ def test_nothing_on_the_page_asks_for_a_2d_context(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_the_trace_never_costs_the_head_a_second_line(fleet_home, tmp_path):
+def test_the_trace_never_costs_the_head_a_second_line(fleet_home, tmp_path, desk_browser):
     """The head carries the trace only where there is room for it. A title bar that wrapped to two
     lines to fit a picture is a picture that cost more than it is worth -- and `flex-wrap` wraps
     before it shrinks, so the trace has to be gone by the width at which it *would* wrap, not by
     the width at which it stops fitting."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     for name in ("alpha", "beta", "gamma"):
         _agent(tmp_path, name, _busy_hour(now))
@@ -709,32 +686,31 @@ def test_the_trace_never_costs_the_head_a_second_line(fleet_home, tmp_path):
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 950})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile .head", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1600, "height": 950})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile .head", timeout=15000)
 
-            seen = []
-            for width in (1100, 1440, 1600, 2000, 2560):
-                page.set_viewport_size({"width": width, "height": 950})
-                page.wait_for_timeout(200)
-                seen.append(page.evaluate("""() => {
-                  const tile = document.querySelector('.tile');
-                  const head = tile.querySelector('.head');
-                  return { tile: Math.round(tile.getBoundingClientRect().width),
-                           head: Math.round(head.getBoundingClientRect().height),
-                           trace: getComputedStyle(head.querySelector('.trace')).display };
-                }""")) 
-            assert not errors, errors
-            for row in seen:
-                assert row["head"] <= 34, f"the head wrapped at {row['tile']}px: {row}"
-            assert any(r["trace"] != "none" for r in seen), \
-                f"the trace is never on a tile at all: {seen}"
-            browser.close()
+        seen = []
+        for width in (1100, 1440, 1600, 2000, 2560):
+            page.set_viewport_size({"width": width, "height": 950})
+            page.wait_for_timeout(200)
+            seen.append(page.evaluate("""() => {
+              const tile = document.querySelector('.tile');
+              const head = tile.querySelector('.head');
+              return { tile: Math.round(tile.getBoundingClientRect().width),
+                       head: Math.round(head.getBoundingClientRect().height),
+                       trace: getComputedStyle(head.querySelector('.trace')).display };
+            }""")) 
+        assert not errors, errors
+        for row in seen:
+            assert row["head"] <= 34, f"the head wrapped at {row['tile']}px: {row}"
+        assert any(r["trace"] != "none" for r in seen), \
+            f"the trace is never on a tile at all: {seen}"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

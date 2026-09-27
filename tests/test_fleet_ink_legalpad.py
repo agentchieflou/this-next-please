@@ -33,7 +33,7 @@ from agentdata.fleet import events as E, fingerprint as FP, serve as S, skins, s
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import (IDLE_LOOP, INK, STATIC, _layer, _marks, _open, _rest, _serve,
                             _stop, catch_up_frames, fleet_home)
 
@@ -270,47 +270,45 @@ def test_the_legal_pad_module_carries_no_colour_of_its_own():
 
 
 @pytest.mark.browser
-def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_path, monkeypatch):
+def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Chosen as the settings page chooses a skin, `POST /api/theme {skin: "legalpad"}`: its module is
     fetched with the token, its table is in force, and the pad is on the canvas -- canary stock,
     the gummed band across the top, a blue rule every 28px, and a double red margin down a pane --
     in the colours `skin.css` gives them. The highlighter multiplies into it: the paper is light."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"alpha": _idle("alpha")})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, asked = _open(browser, port, token, "&ink=on", panes=1, reduced=True)
-            assert "legalpad" in page.evaluate("() => document.body.dataset.inkSkins").split()
-            _choose(page)
-            page.wait_for_function("() => Ink.inspect().table === 'legalpad:canary'", timeout=15000)
-            _rest(page, "Ink.inspect().layer.skin && Ink.inspect().layer.skin.frames === 1"
-                        " && getComputedStyle(document.body).getPropertyValue('--paper').trim() !== ''")
-            page.evaluate("() => Ink.refresh()")
-            _rest(page)
-            layer = _layer(page)
-            props = page.evaluate(PROPS)
-            geo = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="alpha"]').getBoundingClientRect();
-              const h = document.querySelector('header').getBoundingClientRect();
-              return { tile: [t.left, t.top, t.width, t.height], head: h.bottom, w: innerWidth, h: innerHeight }; }""")
-            tx, ty, tw, th = geo["tile"]
-            rule_y = next(y for y in range(28, 900, 28) if y > geo["head"] + 4 and y > ty + 40)
-            blank_y = rule_y + 14
-            # A 1px line can land across two device pixels where a pane sits on a fractional x, so
-            # each line is looked for in the pixels around where it is drawn.
-            def near(x, y, axis):
-                return [[x + d, y] if axis == "x" else [x, y + d] for d in (-1, 0, 1)]
-            pts = ([[tx + tw - 40, blank_y]]                 # the stock, between two rules
-                   + near(tx + tw - 40, rule_y - 1, "y")     # a rule
-                   + near(tx + 25, blank_y, "x")             # the margin's first line
-                   + near(tx + 29, blank_y, "x")             # and its second
-                   + [[tx + 27.5, blank_y]]                  # the paper between them
-                   + [[geo["w"] / 2, 3]])                    # the glue
-            px = page.evaluate(PIXELS, pts)
-            px = [px[0], px[1:4], px[4:7], px[7:10], px[10], px[11]]
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, asked = _open(browser, port, token, "&ink=on", panes=1, reduced=True)
+        assert "legalpad" in page.evaluate("() => document.body.dataset.inkSkins").split()
+        _choose(page)
+        page.wait_for_function("() => Ink.inspect().table === 'legalpad:canary'", timeout=15000)
+        _rest(page, "Ink.inspect().layer.skin && Ink.inspect().layer.skin.frames === 1"
+                    " && getComputedStyle(document.body).getPropertyValue('--paper').trim() !== ''")
+        page.evaluate("() => Ink.refresh()")
+        _rest(page)
+        layer = _layer(page)
+        props = page.evaluate(PROPS)
+        geo = page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="alpha"]').getBoundingClientRect();
+          const h = document.querySelector('header').getBoundingClientRect();
+          return { tile: [t.left, t.top, t.width, t.height], head: h.bottom, w: innerWidth, h: innerHeight }; }""")
+        tx, ty, tw, th = geo["tile"]
+        rule_y = next(y for y in range(28, 900, 28) if y > geo["head"] + 4 and y > ty + 40)
+        blank_y = rule_y + 14
+        # A 1px line can land across two device pixels where a pane sits on a fractional x, so
+        # each line is looked for in the pixels around where it is drawn.
+        def near(x, y, axis):
+            return [[x + d, y] if axis == "x" else [x, y + d] for d in (-1, 0, 1)]
+        pts = ([[tx + tw - 40, blank_y]]                 # the stock, between two rules
+               + near(tx + tw - 40, rule_y - 1, "y")     # a rule
+               + near(tx + 25, blank_y, "x")             # the margin's first line
+               + near(tx + 29, blank_y, "x")             # and its second
+               + [[tx + 27.5, blank_y]]                  # the paper between them
+               + [[geo["w"] / 2, 3]])                    # the glue
+        px = page.evaluate(PIXELS, pts)
+        px = [px[0], px[1:4], px[4:7], px[7:10], px[10], px[11]]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     fetched = [u.split(str(port))[1] for u in asked if "/static/ink/skins/" in u]
@@ -328,11 +326,10 @@ def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_pat
 
 
 @pytest.mark.browser
-def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_path, monkeypatch):
+def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The grammar on a desk the fleet drew from its own records -- idle, running, needs you, error,
     done, stale and a finding are all states the fold produces -- and each pane carries exactly its own
     state's marks, drawn: the table reads what app.js set and decides nothing."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     panes = {
         "idle": _idle("idle"),
         "run": [_ev("run", "turn_started"), _said("run", "reading the ticket")],
@@ -357,16 +354,15 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     count = sum(len(rows) for rows in want.values()) + 1 + 1        # the second choice, the count
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, panes=len(panes), width=1900, height=1000, reduced=True)
-            classes = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.tile')]
-              .map(t => [t.dataset.repo, t.className]))""")
-            _rest(page, f"Ink.inspect().layer.marks.filter(m => !m.strikeOf).length >= {count}", timeout=60000)
-            drawn = {repo: _drawn(page, "pane:" + repo) for repo in panes}
-            header = _drawn(page, "header")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token, panes=len(panes), width=1900, height=1000, reduced=True)
+        classes = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.tile')]
+          .map(t => [t.dataset.repo, t.className]))""")
+        _rest(page, f"Ink.inspect().layer.marks.filter(m => !m.strikeOf).length >= {count}", timeout=60000)
+        drawn = {repo: _drawn(page, "pane:" + repo) for repo in panes}
+        header = _drawn(page, "header")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert "state-running" in classes["run"] and "state-error" in classes["broke"], classes
@@ -381,33 +377,31 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
 
 
 @pytest.mark.browser
-def test_answering_strikes_the_question_and_circles_the_choice(fleet_home, tmp_path, monkeypatch):
+def test_answering_strikes_the_question_and_circles_the_choice(fleet_home, tmp_path, monkeypatch, desk_browser):
     """*needs you* is the name and the question highlighted and each choice looped in pencil;
     *answered* is the question and its highlight struck through in pen -- the question, never the
     agent's name -- and the chosen answer circled. Pressing a choice is the page's own answer
     (`aria-pressed`), so the grammar follows the operator's hand, not a guess."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"asks": _asks("asks")})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token)
-            _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
-            before = _drawn(page, "pane:asks")
-            question = next(m for m in _marks(page) if m["selector"].endswith(" .ask-q"))
-            page.click('.tile[data-repo="asks"] .ask-choice:has-text("dev")')
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'ellipse' && m.state === 'drawn')"
-                        " && !Ink.inspect().layer.marks.some(m => m.shape === 'loop')"
-                        " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
-            after = _marks(page)
-            circled = page.evaluate("""() => { const m = Ink.inspect().layer.marks.find(m => m.shape === 'ellipse');
-              const b = document.querySelector('.tile[data-repo="asks"] .ask-choice[aria-pressed="true"]').getBoundingClientRect();
-              return { mark: m.box, choice: [b.left, b.top, b.width, b.height], text: document.querySelector(
-                '.ask-choice[aria-pressed="true"]').textContent }; }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token)
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        before = _drawn(page, "pane:asks")
+        question = next(m for m in _marks(page) if m["selector"].endswith(" .ask-q"))
+        page.click('.tile[data-repo="asks"] .ask-choice:has-text("dev")')
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'ellipse' && m.state === 'drawn')"
+                    " && !Ink.inspect().layer.marks.some(m => m.shape === 'loop')"
+                    " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
+        after = _marks(page)
+        circled = page.evaluate("""() => { const m = Ink.inspect().layer.marks.find(m => m.shape === 'ellipse');
+          const b = document.querySelector('.tile[data-repo="asks"] .ask-choice[aria-pressed="true"]').getBoundingClientRect();
+          return { mark: m.box, choice: [b.left, b.top, b.width, b.height], text: document.querySelector(
+            '.ask-choice[aria-pressed="true"]').textContent }; }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     q = f".tile .ask:not([hidden]){OPEN} .ask-q"
@@ -427,62 +421,60 @@ def test_answering_strikes_the_question_and_circles_the_choice(fleet_home, tmp_p
 
 
 @pytest.mark.browser
-def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_home, tmp_path, monkeypatch):
+def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_home, tmp_path, monkeypatch, desk_browser):
     """*running* is a pen line under the name that grows with the turn, and the pen-tip dot at its
     end: the tail starts where the pen finished the underline and grows a step for each line the
     turn writes. When the turn ends the underline and its tail are struck, in pen -- and the idle
     pane's pencil marks, which were erased when the turn began, are drawn again."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     live = _pad(tmp_path, monkeypatch, {"run": _idle("run")})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, reduced=True)
-            _rest(page, "Ink.inspect().layer.marks.filter(m => m.tool === 'pencil').length >= 2")
-            idle = [m["id"] for m in _marks(page) if m["tool"] == "pencil"]
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token, reduced=True)
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.tool === 'pencil').length >= 2")
+        idle = [m["id"] for m in _marks(page) if m["tool"] == "pencil"]
 
-            # The turn begins: the fleet says so, and the page draws it.
-            E.append("run", [_ev("run", "turn_started")])
-            live.add("run")
-            page.evaluate("() => refresh()")
-            page.wait_for_function("() => document.querySelector('.tile[data-repo=\"run\"]')"
-                                   ".classList.contains('state-running')", timeout=15000)
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.selector.includes('state-running')"
-                        " && m.state === 'drawn')")
-            page.wait_for_function(f"() => {SKIN}.inspect().panes.some(p => p.shown)", timeout=10000)
-            begun = _skin(page)["panes"][0]
-            erased = [i for i in idle if i in {m["id"] for m in _marks(page)}]
+        # The turn begins: the fleet says so, and the page draws it.
+        E.append("run", [_ev("run", "turn_started")])
+        live.add("run")
+        page.evaluate("() => refresh()")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"run\"]')"
+                               ".classList.contains('state-running')", timeout=15000)
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.selector.includes('state-running')"
+                    " && m.state === 'drawn')")
+        page.wait_for_function(f"() => {SKIN}.inspect().panes.some(p => p.shown)", timeout=10000)
+        begun = _skin(page)["panes"][0]
+        erased = [i for i in idle if i in {m["id"] for m in _marks(page)}]
 
-            # The turn writes three lines: the tail grows three steps, and the dot is at its end.
-            page.evaluate("""() => { const el = document.querySelector('.tile[data-repo="run"]');
-              for (const t of ['one', 'two', 'three']) append(el, { kind: 'assistant_text', data: { text: t } }); }""")
-            page.wait_for_function(f"() => {SKIN}.inspect().panes[0].lines === 3", timeout=10000)
-            grown = _skin(page)["panes"][0]
-            geo = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="run"] .head .repo').getBoundingClientRect();
-              return [r.right, r.bottom]; }""")
-            # The dot's centre: the tail goes on from the underline's end at the underline's own
-            # height (#332, #331's placement under the tallest box on the name's line), not the name's.
-            box = grown["tailBox"]
-            tip = [geo[0] + 8 + grown["tail"] + 1, box["y"] + 1.9]
-            assert abs(box["x"] + box["w"] - 1.9 - tip[0]) < 0.01 and box["y"] + 1.9 >= geo[1] + 2.8, (box, geo)
-            px = page.evaluate(PIXELS, [tip, [tip[0] + 30, tip[1]]])
-            props = page.evaluate(PROPS)
+        # The turn writes three lines: the tail grows three steps, and the dot is at its end.
+        page.evaluate("""() => { const el = document.querySelector('.tile[data-repo="run"]');
+          for (const t of ['one', 'two', 'three']) append(el, { kind: 'assistant_text', data: { text: t } }); }""")
+        page.wait_for_function(f"() => {SKIN}.inspect().panes[0].lines === 3", timeout=10000)
+        grown = _skin(page)["panes"][0]
+        geo = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="run"] .head .repo').getBoundingClientRect();
+          return [r.right, r.bottom]; }""")
+        # The dot's centre: the tail goes on from the underline's end at the underline's own
+        # height (#332, #331's placement under the tallest box on the name's line), not the name's.
+        box = grown["tailBox"]
+        tip = [geo[0] + 8 + grown["tail"] + 1, box["y"] + 1.9]
+        assert abs(box["x"] + box["w"] - 1.9 - tip[0]) < 0.01 and box["y"] + 1.9 >= geo[1] + 2.8, (box, geo)
+        px = page.evaluate(PIXELS, [tip, [tip[0] + 30, tip[1]]])
+        props = page.evaluate(PROPS)
 
-            # The turn ends.
-            E.append("run", [_ev("run", "turn_ended", {"turn": "1"})])
-            live.discard("run")
-            page.evaluate("() => refresh()")
-            page.wait_for_function("() => document.querySelector('.tile[data-repo=\"run\"]')"
-                                   ".classList.contains('state-idle')", timeout=15000)
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf)"
-                        " && Ink.inspect().layer.marks.filter(m => m.tool === 'pencil' && m.state === 'drawn').length >= 2")
-            page.wait_for_function(f"() => {SKIN}.inspect().panes[0].strike === 1", timeout=10000)
-            ended = _skin(page)["panes"][0]
-            marks = _marks(page)
-            assert not errors, errors
-            browser.close()
+        # The turn ends.
+        E.append("run", [_ev("run", "turn_ended", {"turn": "1"})])
+        live.discard("run")
+        page.evaluate("() => refresh()")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"run\"]')"
+                               ".classList.contains('state-idle')", timeout=15000)
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf)"
+                    " && Ink.inspect().layer.marks.filter(m => m.tool === 'pencil' && m.state === 'drawn').length >= 2")
+        page.wait_for_function(f"() => {SKIN}.inspect().panes[0].strike === 1", timeout=10000)
+        ended = _skin(page)["panes"][0]
+        marks = _marks(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert erased == [], "the idle pane's pencil marks are erased when the turn begins"
@@ -497,40 +489,38 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
 
 
 @pytest.mark.browser
-def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, monkeypatch):
+def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, monkeypatch, desk_browser):
     """*error* is a red marker box inside the pane and a bang in its margin; *done* a green check in
     the margin. Both are ink, so a state that goes is struck through and the strike stays. (The
     fleet's records carry the pane from one to the other: an error, then a new run that finishes.)"""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"broke": [_said("broke", "trying"), _ev("broke", "error", {"exit_code": 2})]})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, reduced=True)
-            _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector === '.tile.state-error').length === 2")
-            error = _drawn(page, "pane:broke")
-            # The agent is run again and finishes: a new run leaves the old one's error behind, and
-            # its own state.json says done. The page hears it as it hears any agent.
-            state = tmp_path / "broke" / ".agent" / "state.json"
-            state.write_text(json.dumps(dict(json.loads(state.read_text(encoding="utf-8")), phase="done")),
-                             encoding="utf-8")
-            E.append("broke", [_begun("broke"), _said("broke", "fixed"),
-                               _ev("broke", "phase_changed", {"from": "querying", "to": "done"}),
-                               _ev("broke", "turn_ended", {"turn": "0"})])
-            page.evaluate("() => refresh()")
-            page.wait_for_function("() => document.querySelector('.tile[data-repo=\"broke\"]')"
-                                   ".classList.contains('is-done')", timeout=15000)
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.state === 'drawn')"
-                        " && Ink.inspect().layer.marks.filter(m => m.strikeOf).length === 3")
-            done = _marks(page)
-            box = next(m for m in done if m["shape"] == "check")["box"]
-            ink = page.evaluate(PIXELS, [[box["x"] + 14 + dx, box["y"] + 14 + dy]
-                                         for dx in range(-10, 11, 2) for dy in range(0, 21, 2)])
-            props = page.evaluate(PROPS)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token, reduced=True)
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector === '.tile.state-error').length === 2")
+        error = _drawn(page, "pane:broke")
+        # The agent is run again and finishes: a new run leaves the old one's error behind, and
+        # its own state.json says done. The page hears it as it hears any agent.
+        state = tmp_path / "broke" / ".agent" / "state.json"
+        state.write_text(json.dumps(dict(json.loads(state.read_text(encoding="utf-8")), phase="done")),
+                         encoding="utf-8")
+        E.append("broke", [_begun("broke"), _said("broke", "fixed"),
+                           _ev("broke", "phase_changed", {"from": "querying", "to": "done"}),
+                           _ev("broke", "turn_ended", {"turn": "0"})])
+        page.evaluate("() => refresh()")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"broke\"]')"
+                               ".classList.contains('is-done')", timeout=15000)
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.state === 'drawn')"
+                    " && Ink.inspect().layer.marks.filter(m => m.strikeOf).length === 3")
+        done = _marks(page)
+        box = next(m for m in done if m["shape"] == "check")["box"]
+        ink = page.evaluate(PIXELS, [[box["x"] + 14 + dx, box["y"] + 14 + dy]
+                                     for dx in range(-10, 11, 2) for dy in range(0, 21, 2)])
+        props = page.evaluate(PROPS)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert error[(".tile.state-error", "marker", "loop")] == ["drawn"], error
@@ -546,32 +536,30 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
 
 @pytest.mark.browser
 def test_the_header_count_is_handwritten_and_the_old_number_struck_beside_the_new(fleet_home, tmp_path,
-                                                                                    monkeypatch):
+                                                                                    monkeypatch, desk_browser):
     """*the header count*: handwritten, and when it changes the old number is struck where it
     stood and the new one is beside it. The count is the page's own (`bell()` from its unread
     map); the struck number is the pad's, drawn in pen left of the new one. The unread count is put
     on the pane that is not open, because opening a pane is what reads it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"alpha": _idle("alpha"), "beta": _idle("beta")})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, panes=2, count=True)
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.selector === '#bellcount' && m.state === 'drawn')")
-            first = _skin(page)["count"]
-            page.evaluate("() => { unread.set('beta', 2); bell(); }")
-            page.wait_for_function(f"() => {SKIN}.inspect().count.strike === 1", timeout=10000)
-            _rest(page)
-            struck = _skin(page)["count"]
-            r = page.evaluate("() => { const b = document.getElementById('bellcount').getBoundingClientRect();"
-                              " return [b.left, b.top, b.height]; }")
-            left = page.evaluate(PIXELS, [[r[0] - dx, r[1] + dy] for dx in range(3, 16) for dy in range(0, int(r[2]))])
-            props = page.evaluate(PROPS)
-            idle = page.evaluate(IDLE_LOOP)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token, panes=2, count=True)
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.selector === '#bellcount' && m.state === 'drawn')")
+        first = _skin(page)["count"]
+        page.evaluate("() => { unread.set('beta', 2); bell(); }")
+        page.wait_for_function(f"() => {SKIN}.inspect().count.strike === 1", timeout=10000)
+        _rest(page)
+        struck = _skin(page)["count"]
+        r = page.evaluate("() => { const b = document.getElementById('bellcount').getBoundingClientRect();"
+                          " return [b.left, b.top, b.height]; }")
+        left = page.evaluate(PIXELS, [[r[0] - dx, r[1] + dy] for dx in range(3, 16) for dy in range(0, int(r[2]))])
+        props = page.evaluate(PROPS)
+        idle = page.evaluate(IDLE_LOOP)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert first == {"now": "0", "old": "", "strike": -1, "pieces": 0}, first
@@ -582,48 +570,46 @@ def test_the_header_count_is_handwritten_and_the_old_number_struck_beside_the_ne
 
 
 @pytest.mark.browser
-def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path, monkeypatch):
+def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Reduced motion draws every mark at once, with no travelling pen; the pad's own strikes (the
     running tail, the header count) are drawn at once too."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"asks": _asks("asks"), "idle": _idle("idle")})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, panes=2, reduced=True)
-            _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
-            # `idle` is done through a real event (#470), so the server's fold says done too and no
-            # /api/fleet answer can take the check's class away. The choice and the bell go on the page
-            # in the task that brings `is-done`; the layer's frames are counted from there to the frame
-            # the check is on the paper.
-            page.evaluate("""() => { const idle = document.querySelector('.tile[data-repo="idle"]');
-              const ticked = () => Ink.inspect().layer.marks.some(m => m.shape === 'check' && !m.strikeOf);
-              const seen = new MutationObserver(async () => {
-                if (!idle.classList.contains('is-done')) return;
-                seen.disconnect();
-                const l0 = Ink.inspect().layer.frames;
-                document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
-                unread.set('idle', 1); bell();
-                let waited = 0;
-                do { await new Promise(d => requestAnimationFrame(d)); waited += 1; } while (!ticked() && waited < 120);
-                window.__went = { frames: Ink.inspect().layer.frames - l0, waited };
-              });
-              seen.observe(idle, { attributes: true, attributeFilter: ['class'] }); }""")
-            E.append("idle", [_ev("idle", "phase_changed", {"from": "", "to": "done"})])
-            page.wait_for_function("() => window.__went !== undefined", timeout=15000)
-            went = page.evaluate(f"""async () => {{
-              await refreshAfterNow();
-              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-              const l = Ink.inspect().layer;
-              return {{ ...window.__went, busy: l.busy, hands: l.hands, reduced: l.reduced,
-                       idle: document.querySelector('.tile[data-repo="idle"]').className,
-                       marks: l.marks.map(m => [m.selector, m.shape, m.state, m.drawn, m.strikeOf]),
-                       count: {SKIN}.inspect().count }};
-            }}""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token, panes=2, reduced=True)
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        # `idle` is done through a real event (#470), so the server's fold says done too and no
+        # /api/fleet answer can take the check's class away. The choice and the bell go on the page
+        # in the task that brings `is-done`; the layer's frames are counted from there to the frame
+        # the check is on the paper.
+        page.evaluate("""() => { const idle = document.querySelector('.tile[data-repo="idle"]');
+          const ticked = () => Ink.inspect().layer.marks.some(m => m.shape === 'check' && !m.strikeOf);
+          const seen = new MutationObserver(async () => {
+            if (!idle.classList.contains('is-done')) return;
+            seen.disconnect();
+            const l0 = Ink.inspect().layer.frames;
+            document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
+            unread.set('idle', 1); bell();
+            let waited = 0;
+            do { await new Promise(d => requestAnimationFrame(d)); waited += 1; } while (!ticked() && waited < 120);
+            window.__went = { frames: Ink.inspect().layer.frames - l0, waited };
+          });
+          seen.observe(idle, { attributes: true, attributeFilter: ['class'] }); }""")
+        E.append("idle", [_ev("idle", "phase_changed", {"from": "", "to": "done"})])
+        page.wait_for_function("() => window.__went !== undefined", timeout=15000)
+        went = page.evaluate(f"""async () => {{
+          await refreshAfterNow();
+          await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+          const l = Ink.inspect().layer;
+          return {{ ...window.__went, busy: l.busy, hands: l.hands, reduced: l.reduced,
+                   idle: document.querySelector('.tile[data-repo="idle"]').className,
+                   marks: l.marks.map(m => [m.selector, m.shape, m.state, m.drawn, m.strikeOf]),
+                   count: {SKIN}.inspect().count }};
+        }}""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert went["reduced"] is True and went["hands"] is False and went["busy"] is False, went
@@ -638,54 +624,52 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
 
 
 @pytest.mark.browser
-def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(fleet_home, tmp_path, monkeypatch):
+def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Decision 3: no WebGL, the same page plain. The skin's table is the constructed stylesheet --
     an outline for idle, a tint for the question, a loop for each choice, a margin bar for an error
     -- in the skin's own inks. Since #257 there is no CSS pad under it: the plain look is the one
     every skin shares, the palette's own page with no rules, margin or glue painted on it (those are
     the module's alone). The fallback writes nothing to the page to do it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"asks": _asks("asks"), "idle": _idle("idle"),
                                  "broke": [_said("broke", "x"), _ev("broke", "error", {"exit_code": 2})]})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, asked = _desk(browser, port, token, extra="", panes=3)
-            page.wait_for_function("""() => getComputedStyle(document.body).getPropertyValue('--paper').trim() !== ''
-              && getComputedStyle(document.querySelector('.tile[data-repo="idle"]')).outlineStyle === 'solid'""",
-                                   timeout=10000)
-            look = page.evaluate("""() => {
-              const t = r => document.querySelector(`.tile[data-repo="${r}"]`);
-              const cs = e => getComputedStyle(e);
-              const col = c => { const k = document.createElement('canvas').getContext('2d'); k.fillStyle = c; return k.fillStyle; };
-              const body = cs(document.body);
-              return {
-                off: document.body.classList.contains('ink-off'),
-                idle: [cs(t('idle')).outlineStyle, cs(t('idle')).outlineWidth, cs(t('idle')).outlineColor],
-                name: cs(t('idle').querySelector('.repo')).textDecorationLine,
-                question: cs(t('asks').querySelector('.ask:not([hidden]) .ask-q')).backgroundColor,
-                choice: cs(t('asks').querySelector('.ask-choice')).outlineStyle,
-                hl: cs(t('asks').querySelector('.head .repo')).backgroundColor,
-                error: [cs(t('broke')).outlineStyle, cs(t('broke')).boxShadow],
-                rules: body.backgroundImage, paper: body.backgroundColor,
-                glue: cs(document.querySelector('header')).borderTopColor,
-                margin: cs(t('idle')).backgroundImage,
-                pencil: body.getPropertyValue('--ink-pencil').trim(),
-                sheet: document.adoptedStyleSheets.flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n'),
-              }; }""")
-            writes = page.evaluate("""async () => { let n = 0;
-              const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style').length; });
-              obs.observe(document.documentElement, { subtree: true, attributes: true });
-              document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
-              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-              obs.disconnect();
-              return { n, circled: getComputedStyle(document.querySelector('.ask-choice[aria-pressed="true"]')).outlineWidth,
-                       question: getComputedStyle(document.querySelector('.ask:not([hidden]) .ask-q')).backgroundColor }; }""")
-            props = page.evaluate(PROPS)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, asked = _desk(browser, port, token, extra="", panes=3)
+        page.wait_for_function("""() => getComputedStyle(document.body).getPropertyValue('--paper').trim() !== ''
+          && getComputedStyle(document.querySelector('.tile[data-repo="idle"]')).outlineStyle === 'solid'""",
+                               timeout=10000)
+        look = page.evaluate("""() => {
+          const t = r => document.querySelector(`.tile[data-repo="${r}"]`);
+          const cs = e => getComputedStyle(e);
+          const col = c => { const k = document.createElement('canvas').getContext('2d'); k.fillStyle = c; return k.fillStyle; };
+          const body = cs(document.body);
+          return {
+            off: document.body.classList.contains('ink-off'),
+            idle: [cs(t('idle')).outlineStyle, cs(t('idle')).outlineWidth, cs(t('idle')).outlineColor],
+            name: cs(t('idle').querySelector('.repo')).textDecorationLine,
+            question: cs(t('asks').querySelector('.ask:not([hidden]) .ask-q')).backgroundColor,
+            choice: cs(t('asks').querySelector('.ask-choice')).outlineStyle,
+            hl: cs(t('asks').querySelector('.head .repo')).backgroundColor,
+            error: [cs(t('broke')).outlineStyle, cs(t('broke')).boxShadow],
+            rules: body.backgroundImage, paper: body.backgroundColor,
+            glue: cs(document.querySelector('header')).borderTopColor,
+            margin: cs(t('idle')).backgroundImage,
+            pencil: body.getPropertyValue('--ink-pencil').trim(),
+            sheet: document.adoptedStyleSheets.flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n'),
+          }; }""")
+        writes = page.evaluate("""async () => { let n = 0;
+          const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style').length; });
+          obs.observe(document.documentElement, { subtree: true, attributes: true });
+          document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
+          await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+          obs.disconnect();
+          return { n, circled: getComputedStyle(document.querySelector('.ask-choice[aria-pressed="true"]')).outlineWidth,
+                   question: getComputedStyle(document.querySelector('.ask:not([hidden]) .ask-q')).backgroundColor }; }""")
+        props = page.evaluate(PROPS)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert look["off"] is True
@@ -711,39 +695,37 @@ def _px(s):
 
 
 @pytest.mark.browser
-def test_an_idle_legal_pad_writes_nothing_and_its_ink_catches_up_in_frames(fleet_home, tmp_path, monkeypatch):
+def test_an_idle_legal_pad_writes_nothing_and_its_ink_catches_up_in_frames(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The render contract with the pad on the paper: the grammar's marks catch up within the frames
     a hand at the pen's speed needs (ground rule 5, counted in frames because CI draws in software),
     and once they have, an idle desk is zero DOM mutations and zero WebGL frames -- the running pen
     and the header count ask for no frame of their own."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"asks": _asks("asks"), "run": [_ev("run", "turn_started")]}, live={"run"})
     _config(fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, panes=2, count=True)
-            _rest(page, "Ink.inspect().layer.marks.length >= 5")
-            # Idle first: the catch-up below sets a class by hand, which the page's next redraw
-            # would put back -- and the ink would still be answering that inside the idle window.
-            idle = page.evaluate(IDLE_LOOP)
-            rec = page.evaluate("""async () => {
-              document.querySelector('.tile[data-repo="asks"]').classList.replace('state-needs_human', 'state-done');
-              const frames = [];
-              return await new Promise(done => {
-                const tick = () => {
-                  const l = Ink.inspect().layer;
-                  frames.push({ frames: l.frames, marks: l.marks.map(m => [m.id, m.lane, m.drawn, m.selector, m.len, m.strokes]),
-                                busy: l.busy });
-                  if ((frames.length > 3 && !l.busy) || frames.length > 3000) return done(frames);
-                  requestAnimationFrame(tick);
-                };
-                requestAnimationFrame(tick);
-              });
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _desk(browser, port, token, panes=2, count=True)
+        _rest(page, "Ink.inspect().layer.marks.length >= 5")
+        # Idle first: the catch-up below sets a class by hand, which the page's next redraw
+        # would put back -- and the ink would still be answering that inside the idle window.
+        idle = page.evaluate(IDLE_LOOP)
+        rec = page.evaluate("""async () => {
+          document.querySelector('.tile[data-repo="asks"]').classList.replace('state-needs_human', 'state-done');
+          const frames = [];
+          return await new Promise(done => {
+            const tick = () => {
+              const l = Ink.inspect().layer;
+              frames.push({ frames: l.frames, marks: l.marks.map(m => [m.id, m.lane, m.drawn, m.selector, m.len, m.strokes]),
+                            busy: l.busy });
+              if ((frames.length > 3 && !l.busy) || frames.length > 3000) return done(frames);
+              requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          });
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     check = [m for m in rec[-1]["marks"] if m[3] == DONE]
