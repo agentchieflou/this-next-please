@@ -1104,6 +1104,97 @@ def _choose(page, skin):
     page.evaluate("s => post('theme', { skin: s })", skin)
 
 
+# The state grammar across skins (#334, docs/desk-ink.md §The state grammar across skins): every
+# skin module draws each of these states with one of `tools` in one of `shapes` on the element `el`
+# names (a list: any of them). A skin may add rows and materials, never draw a state instead.
+GRAMMAR = {
+    "needs_name": {"el": ".tile.needs-human .head .repo", "tools": ["highlighter"], "shapes": ["lines"]},
+    "needs_q":    {"el": ".tile.needs-human .ask:not([hidden]) .ask-q", "tools": ["highlighter"], "shapes": ["lines"]},
+    "answered":   {"el": ".ask-choice[aria-pressed=true]", "tools": ["pen"], "shapes": ["loop", "ellipse"]},
+    "running":    {"el": ".tile.state-running .head .repo", "tools": ["pen"], "shapes": ["underline"]},
+    "error_bang": {"el": ".tile.state-error", "tools": ["red", "marker"], "shapes": ["bang"]},
+    "error_box":  {"el": [".tile.state-error", ".tile.state-error .why"], "tools": ["marker"], "shapes": ["loop", "outline"]},
+    "done":       {"el": ".tile.is-done", "tools": ["green"], "shapes": ["check"]},
+}
+
+# One detached pane per state, cloned from the page's own `#tile` template and put in its state the
+# way `app.js` does (classes, attributes, `hidden`; never markup). The element each GRAMMAR entry
+# names is found in them by its selector, and each module's rows are matched against that element.
+GRAMMAR_CHECK = """async ([skins, grammar]) => {
+  const tpl = document.getElementById('tile').content.firstElementChild;
+  const pane = (cls, ask) => {
+    const el = tpl.cloneNode(true);
+    el.classList.add(...cls);
+    if (ask) {
+      el.querySelector('.asks').hidden = false;
+      const li = el.querySelector('.ask');
+      li.hidden = false;
+      el.querySelector('.ask-q').textContent = 'which one?';
+      if (ask === 'answered') li.classList.add('is-answered');
+      for (const pressed of ['true', 'false']) {
+        const b = document.createElement('button');
+        b.classList.add('ask-choice');
+        b.setAttribute('aria-pressed', ask === 'answered' ? pressed : 'false');
+        b.textContent = pressed === 'true' ? 'this one' : 'that one';
+        el.querySelector('.ask-choices').append(b);
+      }
+    }
+    el.querySelector('.head .repo').textContent = 'alpha';
+    return el;
+  };
+  const panes = [pane(['state-needs_human', 'needs-human'], 'open'),
+                 pane(['state-idle'], 'answered'),
+                 pane(['state-running']), pane(['state-error']), pane(['state-done', 'is-done'])];
+  const find = sel => panes.map(p => p.matches(sel) ? p : p.querySelector(sel)).filter(Boolean);
+  const out = { missing: [], checked: [], found: {} };
+  for (const [entry, g] of Object.entries(grammar)) {
+    out.found[entry] = [].concat(g.el).flatMap(find).length;
+  }
+  for (const [name, variants] of Object.entries(skins)) {
+    const mod = await import(q('/static/ink/skins/' + name + '.js'));
+    for (const variant of variants) {
+      if (typeof mod.options === 'function') mod.options(variant);
+      const rows = mod.marks(variant);
+      out.checked.push(name + ':' + variant);
+      for (const [entry, g] of Object.entries(grammar)) {
+        const els = [].concat(g.el).flatMap(find);
+        const ok = rows.some(r => g.tools.includes(r.tool) && g.shapes.includes(r.shape)
+                                  && els.some(e => e.matches(r.selector)));
+        if (!ok) out.missing.push(name + ':' + variant + ' ' + entry);
+      }
+    }
+  }
+  return out;
+}"""
+
+
+def _grammar_skins():
+    """Every skin module but the example, each with every variant skins.py gives it."""
+    from agentdata.fleet import skins as K
+    root = os.path.join(os.path.dirname(S.__file__), "static", "ink", "skins")
+    names = sorted(f[:-3] for f in os.listdir(root) if f.endswith(".js") and f != "example.js")
+    return {n: list(K.SKINS.get(n, {}).get("variants", {"": None})) for n in names}
+
+
+def test_the_state_grammar_in_desk_ink_is_the_one_the_skins_are_held_to():
+    """docs/desk-ink.md §The state grammar across skins is `GRAMMAR`, row for row (#334)."""
+    doc = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs",
+                            "desk-ink.md"), encoding="utf-8").read()
+    section = doc[doc.index("## The state grammar across skins"):]
+    section = section[:section.index("\n## ", 1)]
+    assert "`GRAMMAR`" in section and "tests/test_fleet_ink.py" in section, "the doc names the constant"
+    rows = {}
+    for line in section.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) == 5 and re.fullmatch(r"`\w+`", cells[0]):
+            rows[cells[0].strip("`")] = {"el": re.findall(r"`([^`]+)`", cells[2]),
+                                         "tools": re.findall(r"`(\w+)`", cells[3]),
+                                         "shapes": re.findall(r"`(\w+)`", cells[4])}
+    want = {k: {"el": [v["el"]] if isinstance(v["el"], str) else v["el"], "tools": v["tools"],
+                "shapes": v["shapes"]} for k, v in GRAMMAR.items()}
+    assert rows == want, (rows, want)
+
+
 @pytest.mark.browser
 def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_path, desk_browser):
     """How a skin registers (docs/desk-ink.md §Writing a skin): `static/ink/skins/<name>.js`. The
@@ -1156,9 +1247,18 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
                 u.split(str(port))[1] for u in asked if "/static/ink/skins/" in u)
             assert not errors, errors
             page.close()
+        # The state grammar (#334): every skin module, every variant, holds GRAMMAR's rows.
+        page, errors, _ = _open(browser, port, token)
+        seen["grammar"] = page.evaluate(GRAMMAR_CHECK, [_grammar_skins(), GRAMMAR])
+        assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
+    grammar = seen["grammar"]
+    assert grammar["found"] == {k: len([g["el"]] if isinstance(g["el"], str) else g["el"])
+                                for k, g in GRAMMAR.items()}, "each entry names one element per selector"
+    assert len(grammar["checked"]) == sum(len(v) for v in _grammar_skins().values()) >= 17, grammar
+    assert grammar["missing"] == [], "a skin draws a state off the grammar: " + ", ".join(grammar["missing"])
     on = seen["on"]
     assert on["tool"] == "pen" and seen["red"] == "red", "each variant has its own table"
     assert on["skin"]["hooks"] == ["ground", "paper", "frame", "tick", "dispose"], on["skin"]

@@ -70,6 +70,7 @@ body[data-skin="glass"][data-skin-variant="frost"] {
 }
 
 body[data-skin="glass"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
+body[data-skin="glass"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
 
 body[data-skin="glass"]:not(.ink-off) header { will-change: transform; }
 body[data-skin="glass"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
