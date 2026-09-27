@@ -20,6 +20,8 @@ test's contexts are closed when it ends, so nothing one test stored reaches the 
   `init_scripts` installed, at the desk's address, and a record of its page errors, console errors
   and warnings, failed requests and non-2xx answers.
 * `no_desk_driver` -- stops the worker's driver for a test that needs `asyncio.run`.
+* `desk_chromium_with` -- `launch(args)`: a Chromium of the test's own on the worker's driver, with
+  extra command-line switches (#384's Blink flag), closed at teardown.
 
 `--desk-cpu-throttle=RATE` (or `AGENTDATA_DESK_THROTTLE`; default 1) slows every desk page's main
 thread RATE times, to reproduce a slow CI runner on a laptop (#307): `desk_page`, and so
@@ -27,11 +29,11 @@ thread RATE times, to reproduce a slow CI runner on a laptop (#307): `desk_page`
 page it opens and sends it again each time the page's main frame navigates. `desk_page(throttle=)`
 picks a rate for one page whatever the option says.
 
-A sync Playwright started in a thread and a `with sync_playwright()` in the same thread cannot both
-be alive (Playwright raises "using Playwright Sync API inside the asyncio loop"), so while some
-browser tests are not on the harness yet, `pytest_runtest_setup` stops the shared driver before any
-browser test that does not use `desk_browser`; the next harness test starts it again. #303 removes
-it once every browser test is here.
+Every browser test is here (#303): nothing else under `tests/` starts a driver or launches Chromium,
+and `tests/test_hygiene_harness.py` keeps it so. A sync Playwright started in a thread and a second
+`with sync_playwright()` in the same thread cannot both be alive (Playwright raises "using
+Playwright Sync API inside the asyncio loop"); `no_desk_driver` stops the shared one for a test
+that needs `asyncio.run`.
 """
 from __future__ import annotations
 
@@ -258,8 +260,7 @@ def close_pages(browser) -> None:
     close_new_contexts(browser, ())
 
 
-#: Where `_desk_driver` keeps this process's driver and browser, so `pytest_runtest_setup` can reach
-#: them before any fixture of the next test is set up.
+#: Where `_desk_driver` keeps this process's driver and browser, in the session's stash.
 HELD = pytest.StashKey[dict]()
 
 
@@ -282,29 +283,29 @@ def desk_browser(_desk_driver):
     close_new_contexts(_desk_driver.get("browser"), before)
 
 
-def off_the_harness(browser_marked: bool, fixturenames) -> bool:
-    """A browser test that does not use `desk_browser`: it opens its own `sync_playwright()`."""
-    return browser_marked and "desk_browser" not in fixturenames
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_setup(item):
-    """One driver at a time: a test off the harness cannot start its own driver while the shared
-    one is up in this thread, so stop the shared one first. The next harness test starts it again.
-
-    A hook and not an autouse fixture: a module-scoped `browser` fixture that opens its own
-    `sync_playwright()` (test_fleet_stream_resume's, test_fleet_theme_switch's, and the regressions
-    that import them) is set up before any function-scoped fixture of its module's first test, so
-    a fixture came too late whenever a harness test had run just before it in the same process."""
-    held = item.session.stash.get(HELD, None)
-    if held and off_the_harness(item.get_closest_marker("browser") is not None, item.fixturenames):
-        stop_driver(held)
-
-
 @pytest.fixture()
 def no_desk_driver(_desk_driver):
     """For a test that needs `asyncio.run` (or its own Playwright) in this thread: no shared driver."""
     stop_driver(_desk_driver)
+
+
+@pytest.fixture()
+def desk_chromium_with(desk_browser, _desk_driver):
+    """`launch(args)`: a Chromium of this test's own, on the worker's driver, started with the extra
+    command-line switches `args` -- for the test that measures an API behind a Blink flag the shared
+    browser was not started with (#384). Every one it launched is closed at teardown if the test has
+    not closed it already."""
+    launched = []
+
+    def launch(args=()):
+        browser = launch_chromium(_desk_driver["pw"], args=args)
+        launched.append(browser)
+        return browser
+
+    yield launch
+    for browser in launched:
+        if browser.is_connected():
+            browser.close()
 
 
 # ------------------------------------------------------------------------------------ the pages

@@ -4,8 +4,9 @@ Decision 13 keeps the browser tier's count where it is, so the harness's browser
 `test_fleet_desk_browser.py::test_desk_browser_layouts_and_sync` (a context per page, reduced
 motion, `COUNT_FETCHES`), and what can be told without Chromium is told here, with stand-ins for
 the driver and the browser: the driver starts under the real environment and only once, a browser
-a test closed is launched again, a test's contexts are closed and no one else's, a browser test
-that is not on the harness finds the shared driver stopped, and the desk fixture serves and stops.
+a test closed is launched again, a test's contexts are closed and no one else's, and the desk
+fixture serves and stops. (#303 took out the tests of a browser test off the harness: there is none
+left, and `tests/test_hygiene_harness.py` keeps it so.)
 
 The CPU throttle (#307): where its rate comes from, and that a page is throttled again when its main
 frame navigates. Whether Chromium really runs slower is a verdict on real timings, so that check
@@ -121,55 +122,6 @@ def test_stopping_the_driver_closes_the_browser_first_and_is_safe_twice():
     assert browser.closed == 1 and driver.stopped == 1 and held == {}
     H.stop_driver(held)
     assert browser.closed == 1 and driver.stopped == 1
-
-
-def test_a_browser_test_off_the_harness_finds_the_shared_driver_stopped():
-    """`pytest_runtest_setup`: a `with sync_playwright()` test cannot start while the shared
-    driver is up in its thread, so the harness stops it before any browser test without
-    `desk_browser`, and leaves it up for a plain test and a harness test."""
-    assert H.off_the_harness(True, ["fleet_home", "tmp_path"])
-    assert not H.off_the_harness(True, ["fleet_home", "desk_browser"])
-    assert not H.off_the_harness(False, ["tmp_path"])
-
-
-# Two modules run in one process: the first leaves the shared driver up (a stand-in, so no Node and
-# no Chromium start), the second is a browser test off the harness whose own driver comes from a
-# module-scoped fixture -- as test_fleet_stream_resume's and test_fleet_theme_switch's `browser` do.
-_FIRST = """
-class Driver:
-    def stop(self):
-        pass
-
-def test_a_harness_test_leaves_the_driver_up(_desk_driver):
-    _desk_driver["pw"] = Driver()
-"""
-_SECOND = """
-import pytest
-
-@pytest.fixture(scope="module")
-def own_driver(_desk_driver):
-    return "pw" in _desk_driver
-
-@pytest.mark.browser
-def test_off_the_harness(own_driver):
-    assert not own_driver, "a module fixture's own sync_playwright() met the shared driver still up"
-"""
-
-
-def test_the_shared_driver_is_stopped_before_a_module_fixture_of_a_test_off_the_harness(tmp_path):
-    """The guard runs before *every* fixture of a test off the harness, a module-scoped one too.
-
-    As an autouse function fixture it ran after them, so a module `browser` fixture that opens its own
-    `sync_playwright()` met the shared driver still up whenever a harness test had just run in the
-    same process, and Playwright raised "using Playwright Sync API inside the asyncio loop"."""
-    (tmp_path / "conftest.py").write_text('pytest_plugins = ["desk_harness"]\n', encoding="utf-8")
-    (tmp_path / "test_a.py").write_text(_FIRST, encoding="utf-8")
-    (tmp_path / "test_b.py").write_text(_SECOND, encoding="utf-8")
-    env = dict(os.environ, PYTHONPATH=os.path.dirname(os.path.abspath(__file__)),
-               PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
-    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tmp_path)],
-                         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
-    assert out.returncode == 0 and "2 passed" in out.stdout, (out.stdout, out.stderr)
 
 
 def test_the_harness_starts_nothing_until_a_test_asks_for_the_browser():

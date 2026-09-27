@@ -229,6 +229,7 @@ browser that is up costs under 0.1 s.
 | `desk_browser` | the worker's Chromium (from `launch_chromium`, relaunched if a test closed it); the contexts the test made are closed at teardown |
 | `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` installed; `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
 | `no_desk_driver` | no shared driver in this thread, for a test that needs `asyncio.run` |
+| `desk_chromium_with` | `launch(args)`: a Chromium of the test's own on the worker's driver, started with extra switches (a Blink flag), closed at teardown |
 
 ```python
 @pytest.mark.browser
@@ -241,9 +242,10 @@ def test_the_open_pane_is_full(fleet_home, tmp_path, desk_server, new_desk_page)
 ```
 
 No `pytest.importorskip("playwright.sync_api")` of its own and no `browser.close()`: the harness does
-both. A test that still opens `with sync_playwright()` works beside it (the harness stops the shared
-driver before any browser test that does not use `desk_browser`, because two sync drivers cannot
-live in one thread), and #300–#303 move the rest over. `tests/test_fleet_desk_browser.py` and
+both. `with sync_playwright()` is gone from the tests (#303): every browser test is on the harness,
+and `tests/test_hygiene_harness.py` fails on a `sync_playwright(` anywhere under `tests/` but the
+harness, or a `launch_chromium(` outside it, and says to use `desk_server`/`new_desk_page` instead.
+A module `browser` fixture is `desk_browser` under its old name. `tests/test_fleet_desk_browser.py` and
 `tests/test_fleet_ink.py` are the pattern; `test_fleet_ink`'s `_serve`, `_stop` and `_open` are thin
 wrappers over the harness, so the modules that import them keep working.
 
@@ -252,6 +254,9 @@ wrappers over the harness, so the modules that import them keep working.
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
 after the change that makes it slow. Each prints what it measured, and the CI browser leg tees
 that into the job summary and uploads the recorded demo beside it.
+
+They share the worker's browser like every other browser test (#303), and it starts at fixture
+setup, so no timed window includes a driver or a Chromium starting.
 
 | Guard | Asserts | In |
 | --- | --- | --- |
