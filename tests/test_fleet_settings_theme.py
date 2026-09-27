@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
@@ -171,6 +172,14 @@ def _post(port, token, path, body):
         return json.loads(r.read().decode("utf-8"))
 
 
+def _post_status(port, token, path, body) -> int:
+    try:
+        _post(port, token, path, body)
+    except urllib.error.HTTPError as e:
+        return e.code
+    return 200
+
+
 # ----------------------------------------------------------------------------- the two answers
 
 
@@ -206,6 +215,32 @@ def test_post_theme_answers_with_the_css_it_wrote(fleet_home, tmp_path):
     assert skin["ok"] and skin["css"] == want["css"] and skin["css"], skin
     assert (skin["theme"], skin["skin"], skin["skin_family"]) == (want["theme"], "voxel:nether", "voxel")
     assert palette["css"] == want_palette["css"] and palette["theme"] == "nfl-browns", palette
+
+
+def test_two_theme_writes_that_arrive_out_of_order_end_on_the_later_pick(fleet_home, tmp_path):
+    """#483: the page numbers its picks, and a write numbered below one already applied is not
+    written. Two quick picks travel on two connections and the server can take them in either
+    order; the later pick wins either way, and the stale write is answered with what is on."""
+    _config(fleet_home)
+    server, token, port = _serve()
+    try:
+        later = _post(port, token, "/api/theme", {"skin": "voxel:overworld", "seq": 1_700_000_000_002})
+        earlier = _post(port, token, "/api/theme", {"skin": "glass:smoke", "seq": 1_700_000_000_001})
+        on = S.theme_state()
+        unnumbered = _post(port, token, "/api/theme", {"skin": "voxel:nether"})
+        again = _post(port, token, "/api/theme", {"skin": "glass:smoke", "seq": 1_700_000_000_002})
+        bad = [_post_status(port, token, "/api/theme", {"skin": "glass:smoke", "seq": s})
+               for s in ("3", True, -1, 1.5)]
+    finally:
+        _stop(server)
+    assert on["skin"] == "voxel:overworld", "the later pick wins, whichever write arrives last"
+    assert later["ok"] and later["skin"] == "voxel:overworld" and later["seq"] == 1_700_000_000_002, later
+    assert earlier["ok"] and earlier["stale"] is True, earlier
+    assert (earlier["skin"], earlier["css"]) == ("voxel:overworld", on["css"]), earlier
+    assert earlier["seq"] == 1_700_000_000_002, earlier
+    assert unnumbered["skin"] == "voxel:nether" and unnumbered["seq"] == 1_700_000_000_002, unnumbered
+    assert again["stale"] is True and again["skin"] == "voxel:nether", "an equal number is stale too"
+    assert bad == [409] * 4, bad
 
 
 @pytest.mark.browser

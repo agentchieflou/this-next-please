@@ -2558,12 +2558,19 @@ def act(what: str, body: dict) -> dict:
     if what == "theme":
         from .. import config as C
 
+        seq = _theme_seq(body)
         with C.LOCK:
-            _write_theme(C, body)
-        _config_changed()
+            wrote, last = _write_theme(C, body, seq)
+        if wrote:
+            _config_changed()
         # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
         # from this answer instead of waiting a tick for the frame to say what it has just chosen.
-        return theme_state()
+        # A stale pick (#483) is answered the same way, with what is on, and says it was not written.
+        out = theme_state()
+        out["seq"] = last
+        if not wrote:
+            out["stale"] = True
+        return out
     if what == "models":
         # Ask the Copilot CLI for its model list again (#361), on a thread: the answer goes out at
         # once, and a list that changed reaches every open page as one `models` frame. An ask while
@@ -2633,10 +2640,34 @@ def _write_settings(C, SET, body: dict) -> None:
         raise ServeError(str(e), e.hint, code="config_refused") from None
 
 
-def _write_theme(C, body: dict) -> None:
-    """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
+def _theme_seq(body: dict) -> int | None:
+    """The pick's number (#483), or None for a write that carries none (`ad-theme`, an older page)."""
+    seq = body.get("seq")
+    if seq is None:
+        return None
+    if isinstance(seq, bool) or not isinstance(seq, int) or not 0 < seq < 2 ** 53:
+        raise ServeError("seq is a positive whole number", "number each pick above the last one",
+                         code="bad_request")
+    return seq
+
+
+def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
+    """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`.
+
+    Two quick picks from /settings travel on two connections, and the handler threads can take
+    `C.LOCK` in either order, so the first pick could be written last and win (#483). The page
+    numbers its picks, and the highest number written so far is kept beside the theme it wrote: a
+    pick numbered at or below it is older than what is on and is not written. The compare and the
+    write are one read-modify-write under the lock. A write with no number is written as before and
+    leaves the number alone. Answers (written, the highest number)."""
     cfg = C.load()
     cfg.setdefault("theme", {})
+    last = cfg["theme"].get("seq")
+    last = last if isinstance(last, int) and not isinstance(last, bool) else 0
+    if seq is not None and seq <= last:
+        return False, last
+    if seq is not None:
+        cfg["theme"]["seq"] = last = seq
     if "theme" in body:
         theme_val = str(body["theme"]).strip()
         cfg["theme"]["default"] = theme_val if theme_val else "none"
@@ -2653,6 +2684,7 @@ def _write_theme(C, body: dict) -> None:
             cfg["theme"]["skin"] = chosen["full"]
             cfg["theme"]["default"] = chosen["base"]
     C.save(cfg)
+    return True, last
 
 
 def _sweep(url: str) -> list[dict]:
