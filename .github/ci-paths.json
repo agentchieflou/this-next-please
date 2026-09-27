@@ -24,6 +24,7 @@
         "skills/**",
         "prompts/**",
         "themes/**",
+        "contract/**",
         ".gitattributes",
         "tsconfig.json",
         "LICENSE",
