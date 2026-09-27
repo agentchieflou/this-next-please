@@ -200,14 +200,37 @@ def css(t: Theme, project_accent: str | None = None, panels=()) -> dict[str, str
     return to_css(t, project_accent=project_accent, panels=panels)
 
 
-#: How much of a highlighter's ink a highlighted line of text is read through -- the plain
-#: fallback's tint (`static/ink/ink.js` PLAIN_TINT), and the check below. A multiplied swipe on
-#: paper is lighter than this at its streaks and never darker, so the check is the worst case.
+#: How much of a highlighter's ink a highlighted line of text is read through in the plain
+#: fallback (`static/ink/ink.js` PLAIN_TINT): rule 5's `plain=True` reading.
 INK_TINT = 0.38
+
+#: The ink layer's highlighter (#329), as `static/ink/pen.js`'s highlighter branch draws it: on a
+#: dark ground the swipe is screened on at 0.42 of the ink, on a light one multiplied in at 0.68.
+#: `tests/test_theme.py` reads both numbers back out of pen.js, so the model cannot drift from it.
+HL_SCREEN = 0.42
+HL_MULTIPLY = 0.68
+
+
+def is_dark(h: str) -> bool:
+    """The ink layer's `dark` (`static/ink/layer.js` `colours()`): Rec. 709 weights over the
+    gamma-encoded 0-1 channels, under 0.4 -- not `rel_luminance`."""
+    r, g, b = hex_to_rgb(h)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.4
+
+
+def highlight_under(paper: str, ink: str, dark: bool) -> str:
+    """The colour under a highlighted word at full coverage, per sRGB channel: screen
+    `1-(1-paper)(1-HL_SCREEN*ink)` on a dark ground, multiply `paper*(1-HL_MULTIPLY*(1-ink))` on a
+    light one. Streaks only thin the ink, so this is the worst case the text is read on."""
+    p, i = hex_to_rgb(paper), hex_to_rgb(ink)
+    if dark:
+        return rgb_to_hex(tuple(1 - (1 - a) * (1 - HL_SCREEN * b) for a, b in zip(p, i)))
+    return rgb_to_hex(tuple(a * (1 - HL_MULTIPLY * (1 - b)) for a, b in zip(p, i)))
 
 
 def check(t: Theme, composited_panel: str | None = None, skin: str | None = None,
-          inks: dict[str, str] | None = None, panels=()) -> None:
+          inks: dict[str, str] | None = None, panels=(), *, plain: bool = False,
+          dark: bool | None = None) -> None:
     """The theme invariant, computed, not judged by eye.
 
     1. text on ground >= 4.5:1 and <= 19:1 (pure white on pure black is refused).
@@ -216,8 +239,11 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
     4. For reds and matrix, fail is not within stated hue distance of text.
     5. Ink on paper (#248): each ink a paper skin draws with (`inks`, tool -> colour) is a mark on
        the panel, so >= 3:1 against it (WCAG 1.4.11, non-text contrast) -- except the
-       highlighter, which is read THROUGH: the text on its tint must keep 4.5:1. The ink layer
-       brings the mechanism; the pairs arrive with the paper skins (#249-#253).
+       highlighter, which is read THROUGH: the text must keep 4.5:1 on what the swipe leaves under
+       it (#329). In ink that is `highlight_under(panel, ink, dark)`, the layer's own blend;
+       `dark` is the variant's, from its `--paper` when its skin.css sets one, else the palette's
+       ground (`dark=None`), never the composited panel's. `plain=True` reads the plain
+       fallback's `INK_TINT` of the ink over the panel instead.
     6. Muted text on ground (#325): to_css(t)["--muted"] >= 4.5:1 on target_ground.
     7. The word on a state colour (#327): each to_css(t)["--on-<role>"] >= 4.5:1 on its role
        colour -- a chip's, a badge's and a rail glyph's word.
@@ -283,7 +309,10 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
     # Rule 5: ink on paper
     for tool, ink in sorted((inks or {}).items()):
         if tool == "highlighter":
-            tint = mix(target_ground, ink, INK_TINT)
+            if plain:
+                tint = mix(target_ground, ink, INK_TINT)
+            else:
+                tint = highlight_under(target_ground, ink, is_dark(t.ground) if dark is None else dark)
             c_hl = contrast_ratio(t.text, tint)
             if c_hl < 4.5:
                 raise ThemeError(

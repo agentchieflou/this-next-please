@@ -143,7 +143,10 @@ def test_a_denial_without_a_reason_is_refused(as_agent):
     id = _wait_for_request()
     with pytest.raises(approval.ApprovalError) as e:
         approval.decide(id, approval.DENIED)
-    assert "reason" in str(e.value)
+    assert "reason" in str(e.value) and e.value.code == "reason_required"
+    with pytest.raises(approval.ApprovalError) as e:
+        approval.decide(id, "maybe", reason="x")
+    assert e.value.code == "bad_state"
     approval.decide(id, approval.DENIED, reason="not this ticket")
 
 
@@ -153,7 +156,7 @@ def test_an_approval_is_answered_once(as_agent):
     approval.decide(id, approval.APPROVED)
     with pytest.raises(approval.ApprovalError) as e:
         approval.decide(id, approval.APPROVED)
-    assert "already" in str(e.value)
+    assert "already" in str(e.value) and e.value.code == "already_decided"
 
 
 def test_an_unknown_id_names_what_is_actually_waiting(as_agent):
@@ -161,7 +164,7 @@ def test_an_unknown_id_names_what_is_actually_waiting(as_agent):
     real = _wait_for_request()
     with pytest.raises(approval.ApprovalError) as e:
         approval.decide("no-such-approval", approval.APPROVED)
-    assert real in e.value.hint
+    assert real in e.value.hint and e.value.code == "not_waiting"
 
 
 def test_pending_never_prunes_and_decided_eventually_does(as_agent):
@@ -298,6 +301,8 @@ def test_the_operator_commands_round_trip(as_agent, capsys, monkeypatch):
 
     assert cli_fleet.main(["approve", id, "--comment", "yes"]) == 0
     assert "decision: approved" in capsys.readouterr().out
+    assert cli_fleet.main(["approve", id]) == 2
+    assert "refused: already_decided" in capsys.readouterr().out, "the refusal names its code, not `refused`"
 
     assert cli_fleet.main(["approvals"]) == 0
     assert "pending: 0" in capsys.readouterr().out
@@ -478,3 +483,168 @@ def test_the_request_is_json_a_dashboard_can_read(as_agent):
     id = _wait_for_request()
     record = json.loads(open(approval._request_path(id), encoding="utf-8").read())
     assert set(record) >= {"id", "repo", "ticket", "kind", "summary", "payload", "created"}
+
+
+# ------------------------------------------------------------ the digest (#543, MOB-D1)
+
+
+def _agent_waiting(kind="jira-transition", summary="RDSD-1: In Progress -> In Review", payload=None):
+    """An agent blocked in `require()` on a thread; returns (thread, result dict, request id)."""
+    result = {}
+
+    def agent():
+        result["d"] = approval.require(kind, summary, payload if payload is not None else {"key": "RDSD-1"},
+                                       ticket="RDSD-1", timeout=20, poll=0.02)
+
+    t = threading.Thread(target=agent)
+    t.start()
+    return t, result, _wait_for_request()
+
+
+def test_the_digest_is_over_exactly_the_six_fields_and_is_stable_across_pretty_and_canonical_json(tmp_path):
+    record = {"id": "luna-jira-transition-20260927T100000-ab12", "repo": "luna", "ticket": "RDSD-1",
+              "kind": "jira-transition", "summary": "RDSD-1: In Progress → In Review",
+              "payload": {"key": "RDSD-1", "to": "In Review", "fields": {"b": 2, "a": [1, "ü"]}},
+              "created": "2026-09-27T10:00:00", "pid": 4242}
+    six = ("id", "kind", "summary", "payload", "created", "pid")
+    import hashlib
+
+    want = hashlib.sha256(json.dumps({k: record[k] for k in six}, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False).encode("utf-8")).hexdigest()
+    got = approval.digest(record)
+    assert got == want and len(got) == 64 and all(c in "0123456789abcdef" for c in got)
+
+    # Outside the six: repo, ticket, and the digest itself never move it.
+    assert approval.digest({**record, "repo": "other", "ticket": "X-9", "digest": "f" * 64}) == got
+    # Inside the six: every one of them does.
+    for k in six:
+        assert approval.digest({**record, k: "changed"}) != got, k
+
+    # A request re-read from a pretty file hashes the same as the object it was written from.
+    path = tmp_path / "pretty.json"
+    path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    again = json.loads(path.read_text(encoding="utf-8"))
+    assert approval.canonical(again) == approval.canonical(record)
+    assert approval.digest(again) == got
+    assert approval.canonical({"b": 1, "a": "ü"}) == '{"a":"ü","b":1}'.encode("utf-8")
+
+
+def test_require_writes_the_digest_into_the_request_and_the_phone_never_gets_the_pid(as_agent):
+    t, result, id = _agent_waiting()
+    on_disk = json.loads(open(approval._request_path(id), encoding="utf-8").read())
+    assert on_disk["pid"] == os.getpid(), "the pid stays in the request file, inside the hash"
+    assert on_disk["digest"] == approval.digest(on_disk)
+
+    approval.decide(id, approval.APPROVED, by="operator")
+    t.join(timeout=10)
+    assert result["d"].ok
+
+    decision = json.loads(open(approval._decision_path(id), encoding="utf-8").read())
+    assert decision["digest"] == on_disk["digest"] and decision["via"] == "laptop"
+    assert "pid" not in decision, "the decision file is what the bridge mirrors; it never carries the pid"
+    for event in E.read("luna"):
+        assert "pid" not in event["data"], event
+
+
+def test_decide_refuses_a_digest_that_does_not_match_the_request_on_disk(as_agent):
+    approval.require("jira-transition", "RDSD-1 -> Done", {"key": "RDSD-1"}, timeout=0)
+    first = _wait_for_request()
+    approval.require("jira-transition", "RDSD-2 -> Done", {"key": "RDSD-2"}, timeout=0)
+    second = next(r["id"] for r in approval.pending() if r["id"] != first)
+    other = approval.read_request(second)["digest"]
+
+    with pytest.raises(approval.ApprovalError) as e:
+        approval.decide(first, approval.APPROVED, digest=other, via="mobile", by="mobile:op@example.com")
+    assert e.value.code == "digest_mismatch"
+    assert "different request" in e.value.msg and e.value.hint
+    assert approval.read_decision(first) == {}, "a refused decision wrote a file"
+    assert not os.path.exists(approval._decision_path(first))
+
+    # The matching digest is accepted, and what it says about itself is kept.
+    done = approval.decide(first, approval.APPROVED, digest=approval.read_request(first)["digest"],
+                           via="mobile", by="mobile:op@example.com")
+    assert done["via"] == "mobile" and done["by"] == "mobile:op@example.com"
+    assert approval.read_decision(first)["digest"] == approval.read_request(first)["digest"]
+
+
+def test_require_refuses_a_decision_carrying_a_wrong_digest_and_the_agent_stops(as_agent, monkeypatch, capsys):
+    result = {}
+
+    def agent():
+        result["rc"], result["out"], result["op"], _ = _jira_transition(
+            monkeypatch, capsys, ["transition", "RDSD-1", "--to", "review"],
+            itype="Story", status="In Progress", transitions=STORY)
+
+    t = threading.Thread(target=agent)
+    t.start()
+    id = _wait_for_request()
+    # A decision somebody made about something else: written straight to disk, the way a bridge or an
+    # older process would, past decide()'s own check.
+    approval.textio.write_json(approval._decision_path(id), {
+        "id": id, "decision": approval.APPROVED, "reason": "", "by": "mobile:op@example.com",
+        "via": "mobile", "decided": "2026-09-27T10:00:00", "digest": "0" * 64})
+    t.join(timeout=15)
+
+    assert result["rc"] == 2
+    assert "refused: approval_denied" in result["out"]
+    assert "the decision names a different request (digest mismatch)" in result["out"]
+    posts = [c for c in result["op"].calls if c[0].startswith("POST")]
+    assert posts == [], "a transition approved for another request was posted to Jira"
+    resolved = [e for e in E.read("luna") if e["kind"] == "approval_resolved"]
+    assert resolved and resolved[-1]["data"]["decision"] == approval.DENIED
+    assert resolved[-1]["data"]["by"] == "mobile:op@example.com"
+    assert resolved[-1]["data"]["reason"] == "the decision names a different request (digest mismatch)"
+
+
+def test_a_decision_without_a_digest_is_still_accepted_so_the_desk_and_the_cli_are_unchanged(as_agent):
+    # An older build's decision file: no digest, no via.
+    t, result, id = _agent_waiting()
+    approval.textio.write_json(approval._decision_path(id), {
+        "id": id, "decision": approval.APPROVED, "reason": "", "by": "operator", "decided": "2026-09-27T10:00:00"})
+    t.join(timeout=10)
+    d = result["d"]
+    assert d.ok and d.by == "operator" and d.via == ""
+
+    # Today's laptop callers pass neither digest nor via, and get both written with today's values.
+    t, result, id = _agent_waiting(summary="RDSD-2 -> Done")
+    approval.decide(id, approval.APPROVED, by="operator")
+    t.join(timeout=10)
+    d = result["d"]
+    assert d.ok and d.by == "operator" and d.via == "laptop"
+
+
+def test_an_approve_comment_reaches_the_gated_commands_meta(as_agent, monkeypatch, capsys, tmp_path):
+    from agentdata import cli, cli_fleet
+
+    # ad-jira transition, released by `ad-fleet approve --comment` from another shell.
+    result = {}
+
+    def agent():
+        result["rc"], result["out"], _, _ = _jira_transition(
+            monkeypatch, capsys, ["transition", "RDSD-1", "--to", "review"],
+            itype="Story", status="In Progress", transitions=STORY, after="In Review")
+
+    t = threading.Thread(target=agent)
+    t.start()
+    id = _wait_for_request()
+    assert cli_fleet.main(["approve", id, "--comment", "fine, and say so on the ticket"]) == 0
+    t.join(timeout=15)
+    assert result["rc"] == 0 and "moved: true" in result["out"]
+    assert "approval_note: \"fine, and say so on the ticket\"" in result["out"] or \
+        "approval_note: fine, and say so on the ticket" in result["out"]
+
+    approved = approval.Decision(approval.APPROVED, id="luna-x-1", reason="ship it before noon", by="operator")
+    monkeypatch.setattr(approval, "require", lambda *a, **k: approved)
+
+    # ad-jira create: the emitted record gains the note.
+    from test_jira_create import _run as _create
+
+    rc, out, _ = _create(monkeypatch, capsys, ["create", "--project", "RDSD", "--summary", "Fix the margin measure"])
+    assert rc == 0 and "approval_note: ship it before noon" in out
+
+    # ad-pncli raw: on the rendered meta.
+    _pncli_env(monkeypatch, tmp_path)
+    monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "confluence", "create-page", "--space", "RDSD",
+                                     "--title", "Findings"])
+    cli.main_pncli()
+    assert "approval_note: ship it before noon" in capsys.readouterr().out

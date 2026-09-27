@@ -23,7 +23,6 @@ rows in the state wanted, and `app.js` sets every class from them, as it does fo
 from __future__ import annotations
 import os
 import re
-import threading
 
 import pytest
 
@@ -32,8 +31,10 @@ from agentdata.fleet import agentstate, events as E, registry, serve as S, skins
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import AT_REST, COUNT_FETCHES, IDLE_LOOP, catch_up_frames
+from desk_harness import close_pages
+from test_fleet_ink import _serve, _stop  # noqa: F401 - over the harness's serve_desk; re-exported
+from test_fleet_ink import AT_REST, COUNT_FETCHES, IDLE_LOOP, _choose, catch_up_frames
+from test_fleet_ink_notebook import _read_through_the_highlighter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -61,19 +62,6 @@ def _desk(tmp_path, fleet_home, skin="glass:smoke"):
     S.arrange(order=list(NAMES))
     S.update_window("main", open=NAMES[0], widths={n: 1 for n in NAMES})
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "%s"}}' % skin, encoding="utf-8")
-
-
-def _serve():
-    server, token = S.build(0)
-    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05},
-                     daemon=True).start()
-    return server, token, server.server_address[1]
-
-
-def _stop(server):
-    server.stopping.set()
-    server.shutdown()
-    server.server_close()
 
 
 def _open(browser, port, token, extra="&ink=on", *, reduced=False, count=False):
@@ -280,7 +268,7 @@ def test_the_glass_module_keeps_the_skin_rules():
 
 
 @pytest.mark.browser
-def test_every_variant_is_drawn_by_the_layer_and_its_panel_is_measured_from_the_frame(fleet_home, tmp_path):
+def test_every_variant_is_drawn_by_the_layer_and_its_panel_is_measured_from_the_frame(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion. Each variant with `?ink=on`: the layer draws a ground and a frame per
     pane from the glass module, samples the ground, and the page's panes go transparent over it.
     Then the composited panel is READ BACK FROM THE FRAME -- the pixels three.js drew behind every
@@ -288,31 +276,29 @@ def test_every_variant_is_drawn_by_the_layer_and_its_panel_is_measured_from_the_
     what `theme.check` is run against, with the variant's inks. They sit inside the range skins.py
     declares for the CSS glass (the same mesh, the same fill), and vary across it: the mesh shows
     through, which is the material."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token)
-            for variant in VARIANTS:
-                _choose(page, f"glass:{variant}")
-                # The glass drawn: what is read back is behind each transcript, where no mark is.
-                _ready(page, variant, rest=False)
-                look = page.evaluate("""() => { const t = getComputedStyle(document.querySelector('#grid .tile'));
-                  return { bg: t.backgroundColor, filter: t.backdropFilter, off: document.body.classList.contains('ink-off'),
-                           canvas: !!document.getElementById('ink'), skin: Ink.inspect().layer.skin }; }""")
-                boxes = [dict(b, at=GRID) for b in page.evaluate(TRANSCRIPTS)]
-                assert len(boxes) == 3 and all(b["w"] > 100 and b["h"] > 100 for b in boxes), boxes
-                first = page.evaluate(READ, boxes)
-                ticks = _glass(page)["frames"]
-                page.wait_for_function("n => window.__glass.inspect().frames >= n + 2", arg=ticks, timeout=30000)
-                again = page.evaluate(READ, boxes)
-                seen[variant] = dict(look=look, px=[c for pane in first + again for c in pane],
-                                     moved=first != again)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token)
+        for variant in VARIANTS:
+            _choose(page, f"glass:{variant}")
+            # The glass drawn: what is read back is behind each transcript, where no mark is.
+            _ready(page, variant, rest=False)
+            look = page.evaluate("""() => { const t = getComputedStyle(document.querySelector('#grid .tile'));
+              return { bg: t.backgroundColor, filter: t.backdropFilter, off: document.body.classList.contains('ink-off'),
+                       canvas: !!document.getElementById('ink'), skin: Ink.inspect().layer.skin }; }""")
+            boxes = [dict(b, at=GRID) for b in page.evaluate(TRANSCRIPTS)]
+            assert len(boxes) == 3 and all(b["w"] > 100 and b["h"] > 100 for b in boxes), boxes
+            first = page.evaluate(READ, boxes)
+            ticks = _glass(page)["frames"]
+            page.wait_for_function("n => window.__glass.inspect().frames >= n + 2", arg=ticks, timeout=30000)
+            again = page.evaluate(READ, boxes)
+            seen[variant] = dict(look=look, px=[c for pane in first + again for c in pane],
+                                 moved=first != again)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for variant, got in seen.items():
@@ -343,44 +329,42 @@ def test_every_variant_is_drawn_by_the_layer_and_its_panel_is_measured_from_the_
 
 
 @pytest.mark.browser
-def test_the_frost_samples_the_ground_through_a_blur(fleet_home, tmp_path):
+def test_the_frost_samples_the_ground_through_a_blur(fleet_home, tmp_path, desk_browser):
     """The pane reads `api.groundTexture`, blurred. The glass module's frames over a test ground
     split down the middle, red on the left and blue on the right: the left pane is red, the right
     one blue, and the middle one -- which the line crosses -- is both near the line, because the
     blur reaches across it, and one or the other a blur's width away."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, reduced=True)
-            _ready(page, "smoke")
-            page.evaluate("""async () => {
-              const split = ({ THREE, scene, api }) => {
-                const { w, h } = api.viewport;
-                [[0xff0000, w / 4], [0x0000ff, 3 * w / 4]].forEach(([c, x]) => {
-                  const m = new THREE.Mesh(new THREE.PlaneGeometry(w / 2, h), new THREE.MeshBasicMaterial({ color: c }));
-                  m.position.set(x, -h / 2, 0);
-                  scene.add(m);
-                });
-              };
-              await Ink.setSkin({ name: 'split', marks: [] }, Object.assign({}, window.__glass, { ground: split }));
-            }""")
-            page.wait_for_function("""() => { const l = Ink.inspect().layer;
-              return Ink.inspect().table === 'split' && l.skin.frames === 3 && l.skin.ground === 2
-                && window.__glass.inspect().panes.length === 3; }""", timeout=30000)
-            w = page.evaluate("() => innerWidth")
-            t = page.evaluate(TRANSCRIPTS)
-            mid = t[1]
-            line = (w / 2 - mid["x"]) / mid["w"]
-            near = 4 / mid["w"]
-            far = 60 / mid["w"]
-            got = page.evaluate(READ, [dict(t[0], at=[(0.5, 0.5)]), dict(t[2], at=[(0.5, 0.5)]),
-                                       dict(mid, at=[(line - near, 0.5), (line + near, 0.5),
-                                                     (line - far, 0.5), (line + far, 0.5)])])
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, reduced=True)
+        _ready(page, "smoke")
+        page.evaluate("""async () => {
+          const split = ({ THREE, scene, api }) => {
+            const { w, h } = api.viewport;
+            [[0xff0000, w / 4], [0x0000ff, 3 * w / 4]].forEach(([c, x]) => {
+              const m = new THREE.Mesh(new THREE.PlaneGeometry(w / 2, h), new THREE.MeshBasicMaterial({ color: c }));
+              m.position.set(x, -h / 2, 0);
+              scene.add(m);
+            });
+          };
+          await Ink.setSkin({ name: 'split', marks: [] }, Object.assign({}, window.__glass, { ground: split }));
+        }""")
+        page.wait_for_function("""() => { const l = Ink.inspect().layer;
+          return Ink.inspect().table === 'split' && l.skin.frames === 3 && l.skin.ground === 2
+            && window.__glass.inspect().panes.length === 3; }""", timeout=30000)
+        w = page.evaluate("() => innerWidth")
+        t = page.evaluate(TRANSCRIPTS)
+        mid = t[1]
+        line = (w / 2 - mid["x"]) / mid["w"]
+        near = 4 / mid["w"]
+        far = 60 / mid["w"]
+        got = page.evaluate(READ, [dict(t[0], at=[(0.5, 0.5)]), dict(t[2], at=[(0.5, 0.5)]),
+                                   dict(mid, at=[(line - near, 0.5), (line + near, 0.5),
+                                                 (line - far, 0.5), (line + far, 0.5)])])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     (left,), (right,), (in_l, in_r, out_l, out_r) = got
@@ -391,34 +375,32 @@ def test_the_frost_samples_the_ground_through_a_blur(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing(fleet_home, tmp_path):
+def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing(fleet_home, tmp_path, desk_browser):
     """The ground is a material and may move (ground rule 1 is about marks): with motion allowed
     its clock runs and the layer draws it, on the ground's own timer, while the page's idle loop
     makes zero DOM mutations. Under reduced motion it stands still, and the idle desk is zero
     mutations and zero WebGL frames, as the layer promises for any skin."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for reduced in (False, True):
-                page, errors, _ = _open(browser, port, token, reduced=reduced)
-                _ready(page, "smoke")
-                before = _glass(page)
-                count = page.evaluate(IDLE_LOOP)
-                after = _glass(page)
-                # And it goes on: the ground's own timer asks for the next frame, and the next.
-                # Read as the clock moving again, not as the timer being set -- between its firing
-                # and the frame it asked for, it is not.
-                if not reduced:
-                    page.wait_for_function("c => window.__glass.inspect().clock > c", arg=after["clock"],
-                                           timeout=30000)
-                seen[reduced] = dict(before=before, after=after, count=count)
-                assert not errors, errors
-                page.close()
-            browser.close()
+        browser = desk_browser
+        for reduced in (False, True):
+            page, errors, _ = _open(browser, port, token, reduced=reduced)
+            _ready(page, "smoke")
+            before = _glass(page)
+            count = page.evaluate(IDLE_LOOP)
+            after = _glass(page)
+            # And it goes on: the ground's own timer asks for the next frame, and the next.
+            # Read as the clock moving again, not as the timer being set -- between its firing
+            # and the frame it asked for, it is not.
+            if not reduced:
+                page.wait_for_function("c => window.__glass.inspect().clock > c", arg=after["clock"],
+                                       timeout=30000)
+            seen[reduced] = dict(before=before, after=after, count=count)
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         _stop(server)
     moving, still = seen[False], seen[True]
@@ -430,7 +412,7 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
 
 
 @pytest.mark.browser
-def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_home, tmp_path):
+def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_home, tmp_path, desk_browser):
     """The grammar (docs/skin-glass.md), from the classes app.js sets for the rows it is given.
     needs you: the name and the question highlighted, the rim lit in the human colour. answered:
     the choice circled in pen, and struck when another is chosen. error: a bang, the rim lit.
@@ -438,40 +420,47 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     stale: no mark, the note's own words (#332: an outline round it ran over the chip's age). A finding: the scope report ringed in red. A state that
     goes is struck (an ink never fades), and the rim that went with it is off. Reduced motion, so
     every step is at rest at once."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     steps = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, reduced=True)
-            _ready(page, "smoke")
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, reduced=True)
+        _ready(page, "smoke")
 
-            def at_rest(also="true"):
-                try:
-                    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=30000)
-                except Exception:
-                    raise AssertionError(("not at rest with", also, _by(page), page.evaluate(TILES)))
-                return _by(page), _rims(page)
+        def at_rest(also="true"):
+            try:
+                page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=30000)
+            except Exception:
+                raise AssertionError(("not at rest with", also, _by(page), page.evaluate(TILES)))
+            return _by(page), _rims(page)
 
-            _states(page, {"alpha": dict(_live("needs_human"), needs_human=True, asked=ASKED),
-                           "beta": dict(_live("error"), needs_human=True),
-                           "gamma": _live("done", stale={"stale": True})})
-            steps["set"] = at_rest("document.querySelectorAll('.tile.state-done').length === 1"
-                                   " && Ink.inspect().layer.marks.some(m => m.shape === 'check')")
-            page.click('.tile[data-repo="alpha"] .ask-choice >> nth=0')
-            steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop')")
-            page.click('.tile[data-repo="alpha"] .ask-choice >> nth=1')
-            steps["picked again"] = at_rest("Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
-            _states(page, {"alpha": _live("idle", stale={"stale": False}),
-                           "beta": _live("idle", scope_report={"edited": 3, "outside": ["docs/x.md"]}),
-                           "gamma": _live("running")})
-            steps["moved on"] = at_rest("document.querySelectorAll('.tile.state-running').length === 1"
-                                        " && Ink.inspect().layer.marks.some(m => m.shape === 'ellipse')")
-            steps["run"] = page.evaluate("() => window.__glass.inspect().panes.map(p => [p.repo, p.run])")
-            assert not errors, errors
-            browser.close()
+        _states(page, {"alpha": dict(_live("needs_human"), needs_human=True, asked=ASKED),
+                       "beta": dict(_live("error"), needs_human=True),
+                       "gamma": _live("done", stale={"stale": True})})
+        steps["set"] = at_rest("document.querySelectorAll('.tile.state-done').length === 1"
+                               " && Ink.inspect().layer.marks.some(m => m.shape === 'check')")
+        # #329, folded here (decision 13): the needs-you name and its question read at 4.5:1
+        # through each variant's highlighter, measured from the pixels under them; then smoke again.
+        for variant in VARIANTS:
+            if variant != "smoke":
+                _choose(page, "glass:" + variant)
+            _ready(page, variant)
+            steps.setdefault("read", []).extend(_read_through_the_highlighter(page, "alpha", "glass:" + variant))
+        _choose(page, "glass:smoke")
+        _ready(page, "smoke")
+        page.click('.tile[data-repo="alpha"] .ask-choice >> nth=0')
+        steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop')")
+        page.click('.tile[data-repo="alpha"] .ask-choice >> nth=1')
+        steps["picked again"] = at_rest("Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        _states(page, {"alpha": _live("idle", stale={"stale": False}),
+                       "beta": _live("idle", scope_report={"edited": 3, "outside": ["docs/x.md"]}),
+                       "gamma": _live("running")})
+        steps["moved on"] = at_rest("document.querySelectorAll('.tile.state-running').length === 1"
+                                    " && Ink.inspect().layer.marks.some(m => m.shape === 'ellipse')")
+        steps["run"] = page.evaluate("() => window.__glass.inspect().panes.map(p => [p.repo, p.run])")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     marks, rims = steps["set"]
@@ -532,36 +521,34 @@ CHECKS = """(r) => Ink.inspect().layer.marks.filter(m => m.lane === 'pane:' + r 
 
 
 @pytest.mark.browser
-def test_a_finished_agent_nothing_supervises_is_ticked_and_rimmed_on_every_variant(fleet_home, tmp_path, alive):
+def test_a_finished_agent_nothing_supervises_is_ticked_and_rimmed_on_every_variant(fleet_home, tmp_path, alive, desk_browser):
     """#333: the fold calls an agent done only once nothing supervises it, and the chip draws every
     quiet unsupervised agent as idle -- so the pane is `state-idle is-done` (#253). Glass keys done
     on both classes, as the paper skins do: a green check in the margin and the rim in green, on
     every variant, from the fold's own events. Reduced motion, so the rim is set at once (`k` 1).
     When the agent starts again the check is struck and the rim leaves done."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _finished_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, reduced=True)
-            for v in VARIANTS:
-                _choose(page, "glass:" + v)
-                _ready(page, v, f"({CHECKS})('beta').includes('drawn')"
-                                " && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim === 'done'")
-                seen[v] = {"cls": page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className"""),
-                           "checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
-            alive.add("beta")
-            E.append("beta", [E.event("beta", "turn_started", {"turn": "1"}, ticket="RDSD-1")])
-            page.wait_for_function(
-                """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
-                             return true; refresh(); return false; }""", timeout=20000, polling=250)
-            page.wait_for_function(f"""() => ({AT_REST})() && !({CHECKS})('beta').includes('drawn')
-                && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim !== 'done'""", timeout=30000)
-            again = {"checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, reduced=True)
+        for v in VARIANTS:
+            _choose(page, "glass:" + v)
+            _ready(page, v, f"({CHECKS})('beta').includes('drawn')"
+                            " && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim === 'done'")
+            seen[v] = {"cls": page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className"""),
+                       "checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
+        alive.add("beta")
+        E.append("beta", [E.event("beta", "turn_started", {"turn": "1"}, ticket="RDSD-1")])
+        page.wait_for_function(
+            """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
+                         return true; refresh(); return false; }""", timeout=20000, polling=250)
+        page.wait_for_function(f"""() => ({AT_REST})() && !({CHECKS})('beta').includes('drawn')
+            && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim !== 'done'""", timeout=30000)
+        again = {"checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for v, got in seen.items():
@@ -594,28 +581,26 @@ RIM_RECORD = """async ([want]) => {
 
 
 @pytest.mark.browser
-def test_the_rim_is_drawn_round_and_runs_back_and_the_ink_settles_in_frames(fleet_home, tmp_path):
+def test_the_rim_is_drawn_round_and_runs_back_and_the_ink_settles_in_frames(fleet_home, tmp_path, desk_browser):
     """With motion: a pane that comes to need you has its rim drawn round it over several frames,
     never jumping back, and its marks drawn within the frames a hand at the pen's speed needs
     (ground rule 5, counted in frames, not milliseconds). When the state goes the rim runs back
     the way it came -- a material that is taken away the way it was drawn, not faded out."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token)
-            _ready(page, "smoke")
-            page.evaluate(STUB)
-            # The rows changed and the frames recorded from the same task, so the first frame of
-            # the rim being drawn is in the record.
-            came = page.evaluate("""async (patch) => { (%s)(patch); return await (%s)(['human']); }"""
-                                 % (PATCH, RIM_RECORD), {"alpha": dict(_live("needs_human"), needs_human=True)})
-            went = page.evaluate("""async (patch) => { (%s)(patch); return await (%s)([null]); }"""
-                                 % (PATCH, RIM_RECORD), {"alpha": _live("idle")})
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token)
+        _ready(page, "smoke")
+        page.evaluate(STUB)
+        # The rows changed and the frames recorded from the same task, so the first frame of
+        # the rim being drawn is in the record.
+        came = page.evaluate("""async (patch) => { (%s)(patch); return await (%s)(['human']); }"""
+                             % (PATCH, RIM_RECORD), {"alpha": dict(_live("needs_human"), needs_human=True)})
+        went = page.evaluate("""async (patch) => { (%s)(patch); return await (%s)([null]); }"""
+                             % (PATCH, RIM_RECORD), {"alpha": _live("idle")})
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     ks = [f["k"] for f in came if f["rim"] == "human"]
@@ -636,44 +621,42 @@ def test_the_rim_is_drawn_round_and_runs_back_and_the_ink_settles_in_frames(flee
 
 
 @pytest.mark.browser
-def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(fleet_home, tmp_path):
+def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(fleet_home, tmp_path, desk_browser):
     """The gate off (nothing measured): no canvas, no three.js, and -- since #257 -- no CSS glass
     either: the desk is the one plain look every skin shares, the pane the palette's own opaque
     panel with no frost, in every variant, and the same mark table drawn plain by the layer's
     fallback: the name that needs you tinted, the done pane's margin barred."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, asked = _open(browser, port, token, extra="")
-            _states(page, {"alpha": dict(_live("needs_human"), needs_human=True),
-                           "gamma": _live("done")})
-            for variant in VARIANTS:
-                _choose(page, f"glass:{variant}")
-                page.wait_for_function("v => Ink.inspect().table === 'glass:' + v && Ink.inspect().plain", arg=variant,
-                                       timeout=20000)
-                page.wait_for_function("v => document.body.dataset.skinVariant === v"
-                                       " && !!(document.head.querySelector('link[data-skin]') || {}).sheet"
-                                       " && getComputedStyle(document.body).getPropertyValue('--glass-fill').trim() !== ''",
-                                       arg=variant, timeout=20000)
-                seen[variant] = page.evaluate("""() => {
-                  const g = s => getComputedStyle(document.querySelector(s));
-                  const probe = document.createElement('span');
-                  probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--panel').trim();
-                  document.body.appendChild(probe);
-                  const panel = getComputedStyle(probe).color;
-                  probe.remove();
-                  return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
-                           layer: Ink.inspect().layer, tile: g('#grid .tile').backgroundColor, panel,
-                           blur: g('#grid .tile').backdropFilter,
-                           hl: g('.tile[data-repo="alpha"] .repo').backgroundColor,
-                           done: g('.tile[data-repo="gamma"]').boxShadow }; }""")
-            assert not errors, errors
-            three = [u for u in asked if "/vendor/three/" in u or "/static/ink/layer.js" in u]
-            browser.close()
+        browser = desk_browser
+        page, errors, asked = _open(browser, port, token, extra="")
+        _states(page, {"alpha": dict(_live("needs_human"), needs_human=True),
+                       "gamma": _live("done")})
+        for variant in VARIANTS:
+            _choose(page, f"glass:{variant}")
+            page.wait_for_function("v => Ink.inspect().table === 'glass:' + v && Ink.inspect().plain", arg=variant,
+                                   timeout=20000)
+            page.wait_for_function("v => document.body.dataset.skinVariant === v"
+                                   " && !!(document.head.querySelector('link[data-skin]') || {}).sheet"
+                                   " && getComputedStyle(document.body).getPropertyValue('--glass-fill').trim() !== ''",
+                                   arg=variant, timeout=20000)
+            seen[variant] = page.evaluate("""() => {
+              const g = s => getComputedStyle(document.querySelector(s));
+              const probe = document.createElement('span');
+              probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--panel').trim();
+              document.body.appendChild(probe);
+              const panel = getComputedStyle(probe).color;
+              probe.remove();
+              return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
+                       layer: Ink.inspect().layer, tile: g('#grid .tile').backgroundColor, panel,
+                       blur: g('#grid .tile').backdropFilter,
+                       hl: g('.tile[data-repo="alpha"] .repo').backgroundColor,
+                       done: g('.tile[data-repo="gamma"]').boxShadow }; }""")
+        assert not errors, errors
+        three = [u for u in asked if "/vendor/three/" in u or "/static/ink/layer.js" in u]
+        close_pages(browser)
     finally:
         _stop(server)
     assert not three, three
@@ -696,33 +679,31 @@ PROBE = """async () => {
 
 
 @pytest.mark.browser
-def test_dispose_frees_the_ground_target_when_the_skin_changes(fleet_home, tmp_path):
+def test_dispose_frees_the_ground_target_when_the_skin_changes(fleet_home, tmp_path, desk_browser):
     """The ground texture the frost samples is a render target. When the skin changes, glass's
     `dispose` lets go of everything it kept (its panes, its ground, its timer) and the target is
     freed: the renderer holds fewer textures than it did under glass, no ground texture is handed
     to the next skin, and glass chosen and left again leaves the count where it was."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token)
-            for variant in ("smoke", "azure"):
-                _choose(page, f"glass:{variant}")
-                # The glass drawn, not the ink at rest: what is measured is the ground's target,
-                # and no mark holds a texture. Motion stays allowed, so glass keeps a ground timer
-                # for `dispose` to clear.
-                _ready(page, variant, rest=False)
-                on = _glass(page)
-                page.evaluate("() => Ink.setSkin(null).then(() => true)")
-                gone = _glass(page)
-                page.evaluate(PROBE)
-                page.wait_for_function("() => !!window.__after", timeout=20000)
-                seen[variant] = dict(on=on, gone=gone, after=page.evaluate("() => window.__after"))
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token)
+        for variant in ("smoke", "azure"):
+            _choose(page, f"glass:{variant}")
+            # The glass drawn, not the ink at rest: what is measured is the ground's target,
+            # and no mark holds a texture. Motion stays allowed, so glass keeps a ground timer
+            # for `dispose` to clear.
+            _ready(page, variant, rest=False)
+            on = _glass(page)
+            page.evaluate("() => Ink.setSkin(null).then(() => true)")
+            gone = _glass(page)
+            page.evaluate(PROBE)
+            page.wait_for_function("() => !!window.__after", timeout=20000)
+            seen[variant] = dict(on=on, gone=gone, after=page.evaluate("() => window.__after"))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for variant, got in seen.items():

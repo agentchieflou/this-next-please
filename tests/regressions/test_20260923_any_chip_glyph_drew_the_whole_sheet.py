@@ -22,7 +22,7 @@ import re
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import _desk_of, _open, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 SKINS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -71,44 +71,42 @@ def test_every_skin_that_names_a_sprite_is_checked():
 
 
 @pytest.mark.browser
-def test_a_chip_glyph_is_its_one_sprite(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_chip_glyph_is_its_one_sprite(fleet_home, tmp_path, desk_browser):
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token)
-            drawn = page.evaluate("""async (glyphs) => {
-              const read = async (skin, sprite, size) => {
-                const img = new Image();
-                img.src = q('/static/skins/' + skin + '/sprites.svg') + (sprite ? '#' + sprite : '');
-                await img.decode();
-                const c = document.createElement('canvas');
-                c.width = c.height = size;
-                const g = c.getContext('2d');
-                g.imageSmoothingEnabled = false;
-                g.drawImage(img, 0, 0, size, size);
-                const d = g.getImageData(0, 0, size, size).data, seen = new Set(), extent = [0, 0];
-                for (let i = 0; i < d.length; i += 4) {
-                  if (!d[i + 3]) continue;
-                  seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
-                    .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
-                  const p = i / 4;
-                  extent[0] = Math.max(extent[0], p % size + 1);
-                  extent[1] = Math.max(extent[1], Math.floor(p / size) + 1);
-                }
-                return { colours: [...seen].sort(), size: [img.naturalWidth, img.naturalHeight], extent };
-              };
-              const out = {};
-              for (const [skin, sprite, size] of glyphs) {
-                out[skin + '#' + sprite] = await read(skin, sprite, size);
-                out[skin + '#'] = await read(skin, '', size);
-              }
-              return out;
-            }""", [[s, n, z] for s, n, z, _, _ in GLYPHS])
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token)
+        drawn = page.evaluate("""async (glyphs) => {
+          const read = async (skin, sprite, size) => {
+            const img = new Image();
+            img.src = q('/static/skins/' + skin + '/sprites.svg') + (sprite ? '#' + sprite : '');
+            await img.decode();
+            const c = document.createElement('canvas');
+            c.width = c.height = size;
+            const g = c.getContext('2d');
+            g.imageSmoothingEnabled = false;
+            g.drawImage(img, 0, 0, size, size);
+            const d = g.getImageData(0, 0, size, size).data, seen = new Set(), extent = [0, 0];
+            for (let i = 0; i < d.length; i += 4) {
+              if (!d[i + 3]) continue;
+              seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
+                .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
+              const p = i / 4;
+              extent[0] = Math.max(extent[0], p % size + 1);
+              extent[1] = Math.max(extent[1], Math.floor(p / size) + 1);
+            }
+            return { colours: [...seen].sort(), size: [img.naturalWidth, img.naturalHeight], extent };
+          };
+          const out = {};
+          for (const [skin, sprite, size] of glyphs) {
+            out[skin + '#' + sprite] = await read(skin, sprite, size);
+            out[skin + '#'] = await read(skin, '', size);
+          }
+          return out;
+        }""", [[s, n, z] for s, n, z, _, _ in GLYPHS])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for skin, sprite, size, colours, own in GLYPHS:

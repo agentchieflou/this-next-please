@@ -190,6 +190,22 @@ def _inks(spec, palette, skin_name=None):
     return out
 
 
+def _paper(skin_name, variant):
+    """The `--paper` a variant's skin.css sets (its own block's, else the skin's default block's),
+    or None when it sets none -- what `static/ink/layer.js` `colours()` reads its `dark` from."""
+    path = os.path.join(STATIC, "skins", skin_name, "skin.css")
+    if not os.path.exists(path):
+        return None
+    css = open(path, encoding="utf-8").read()
+    own = re.search(r'body\[data-skin="%s"\]\[data-skin-variant="%s"\]\s*\{([^}]*)\}' % (skin_name, variant), css)
+    base = re.search(r'body\[data-skin="%s"\]\s*\{([^}]*)\}' % skin_name, css)
+    for block in (own, base):
+        m = block and re.search(r"--paper:\s*(#[0-9A-Fa-f]{6})", block.group(1))
+        if m:
+            return m.group(1)
+    return None
+
+
 @pytest.mark.parametrize("skin_name,variant,spec", [v for v in skins.every_variant()],
                          ids=[f"{s}:{v}" for s, v, _ in skins.every_variant()])
 def test_every_skin_and_palette_passes_theme_check_plain_and_in_ink(skin_name, variant, spec):
@@ -199,7 +215,11 @@ def test_every_skin_and_palette_passes_theme_check_plain_and_in_ink(skin_name, v
     shows for every skin -- with the skin's mark table drawn as CSS in the same inks."""
     palette = theme.get(spec["base"])
     inks = _inks(spec, palette, skin_name=skin_name) if os.path.exists(os.path.join(INK_SKINS, skin_name + ".js")) else None
+    # The ink layer's `dark` is the variant's (#329): from the paper its skin.css sets, else the
+    # palette's ground -- never the composited panel's.
+    paper = _paper(skin_name, variant)
+    dark = theme.is_dark(paper) if paper else None
     for panel in skins.composited_panels(spec):
-        theme.check(palette, composited_panel=panel, skin=f"{skin_name}:{variant}", inks=inks)
+        theme.check(palette, composited_panel=panel, skin=f"{skin_name}:{variant}", inks=inks, dark=dark)
     theme.check(palette, composited_panel=theme.to_css(palette)["--panel"],
-                skin=f"{skin_name}:{variant} (plain)", inks=inks)
+                skin=f"{skin_name}:{variant} (plain)", inks=inks, plain=True)

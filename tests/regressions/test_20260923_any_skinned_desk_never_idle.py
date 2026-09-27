@@ -23,35 +23,33 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _serve, _stop,  # noqa: F401
                             fleet_home)
 
 
 @pytest.mark.browser
 @pytest.mark.parametrize("skin", ["farmstead", "legalpad"])
-def test_a_skinned_desk_at_rest_writes_nothing(fleet_home, tmp_path, skin):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_skinned_desk_at_rest_writes_nothing(fleet_home, tmp_path, skin, desk_browser):
     _desk_of(tmp_path)
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "%s"}}' % skin, encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, count=True)
-            family = skin.split(":")[0]
-            page.wait_for_function(f"""() => document.body.dataset.skin === '{family}'
-              && !!document.head.querySelector('link[data-skin]').sheet""", timeout=15000)
-            count = page.evaluate(IDLE_LOOP)
-            # And with nothing asked of it at all, for longer than the retry's 150ms.
-            quiet = page.evaluate("""async () => { let n = 0;
-              const obs = new MutationObserver(rs => { n += rs.length; });
-              obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
-              await new Promise(d => setTimeout(d, 700));
-              obs.disconnect();
-              return n; }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, count=True)
+        family = skin.split(":")[0]
+        page.wait_for_function(f"""() => document.body.dataset.skin === '{family}'
+          && !!document.head.querySelector('link[data-skin]').sheet""", timeout=15000)
+        count = page.evaluate(IDLE_LOOP)
+        # And with nothing asked of it at all, for longer than the retry's 150ms.
+        quiet = page.evaluate("""async () => { let n = 0;
+          const obs = new MutationObserver(rs => { n += rs.length; });
+          obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
+          await new Promise(d => setTimeout(d, 700));
+          obs.disconnect();
+          return n; }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"{skin}: an idle desk wrote to the page: {count}"

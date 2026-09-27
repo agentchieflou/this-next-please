@@ -176,6 +176,10 @@ def test_glass_draws_with_the_inks_skins_py_checks():
         block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\n\}' % variant, css, re.S).group(1)
         said = dict(re.findall(r"--ink-(\w+):\s*var\((--[\w-]+)\)", block))
         assert said == spec.get("ink_tokens", {}), (variant, said)
+        # A variant's own literal (#329: the highlighter each one is read through) is the one
+        # skins.py holds to `theme.check`.
+        literal = dict(re.findall(r"--ink-(\w+):\s*(#[0-9A-Fa-f]{6})", block))
+        assert literal and all(spec["inks"][tool] == ink for tool, ink in literal.items()), (variant, literal)
 
 
 def test_every_palette_on_its_own_passes_too():

@@ -662,6 +662,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 #refusedrows { margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
 
 .tile.needs-human .head .repo { color: var(--human-text); }
+body[data-skin] .tile.needs-human .head .repo { color: var(--text); }
 
 .outside {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

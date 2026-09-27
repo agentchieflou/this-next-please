@@ -128,6 +128,7 @@ def main_pncli() -> None:
             t = P.jira_search(jql, a.fields.split(",") if a.fields else None, a.max_results)
             print(render(t, raw=a.raw))
         else:
+            note = None
             pargs = [x for x in a.pargs if x != "--raw"]  # REMAINDER swallows a trailing --raw
             raw_out = a.raw_out or len(pargs) != len(a.pargs)
             shown = list(pargs)
@@ -153,12 +154,15 @@ def main_pncli() -> None:
                 if not d.ok:
                     print(toon.encode({"meta": approval.refusal(d, "ad-pncli raw")}))
                     sys.exit(2)
+                if d.reason:
+                    note = {"approval_note": d.reason}      # the approve comment, for the agent to quote (#543)
             payload, el = P.run(pargs)
             source = "pncli " + " ".join(shown)
             if raw_out:
                 print(render(AgentTable(name="pncli", columns=[], rows=[], source=source, raw=payload), raw=True))
             else:
-                print(render_nested(P.extract_records(payload), name="pncli", source=source, raw_payload=payload))
+                print(render_nested(P.extract_records(payload), name="pncli", source=source, raw_payload=payload,
+                                    extra=note))
     except proc.ProcError as e:
         meta = {"ok": False, "source": "ad-pncli", "error": e.msg, "hint": e.hint, "refused": e.code, **e.detail}
         print(toon.encode({"meta": meta})); sys.exit(1)
