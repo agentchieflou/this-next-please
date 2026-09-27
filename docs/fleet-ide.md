@@ -45,6 +45,9 @@ string carried over — `http://127.0.0.1:8765/open?page=probe&w=vscode` is the 
 Simple Browser to measure it. Only a page the server serves; any other `page=` is the desk.
 `/open?page=map&w=pycharm` lands on the fleet map (#405, [fleet-map.md](fleet-map.md) §The page), the tree
 a tool window 400-600 px wide reads well; Enter on a checkout there opens it on that window's desk.
+`/open?page=m&w=phone&ink=off` lands on the phone page (#581, [fleet-dashboard.md](fleet-dashboard.md)
+§Endpoints): the agents that need you, one at a time, with approve, deny, answer and reply, for a tablet on this
+machine's localhost. Its window is `phone` when the query names none.
 
 ## VS Code
 

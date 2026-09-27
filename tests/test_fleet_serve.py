@@ -71,8 +71,8 @@ def a_repo(tmp_path, name="luna", **kw):
 
 def test_a_request_without_the_token_is_refused(running):
     base, token, _ = running
-    for path in ("/", "/settings", "/api/fleet", "/api/themes",
-                 "/static/app.js", "/static/common.js", "/static/settings.js"):
+    for path in ("/", "/settings", "/m", "/api/fleet", "/api/themes",
+                 "/static/app.js", "/static/common.js", "/static/settings.js", "/static/m/m.js"):
         with pytest.raises(urllib.error.HTTPError) as e:
             get(base, path)
         assert e.value.code == 403, path
@@ -562,6 +562,30 @@ def test_the_map_page_fits_inside_the_desk_budget_and_its_scripts_inside_their_o
     assert sent < MAP_BUDGET, (sent, scripts_)
 
 
+#: The phone page's own scripts (#581, P-15): `static/m/**/*.js`, gzipped as served. Outside the desk's
+#: 200 KiB like `MAP_BUDGET`: a desk never fetches them. `m/m.js` measured 2,746 B at #581; /m does
+#: four verbs and nothing else (the issue's Out of scope), so 4 KiB is its room, not a target.
+M_BUDGET = 4 * 1024
+
+
+def test_the_phone_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
+    """`m.html` and `m.css` sit in `static/` beside the desk's files, so the 200 KiB above counts them;
+    they are held to 4 KiB of it together, like the map's. The phone's scripts have a budget of
+    their own (P-15)."""
+    import gzip as gz
+
+    def wire(rel):
+        return len(gz.compress(S.static_body(rel), 6, mtime=0))
+
+    page = wire("m.html") + wire("m.css")
+    assert page < 4 * 1024, page
+    scripts_ = m_scripts()
+    assert scripts_ == ["m/m.js"], scripts_
+    sent = sum(wire(n) for n in scripts_)
+    print(f"\n  phone page {page} bytes gzipped; phone scripts {sent} bytes gzipped {scripts_}")
+    assert sent < M_BUDGET, (sent, scripts_)
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""
@@ -573,7 +597,7 @@ def test_the_page_and_its_assets_are_served_compressed():
     thread.start()
     port = server.server_address[1]
     try:
-        for route in ("/", "/settings", "/map", "/static/app.js", "/static/common.js",
+        for route in ("/", "/settings", "/map", "/m", "/static/m/m.js", "/static/app.js", "/static/common.js",
                       "/static/settings.js", "/static/app.css", "/static/ink/ink.js",
                       "/static/ink/layer.js"):
             asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
@@ -617,13 +641,18 @@ def scripts() -> list[str]:
              if n.endswith(".js")]
     # The map's scripts (#405), walked all the way down: its scene and skins (#409, #414) will
     # live in folders under `static/map/`.
-    return sorted(top + ink + skins + map_scripts())
+    return sorted(top + ink + skins + map_scripts() + m_scripts())
 
 
-def map_scripts() -> list[str]:
-    """Every `.js` under `static/map/`, as a path under `static/`."""
+def m_scripts() -> list[str]:
+    """Every `.js` under `static/m/` (#581), as a path under `static/`."""
+    return map_scripts("m")
+
+
+def map_scripts(folder="map") -> list[str]:
+    """Every `.js` under `static/map/` (or another page's folder), as a path under `static/`."""
     found = []
-    for root, _, files in os.walk(os.path.join(STATIC, "map")):
+    for root, _, files in os.walk(os.path.join(STATIC, folder)):
         for n in files:
             if n.endswith(".js"):
                 found.append(os.path.relpath(os.path.join(root, n), STATIC).replace(os.sep, "/"))
@@ -665,7 +694,8 @@ def test_the_script_writes_text_rather_than_markup():
 PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("settings.html", ["settings.js", "common.js"]),
                 ("probe.html", ["probe.js", "common.js"]),
-                ("map.html", ["map/map.js", "common.js"])]
+                ("map.html", ["map/map.js", "common.js"]),
+                ("m.html", ["m/m.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
@@ -783,7 +813,7 @@ def test_the_page_can_actually_fetch_its_own_css_and_js(running):
     the URLs out of the served HTML and fetches exactly those.
     """
     base, token, _ = running
-    for page in ("/", "/settings"):
+    for page in ("/", "/settings", "/m"):
         html = urllib.request.urlopen(f"{base}{page}?t={token}", timeout=5).read().decode()
 
         refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
