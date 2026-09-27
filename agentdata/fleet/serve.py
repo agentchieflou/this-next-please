@@ -575,6 +575,23 @@ def fleet_snapshot() -> dict:
     cfg = C.load()
     budget_now = lifecycle.settings(cfg)["budget_per_agent"]
     default_theme_name = cfg.get("theme", {}).get("default") or "none"
+    # The palette the page is served (`theme_state`): a skin's variant base wins over `theme.default`.
+    # A pane no project chose a colour for wears this palette's mark, never a state colour (#339).
+    from . import skins as SK
+    skin_info = SK.get_skin(cfg.get("theme", {}).get("skin") or "none")
+    if skin_info and skin_info.get("base"):
+        default_theme_name = skin_info["base"]
+    served = theme_or_none(default_theme_name)
+    served_panels = SK.panels_on(served.name) if served.name != "none" else []
+    default_mark = T.pane_mark(served, panels=served_panels)
+    served_css = T.to_css(served, panels=served_panels)
+
+    def palette_mark(colour: str | None) -> str:
+        """A palette's accent where it reads as no state on the served page, else the served palette's mark."""
+        if not served_css:
+            return ""
+        grounds = (served_css["--panel"], *served_panels)
+        return colour if T.marks_clear(colour, grounds, [served_css[r] for r in T.ROLES]) else default_mark
     proj_theme_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_theme_map, dict):
         proj_theme_map = {}
@@ -678,13 +695,13 @@ def fleet_snapshot() -> dict:
             accent = proj_entry["accent"]
         elif isinstance(proj_entry, dict) and "theme" in proj_entry:
             pt = theme_or_none(proj_entry["theme"], seed=project)
-            accent = pt.accent or "#3FB950"
+            accent = pt.accent or default_mark
         elif isinstance(proj_entry, str) and proj_entry:
             pt = theme_or_none(proj_entry, seed=project)
-            accent = pt.accent or "#3FB950"
+            accent = pt.accent or default_mark
         else:
-            pt = theme_or_none(default_theme_name, seed=name)
-            accent = pt.accent or "#3FB950"
+            # Seeded by the checkout, so `random` still gives each pane its own roll.
+            accent = palette_mark(theme_or_none(default_theme_name, seed=name).accent)
 
         rows.append({"repo": name, "path": row.get("path", ""),
                      # Which project this checkout is one of, and the checkouts beside it. A tile

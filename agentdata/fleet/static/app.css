@@ -4,6 +4,7 @@
   --text: #1b1f23;
   --muted: #5b6570;
   --accent: #1668b8;
+  --focus: #1f2123;
   --line: #d8dde2;
   --select: #dce8f5;
 
@@ -46,7 +47,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --bg: #14171a; --panel: #1c2024; --text: #e3e7ea; --muted: #909aa4;
-    --accent: #58a6ff; --line: #2c3237; --select: #23303d;
+    --accent: #58a6ff; --focus: #e3e7ea; --line: #2c3237; --select: #23303d;
     --running-text: #5e9ada; --waiting-text: #cb8817; --human-text: #d67f8a;
     --done-text: #4da876; --idle-text: #8f98a3;
   }
@@ -114,9 +115,9 @@ header, footer {
   color: var(--text);
 }
 .segment.active {
-  background: var(--panel);
-  color: var(--accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  background: var(--select);
+  color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); position: relative; }
 
@@ -160,8 +161,11 @@ select, button, input {
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button:focus-visible, select:focus-visible, input:focus-visible, .segment:focus-visible, .tile:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 2px;
+  outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 6px var(--bg);
 }
+.segment.active:focus-visible, .head .pintoggle.active:focus-visible, .head .maxtoggle.active:focus-visible,
+.tile.is-pinned .head .pintoggle:focus-visible { box-shadow: inset 0 0 0 2px var(--focus), 0 0 0 6px var(--bg); }
+.tile.is-selected:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus), 0 0 0 6px var(--bg); }
 input { min-width: 0; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 
@@ -285,7 +289,7 @@ body {
   display: flex; flex-direction: column;
   position: relative;
   background: var(--panel); border: 1px solid var(--line);
-  border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
+  border-left: 3px solid var(--focus); border-radius: 6px; padding: 8px 10px;
 }
 .tile.is-solo { flex: var(--w, 1) 1 0; min-width: var(--compact-from); }
 .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
@@ -419,7 +423,7 @@ body {
 }
 .head .pintoggle:hover, .head .maxtoggle:hover, .head .hidetoggle:hover,
 .head .refreshtoggle:hover, .head .modeltoggle:hover { border-color: var(--accent); color: var(--text); }
-.head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
+.head .pintoggle.active { background: var(--select); color: var(--text); box-shadow: inset 0 0 0 2px var(--focus); }
 
 body.is-stale main { opacity: 0.72; }
 body.is-stale #counts::after {
@@ -454,7 +458,8 @@ body:has(> #ink[data-skin]) :is(header, footer, .tile, .approval, .asks, .ask-ch
 body:has(> #ink[data-skin]) .tile {
   border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent;
 }
-body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
+body:has(> #ink[data-skin]) .tile:focus-visible { box-shadow: 0 0 0 6px var(--bg); }
+body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus), 0 0 0 6px var(--bg); }
 
 .is-dragging {
   z-index: 30; pointer-events: none; cursor: grabbing;
@@ -463,9 +468,9 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .tile .head, .pane-rail { touch-action: none; user-select: none; -webkit-user-select: none; }
 
 .tile.is-pinned .head .n::after { content: "\00a0\1F4CC"; font-size: 11px; }
-.tile.is-pinned .head .pintoggle { color: var(--accent); }
+.tile.is-pinned .head .pintoggle { color: var(--text); background: var(--select); box-shadow: inset 0 0 0 2px var(--focus); }
 .head .pintoggle.active, .head .maxtoggle.active {
-  background: var(--select); border-color: var(--line); color: var(--accent);
+  background: var(--select); border-color: var(--line); color: var(--text); box-shadow: inset 0 0 0 2px var(--focus);
 }
 
 .tile.drop-before, .tile.drop-after { position: relative; }
@@ -593,7 +598,8 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .cell.grey .val { color: var(--idle-text); }
 .cell.idle { opacity: .55; }
 button.cell { background: transparent; color: var(--text); cursor: pointer; text-align: left; flex-wrap: wrap; }
-button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
+button.cell:hover { border-color: var(--accent); }
+button.cell:focus-visible { border-color: var(--focus); }
 .cell .val2 { flex-basis: 100%; color: var(--muted); }
 .cell.warn { border-color: var(--waiting); color: var(--waiting-text); }
 .cell.warn .val2 { color: var(--waiting-text); }
@@ -1011,7 +1017,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .rail-chip .rail-open.drop-target { background: var(--select); border-color: var(--accent); border-style: dashed; }
 .railnote { margin: 0 0 6px; color: var(--human-text); }
 #railslot .dispatch { margin: 0 0 8px; }
-#tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#tickets li:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
 .oldsession {
   font-size: 11px; padding: 1px 6px; border-radius: 9px;
@@ -1065,7 +1071,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 }
 .mpick .pill[aria-pressed="true"] { padding: 2px 8px; border: 2px solid var(--accent); background: var(--select); }
 .mpick .pill[aria-disabled="true"] { border-style: dashed; cursor: default; }
-.mpick .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mpick .pill:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .mpick .pill-mark { letter-spacing: 2px; }
 .mpick .pill-mark:empty, .mpick .pill-note:empty { display: none; }
 .mpick .pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1083,7 +1089,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   padding: 3px 8px; white-space: nowrap;
 }
 .linkbtn:hover { border-color: var(--accent); }
-.linkbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.linkbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 body.settings-page { overflow: auto; }
 body.settings-page main.settings {
