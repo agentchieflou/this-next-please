@@ -1181,6 +1181,10 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 luna = '#modelcard button[data-model="gpt-5.6-luna"]'
                 page.wait_for_selector(luna, timeout=5000)
                 assert page.inner_text(luna + " .pill-label") == "luna 5.6"
+                # The card's saves are one chain (`modelWrites`), and each waits on a fresh snapshot
+                # after its answer. Hold the snapshots only once the effort above has had its own,
+                # or luna's save is queued behind a snapshot that never comes (#589).
+                page.evaluate("() => modelWrites.then(() => true)")
                 held = []
                 page.route("**/api/fleet*", lambda route: held.append(route))
                 page.click(luna)
