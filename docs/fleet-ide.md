@@ -176,8 +176,9 @@ an unsigned Python GUI may run on a managed laptop is for its IT policy to answe
 ## What a shell must do (#100)
 
 Two thin shells now exist — `ide/jetbrains/` (a JCEF tool window) and `ide/vscode/` (a webview) —
-and this is the contract they follow, so a third host (Visual Studio, a tray app, a phone) needs no
-new server work.
+and this is the contract they follow, so a third host on the same machine (Visual Studio, a tray
+app) needs no new server work. A phone needs no new window record either, but it cannot reach the
+desk: the server binds 127.0.0.1 only, and the phone's path is #538's.
 
 1. **Find the dashboard.** Read `$AGENTDATA_FLEET_DIR/serve.json`, or `~/.agentdata/fleet/serve.json`.
    It holds `url`, `token` and `port`.
@@ -198,6 +199,12 @@ new server work.
    name to `IDE_WINDOWS` in `agentdata/fleet/opener.py` as well: `ad-fleet open --all` reopens
    every window the desk remembers except those, and reports them as `skipped`, because a browser
    tab under a host's name would share that host's record.
+
+   **A phone or a tablet** is such a host too (#580, MOB-D23): `IDE_WINDOWS` holds `phone` and
+   `tablet`, so `--all` skips their records. Its link is `/open?w=phone&ink=off` or
+   `/open?w=tablet&ink=off`, and `pageUrl` carries `ink=off` to /settings
+   and /map. The ink layer also turns itself off on a coarse pointer under 900 px
+   ([desk-ink.md](desk-ink.md) §The gate, `narrow`), so a link without `ink=off` still gets no canvas.
 5. **Subscribe to `GET /api/events?t=<token>`** and act on `event: notify` frames only. Each carries
    `{repo, severity, title, body, …}` already decided by the fleet's rules.
 6. **Focus a tile with `#tile=<repo>`** — the same anchor the Windows toasts use, so there is one
