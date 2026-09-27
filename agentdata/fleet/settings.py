@@ -35,6 +35,8 @@ What is missing is missing on purpose, and the reasons are not the same:
   no natural place to refuse it. `fleet.preflight` off means a drop starts an agent with no
   confirmation card. Each of those moves a human checkpoint, which is not a thing to do from a
   dropdown.
+* `fleet.mobile.*`: who may approve from outside the laptop, and where records leave it: the register's
+  own rule; `config.json` and `ad-setup` only (#545, `bridge.py`).
 * `fleet.poll.*` and `fleet.inbox.folders` are read once, into a poller cached per process, so a
   control for them would appear to do nothing until the server restarted.
 

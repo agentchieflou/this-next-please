@@ -103,8 +103,19 @@ The four skills that perform writes each carry one line to this effect — `jira
 
 Under `~/.agentdata/fleet/approvals/` (or `$AGENTDATA_FLEET_DIR`):
 
-* `<id>.json` — the request: repo, ticket, kind, summary, the dry-run payload, when it was made.
-* `<id>.decision.json` — the answer: `approved` or `denied`, the reason, who, when.
+* `<id>.json` — the request: repo, ticket, kind, summary, the dry-run payload, when it was made, the
+  waiting process's `pid`, and `digest`.
+* `<id>.decision.json` — the answer: `approved` or `denied`, the reason, `by` (who), when, `digest` and
+  `via` (`laptop` for the desk and the CLI; `wrapup` for a wrap-up's record). A decision that comes from the
+  phone also carries `expires`; a laptop decision never does.
+
+**The digest (#543).** `digest` is `sha256` over the canonical JSON (sorted keys, no spaces, UTF-8) of
+exactly six request fields: `id`, `kind`, `summary`, `payload`, `created` and `pid`. `pid` is inside the hash and
+never leaves the laptop; a decision made elsewhere echoes the digest instead. `approval.decide(..., digest=...)`
+refuses a digest that is not the request's own with `digest_mismatch` and writes nothing. When a decision file
+carries a digest that differs from the request's, the waiting agent is **refused** (`approval_denied`, reason
+*the decision names a different request (digest mismatch)*), rather than released or left waiting on a decision
+somebody made about something else. A decision with no `digest` (an older build) is read exactly as before.
 
 An approval is answered once; a second `approve` is refused rather than silently ignored, because
 the agent has already been told. Answered pairs older than 30 days are pruned. **Pending ones are

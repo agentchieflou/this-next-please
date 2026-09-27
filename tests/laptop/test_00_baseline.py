@@ -14,9 +14,9 @@ pytestmark = pytest.mark.laptop
 def test_the_python_floor_is_met():
     import sys
 
-    assert sys.version_info >= (3, 12), (
+    assert sys.version_info >= (3, 14), (
         f"this is Python {sys.version_info.major}.{sys.version_info.minor} at {sys.executable}; "
-        "agentdata 0.6+ needs 3.12 or newer -- run the suite with the newer interpreter"
+        "agentdata needs 3.14 or newer -- run the suite with the newer interpreter"
     )
 
 

@@ -53,7 +53,7 @@ def test_every_tier_runs_on_both_oses():
     assert all(isinstance(why, str) and why for why in tm.EXCEPTIONS.values())
     names = {r.job for r in runs}
     for shard in ("1/2", "2/2"):  # #312's jobs, read from the workflow rather than written here
-        assert f"ubuntu · python 3.12 · browser · shard {shard}" in names
+        assert f"ubuntu · python 3.14 · browser · shard {shard}" in names
         assert f"suite · shuffled · browser · shard {shard}" in names
     assert {"suite · shuffled · seed 1", "suite · shuffled · seed 20260904"} <= names
     assert {f"windows · python 3.14 · shard {k}/3" for k in (1, 2, 3)} <= names

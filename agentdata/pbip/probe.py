@@ -315,11 +315,21 @@ def launcher_verdict(run: Runner | None = None, measured: dict | None = None) ->
     return _launcher_verdict(m["where_python"], m["where_py"], m["help_ok"], m["help_py_ok"], m["venv"])
 
 
+#: pyproject's `requires-python`; tests/test_pbi_probe.py holds the two together.
+PYTHON_FLOOR = (3, 14)
+
+
+def _version_row(version_info) -> dict:
+    """Q1's `python.version`: the interpreter's version, and a reason when it is below the floor."""
+    v = tuple(version_info[:3])
+    return _row("Q1", "python.version", "%d.%d.%d" % v,
+                "" if v[:2] >= PYTHON_FLOOR else "agentdata needs Python >= %d.%d" % PYTHON_FLOOR)
+
+
 def _q1(run: Runner, native: bool, localappdata: str | None) -> list[dict]:
     rows: list[dict] = []
     rows.append(_row("Q1", "python.executable", textio.norm_path(sys.executable)))
-    rows.append(_row("Q1", "python.version", "%d.%d.%d" % sys.version_info[:3],
-                     "" if sys.version_info >= (3, 12) else "agentdata needs Python >= 3.12"))
+    rows.append(_version_row(sys.version_info))
 
     m = measure_launcher(run)
     venv = m["venv"]

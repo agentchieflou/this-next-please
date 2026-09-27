@@ -136,6 +136,8 @@ ad-fleet doctor          # the same as `ad-doctor --only fleet`
 | `fleet/repos` | every registered repository still has `AGENTS.md` and `.agent/state.json` |
 | `fleet/toast` | the `fleet-win` extra (warn only) |
 | `fleet/rules` | the notification settings in force |
+| `fleet/mobile` | the phone bridge (#553): `skip` when `fleet.mobile.enabled` is off; else the folder is set, exists, can be listed, is outside every checkout and the fleet directory, syncs (`%OneDriveCommercial%`, `%OneDrive%`, the OneDrive client's registry value, or a `OneDrive - ` parent) and has an `inbox/` that is not online-only; and the operator is a UPN. Read from disk, file attributes and `winreg`: no `attrib`, no `reg query` |
+| `fleet/mobile traffic` | the last export, the last inbox file and the files rejected in the last 24 hours, from the bridge's state file and `rejected/`; `warn` when serve is up and nothing was exported for 5 minutes, or anything was rejected |
 
 Every row proves something *starts* rather than that a file exists — `which` finding a file has
 already been misleading in this repository once, when `pncli.cmd` was on PATH and the connector

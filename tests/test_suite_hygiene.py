@@ -220,6 +220,14 @@ NOT_A_BUDGET = {
     # did not animate" rather than "this was quick".
     ("tests/test_fleet_motion.py",
      "test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced_motion"),
+    # #602, the `time.time()`/`time.monotonic()` shapes the scan could not see before. A child reading stdin
+    # gets EOF at once; 20 s is `proc.run`'s own timeout, so a blocked read fails as a timeout before the
+    # clock is read, and the ceiling is two orders of magnitude above a Python start.
+    ("tests/test_proc.py", "test_nothing_we_spawn_can_wait_for_a_person"),
+    # The listing is held for 20 s; 5 s is a ceiling on a desk answer that parks nothing and takes
+    # milliseconds, not a promise about how quick it is.
+    ("tests/regressions/test_20260923_any_desk_waits_for_the_process_listing.py",
+     "test_a_desk_answer_does_not_wait_for_the_process_listing"),
 }
 
 #: A budget is an *upper* bound on a clock: `assert <something with a clock in it> <= <ceiling>`.
@@ -232,7 +240,9 @@ NOT_A_BUDGET = {
 #: that, and carries the marker because its author put it there. What the scan does catch is the
 #: shape somebody reaches for without thinking, which is the one that gets forgotten.
 CLOCK = re.compile(r"\belapsed\b|\btook\b|\bduration\b|perf_counter|\blatency\b|\bms\b"
-                   r"|\bseconds?\b|median_ms")
+                   r"|\bseconds?\b|median_ms"
+                   # the clock read inline: `time.monotonic() - t0 < 0.2`, `time.time() - start < 5` (#602)
+                   r"|\b(?:monotonic|time)(?:_ns)?\(\)")
 #: `< 50`, `<= 0.05`, and `< LOCAL_BUDGET_MS` -- a ceiling that was given a name is still a ceiling.
 UPPER_BOUND = re.compile(r"<=?\s*(?:[0-9]|[A-Z][A-Z0-9_]{2,}\b)")
 #: The other shape a duration takes: a verdict on real timings. `row["verdict"] == "faster"` has no
@@ -286,6 +296,17 @@ def _unmarked_durations(rel: str, source: str) -> list[str]:
     return missing
 
 
+def _test_modules() -> list[str]:
+    """Every `test_*.py` under `tests/`, `regressions/` and `laptop/` included (#602: the eighth unmarked clock
+    was a regression test the top-level listing never opened), fixtures and fakes left out."""
+    found = []
+    for dirpath, dirs, names in os.walk(os.path.join(REPO_ROOT, "tests")):
+        dirs[:] = sorted(d for d in dirs if d not in ("fixtures", "fakes", "__pycache__") and not d.startswith("."))
+        found += [os.path.relpath(os.path.join(dirpath, n), REPO_ROOT).replace(os.sep, "/")
+                  for n in sorted(names) if n.startswith("test_") and n.endswith(".py")]
+    return found
+
+
 def test_every_test_that_asserts_a_duration_carries_the_measured_marker():
     """`measured` is not a taxonomy, it is a scheduling instruction: these tests run with the
     machine to themselves because under `-n` they measure the contention and not the code. One of
@@ -298,11 +319,8 @@ def test_every_test_that_asserts_a_duration_carries_the_measured_marker():
     `CLOCK` for what it cannot see.
     """
     missing = []
-    for name in sorted(os.listdir(os.path.join(REPO_ROOT, "tests"))):
-        if not name.startswith("test_") or not name.endswith(".py"):
-            continue
-        rel = f"tests/{name}"
-        source = open(os.path.join(REPO_ROOT, "tests", name), encoding="utf-8").read()
+    for rel in _test_modules():
+        source = open(os.path.join(REPO_ROOT, *rel.split("/")), encoding="utf-8").read()
         missing += _unmarked_durations(rel, source)
     assert missing == [], (
         "these assert a duration and nothing says they may: each one either "
@@ -348,6 +366,104 @@ def test_the_scan_leaves_verdicts_on_files_alone():
     src = ("def test_y(tmp_path):\n    row = compare_bench(_fx('before.tsv'), _fx('after_faster.tsv'))['row']\n"
            "    assert row['verdict'] == 'faster'\n")
     assert _unmarked_durations("tests/test_synthetic.py", src) == []
+
+
+def test_the_scan_sees_a_clock_read_inline():
+    """#602: `time.monotonic() - t0 < 0.2` and `time.time() - start < 5` name no `elapsed` and no `took`, and
+    the scan passed them by until a Windows runner took 0.735 s against a 0.2 s bound (#590). A poll's deadline
+    and a floor on a wait are not budgets, and stay unflagged."""
+    def flagged(body):
+        src = f"import time\ndef test_x():\n    t0 = start = time.monotonic()\n    {body}\n"
+        return [f.split(" ")[0] for f in _unmarked_durations("tests/test_synthetic.py", src)]
+
+    for body in ("assert time.monotonic() - t0 < 0.2", "assert time.time() - start < 5, 'reading stdin blocked'",
+                 "assert monotonic() - t0 <= LIMIT_S", "assert time.monotonic_ns() - t0 < 10 ** 9",
+                 "assert (time.time() - start) < 30 and ok"):
+        assert flagged(body) == ["tests/test_synthetic.py::test_x"], body
+    for body in ("assert time.monotonic() < deadline, 'the row never came to rest'",
+                 "assert time.monotonic() - t0 >= 0.25", "assert before <= time.time() <= after"):
+        assert flagged(body) == [], body
+
+
+#: What reaches a browser: Playwright itself, or the desk's harness (`tests/test_fleet_desk_browser.py`, whose
+#: `launch_chromium` every desk test starts from).
+BROWSER_DRIVERS = ("playwright", "test_fleet_desk_browser")
+#: The calls that start one.
+BROWSER_STARTS = {"sync_playwright", "async_playwright", "launch_chromium"}
+
+
+def _reaches_a_browser(tree) -> bool:
+    """The module imports Playwright or the harness, or `pytest.importorskip`s Playwright."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(a.name.split(".")[0] in BROWSER_DRIVERS for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in BROWSER_DRIVERS:
+            return True
+        if (isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "importorskip" and node.args
+                and isinstance(node.args[0], ast.Constant) and str(node.args[0].value).startswith("playwright")):
+            return True
+    return False
+
+
+def _names_browser(node) -> bool:
+    return any(isinstance(m, ast.Attribute) and m.attr == "browser" for m in ast.walk(node))
+
+
+def _unmarked_browser_tests(rel: str, source: str) -> list[str]:
+    """In a module that reaches a browser: the module itself when nothing in it carries `browser`, and every test
+    that starts Chromium -- itself, or through a function or fixture of the same module -- without the marker."""
+    tree = ast.parse(source)
+    if not _reaches_a_browser(tree):
+        return []
+    module = any(isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "pytestmark" for t in n.targets)
+                 and _names_browser(n.value) for n in tree.body)
+    fns = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    starts: set[str] = set()
+    grew = True
+    while grew:                                  # a fixture that yields a browser starts one for whoever asks
+        grew = False
+        for name, fn in fns.items():
+            used = ({n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+                    | {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
+                    | {a.arg for a in fn.args.args})
+            if name not in starts and used & (BROWSER_STARTS | starts):
+                starts.add(name)
+                grew = True
+    missing = [f"{rel}::{name}" for name, fn in fns.items() if name.startswith("test_") and name in starts
+               and not module and not any(_names_browser(d) for d in fn.decorator_list)]
+    anywhere = module or any(_names_browser(d) for n in ast.walk(tree)
+                             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                             for d in n.decorator_list)
+    return missing if anywhere else [f"{rel} (the module)"] + missing
+
+
+def test_every_test_that_drives_a_browser_carries_the_browser_marker():
+    """#602: `test_fleet_loads_page.py` drove Chromium unmarked, so it ran in the default tier, got none of the
+    page diagnostics a `browser` test gets when a wait runs out, and escaped the browser shards and their budgets.
+    Any module that imports Playwright or the desk harness carries the marker, and so does each of its tests that
+    starts Chromium, directly or through the module's own fixtures and helpers."""
+    missing = []
+    for rel in _test_modules():
+        missing += _unmarked_browser_tests(rel, open(os.path.join(REPO_ROOT, *rel.split("/")), encoding="utf-8").read())
+    assert missing == [], f"these drive a browser without the `browser` marker: {missing}"
+
+
+def test_the_browser_check_sees_a_module_and_a_fixture_without_the_marker():
+    fixture = ("import pytest\nfrom test_fleet_desk_browser import launch_chromium\n"
+               "@pytest.fixture(scope='module')\ndef browser():\n"
+               "    with pytest.importorskip('playwright.sync_api').sync_playwright() as p:\n"
+               "        yield launch_chromium(p)\n"
+               "def test_markup():\n    assert True\n"
+               "{mark}def test_page(browser):\n    browser.new_page()\n")
+    rel = "tests/test_synthetic.py"
+    assert _unmarked_browser_tests(rel, fixture.format(mark="")) == [f"{rel} (the module)", f"{rel}::test_page"]
+    assert _unmarked_browser_tests(rel, fixture.format(mark="@pytest.mark.browser\n")) == []
+    direct = ("import pytest\n@pytest.mark.browser\ndef test_a():\n"
+              "    sp = pytest.importorskip('playwright.sync_api').sync_playwright\n"
+              "def test_b():\n    sp = pytest.importorskip('playwright.sync_api').sync_playwright\n    sp()\n")
+    assert _unmarked_browser_tests(rel, direct) == [f"{rel}::test_b"]
+    assert _unmarked_browser_tests(rel, "import pytest\npytestmark = pytest.mark.browser\n" + direct) == []
+    assert _unmarked_browser_tests(rel, "def test_c():\n    assert 'playwright' in 'a string'\n") == []
 
 
 @pytest.mark.scale

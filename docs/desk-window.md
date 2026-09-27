@@ -142,6 +142,10 @@ it with **widths**, in each window's own record:
   holds is refused `widths_stale`: another page under the same `?w=` moved them first. The page
   then puts its own back and reads the desk again. `widths` that are not repository-to-weight are
   refused `widths_shape`.
+* **`section`** is `""` (the sidebar shut) or one of the page's sections: `board`, `unsorted`,
+  `drawer`, `found`, `inspector`. A new record starts at `""` (#544). The page ignores any other
+  value, so an older record's `"tickets"` (the board's list, not a section) no longer leaves the
+  sidebar toggle opening nothing. No `desk.json` is migrated.
 
 `size` is still read and kept by the server (`serve.size_cell`, both of its spellings, columns
 capped at 4) because desk.json files written before this carry it. `POST /api/arrange` still takes
@@ -224,6 +228,10 @@ Pointer events, with capture. `bindDragToReorder(handle, host, name)`:
 The rule for what a press means: **a press on a control inside the handle belongs to that
 control, unless the handle *is* the control.** A pane's head is a plain `div`, so every button in
 it is somebody else's. A rail's face is one button, so a press anywhere on it is the rail's.
+
+A finger scrolls on heads and rails (`touch-action: pan-y`, #573): the drag needs a sideways start.
+Under a coarse pointer every control is 44 px both ways and every field is set at 16 px (#574); the
+gutter's hit strip is 20 px, widened into the pane on its left. A mouse keeps the 28 px / 13 px scale.
 
 Four pixels of travel before anything moves: a click on the head still selects the project, and a
 click on a rail still swaps it in. Then the host is translated under the cursor, and whatever is

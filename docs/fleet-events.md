@@ -266,9 +266,14 @@ agent exactly as hard as a contradiction. The fold reads it now: `nit` does not 
 the gate lands it is a new writer and nothing downstream changes.
 
 ```json
-{"schema": 1, "seq": 20, "ts": "2026-01-04T09:38:00", "repo": "luna", "ticket": "RDSD-118", "kind": "needs_approval", "data": {"what": "ad-pbip apply", "diff": ".agent/pending/rdsd-118.diff"}}
-{"schema": 1, "seq": 21, "ts": "2026-01-04T09:39:12", "repo": "luna", "ticket": "RDSD-118", "kind": "approval_resolved", "data": {"what": "ad-pbip apply", "decision": "approved", "by": "operator"}}
+{"schema": 1, "seq": 20, "ts": "2026-01-04T09:38:00", "repo": "luna", "ticket": "RDSD-118", "kind": "needs_approval", "data": {"id": "luna-jira-transition-20260104T093800-3f2a", "kind": "jira-transition", "summary": "RDSD-118: In Progress -> In Review"}}
+{"schema": 1, "seq": 21, "ts": "2026-01-04T09:39:12", "repo": "luna", "ticket": "RDSD-118", "kind": "approval_resolved", "data": {"id": "luna-jira-transition-20260104T093800-3f2a", "kind": "jira-transition", "decision": "approved", "by": "operator", "reason": "and link the PR in the comment"}}
 ```
+
+`approval_resolved.reason` is the operator's approve comment or deny reason (`""` when there was none), so a
+note typed on the desk or at `ad-fleet approve --comment` reaches the agent; the gated command also puts an approve
+comment in its `meta` as `approval_note` (#543). A decision that names a different request by its `digest` resolves
+as `denied` with the reason `the decision names a different request (digest mismatch)`.
 
 ### From the project's own systems (#131), and from the Downloads inbox (#132)
 
@@ -318,6 +323,41 @@ Carries `paths, how, by, queued`.
 
 ```json
 {"schema": 1, "seq": 28, "ts": "2026-01-04T09:45:20", "repo": "luna", "ticket": "RDSD-118", "kind": "scope.added", "data": {"paths": ["models/RDSD.SemanticModel/definition/tables/Velocity.tmdl"], "how": "fingerprint", "by": "operator", "queued": false}}
+```
+
+**`mobile.exported`** — the bridge (#546) mirrored a pending approval into the phone's outbox
+(`outbox/approvals/<id>.json`). Once per approval id, never per attention row; no state changes. Carries
+`id, digest, expires` (the approval's digest and `created` + `fleet.approval_timeout`, UTC).
+
+```json
+{"schema": 1, "seq": 29, "ts": "2026-01-04T09:45:25", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.exported", "data": {"id": "luna-jira-transition-20260104T094520-7f3a", "digest": "7d2a9f4c6b1e8d3f5a0c2e4b6d8f1a3c5e7b9d0f2a4c6e8b1d3f5a7c9e0b2d4f", "expires": "2026-01-04T10:15:20Z"}}
+```
+
+**`mobile.decision`** — the bridge (#547) applied a decision the phone dropped into `inbox/`, after every check
+passed, through `approval.decide(..., via="mobile")`. No state changes: the agent's own `approval_resolved` follows.
+Carries `id, kind, decision, by, nonce, late` (`by` is `mobile:<upn>`; `late` when the request was older than
+`fleet.approval_timeout`, so its agent had already timed out).
+
+```json
+{"schema": 1, "seq": 30, "ts": "2026-01-04T09:47:02", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.decision", "data": {"id": "luna-jira-transition-20260104T094520-7f3a", "kind": "decision", "decision": "approved", "by": "mobile:operator@example.com", "nonce": "9f2c4b7e1a3d4c5b8e6f0a2b4c6d8e0f", "late": false}}
+```
+
+**`mobile.rejected`** — the bridge (#547) refused an inbox file and moved it to `rejected/`; no decision was written.
+On the stream of the repo the file names (a known approval's, or a registered repo); a file naming neither is kept in
+`rejected/` and the state file only. No state changes. Carries `nonce, kind, code, why` (`code` is a `mobile_*`
+refusal, `why` at most 200 characters, scrubbed).
+
+```json
+{"schema": 1, "seq": 31, "ts": "2026-01-04T09:47:30", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.rejected", "data": {"nonce": "c0d3e6f91b2a4d6c8e0f1a3b5c7d9e1f", "kind": "decision", "code": "mobile_digest_mismatch", "why": "the decision names a different request (digest mismatch)"}}
+```
+
+**`mobile.reply`** — the bridge (#548) applied a reply the phone dropped into `inbox/`, exactly as the desk's
+answer, say and send: typed into the console the fleet opened (`via: say`) or sent as a headless resume (`via: send`).
+No state changes: the agent's own turn (or `said`) follows. Carries `nonce, by, via, answered, words` (`answered` is
+the question ids an `answers` reply carried, `words` the word count of the text); never the text itself.
+
+```json
+{"schema": 1, "seq": 32, "ts": "2026-01-04T09:52:10", "repo": "luna", "ticket": "", "kind": "mobile.reply", "data": {"nonce": "5b7d9f1a3c5e4d6f8a0b2c4d6e8f0a1b", "by": "mobile:operator@example.com", "via": "send", "answered": ["q1", "q2"], "words": 31}}
 ```
 
 ## The state a tile shows

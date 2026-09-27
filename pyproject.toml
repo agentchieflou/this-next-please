@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "agentdata"
 version = "0.16.0"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "rich>=13",     # the human-facing rendering; every command still works without it
     "keyring",      # every source's password path (ad-setup, ad-td, ad-ora, ...), not just the ones with a

@@ -99,14 +99,14 @@ def selects(run: str, markers: set[str]) -> bool:
     return True if not expr else Expression.compile(expr).evaluate(lambda name, **_: name in markers)
 
 
-def test_the_browser_tier_runs_once_on_ubuntu_3_12_in_two_shards_plus_once_shuffled():
+def test_the_browser_tier_runs_once_on_ubuntu_3_14_in_two_shards_plus_once_shuffled():
     jobs = linux_jobs()
     plain, shuffled = [], []
     for job in jobs:
         for s in pytest_steps(job):
             if whole_suite(s["run"]) and selects(s["run"], {"browser"}):
                 (shuffled if "--shuffle-seed" in s["run"] else plain).append((job["name"], s))
-    assert sorted(n for n, _ in plain) == [f"ubuntu · python 3.12 · browser · shard {k}/2" for k in (1, 2)], plain
+    assert sorted(n for n, _ in plain) == [f"ubuntu · python 3.14 · browser · shard {k}/2" for k in (1, 2)], plain
     assert sorted(n for n, _ in shuffled) == [f"suite · shuffled · browser · shard {k}/2" for k in (1, 2)], shuffled
     for runs in (plain, shuffled):
         assert sorted(shard_of(s["run"]) for _, s in runs) == [(1, 2), (2, 2)]
@@ -139,18 +139,50 @@ def test_a_job_that_installs_chromium_requires_it_and_a_job_that_does_not_select
                 assert s["env"].get("AGENTDATA_REQUIRE_BROWSER", "") == "", job["name"]
 
 
-def test_the_ubuntu_legs_leave_the_browser_tier_to_its_jobs_and_3_14_runs_no_browser_test():
-    legs = {j["row"]["python"]: j for j in linux_jobs() if j["id"] == "pytest"}
-    assert set(legs) == {"3.12", "3.14"}
-    assert installs_chromium(legs["3.12"]) and not installs_chromium(legs["3.14"])
-    for python, job in legs.items():
-        parallel = [s for s in pytest_steps(job) if "-n auto" in s["run"]]
-        assert [selection(s["run"]) for s in parallel] == [
-            "not browser and not slow and not measured and not scale"], python
-        assert selects(next(s["run"] for s in pytest_steps(job) if selection(s["run"]).startswith("slow")),
-                       {"browser", "slow"}) is (python == "3.12"), f"{python}: the browser+slow test"
-    names = {s["name"] for s in legs["3.12"]["steps"]}
-    assert {"the desk's measurements, attached", "the ownership demo, recorded"} <= names
+def test_one_ubuntu_leg_on_3_14_leaves_the_browser_tier_to_its_jobs_and_keeps_every_other_step():
+    """#591 (decision 23): the two ubuntu legs became one, on 3.14, and it took over every step the
+    old floor leg's `if:`s gave it alone: Chromium, `tsc`, the measured and slow browser tests, the
+    measurements and the demo. No step on it is conditional on the Python version any more."""
+    legs = [j for j in linux_jobs() if j["id"] == "pytest"]
+    assert [(j["name"], j["row"]["python"]) for j in legs] == [("ubuntu-latest · python 3.14", "3.14")]
+    job = legs[0]
+    assert installs_chromium(job)
+    parallel = [s for s in pytest_steps(job) if "-n auto" in s["run"]]
+    assert [selection(s["run"]) for s in parallel] == ["not browser and not slow and not measured and not scale"]
+    slow = next(s["run"] for s in pytest_steps(job) if selection(s["run"]).startswith("slow"))
+    assert selects(slow, {"browser", "slow"}), "the browser+slow test"
+    measured = next(s["run"] for s in pytest_steps(job) if "measured" in selection(s["run"]).split()[0])
+    assert selects(measured, {"browser", "measured"}), "the measured browser tests"
+    names = {s["name"] for s in job["steps"]}
+    assert {"a browser, so tests/test_fleet_desk*.py run instead of skipping", "the desk's types (tsc --noEmit)",
+            "the desk's measurements, attached", "the ownership demo, recorded", "upload the demo",
+            "keep the reference output for the Windows byte-comparison"} <= names
+    raw = _workflow()["jobs"]["pytest"]
+    assert all("matrix.python" not in str(s.get("if", "")) for s in raw["steps"]), "one leg: no per-Python step"
+
+
+def test_every_linux_job_runs_3_14_and_only_the_floor_job_installs_3_13():
+    """#591: no job names or installs another Python, except the floor job's pip-refusal interpreter."""
+    for job_id, job in _workflow()["jobs"].items():
+        for s in job.get("steps") or []:
+            if not str(s.get("uses", "")).startswith("actions/setup-python"):
+                continue
+            version = str(s["with"]["python-version"])
+            if version == "${{ matrix.python }}":
+                assert {r["python"] for r in rows_of(job)} == {"3.14"}, job_id
+            elif job_id == "floor-python" and version == "3.13":
+                continue
+            else:
+                assert version == "3.14", f"{job_id}: python-version {version}"
+    floor = _workflow()["jobs"]["floor-python"]
+    assert floor["name"] == "floor · pip refuses the wheel on Python 3.13"
+    versions = [str(s["with"]["python-version"]) for s in floor["steps"]
+                if str(s.get("uses", "")).startswith("actions/setup-python")]
+    assert versions == ["3.14", "3.13"], "build on the floor, then refuse on the version below it"
+    script = "\n".join(str(s.get("run", "")) for s in floor["steps"])
+    assert '">=3.14" in m.group(1)' in script, "the wheel's Requires-Python is asserted"
+    assert "python3.13 -m pip install" in script and "requires a different Python" in script
+    assert "not in '>=3.14'" in script, "the refusal is for the 3.14 floor, in pip's words"
 
 
 def test_each_seed_is_its_own_serial_job_over_the_whole_non_browser_suite():

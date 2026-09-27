@@ -66,6 +66,11 @@ MAX_BODY = 64 * 1024
 # a new route it must call, or a changed meaning for one it already calls.
 CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
+# What a request's `Host` may name, on any port (#551, decision 22). The peer check above cannot see
+# DNS rebinding: a hostile name that re-resolves to 127.0.0.1 connects from loopback, and once it is
+# same-origin it could read `/open`'s redirect. Only the `Host` header still carries that name, so the
+# name is the check; the port is not, because an IDE may forward the desk to another local port.
+HOSTS_ALLOWED = ("127.0.0.1", "localhost", "[::1]")
 
 POLL_EVERY_S = 5.0           # the floor between two ticks of the shared poller, however many tabs
 # The same idea for the event fold. `E.refresh` is not free -- per repository it reads the cursor,
@@ -551,6 +556,53 @@ def row_for(name: str) -> dict:
     return {}
 
 
+APPROVAL_ID = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
+
+
+def _attention_seq() -> dict:
+    """The bridge's `attention_seq`, read and never written: a GET neither bumps it nor mints the state file."""
+    from . import bridge
+
+    try:
+        state = textio.read_json(os.path.join(fleet_dir(), bridge.STATE_FILE), bridge.STATE_FILE)
+    except (OSError, ValueError):
+        return {}
+    seq = state.get("attention_seq") if isinstance(state, dict) else None
+    return seq if isinstance(seq, dict) else {}
+
+
+def attention_answer() -> dict:
+    """`GET /api/attention` (#559): `bridge.attention_row()` over one `fleet_snapshot()`, the function the outbox
+    writes with, so the folder and the page share one allow-list. Nothing else of the snapshot rides along."""
+    from . import bridge
+
+    snap = fleet_snapshot()
+    scrub = bridge.Scrubber().scrub
+    seqs = _attention_seq()
+    rows = []
+    for row in snap.get("repos") or []:
+        repo = str(row.get("repo") or "")
+        if repo:
+            try:
+                seq = int(seqs.get(repo) or 0)
+            except (TypeError, ValueError):
+                seq = 0
+            rows.append(bridge.attention_row(row, scrub, snap.get("approvals") or [], seq))
+    return {"ok": True, "schema": bridge.MOBILE_SCHEMA,
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows}
+
+
+def approval_answer(id: str) -> dict | None:
+    """`GET /api/approval?id=` (#559): one waiting request as the bridge mirrors it (a scrubbed preview, the digest of
+    all of it, `expires`), or None for an id that is unknown or already decided. Never `payload`, never `pid`."""
+    from . import bridge
+
+    for request in approval.pending():
+        if request.get("id") == id:
+            return bridge.approval_record(request, bridge.Scrubber())
+    return None
+
+
 def fleet_snapshot() -> dict:
     """Everything the page needs to draw itself from cold. Also the reconnect path.
 
@@ -602,7 +654,9 @@ def fleet_snapshot() -> dict:
     except Exception:                    # noqa: BLE001 - an unreadable skills folder is not a dead desk
         installed = None
 
-    for row in supervisor.status():
+    # The same registry the states are read from (#586): a second `Registry()` in `status()` could
+    # list a repo registered since, whose `state.json` this snapshot would then never read.
+    for row in supervisor.status(registry):
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
         repo_state: dict = {}                # the previous row's repository (and its state) in hand
@@ -1763,7 +1817,7 @@ def update_window(w: str = "main", **kwargs) -> dict:
                                  code="widths_stale")
         win = wins.setdefault(w, {
             "focus": False,
-            "section": "tickets",
+            "section": "",
             # Which agent this window has OPEN (#203). Per window, not shared: the left monitor
             # reads one agent while the centre reads another, and `selected` -- which the inspector
             # follows -- stays the one thing every window agrees on.
@@ -2669,6 +2723,29 @@ def _sweep(url: str) -> list[dict]:
         return []
 
 
+# One sweep for the whole process (#549, MOB-D9): the desk's streams and the bridge's thread share `notify.state.json`'s
+# one cursor, so they share one lock and one stamp rather than each keeping a private `last_sweep`. The stamp is keyed
+# by `fleet_dir()`, whose `notify.state.json` it paces: one key in a real process.
+_SWEEP_LOCK = threading.Lock()
+_last_sweep_at: dict[str, float] = {}
+
+
+def sweep_if_due(url: str, every: float = NOTIFY_EVERY_S) -> list[dict]:
+    """Sweep (`_sweep(url)`) if `every` seconds passed since anyone last swept, else `[]`.
+
+    Two callers inside one interval sweep once, whatever their order; the caller that sweeps gets what it found, as a
+    stream always has. The bridge's thread (#550) calls it with `url=""` when no window is open: its finds reach the
+    drawer and the outbox, and a desk opened later shows them in the drawer, not as fresh `notify` frames.
+    """
+    key = fleet_dir()
+    with _SWEEP_LOCK:
+        now = time.time()
+        if now - _last_sweep_at.get(key, 0.0) < every:
+            return []
+        _last_sweep_at[key] = now
+        return _sweep(url)
+
+
 def _cursors(raw: str) -> dict:
     """`luna:12,other:4` -> {'luna': 12, 'other': 4}. The SSE resume point, per agent.
 
@@ -2773,8 +2850,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     `sweep=False` (#356: `?notify=0`, or `?frames=theme`) skips the notification sweep entirely.
     `notify.sweep` advances ONE shared cursor and hands what it found to whichever stream swept
     first, so a stream that is not a desk's took the desk's `notify` frames and dropped them. With
-    only such pages open nothing sweeps, as when no window is open; the next desk stream announces
-    what accumulated.
+    only such pages open no stream sweeps, as when no window is open; the bridge's thread does (#549,
+    `sweep_if_due`), and otherwise the next desk stream announces what accumulated.
 
     **The model list** (#361) is looked at the way config.json is: when `models.json` changes on
     disk, a digest of the ids, whether each is offered, and the efforts is compared with the one
@@ -2782,7 +2859,6 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     it without a frame: a page fetches `/api/models` itself.
     """
     last_beat = 0.0
-    last_sweep = 0.0
     seen_selection = -1
     last_config_mtime = -1.0
     seen_theme_state = None
@@ -2859,9 +2935,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
         # desk with project polling switched off must still carry it out.
         renew_tick()
-        if sweep and time.time() - last_sweep >= notify_every:
-            last_sweep = time.time()
-            for item in _sweep(url):
+        if sweep:
+            for item in sweep_if_due(url, notify_every):
                 write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
         try:
             # One registry read per tick, not one per repository plus one: `Registry()` parses
@@ -3026,6 +3101,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------ plumbing
 
+    def _host_ok(self) -> bool:
+        """`Host` is a loopback name with a port, any port, or the request is refused (#551)."""
+        given = (self.headers.get("Host") or "").strip().lower()
+        name, _, port = given.rpartition(":")
+        return name in HOSTS_ALLOWED and port.isascii() and port.isdigit() and 0 < int(port) < 65536
+
     def _authorized(self, query: dict) -> bool:
         host = (self.client_address[0] or "").strip("[]")
         if host not in LOOPBACK:
@@ -3074,6 +3155,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         route = url.path.rstrip("/") or "/"
+        if not self._host_ok():
+            # Before any route, the two tokenless ones included, and the same answer a bad token gets.
+            return self._json({"ok": False, "error": "not authorized"}, 403)
 
         # Two routes answer without the token, and both are loopback-only like everything else.
         #
@@ -3130,6 +3214,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
+        if route == "/api/attention":
+            # The phone's view of the fleet (#559): the bridge's allow-listed rows, never `/api/fleet`'s.
+            return self._json(attention_answer())
+        if route == "/api/approval":
+            id = (query.get("id") or [""])[0]
+            if not APPROVAL_ID.match(id):
+                return self._refuse(400, "an approval id is 1-96 letters, digits, dots, dashes or underscores",
+                                    "take the id from /api/attention's `approvals`")
+            record = approval_answer(id)
+            if record is None:
+                return self._json({"ok": False, "error": f"no approval called {id} is waiting"}, 404)
+            return self._json({"ok": True, **record})
         if route == "/api/map":
             from . import fleetmap
 
@@ -3449,6 +3545,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:               # noqa: N802 - stdlib's name
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        if not self._host_ok():
+            return self._json({"ok": False, "error": "not authorized"}, 403)
         if not self._authorized(query):
             return self._refuse(403, "not authorized", "open the URL `ad-fleet serve` printed")
         route = url.path.rstrip("/")
@@ -3464,8 +3562,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(413, "body too large",
                                 "raise `fleet.attach.max_mb`, or drop the file from inside the "
                                 "checkout so it is scoped rather than copied")
+        raw = self.rfile.read(length)
+        if len(raw) < length:
+            # The connection ended before the body did: a request that never arrived (#584). A read at
+            # the end of the stream is `b""`, which `or b"{}"` below would act on as an empty object; a
+            # closing page's `/api/load` cut off after its headers was once kept as a fourth, empty load.
+            # Nothing is done and nothing answered: nobody is left to read it.
+            self.close_connection = True
+            return None
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
         except ValueError:
             return self._refuse(400, "body is not JSON")
         if not isinstance(body, dict):

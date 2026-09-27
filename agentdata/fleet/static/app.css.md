@@ -62,6 +62,23 @@ flex` and an id selector outranks the user-agent `[hidden]` rule, so a "closed" 
 the glass swallowing the clicks meant for the tiles under it. `el.hidden = true` is how this
 page closes everything, so it means what it says here or it means nothing.
 
+### `html`, `body`, `header, footer`, `footer` (the viewport, #573)
+
+The viewport foundations for a phone or a tablet (epic #541), each a no-op on a rectangular
+desktop window, where every `env(safe-area-inset-*)` is 0:
+
+- `html { overscroll-behavior-y: contain }`: pull-to-refresh on Chrome for Android no longer
+  reloads the desk mid-approval (no effect on iOS before 16).
+- `body`'s `height: 100dvh` follows a `100vh` line kept as the fallback: iOS's `100vh` is the
+  *large* viewport, so the footer and the reply row sat under the browser's chrome.
+- `header, footer` keep 14 px at the sides or the landscape notch's inset, whichever is larger,
+  and the footer adds the home indicator's inset to its 6 px at the bottom. Both need the pages'
+  `viewport-fit=cover`; `interactive-widget=resizes-content` lets the keyboard resize the layout
+  on Chrome and Firefox for Android, and Safari keeps the reply row a flex child in a pane that
+  scrolls (never `position: fixed`).
+- At 640 px and under, every `kbd` hint is hidden beside the `.keys` popover (MOB-D17's
+  breakpoint): a phone has no keyboard to name.
+
 ### `.toolbar-group`
 
 Beside `position: relative;`:
@@ -389,12 +406,16 @@ start: a rule that named only `.tile` once left the column's drag with nothing t
 
 ### `.tile .head, .pane-rail`
 
-Above `.tile .head, .pane-rail { touch-action: none; user-select: none; -webkit-user-select: no …`:
+Above `.tile .head, .pane-rail { touch-action: pan-y; user-select: none; -webkit-user-select: no …`:
 
 A title bar is not text to be selected, and while it was the browser turned the second drag in
 a row into a native drag of the selection the first one had made -- which arrives as
 `pointercancel` and ends the gesture on the frame it began. `draggable` used to suppress this
 as a side effect; saying it outright is what replaces it.
+
+`pan-y`, not `none` (#573): a finger can start a vertical scroll on a head or a rail, and the
+reorder still begins on a sideways start; a vertical one the browser takes arrives as the
+`pointercancel` the drag already handles. `.gutter` keeps `none`: a gutter has no scroll to give.
 
 ### `.tile.is-pinned .head .n::after`
 
@@ -475,6 +496,14 @@ to sit here was focus mode's -- a filter that dimmed every rail whose agent want
 `.held` to keep the one just answered from dimming under the reply. The *needs me* preset
 replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
 nothing back when one of them stops needing you, so there is nothing left to hold.
+
+### `body[data-skin] .tile.needs-human .head .repo`
+
+Under a skin, the name of the agent that needs you is written in `--text`, not red (#329). Every
+skin but voxel lays the highlighter on it, and red through the swipe read at 1.7-2.4:1; `--text`
+reads at 4.5:1 or better through every variant's highlighter (`theme.check` rule 5), ink on and in
+the plain fallback. The highlight, the chip, the rail and the rim still say "needs you". `none`
+keeps `--human-text` (#328).
 
 ### `.outside`
 
@@ -617,6 +646,8 @@ The card behind the model button. Fixed, because it is one card for the page and
 whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. It
 scrolls inside itself (#366): the picker's pills are taller than a short window, and the arrows
 and the wheel have to reach the effort toolbar at the bottom of it.
+Its `100dvh` cap (after the `100vh` fallback, #573) is the visible viewport, so on a phone the
+card never sits under the keyboard or the URL bar.
 
 ## #216: arriving, and going away again
 
@@ -837,3 +868,44 @@ Above `body.settings-page .setrow > .setlabel {`:
 The model block (#367): the fleet-wide picker beside its label, the line saying where the list
 came from beside its refresh button, and a row's expansion under its compact picker, in the same
 cell. The pills are the picker's own (#362); a row's words sit level with its first pills.
+
+## a finger (#574)
+
+### `@media (pointer: coarse)`
+
+Above `@media (pointer: coarse) {` (before `.mpick`: from there to the end of the file the model
+picker's and the settings page's rules are each held to their own prefix by a test):
+
+The touch scale, and only the touch scale: the desktop's 28 px controls and 13 px text are the
+HIG's desktop floor and stay as they are for a mouse and for the IDE shells, so every size a
+finger needs lives in this one block.
+
+- 44 px both ways on every button, segment, pill, list row and head tool (Apple's 44 pt; WCAG 2.2
+  SC 2.5.5). Measured at 390x844 before this block, 24 of 30 targets were under it.
+  `body .mpick .pill`: the picker's own rules come after this block and set its pills' 28 px, so
+  the pills are named one step more specifically here rather than moved.
+- 16 px on every field, `!important` because the components set their own smaller fonts: iOS
+  Safari zooms the page into a field set under 16 px, and a zoomed desk has to be pinched back.
+- `.gutter` 20 px wide at `right: 0`, widened *inward*: the pane after it paints over anything
+  hung across the boundary, so an outward strip would be a strip nobody can press.
+- The approval and question cards' decision rows are `position: sticky; bottom: 0` on the
+  panel's colour: the buttons stay at the pane's foot while the payload scrolls under them.
+- `touch-action: manipulation` on the pressables: no double-tap-to-zoom delay on a tap.
+
+### `@media (max-width: 640px)` (the approval card)
+
+Above `@media (max-width: 640px) {` (the one after the coarse block):
+
+Approve, the reason and Deny each get a full-width line on a phone: side by side at 390 px the
+reason field was 22 px wide.
+
+### `@media (max-width: 640px)` (the settings page, #578)
+
+Above the last `@media (max-width: 640px) {` in the file:
+
+/settings on a phone. At 390 px the page scrolled sideways (`scrollWidth` 596): the 190 px label
+column, 140 px fields, the `.twocol` halves' 260 px floor and a long `code` token set the page's
+width. Here each label takes its own line over a full-width field, the halves stack, the `main`
+is held to the window (its auto margins would otherwise size it to its widest word), `.why`
+breaks anywhere, and a table wider than the window scrolls inside itself rather than the page.
+Every selector keeps the `body.settings-page` prefix: the block is still the settings page's.

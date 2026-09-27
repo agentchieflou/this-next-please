@@ -12,6 +12,7 @@ point of everything below is that the next one is found by CI.
 |---|---|
 | `tests/` | the ordinary suite: units, seams, and the static guards |
 | `tests/test_props_*.py` | the generated inputs; hypothesis, from the `dev` extra |
+| `tests/test_fleet_ink_cues.py` | the cue contract for every ink skin that ships cues (#373): read from the sources, no browser, under 2 s |
 | `tests/test_lifecycle.py` | install, update, shadow, uninstall, in real venvs (`slow`) |
 | `tests/conftest.py` | isolation and the shared fixtures |
 | `tests/fixtures/` | inputs, byte-exact (`-text` in `.gitattributes`) |
@@ -102,6 +103,14 @@ could never have seen it. It is a backstop for the common shape and it says so: 
 its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
 any pattern to find, and carries the marker because its author put it there.
 
+**A clock read inline counts, and so does a browser nobody marked** (#602). The scan sees
+`time.monotonic() - t0 < 0.2` and `time.time() - start < 5`, the shape the wrap-up sweep's 0.2 s
+bound had when a Windows runner took 0.735 s (#590), and it opens `regressions/` and `laptop/` as
+well as `tests/`. The same file fails a module that imports Playwright or the desk harness
+(`test_fleet_desk_browser`) with no `browser` marker in it, and each of its tests that starts
+Chromium, itself or through the module's own fixtures, without one: an unmarked Chromium test runs
+in the default tier, gets none of the page diagnostics and escapes the browser shards.
+
 **A `measured` result means something only when the test ran serially** (#473, operator ruling
 (a)). `test_a_gesture_keeps_its_budget_while_the_ink_draws` went over its 50 ms budget under
 `-n auto` on two branches, and a diagnostic ran its six gestures with the ink drawing, at rest and
@@ -171,26 +180,28 @@ weighting and the plugin in a throwaway project serially and under `-n 2`; the `
 `-m`, under `--shuffle-seed`. Windows runs in shards (#311, *What CI runs*); Linux is #312.
 
 **The Windows shards** (#311). The one serial Windows 3.14 job outgrew every cap it was given (its pytest step
-took 28-32 minutes of 35), so Windows is six parallel jobs, each capped at 20 minutes: 3.14 in three
-`--shard=K/3` jobs that select exactly what the old step did (`not slow and not measured and not scale`), a 3.14
-`packaging and shells` job, and 3.12 in two `--shard=K/2` jobs. A shard is whole files, so each module still runs
+took 28-32 minutes of 35), so Windows is four parallel jobs on 3.14, each capped at 20 minutes: three
+`--shard=K/3` jobs that select exactly what the old step did (`not slow and not measured and not scale`), checked
+out with `core.autocrlf true` (Git for Windows' default), and a `packaging and shells` job with `core.autocrlf
+false` (#591: 3.14 is the only Python). A shard is whole files, so each module still runs
 contiguously in one process, which is what #227 needs. The `windows` times in `tests/durations.json` put each
-3.14 shard near 9.3 minutes and each 3.12 shard near 4.7; a file the table does not know weighs the median, so a
+shard near 9.3 minutes; a file the table does not know weighs the median, so a
 new or renamed file can unbalance the shards until the table is refreshed (§Step budgets). What each job runs is
 decided by its matrix row and each step's `if:`, and `tests/test_hygiene_windows_shards.py` checks that locally:
-it expands the rows as Actions does, evaluates every `if:`, and checks that every 3.14 shard K/3 and 3.12 shard
-K/2 exists once, that every 3.14 job installs and requires Chromium and no 3.12 job relies on a browser skip, that
-each shell, encoding and floor step runs in exactly one job per Python, and that each job reports its own junit
+it expands the rows as Actions does, evaluates every `if:`, and checks that every shard K/3 exists once, that
+every job is 3.14 and installs and requires Chromium, that the shards check out with `autocrlf true` and
+packaging and shells with `false`, that each shell, encoding and floor step runs in exactly one job, and that each
+job reports its own junit
 files against its caps into an artifact of its own name. How long a shard takes, and whether the job names still
 match any required status check, only a run shows.
 
 **The Linux browser shards** (#312). The page does not depend on the Python version, so Linux runs the browser
-tier (`browser and not slow and not measured and not scale`) once per run, in two `--shard=K/2` jobs on 3.12
-(`ubuntu · python 3.12 · browser · shard K/2`, under `-n 2`), and once more shuffled on seed 1 in two serial
+tier (`browser and not slow and not measured and not scale`) once per run, in two `--shard=K/2` jobs
+(`ubuntu · python 3.14 · browser · shard K/2`, under `-n 2`), and once more shuffled on seed 1 in two serial
 `suite · shuffled · browser · shard K/2` jobs, where it had never run: the old `suite · shuffled` job installed no
-browser and every browser test skipped. Both ubuntu legs deselect `browser` from their parallel step; the 3.12
-leg keeps Chromium for the browser tests that are also `measured` or `slow`, the desk's measurements and the
-demo, and 3.14 installs no browser and deselects it everywhere. `suite · shuffled` is one job per seed
+browser and every browser test skipped. The one ubuntu leg (#591: 3.14 only) deselects `browser` from its
+parallel step and keeps Chromium for the browser tests that are also `measured` or `slow`, the desk's
+measurements and the demo. `suite · shuffled` is one job per seed
 (`suite · shuffled · seed 1`, `suite · shuffled · seed 20260904`), each the whole non-browser suite, serially,
 and `coverage` deselects `browser` rather than relying on its skip. `tests/test_hygiene_linux_shards.py`
 expands every ubuntu job and evaluates each step's `-m` with pytest's own marker grammar: the tier runs in
@@ -238,8 +249,8 @@ python -m pytest -m browser  # or just `pytest`; they run with everything else
 They **skip with the reason named** when there is no browser, and never fail for its absence:
 `AGENTDATA_CHROMIUM` points at one you already have, which is what a machine that ships a browser
 separately from the wheel needs (Playwright pins a build to its own version and otherwise refuses to
-start). CI installs chromium in the ubuntu 3.12 leg, the `browser` and shuffled `browser` shard jobs
-and every Windows 3.14 job (the matrix in *What CI runs* says which tier runs in each), so these run there
+start). CI installs chromium on the ubuntu leg, the Linux browser jobs and every Windows job (the matrix in
+*What CI runs* says which tier runs in each), so these run there
 rather than skipping — a browser test that skips everywhere is the harness that let the defects
 through in the first place.
 
@@ -759,38 +770,36 @@ A red job is handled as *When CI is red* says: a flake issue and a reproduction 
 <!-- tier-matrix:start -->
 Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh with `python tests/tier_matrix.py --write`. A cell names how the tier runs there: `parallel` (`-n auto`), `2 workers` (`-n 2`), `serial`, `shuffled` (serial, `--shuffle-seed`), `N shards` (whole-file `--shard=K/N` jobs), `named files` (a step that names its test files runs only the tiers those files hold, per `tests/durations.json`), `gated` (selected, and skipped unless `AGENTDATA_LAPTOP=1`), `SKIPS` (a `browser` test selected where no Chromium is installed), or `—` (not selected). `+` joins two steps.
 
-| Tier | ubuntu · 3.12 | ubuntu · 3.14 | windows · 3.12 | windows · 3.14 |
-|---|---|---|---|---|
-| `default` | parallel + serial + serial, named files + shuffled (2 seeds) | parallel | 2 shards, serial | 3 shards, serial |
-| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | — | — | 3 shards, serial |
-| `measured` | serial + shuffled (2 seeds) | serial | serial | serial |
-| `scale` | serial + shuffled (2 seeds) | serial | serial | serial |
-| `slow` | serial + shuffled (2 seeds) | serial | — | serial |
-| `laptop` | gated | gated | gated | gated |
-| `browser+slow` | serial | — | — | serial |
-| `browser+measured` | serial + serial, named files | — | — | serial |
-| `measured+scale` | serial + serial, named files + shuffled (2 seeds) | serial | serial | serial |
+| Tier | ubuntu · 3.14 | windows · 3.14 |
+|---|---|---|
+| `default` | parallel + serial + serial, named files + shuffled (2 seeds) | 3 shards, serial |
+| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 3 shards, serial |
+| `measured` | serial + shuffled (2 seeds) | serial |
+| `scale` | serial + shuffled (2 seeds) | serial |
+| `slow` | serial + shuffled (2 seeds) | serial |
+| `laptop` | gated | gated |
+| `browser+slow` | serial | serial |
+| `browser+measured` | serial + serial, named files | serial |
+| `measured+scale` | serial + serial, named files + shuffled (2 seeds) | serial |
+| `laptop+measured` | gated | gated |
 
 Per job, as the checks are named:
 
-| Job | `default` | `browser` | `measured` | `scale` | `slow` | `laptop` | `browser+slow` | `browser+measured` | `measured+scale` |
-|---|---|---|---|---|---|---|---|---|---|
-| `ubuntu-latest · python 3.12` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files |
-| `ubuntu-latest · python 3.14` | parallel | — | serial | serial | serial | gated | — | — | serial |
-| `ubuntu · python 3.12 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — |
-| `ubuntu · python 3.12 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — |
-| `windows · python 3.14 · shard 1/3` | serial | serial | — | — | — | gated | — | — | — |
-| `windows · python 3.14 · shard 2/3` | serial | serial | — | — | — | gated | — | — | — |
-| `windows · python 3.14 · shard 3/3` | serial | serial | — | — | — | gated | — | — | — |
-| `windows · python 3.14 · packaging and shells` | — | — | serial | serial | serial | — | serial | serial | serial |
-| `windows · python 3.12 · shard 1/2` | serial | — | serial | serial | — | gated | — | — | serial |
-| `windows · python 3.12 · shard 2/2` | serial | — | — | — | — | gated | — | — | — |
-| `lint · bash 4.4 and pwsh 7 floors` | serial, named files | — | — | — | — | — | — | — | — |
-| `coverage · per-module floors` | serial | — | serial | serial | serial | gated | — | — | serial |
-| `suite · shuffled · seed 1` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled |
-| `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled |
-| `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — |
-| `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — |
+| Job | `default` | `browser` | `measured` | `scale` | `slow` | `laptop` | `browser+slow` | `browser+measured` | `measured+scale` | `laptop+measured` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `ubuntu-latest · python 3.14` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files | gated |
+| `ubuntu · python 3.14 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — | — |
+| `ubuntu · python 3.14 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — | — |
+| `windows · python 3.14 · shard 1/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 2/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 3/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · packaging and shells` | — | — | serial | serial | serial | — | serial | serial | serial | gated |
+| `lint · bash 4.4 and pwsh 7 floors` | serial, named files | — | — | — | — | — | — | — | — | — |
+| `coverage · per-module floors` | serial | — | serial | serial | serial | gated | — | — | serial | gated |
+| `suite · shuffled · seed 1` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
+| `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
+| `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — | — |
 <!-- tier-matrix:end -->
 
 `tests/test_hygiene_tier_matrix.py` keeps the block equal to the workflow (its failure names the refresh
@@ -803,12 +812,11 @@ tier markers the matrix does not list (#315). The table below is the prose per j
 
 | Job | What it proves |
 |---|---|
-| `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core without the browser tier, then `measured` + `scale` with the machine to themselves, then `slow` serially. The 3.12 leg first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236), and keeps Chromium for the `browser` tests that are also `measured` or `slow`, the measurements and the demo; 3.14 installs no browser and adds `and not browser` to every step (#312) |
-| `ubuntu · python 3.12 · browser · shard K/2` (K = 1, 2) | the browser tier (`browser and not slow and not measured and not scale`), once per run, in two whole-file shards under `-n 2`, with Chromium (#312) |
-| `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf false` |
-| `windows · python 3.14 · packaging and shells` | `measured` + `scale` with the machine to themselves, the `slow` tier, and the pwsh 7 / Git Bash / cmd smoke, completion, encoding and 5.1-refusal steps |
-| `windows · python 3.12 · shard K/2` (K = 1, 2) | the floor, `core.autocrlf true`, no browser: `not browser and not slow and not measured and not scale` in two shards; shard 1 also runs `measured` + `scale` (`and not browser`) and the smoke, completion and code-page steps |
-| `floor · pip refuses the wheel on 3.11` | `Requires-Python` really stops an older interpreter, in the words the user sees |
+| `ubuntu-latest · python 3.14` | the suite on the floor, which is also the laptop's Python (#591): the bulk on every core without the browser tier, then `measured` + `scale` with the machine to themselves, then `slow` serially. It first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236), and keeps Chromium for the `browser` tests that are also `measured` or `slow`, the measurements and the demo (#312) |
+| `ubuntu · python 3.14 · browser · shard K/2` (K = 1, 2) | the browser tier (`browser and not slow and not measured and not scale`), once per run, in two whole-file shards under `-n 2`, with Chromium (#312) |
+| `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf true` (Git for Windows' default; #591) |
+| `windows · python 3.14 · packaging and shells` | `measured` + `scale` with the machine to themselves, the `slow` tier, and the pwsh 7 / Git Bash / cmd smoke, completion, encoding and 5.1-refusal steps, `core.autocrlf false` |
+| `floor · pip refuses the wheel on 3.13` | `Requires-Python: >=3.14` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
 | `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact. No browser is installed, so `-m "not browser"` (#312) |
@@ -816,7 +824,7 @@ tier markers the matrix does not list (#315). The table below is the prose per j
 | `suite · shuffled · browser · shard K/2` (K = 1, 2) | the browser tier shuffled on seed 1, serially, in two whole-file shards, with Chromium (#312): the tier with the most process-global state had never run in a shuffled order |
 | `windows · python 3.14 · packaging and shells` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
-| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): the ubuntu 3.12 leg, both `browser` jobs and every Windows 3.14 job (a `require_browser` matrix field; the ubuntu 3.14 leg and the Windows 3.12 jobs install no browser, leave it empty, and deselect the `browser` tier). A skipped `browser` test fails there, and every other skip prints its reason |
+| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): the ubuntu leg, both `browser` jobs, both `suite · shuffled · browser` jobs and every Windows job (a `require_browser` matrix field). A skipped `browser` test fails there, and every other skip prints its reason |
 | every pytest step | its own `timeout-minutes` and a `--junitxml=junit/<job>-<step>.xml` (#309); every job with one has a job cap and ends with the `if: always()` step *durations · the per-step table* |
 
 ### Step budgets and the durations table

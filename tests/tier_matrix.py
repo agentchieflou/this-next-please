@@ -47,7 +47,7 @@ TIERS = ("browser", "measured", "scale", "slow", "laptop")
 #: Every combination of tier markers a test here carries; `frozenset()` is the default tier.
 COMBINATIONS: tuple[frozenset[str], ...] = tuple(frozenset(c) for c in (
     (), ("browser",), ("measured",), ("scale",), ("slow",), ("laptop",),
-    ("browser", "slow"), ("browser", "measured"), ("measured", "scale"),
+    ("browser", "slow"), ("browser", "measured"), ("measured", "scale"), ("laptop", "measured"),
 ))
 
 #: Combinations allowed to run on one OS only: {combination: why}. `laptop` is never CI's.
