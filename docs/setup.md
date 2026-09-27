@@ -155,6 +155,20 @@ list saved from a page becomes the whole boundary, and an operator who saved one
 stop receiving any command a later version adds. Change those in the file, where the whole list is
 in front of you. The deny-list is a floor: configuration can add to it and can never remove one.
 
+The phone bridge's five keys (#553) are **not** on /settings: each moves a human checkpoint (who may approve from
+outside the laptop, and where records leave it), so they are set in the file or by `ad-setup --patch fleet.mobile`,
+which asks exactly these five. The whole wizard asks only the first while the bridge is off. The `fleet/mobile` and
+`fleet/mobile traffic` doctor rows ([fleet-lifecycle.md](fleet-lifecycle.md) §The doctor rows) name the key behind
+each finding.
+
+| Setting | What it does | Default |
+|---|---|---|
+| `fleet.mobile.enabled` | the bridge runs at all | `false` |
+| `fleet.mobile.folder` | the bridge folder, one OneDrive syncs, outside every checkout and the fleet directory. Never defaulted: `%OneDriveCommercial%/FleetAgent` is only shown as a suggestion | none |
+| `fleet.mobile.operator` | the UPN that may decide from the phone | none |
+| `fleet.mobile.expire_s` | seconds a phone decision stays valid, clamped to 60-3600 | `900` |
+| `fleet.mobile.notify` | the fleet's notifications go to the outbox too | `true` |
+
 ## Sharing setup across a team (`--export-defaults` and `--import`)
 
 Everything stored in `~/.agentdata/config.json` is non-secret by design (`save()` rejects credential-shaped keys;

@@ -497,6 +497,14 @@ to sit here was focus mode's -- a filter that dimmed every rail whose agent want
 replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
 nothing back when one of them stops needing you, so there is nothing left to hold.
 
+### `body[data-skin] .tile.needs-human .head .repo`
+
+Under a skin, the name of the agent that needs you is written in `--text`, not red (#329). Every
+skin but voxel lays the highlighter on it, and red through the swipe read at 1.7-2.4:1; `--text`
+reads at 4.5:1 or better through every variant's highlighter (`theme.check` rule 5), ink on and in
+the plain fallback. The highlight, the chip, the rail and the rim still say "needs you". `none`
+keeps `--human-text` (#328).
+
 ### `.outside`
 
 Above `.outside {`:
@@ -860,3 +868,44 @@ Above `body.settings-page .setrow > .setlabel {`:
 The model block (#367): the fleet-wide picker beside its label, the line saying where the list
 came from beside its refresh button, and a row's expansion under its compact picker, in the same
 cell. The pills are the picker's own (#362); a row's words sit level with its first pills.
+
+## a finger (#574)
+
+### `@media (pointer: coarse)`
+
+Above `@media (pointer: coarse) {` (before `.mpick`: from there to the end of the file the model
+picker's and the settings page's rules are each held to their own prefix by a test):
+
+The touch scale, and only the touch scale: the desktop's 28 px controls and 13 px text are the
+HIG's desktop floor and stay as they are for a mouse and for the IDE shells, so every size a
+finger needs lives in this one block.
+
+- 44 px both ways on every button, segment, pill, list row and head tool (Apple's 44 pt; WCAG 2.2
+  SC 2.5.5). Measured at 390x844 before this block, 24 of 30 targets were under it.
+  `body .mpick .pill`: the picker's own rules come after this block and set its pills' 28 px, so
+  the pills are named one step more specifically here rather than moved.
+- 16 px on every field, `!important` because the components set their own smaller fonts: iOS
+  Safari zooms the page into a field set under 16 px, and a zoomed desk has to be pinched back.
+- `.gutter` 20 px wide at `right: 0`, widened *inward*: the pane after it paints over anything
+  hung across the boundary, so an outward strip would be a strip nobody can press.
+- The approval and question cards' decision rows are `position: sticky; bottom: 0` on the
+  panel's colour: the buttons stay at the pane's foot while the payload scrolls under them.
+- `touch-action: manipulation` on the pressables: no double-tap-to-zoom delay on a tap.
+
+### `@media (max-width: 640px)` (the approval card)
+
+Above `@media (max-width: 640px) {` (the one after the coarse block):
+
+Approve, the reason and Deny each get a full-width line on a phone: side by side at 390 px the
+reason field was 22 px wide.
+
+### `@media (max-width: 640px)` (the settings page, #578)
+
+Above the last `@media (max-width: 640px) {` in the file:
+
+/settings on a phone. At 390 px the page scrolled sideways (`scrollWidth` 596): the 190 px label
+column, 140 px fields, the `.twocol` halves' 260 px floor and a long `code` token set the page's
+width. Here each label takes its own line over a full-width field, the halves stack, the `main`
+is held to the window (its auto margins would otherwise size it to its widest word), `.why`
+breaks anywhere, and a table wider than the window scrolls inside itself rather than the page.
+Every selector keeps the `body.settings-page` prefix: the block is still the settings page's.

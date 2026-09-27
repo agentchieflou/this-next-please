@@ -389,3 +389,148 @@ def test_the_notification_rows_name_the_settings_that_change_them():
                                           "fleet.notify.quiet_hours"}
     for row in ctx.checks:
         assert all(k.startswith("fleet.notify.") for k in row.keys), row.keys
+
+
+# ------------------------------------------------------------------------------ Channel and sweep
+#
+# The mobile channel (#549): `deliver()` writes one `notifications/*.json` to the bridge's outbox beside the toast,
+# and one process-wide `serve.sweep_if_due` means the desk's streams and the bridge share the one cursor.
+
+import itertools
+import threading
+
+from agentdata import config as C
+from agentdata.fleet import approval, bridge, serve as S
+
+TOKEN = "Zq3v9Kx-run-token-8yP2mW4tL0aa"
+
+
+def _mobile_cfg(tmp_path, **mobile):
+    return {"fleet": {"mobile": {"enabled": True, "folder": str(tmp_path / "OneDrive" / "FleetAgent"),
+                                 "operator": "operator@example.com", **mobile},
+                      "notify": {"toast": False}}}
+
+
+def _outbox_notifications(tmp_path) -> list[str]:
+    directory = os.path.join(str(tmp_path / "OneDrive" / "FleetAgent"), "outbox", "notifications")
+    return sorted(os.listdir(directory)) if os.path.isdir(directory) else []
+
+
+def _needs_human(repo):
+    E.append(repo, [ev(repo, "denied", {"message": "no `git push`"}), ev(repo, "turn_ended", {})])
+
+
+def test_a_transition_reaches_the_outbox_exactly_once_however_many_streams_sweep(fleet_home, tmp_path):  # noqa: F811
+    cfg = _mobile_cfg(tmp_path)
+    C.save(cfg)                                              # `serve._sweep` reads the saved config, as the desk does
+    orders = list(itertools.permutations(("desk-1", "desk-2", "bridge")))
+    repos = [f"r{i}" for i in range(len(orders) * 2)]
+    for repo in repos:
+        a_repo(tmp_path, repo)
+        E.append(repo, working(repo))
+    S.sweep_if_due("", every=0.0)                            # first sight: nothing said
+    assert _outbox_notifications(tmp_path) == []
+    url = {"desk-1": f"http://127.0.0.1:8765/?t={TOKEN}", "desk-2": f"http://127.0.0.1:8765/?t={TOKEN}",
+           "bridge": ""}
+
+    for i, order in enumerate(orders):
+        # In turn, each order once: the first caller finds the transition, the other two find nothing.
+        repo = repos[2 * i]
+        _needs_human(repo)
+        found = {who: S.sweep_if_due(url[who], every=0.0) for who in order}
+        assert [who for who in order if found[who]] == [order[0]], order
+        assert [n for n in _outbox_notifications(tmp_path) if f"-{repo}-" in n] != []
+
+        # At once, the three racing: the lock lets exactly one of them take it.
+        repo = repos[2 * i + 1]
+        _needs_human(repo)
+        barrier, got = threading.Barrier(3), {}
+
+        def caller(who):
+            barrier.wait()
+            got[who] = S.sweep_if_due(url[who], every=0.0)
+        threads = [threading.Thread(target=caller, args=(who,)) for who in order]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert sum(len(v) for v in got.values()) == 1, (order, got)
+
+    names = _outbox_notifications(tmp_path)
+    for repo in repos:
+        mine = [n for n in names if n.split("-")[1] == repo]
+        assert len(mine) == 1, (repo, mine)
+        assert mine[0].endswith(".json") and "-needs_human-" in mine[0]
+    assert [i["mobile"] for i in N.read_log()] == [True] * len(repos)
+
+
+def test_quiet_hours_export_the_notification_with_quiet_true(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(N, "send_toast", lambda *a, **k: pytest.fail("a toast went out in quiet hours"))
+    cfg = _mobile_cfg(tmp_path)
+    cfg["fleet"]["notify"] = {"quiet_hours": "18:00-08:00", "toast": True}
+    night = time.struct_time((2026, 1, 4, 23, 0, 0, 6, 4, 0))
+
+    out = N.deliver([N.notification("luna", "needs_human", "no push", ticket="RDSD-1", seq=7)], cfg=cfg, when=night)
+    assert out[0]["quiet"] is True and out[0]["toasted"] is False and out[0]["mobile"] is True
+    [name] = _outbox_notifications(tmp_path)
+    record = textio_read(tmp_path, name)
+    assert record["quiet"] is True and record["severity"] == "action"
+    assert [i["title"] for i in N.read_log()] == [out[0]["title"]], "the badge was lost too"
+
+
+def textio_read(tmp_path, name):
+    from agentdata import textio
+
+    return textio.read_json(os.path.join(str(tmp_path / "OneDrive" / "FleetAgent"), "outbox", "notifications", name),
+                            name)
+
+
+def test_the_notification_file_carries_no_url_and_no_token(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    path = a_repo(tmp_path, "luna")
+    with open(os.path.join(str(fleet_home), "serve.json"), "w", encoding="utf-8") as f:
+        json.dump({"url": f"http://127.0.0.1:8765/?t={TOKEN}", "token": TOKEN}, f)
+    request = {"id": approval.new_id("luna", "jira-transition"), "repo": "luna", "ticket": "RDSD-1",
+               "kind": "jira-transition", "summary": "Transition RDSD-1", "payload": {"key": "RDSD-1"},
+               "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "pid": 1}
+    request["digest"] = approval.digest(request)
+    os.makedirs(approval.approvals_dir(), exist_ok=True)
+    from agentdata import textio
+
+    textio.write_json(os.path.join(approval.approvals_dir(), f"{request['id']}.json"), request)
+    why = f"reading {path}/notes.txt with ?t={TOKEN} and token=ghp_abcdefghijklmnopqrstuvwxyz0123"
+    items = [N.notification("luna", "waiting_approval", why, ticket="RDSD-1", seq=12),
+             N.notification("luna", "needs_human", "asked which window", ticket="RDSD-1", seq=13)]
+
+    N.deliver(items, cfg=_mobile_cfg(tmp_path), url=f"http://127.0.0.1:8765/?t={TOKEN}")
+    names = _outbox_notifications(tmp_path)
+    assert len(names) == 2 and all(n.startswith(items[0]["at"].replace("-", "").replace(":", "")) for n in names)
+    for name in names:
+        raw = open(os.path.join(str(tmp_path / "OneDrive" / "FleetAgent"), "outbox", "notifications", name),
+                   encoding="utf-8").read()
+        for leak in (TOKEN, "http", "#tile=", "ghp_", path, "url"):
+            assert leak not in raw, (leak, name)
+    approval_file = textio_read(tmp_path, [n for n in names if "-waiting_approval-" in n][0])
+    assert set(approval_file) == {"schema", "kind", "repo", "ticket", "state", "severity", "title", "body", "seq",
+                                  "at", "key", "quiet", "approval_id"}
+    assert approval_file["title"] == items[0]["title"] == "luna · RDSD-1 — needs approval"
+    assert (approval_file["kind"], approval_file["key"], approval_file["seq"]) == ("notification",
+                                                                                   "luna:waiting_approval", 12)
+    assert approval_file["approval_id"] == request["id"] and approval_file["at"].endswith("Z")
+    assert textio_read(tmp_path, [n for n in names if "-needs_human-" in n][0])["approval_id"] == ""
+
+
+@pytest.mark.parametrize("mobile", [{"notify": False}, {"enabled": False}, {"folder": ""}])
+def test_with_the_bridge_off_deliver_writes_nothing_outside_the_fleet_dir(fleet_home, tmp_path, mobile):  # noqa: F811
+    before = sorted(os.listdir(str(tmp_path)))
+    out = N.deliver([N.notification("luna", "needs_human", "no push", seq=3)], cfg=_mobile_cfg(tmp_path, **mobile))
+    assert out[0]["mobile"] is False
+    assert not os.path.exists(str(tmp_path / "OneDrive")), "the outbox was written with the bridge off"
+    assert sorted(os.listdir(str(tmp_path))) == sorted(set(before) | {os.path.basename(str(fleet_home))})
+    assert N.read_log()[0]["mobile"] is False
+
+
+def test_a_notification_file_that_cannot_be_written_never_takes_the_fleet_with_it(fleet_home, tmp_path,  # noqa: F811
+                                                                                 monkeypatch):
+    monkeypatch.setattr(bridge.textio, "write_json", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    out = N.deliver([N.notification("luna", "needs_human", "no push", seq=3)], cfg=_mobile_cfg(tmp_path))
+    assert out[0]["mobile"] is False and N.read_log(), "a failed export lost the badge"

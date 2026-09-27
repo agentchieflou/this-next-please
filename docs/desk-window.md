@@ -230,6 +230,8 @@ control, unless the handle *is* the control.** A pane's head is a plain `div`, s
 it is somebody else's. A rail's face is one button, so a press anywhere on it is the rail's.
 
 A finger scrolls on heads and rails (`touch-action: pan-y`, #573): the drag needs a sideways start.
+Under a coarse pointer every control is 44 px both ways and every field is set at 16 px (#574); the
+gutter's hit strip is 20 px, widened into the pane on its left. A mouse keeps the 28 px / 13 px scale.
 
 Four pixels of travel before anything moves: a click on the head still selects the project, and a
 click on a rail still swaps it in. Then the host is translated under the cursor, and whatever is

@@ -567,6 +567,7 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
     assert state["arrangement"]["pinned"] == ["beta"], state
 
 
+@pytest.mark.browser
 def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monkeypatch):
     """When a start returns 409 with code: 'cross_project', the override prompt appears
     even when the refusal error string does not contain 'jira_project'."""
@@ -596,6 +597,7 @@ def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monk
         browser.close()
 
 
+@pytest.mark.browser
 def test_successful_attach_reads_attached_arrow(desk):
     """A successful attach renders 'attached → ...', and not 'already there'."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
@@ -682,3 +684,57 @@ def test_the_page_is_laid_out_for_a_phone_viewport_and_unchanged_on_a_desktop():
         content = [p.strip() for p in meta.group(1).split(",")]
         assert "viewport-fit=cover" in content and "interactive-widget=resizes-content" in content, (page, content)
         assert not any(p.startswith(("maximum-scale", "user-scalable")) for p in content), (page, content)
+
+
+def _media_bodies(css: str, query: str):
+    """The body of every `@media <query> { ... }` block, rules only (one level of nesting)."""
+    return re.findall(r"@media " + re.escape(query) + r" \{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}", css)
+
+
+def test_a_coarse_pointer_gets_44_px_targets_and_16_px_fields_and_a_mouse_keeps_its_scale():
+    """#574 (epic #541). Measured at 390x844, 24 of 30 targets were under 44 px and every field was
+    13 px, which iOS zooms the page into. One `(pointer: coarse)` block grows them; the desktop's
+    28 px / 13 px scale lives outside it and stays where it was. The approval card's decision row
+    wraps to full-width lines at 640 px and under."""
+    with open(os.path.join(STATIC, "app.css"), encoding="utf-8") as f:
+        raw = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    coarse = _media_bodies(raw, "(pointer: coarse)")
+    assert len(coarse) == 1, f"{len(coarse)} (pointer: coarse) blocks; one holds the touch scale"
+    rules = _css_rules(coarse[0])
+    decls = [d for _, ds in rules for d in ds]
+    assert ("min-height", "44px") in decls, rules
+    assert any(p == "font-size" and v.startswith("16px") for p, v in decls), rules
+    fields = [ds for s, ds in rules if set(s.split(", ")) >= {"input", "textarea", "select"}]
+    assert fields and any(p == "font-size" and v.startswith("16px") for p, v in fields[0]), rules
+    gutter = dict(d for s, ds in rules if s == ".gutter" for d in ds)
+    assert gutter.get("width") == "20px" and gutter.get("right") == "0", gutter
+
+    outside = _css_rules(raw.replace(coarse[0], ""))
+    base = [dict(ds) for s, ds in outside if s == "select, button, input"]
+    assert base and base[0].get("min-height") == "28px", base
+    assert dict(d for s, ds in outside if s == ".gutter" for d in ds).get("width") == "8px"
+
+    narrow = [r for body in _media_bodies(raw, "(max-width: 640px)") for r in _css_rules(body)]
+    wrap = dict(d for s, ds in narrow if s == ".approval .row" for d in ds)
+    assert wrap.get("flex-wrap") == "wrap", narrow
+    assert ("flex", "1 1 100%") in [d for s, ds in narrow if s == ".approval .row > *" for d in ds], narrow
+
+
+def test_the_settings_rows_wrap_on_a_phone_and_keep_their_column_on_a_desktop():
+    """#578 (epic #541). /settings scrolled sideways at 390 px (`scrollWidth` 596): a 190 px label
+    column, 140 px fields, a `.twocol` of 260 px halves and a long `code` token. At 640 px and under
+    the rows wrap, still under `body.settings-page`; the 190 px column outside it is untouched."""
+    with open(os.path.join(STATIC, "app.css"), encoding="utf-8") as f:
+        raw = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    narrow = [r for body in _media_bodies(raw, "(max-width: 640px)") for r in _css_rules(body)]
+    got = {s: dict(ds) for s, ds in narrow if s.startswith("body.settings-page")}
+    assert got.get("body.settings-page .setrow", {}).get("flex-wrap") == "wrap", got
+    assert any("body.settings-page .setrow > label" in s.split(", ") and d.get("flex") == "1 1 100%"
+               for s, d in got.items()), got
+    assert got.get("body.settings-page .twocol > div", {}).get("min-width") == "0", got
+    assert all(s.startswith("body.settings-page") for s, _ in narrow if "settings-page" in s), narrow
+    outside = raw
+    for body in _media_bodies(raw, "(max-width: 640px)"):
+        outside = outside.replace(body, "")
+    wide = dict(d for s, ds in _css_rules(outside) if s == "body.settings-page .setrow > label" for d in ds)
+    assert wide.get("flex") == "0 0 190px", wide

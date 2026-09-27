@@ -110,6 +110,9 @@ def test_the_read_counts_seven_three_unmerged_first_and_two_carrying_the_ticket(
     assert len(got["commits"]) == 3 and "the second half, two" in got["commits"][0]
 
 
+# A budget on real git (#602): forty branches and twenty `rev-list`s inside the git tick's 30 s, which on a loaded
+# runner measures the load as much as the read. So it runs with the machine to itself.
+@pytest.mark.measured
 def test_the_cheap_read_makes_no_rev_list_and_the_full_one_is_bounded(fleet_home, tmp_path, monkeypatch):
     """Acceptance criterion. Forty unmerged branches: the count stops at twenty and says *and
     more*; the git tick's read makes no `rev-list` at all; and the whole read finishes inside the

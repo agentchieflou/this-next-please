@@ -476,6 +476,24 @@ def test_probe_open_reports_a_probe_that_arrived_and_did_not_finish(running, mon
     assert "measurement stands: works" in out, out
 
 
+# Not a clock (#602): the command's one wait is `_wait_for_probe`, so these ask what it was asked to wait -- nothing,
+# or not at all -- rather than time the command against a ceiling a loaded runner can reach.
+def _never_waits(monkeypatch):
+    monkeypatch.setattr(cli_fleet, "_wait_for_probe",
+                        lambda shell, before, wait_s: pytest.fail(f"a refusal waited {wait_s}s for a probe"))
+
+
+def _waits_for(monkeypatch) -> list:
+    asked, real = [], cli_fleet._wait_for_probe
+
+    def recording(shell, before, wait_s):
+        asked.append(wait_s)
+        return real(shell, before, wait_s)
+
+    monkeypatch.setattr(cli_fleet, "_wait_for_probe", recording)
+    return asked
+
+
 def test_probe_open_asks_a_current_desk(fleet_home, monkeypatch):
     """#242: the first thing run on the laptop after `ad-update` is this command, and last week's
     server has neither `/probe` nor `measure`. The desk it asks is the one `ad-fleet open` would
@@ -487,10 +505,9 @@ def test_probe_open_asks_a_current_desk(fleet_home, monkeypatch):
                           "stop it by hand (Ctrl-C in its window), then `ad-fleet open` again")
 
     monkeypatch.setattr(O, "current_desk", stuck)
-    started = time.time()
+    _never_waits(monkeypatch)
     rc, out = cli("probe", "--open", "pycharm", "--wait", "30")
     assert rc != 0 and "would not stop" in out and "ok: false" in out, out
-    assert time.time() - started < 5
 
 
 def test_probe_open_edge_without_edge_opens_nothing_and_labels_nothing(fleet_home, monkeypatch):
@@ -499,11 +516,10 @@ def test_probe_open_edge_without_edge_opens_nothing_and_labels_nothing(fleet_hom
     monkeypatch.setattr(O, "edge_exe", lambda: "")
     monkeypatch.setattr(O, "clipboard", lambda text: pytest.fail(f"put {text} on the clipboard"))
     monkeypatch.setattr(O, "current_desk", lambda port: pytest.fail("started a desk for nothing"))
-    started = time.time()
+    _never_waits(monkeypatch)
     rc, out = cli("probe", "--open", "edge", "--wait", "30")
     assert rc != 0 and "Edge was not found" in out and "--open browser" in out, out
     assert "--in" not in out, "the hint names a flag this command does not take"
-    assert time.time() - started < 5
 
 
 def test_probe_open_does_not_wait_when_nothing_was_asked(running, monkeypatch):
@@ -512,11 +528,11 @@ def test_probe_open_does_not_wait_when_nothing_was_asked(running, monkeypatch):
     monkeypatch.setattr(O, "clipboard", lambda text: False)
     monkeypatch.setattr(O, "post_action", lambda record, action, body, timeout=5.0:
                         {"ok": False, "error": "unknown action 'measure'"})
-    started = time.time()
+    waits = _waits_for(monkeypatch)
     rc, out = cli("probe", "--open", "pycharm", "--wait", "30")
     assert rc == 0 and "opened: nothing" in out and "arrived: false" in out, out
     assert "unknown action" in out
-    assert time.time() - started < 5
+    assert waits == [0], "nothing was asked, so the 30 s `--wait` is not spent"
 
 
 # --------------------------------------------------------------------------------- the ask

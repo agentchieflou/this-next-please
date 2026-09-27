@@ -57,10 +57,22 @@ def test_outside_a_fleet_nothing_is_written_and_nothing_waits(fleet_home, monkey
     """The path a person is on. If this ever blocks or writes, `ad-jira` has become unusable in
     PyCharm -- which is where it is used most."""
     monkeypatch.delenv(registry.AGENT_ENV, raising=False)
-    before = time.time()
+
+    class NoWaiting:
+        """The gate's own `time`, whose `sleep` -- the gate's only way to wait -- fails the test."""
+
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        @staticmethod
+        def sleep(seconds):
+            raise AssertionError(f"the gate waited ({seconds}s) outside a fleet")
+
+    # Not a clock (#602): a gate that waited at all, for a second or for the whole 999, fails here, and a loaded
+    # runner cannot fail it.
+    monkeypatch.setattr(approval, "time", NoWaiting())
     d = approval.require("jira-transition", "RDSD-1 -> In Review", {"key": "RDSD-1"}, timeout=999)
     assert d.ok and d.auto
-    assert time.time() - before < 1.0
     assert not os.path.exists(approval.approvals_dir()), "the gate wrote to disk outside a fleet"
 
 
