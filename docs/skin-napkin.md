@@ -50,9 +50,9 @@ the skin shows no state the page does not have.
 | --- | --- | --- |
 | idle | pencil outline, inside the pane; the name underlined in pencil | `.tile.state-idle` outline (pad -5), `.tile.state-idle .head .repo` underline |
 | running | the name underlined in pen, and **the pen's tip** resting at the end of the line | `.tile.state-running .head .repo` underline. The tip is a material (`frame`/`tick`), shown when the line is drawn and kept when it is struck |
-| needs you | highlighter on the name and on the question; pencil loops round the choices | `.tile.needs-human .head .repo` (`leaves: "erased"`), `.asks:not([hidden]) .ask:not([hidden]) .ask-q`, `… .ask-choice:not([aria-pressed="true"])` |
+| needs you | highlighter on the name and on the question; pencil loops round the choices | `.tile.needs-human .head .repo` (`leaves: "erased"`), `.asks:not([hidden]) .ask:not([hidden]) .ask-q`, `… .ask-choice:not([aria-pressed="true"])`; and the felt tip's loop round the question card, `.tile.needs-human .asks:not([hidden])` (pad -3): the loudest pane (#335) |
 | answered | the chosen answer circled in pen, with its pencil loop erased. When the question goes, its highlight is struck in pen. **The name is erased, never struck** | `.ask:not([hidden]) .ask-choice[aria-pressed="true"]` ellipse. The strike is how the layer takes back any ink |
-| error | the felt tip's box inside the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop (pad -7) and red bang (in the pane's margin, #330) |
+| error | the felt tip's loop round the error's own words, with its bleed; a bang in the margin | `.tile.state-error .why` marker loop (pad 0, #335; it was round the pane at -7) and `.tile.state-error` red bang (in the pane's margin, #330) |
 | done | green check in the margin | `.tile:is(.state-done, .is-done)`, in the pane's margin (#330): a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
 | stale (#240) | the chip's own words written in pencil as a margin note, an arrow from it to the run's line, a dashed pencil outline | `.oldsession:not([hidden])` write and arrow (`to: ".runline"`), `.tile:has(.oldsession:not([hidden]))` dashed outline (pad -8) |
 | a finding | a red ellipse round the line, the highlighter on its kind, its own words written in pencil | `.tile .transcript li:is(.denied, .friction)` ellipse, its `.k` lines, its `.v` write: the lines the page already marks as a problem, read as the legal pad reads them (#251) |
@@ -74,9 +74,11 @@ says `leaves: "erased"` (desk-ink.md §A skin is a mark table; the field came wi
 
 ## The felt tip bleeds along the emboss
 
-The felt tip is the `marker`, and it draws the error box. Under the loop, each error pane has a bleed quad in its
-frame. The quad's shader finds the nearest point on the loop `shapes.js` draws, which is a rounded rectangle 4 px
-in with 7 px corners (pad -7, #332), begun at the top left and drawn clockwise. It inks the paper round the loop:
+The felt tip is the `marker`, and it draws the error's loop, round the error's own words (`.why`, #335). Under the
+loop, each error pane has a bleed quad in its frame. The quad's shader finds the nearest point on the loop
+`shapes.js` draws, which is a rounded rectangle 3 px out from the why with 7 px corners (pad 0, `LOOP_O`), begun at
+the top left and drawn clockwise; `show` places it from the loop mark's own box, since the why's words can change.
+(It is the question card that is loudest now; the card's marker loop does not bleed.) It inks the paper round the loop:
 
 * **only as far as the pen has drawn**, which it reads from the marker mark's `drawn` in `Ink.inspect()`;
 * **further where the paper is pressed in**: up to about 14 px from the line in a seam, and under 4 px on a pillow;

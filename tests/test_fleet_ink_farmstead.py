@@ -193,7 +193,7 @@ def test_the_mark_table_names_only_what_the_page_already_sets():
     app = _read(os.path.join(STATIC, "app.js"))
     html = _read(os.path.join(STATIC, "index.html"))
     selectors = re.findall(r'selector: "((?:[^"\\]|\\.)*)"', _read(MODULE))
-    assert len(selectors) == 10, selectors
+    assert len(selectors) == 11, selectors
     for sel in selectors:
         for cls in re.findall(r"\.([\w-]+)", sel):
             if cls.startswith("state-"):
@@ -876,11 +876,14 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
                 and not m["strikeOf"] and m["state"] == "drawn"]
     assert live(on, "beta", ".tile.needs-human .head .repo")[0]["tool"] == "highlighter"
     assert live(on, "beta", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q")[0]["tool"] == "highlighter"
-    assert live(on, "alpha", ".tile.state-error")[-1]["shape"] in ("loop", "bang")
-    assert {m["shape"] for m in live(on, "alpha", ".tile.state-error")} == {"loop", "bang"}
+    # #335: the error's marker loop is round its why, the bang stays on the pane; the question
+    # card is looped in marker, so the pane waiting on the operator is the loudest.
+    assert [m["shape"] for m in live(on, "alpha", ".tile.state-error")] == ["bang"]
+    assert [(m["tool"], m["shape"]) for m in live(on, "alpha", ".tile.state-error .why")] == [("marker", "loop")]
+    assert [(m["tool"], m["shape"]) for m in live(on, "beta", ".tile.needs-human .asks:not([hidden])")] == [("marker", "loop")]
     assert live(on, "beta", PRESSED)[0]["shape"] == "loop"
     assert live(on, "beta", ".tile .transcript li.friction")[0]["tool"] == "red"
-    assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "marker"
+    assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "red"
     assert live(on, "gamma", ".tile.state-running .head .repo")[0]["tool"] == "pen"
     panes = on["farm"]["panes"]
     assert panes["alpha"]["shown"] == "crop-wilted" and panes["alpha"]["scorched"], panes["alpha"]

@@ -62,9 +62,9 @@ attribute `app.js` already sets. The skin adds no state class and never writes t
 
 | State | The page says | Voxel response | Mark (tool, shape) |
 | --- | --- | --- | --- |
-| needs you | `.tile.needs-human` | the top block rises 5px out of its socket | `.tile.needs-human .head .repo`: highlighter, lines; and each open question, `.tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q`: highlighter, lines (#334) |
+| needs you | `.tile.needs-human` | the top block rises 5px out of its socket | `.tile.needs-human .head .repo`: highlighter, lines; and each open question, `.tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q`: highlighter, lines (#334); and the question card, `.tile.needs-human .asks:not([hidden])`: marker, loop on its border (pad -3), the loudest pane (#335) |
 | running | `.tile.state-running` | two blocks; the top one turns a quarter every 3s | `.tile.state-running .head .repo`: pen, underline (#334) |
-| error | `.tile.state-error` | the top block cracks into two halves, knocked off square | `.tile.state-error`: marker, loop round the pane (pad -7, #334); and red, bang in the pane's margin (#330) |
+| error | `.tile.state-error` | the top block cracks into two halves, knocked off square | `.tile.state-error .why`: marker, loop round the error's own words (pad 0, #335; it was round the pane); and `.tile.state-error`: red, bang in the pane's margin (#330) |
 | done | `:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | the stack is set full, three blocks, flush | `.tile:is(.state-done, .is-done)`: green, check in the pane's margin (#330) |
 | stale (#240) | `.oldsession` not `hidden` | a pebble on top of the stack | `.tile .oldsession:not([hidden])`: pencil, dashed outline |
 | answered | the choice's `aria-pressed="true"` in the question card | the risen block settles as `needs-human` goes | `.tile .ask-choice[aria-pressed="true"]`: pen, loop (#334; green is done's) |

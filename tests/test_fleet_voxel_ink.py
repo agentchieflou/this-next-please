@@ -217,7 +217,7 @@ def test_every_class_the_voxel_reads_is_one_the_page_already_sets():
     selectors = _selectors() + [a or b for a, b in read]
     shown = js[js.index("var SHOWN = {"):]
     shown = shown[:shown.index("};")]
-    assert len(_selectors()) == 9, "one row per state the grammar marks"
+    assert len(_selectors()) == 10, "one row per state the grammar marks"
     for sel in selectors:
         for cls in re.findall(r"\.([A-Za-z][\w-]*)", sel):
             if cls.startswith("state-"):
@@ -370,8 +370,10 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
 MARK = {
     "needs": ".tile.needs-human .head .repo",
     "question": ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q",
+    "card": ".tile.needs-human .asks:not([hidden])",
     "running": ".tile.state-running .head .repo",
     "error": ".tile.state-error",
+    "why": ".tile.state-error .why",
     "done": ".tile:is(.state-done, .is-done)",
     "stale": ".tile .oldsession:not([hidden])",
     "answered": '.tile .ask-choice[aria-pressed="true"]',
@@ -462,8 +464,12 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     assert on["delta"]["state"] == "running" and timer, "a running block turns on a timer"
     # the marks, per state, each on its own pane
     assert marks_on["needs"]["alpha"] == 1 and marks_on["needs"]["gamma"] == 0, marks_on["needs"]
-    assert marks_on["error"] == {"alpha": 0, "beta": 2, "gamma": 0, "delta": 0}, marks_on["error"]
-    assert sorted(m["shape"] for m in on_error) == ["bang", "loop"], on_error
+    # #335: the pane waiting on the operator is the loudest -- its question card looped in marker --
+    # and the error's marker loop is round its why, the bang on the pane.
+    assert marks_on["card"] == {"alpha": 1, "beta": 0, "gamma": 0, "delta": 0}, marks_on["card"]
+    assert marks_on["error"] == {"alpha": 0, "beta": 1, "gamma": 0, "delta": 0}, marks_on["error"]
+    assert marks_on["why"] == {"alpha": 0, "beta": 1, "gamma": 0, "delta": 0}, marks_on["why"]
+    assert [m["shape"] for m in on_error] == ["bang"], on_error
     assert marks_on["question"]["alpha"] == 1 and marks_on["question"]["beta"] == 0, marks_on["question"]
     assert marks_on["running"] == {"alpha": 0, "beta": 0, "gamma": 0, "delta": 1}, marks_on["running"]
     assert marks_on["done"] == {"alpha": 0, "beta": 0, "gamma": 1, "delta": 0}, marks_on["done"]
@@ -473,7 +479,8 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     # and they leave with the state
     assert all(s["level"] == 1 and s["lift"] == 0 and s["state"] == "idle" for s in off.values()), off
     assert not off["alpha"]["stale"] and off["beta"]["finding"], "a finding stays while its line does"
-    for key, lane in (("needs", "pane:alpha"), ("question", "pane:alpha"), ("error", "pane:beta"),
+    for key, lane in (("needs", "pane:alpha"), ("question", "pane:alpha"), ("card", "pane:alpha"),
+                      ("error", "pane:beta"), ("why", "pane:beta"),
                       ("done", "pane:gamma"), ("running", "pane:delta")):
         assert (lane, "struck") in [m[:2] for m in left[key]], f"{key}: ink leaves by a strike ({left[key]})"
         assert (lane, "drawn") not in [m[:2] for m in left[key]], f"{key}: still drawn ({left[key]})"

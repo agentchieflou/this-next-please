@@ -428,9 +428,9 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
 @pytest.mark.browser
 def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_home, tmp_path, desk_browser):
     """The grammar (docs/skin-glass.md), from the classes app.js sets for the rows it is given.
-    needs you: the name and the question highlighted, the rim lit in the human colour. answered:
-    the choice circled in pen, and struck when another is chosen. error: a marker loop round the
-    pane and a bang, the rim lit. done: a green tick, the rim in green. running: the name
+    needs you: the name and the question highlighted and the question card looped in marker (#335:
+    the loudest pane), the rim lit in the human colour. answered: the choice circled in pen, and
+    struck when another is chosen. error: a marker loop round its why (#335) and a bang, the rim lit. done: a green tick, the rim in green. running: the name
     underlined (#334: the state grammar; it was the chip), the top glint running.
     stale: no mark, the note's own words (#332: an outline round it ran over the chip's age). A finding: the scope report ringed in red. A state that
     goes is struck (an ink never fades), and the rim that went with it is off. Reduced motion, so
@@ -484,8 +484,10 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     marks, rims = steps["set"]
     hl, q = ".tile.needs-human .repo", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q"
     assert _drawn(marks, hl, "pane:alpha") and _drawn(marks, q, "pane:alpha"), marks
-    assert _drawn(marks, ".tile.state-error", "pane:beta"), marks
-    assert len([m for m in marks if m[:3] == (".tile.state-error", "pane:beta", "drawn") and not m[3]]) == 2, marks
+    card, why = ".tile.needs-human .asks:not([hidden])", ".tile.state-error .why"
+    assert _drawn(marks, card, "pane:alpha"), marks
+    assert _drawn(marks, ".tile.state-error", "pane:beta") and _drawn(marks, why, "pane:beta"), marks
+    assert len([m for m in marks if m[:3] == (".tile.state-error", "pane:beta", "drawn") and not m[3]]) == 1, marks
     assert _drawn(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     stale = ".tile .oldsession:not([hidden])"
     assert not [m for m in marks if m[0] == stale], ("stale is the note's own words on glass", marks)
@@ -499,8 +501,9 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
 
     marks, rims = steps["moved on"]
     assert _struck(marks, hl, "pane:alpha") and _struck(marks, q, "pane:alpha"), marks
-    assert _struck(marks, ".tile.state-error", "pane:beta"), marks
-    assert not _drawn(marks, ".tile.state-error", "pane:beta"), marks
+    assert _struck(marks, ".tile.state-error", "pane:beta") and _struck(marks, why, "pane:beta"), marks
+    assert not _drawn(marks, ".tile.state-error", "pane:beta") and not _drawn(marks, why, "pane:beta"), marks
+    assert _struck(marks, card, "pane:alpha") and not _drawn(marks, card, "pane:alpha"), marks
     assert _struck(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     assert not [m for m in marks if m[0] == stale], marks
     assert _drawn(marks, ".tile .scopereport.outside:not([hidden])", "pane:beta"), marks

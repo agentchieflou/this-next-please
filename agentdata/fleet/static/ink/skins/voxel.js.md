@@ -64,13 +64,21 @@ Above `{ selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .as
 
 needs you: every open question under the highlighter too (#334).
 
+Above `{ selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },`:
+
+needs you, the loudest pane on the desk (#335): a marker loop round the open question card,
+on the card's own border (pad -3, so shapes.js draws it at the edge and the stroke stays in the
+card's 8px padding, off its words). With it the pane waiting on the operator's answer carries more
+ink than an errored one.
+
 Above `{ selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },`:
 
 running: the name underlined in pen (#334), the world's own `--ink-pen`, while the block turns.
 
-Above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+Above `{ selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },`:
 
-error: a marker loop round the pane, inside it (pad -7, #332; #334).
+error: a marker loop round the error's own words, `.why` (#335; it was round the whole pane).
+Pad 0: shapes.js draws it 3px out, so the stroke clears the words and stays in the pane's padding.
 
 Above `{ selector: ".tile.state-error", tool: "red", shape: "bang" },`:
 

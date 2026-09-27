@@ -51,14 +51,22 @@ approval card is the other way a pane asks, and its summary is its question. The
 highlight is taken up when the agent no longer needs you, never struck: a line through an
 agent's name reads as the agent crossed out (the graph paper's rule, #253).
 
+In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },`:
+
+needs you, the loudest pane on the desk (#335): a marker loop round the open question card,
+on the card's own border (pad -3, so shapes.js draws it at the edge and the stroke stays in the
+card's 8px padding, off its words). With it the pane waiting on the operator's answer carries more
+ink than an errored one.
+
 In `marks`, above `{ selector: ".ask.is-answered .ask-q", tool: "pen", shape: "strike" },`:
 
 answered: the question struck in pen (its highlight is struck by leaving, above), and the
 answer circled -- the choice pressed, or the box when the answer was typed. Never the name.
 
-In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+In `marks`, above `{ selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },`:
 
-error: a red marker box round the pane, and a bang in the margin.
+error: a marker loop round the error's own words, `.why` (#335; it was round the whole pane).
+Pad 0: shapes.js draws it 3px out, so the stroke clears the words and stays in the pane's padding. A bang in the margin, below.
 
 In `marks`, above `{ selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },`:
 

@@ -20,7 +20,12 @@ on no recorded install, so its stale note shows):
   element's text by 6 px² or more -- loops and ellipses measured on their ring, arrows on their
   curve -- and an `underline` or `strike` overlaps no word but its own (under 1 px²);
 * legalpad:canary: each running pane's `inspect().panes[].tailBox`, inflated by 1px, overlaps no
-  text rect by 6 px² or more.
+  text rect by 6 px² or more;
+* the pane waiting on the operator's answer is the loudest (#335): its ink area, each drawn
+  mark's `len` times its tool's width, is at least the errored pane's.
+
+Ink off, the same looks drawn plain (#335): the open question card has a 2px solid outline in the
+marker's colour, and the errored pane has no outline of its own (its why has it).
 """
 from __future__ import annotations
 
@@ -143,7 +148,7 @@ MEASURE = """(tw) => {
                                  stroke: [b.x, b.y, b.r, b.b].map(v => Math.round(v * 10) / 10) });
       }
     });
-    out.push({ repo, shape: m.shape, tool: m.tool, selector: m.selector, strokes: m.strokes, hw: h,
+    out.push({ repo, shape: m.shape, tool: m.tool, selector: m.selector, strokes: m.strokes, hw: h, len: m.len,
                anchored: !!anchor, onPane: anchor === pane,
                pane: { x: p.left, y: p.top, r: p.right, b: p.bottom },
                view: { r: innerWidth, b: innerHeight },
@@ -315,6 +320,60 @@ def problems(look, width, marks):
     return out
 
 
+def ink_area(marks, repo):
+    """A pane's ink: each drawn mark's length times its tool's width (`pen.js` TOOLS)."""
+    return round(sum(m["len"] * TOOL_W.get(m["tool"], 2) for m in marks if m["repo"] == repo))
+
+
+def loudness_problems(look, width, marks):
+    """#335: the pane blocked on the operator's answer carries at least the errored pane's ink."""
+    asks, broke = ink_area(marks, ASKS), ink_area(marks, BROKE)
+    if asks >= broke:
+        return []
+    return [(f"{look} @ {width}px", "the pane waiting on an answer is quieter than the error",
+             {"needs you": asks, "error": broke})]
+
+
+#: Ink off (#335): the question card's outline, the errored pane's, and the marker's colour as the
+#: plain sheet writes it (`var(--ink-marker, var(--human))`), resolved on the card.
+PLAIN_LOOK = f"""() => {{
+  const card = document.querySelector('.tile[data-repo="{ASKS}"] .asks:not([hidden])');
+  const broke = document.querySelector('.tile[data-repo="{BROKE}"]');
+  const why = broke.querySelector('.why');
+  const probe = document.createElement('i');
+  probe.style.color = 'var(--ink-marker, var(--human))';
+  (card || broke).append(probe);
+  const marker = getComputedStyle(probe).color;
+  probe.remove();
+  const o = el => {{ const cs = el && getComputedStyle(el);
+    return cs ? [cs.outlineStyle, cs.outlineWidth, cs.outlineColor].join(' ') : null; }};
+  return {{ card: o(card), pane: o(broke), why: o(why), marker }};
+}}"""
+
+
+def choose_plain(page, look):
+    """Ink off: the look's table in force as the plain sheet, its stylesheet in, and every pane in
+    its state."""
+    skin = look.split(":")[0]
+    _choose(page, look)
+    try:
+        page.wait_for_function(f"""() => {{
+      if (Ink.inspect().table !== '{look}') {{ refresh(); return false; }}
+      return Ink.inspect().plain && ({_sheet(skin)});
+    }}""", timeout=30000, polling=250)
+    except Exception as e:
+        raise AssertionError((look, page.evaluate(SEEN))) from e
+
+
+def plain_problems(look, width, got):
+    where, out = f"{look} @ {width}px, ink off", []
+    if got["card"] != f"solid 2px {got['marker']}":
+        out.append((where, "the question card has no 2px outline in the marker's colour", got))
+    if not got["pane"].startswith("none "):
+        out.append((where, "the errored pane has an outline of its own", got))
+    return out
+
+
 def tail_problems(width, tails):
     where = f"legalpad:canary @ {width}px"
     if not tails:
@@ -330,9 +389,10 @@ def tail_problems(width, tails):
 
 
 @pytest.mark.browser
+@pytest.mark.parametrize("ink", ("on", "off"))
 @pytest.mark.parametrize("width", WIDTHS)
 def test_skin_marks_keep_inside_their_pane_and_off_other_words(fleet_home, tmp_path, monkeypatch, alive,
-                                                               finished, width, desk_browser):
+                                                               finished, width, ink, desk_browser):
     alive.update({RUNS, FIN})
     finished.add(FIN)
     bounds_desk(tmp_path, fleet_home, monkeypatch)
@@ -340,9 +400,13 @@ def test_skin_marks_keep_inside_their_pane_and_off_other_words(fleet_home, tmp_p
     seen, tails = {}, None
     try:
         browser = desk_browser
-        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), width=width, reduced=True)
+        page, errors, _ = _open(browser, port, token, "&ink=" + ink, panes=len(NAMES), width=width, reduced=True)
         desk_states(page)
         for look in LOOKS:
+            if ink == "off":
+                choose_plain(page, look)
+                seen[look] = page.evaluate(PLAIN_LOOK)
+                continue
             choose(page, look)
             seen[look] = page.evaluate(MEASURE, TOOL_W)
             if look.startswith("legalpad"):
@@ -351,6 +415,10 @@ def test_skin_marks_keep_inside_their_pane_and_off_other_words(fleet_home, tmp_p
         close_pages(browser)
     finally:
         _stop(server)
-    found = [x for look, marks in seen.items() for x in problems(look, width, marks)]
-    found += tail_problems(width, tails)
+    if ink == "off":
+        found = [x for look, got in seen.items() for x in plain_problems(look, width, got)]
+    else:
+        found = [x for look, marks in seen.items() for x in problems(look, width, marks)]
+        found += [x for look, marks in seen.items() for x in loudness_problems(look, width, marks)]
+        found += tail_problems(width, tails)
     assert not found, "\n".join(map(str, found))
