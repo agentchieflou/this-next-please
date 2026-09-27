@@ -22,9 +22,9 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
 from test_fleet_column import _until
-from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -213,45 +213,43 @@ RAILS = """() => [...document.querySelectorAll(
 
 
 @pytest.mark.browser
-def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_home, tmp_path):
+def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_home, tmp_path, desk_browser):
     """Both halves of the acceptance criterion in one gesture each, on the same page. It was a tile
     in the grid, then a band in the column; both went (#232, #233), and a rail is dragged by its
     face -- which is one button, so the press is the rail's -- across the row."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
-            page.wait_for_function(f"() => ({RAILS})().length === 3", timeout=15000)
-            assert page.evaluate(RAILS) == ["beta", "gamma", "delta"]
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+        page.wait_for_function(f"() => ({RAILS})().length === 3", timeout=15000)
+        assert page.evaluate(RAILS) == ["beta", "gamma", "delta"]
 
-            # Cancelled mid-flight: the order is exactly what it was.
-            _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]',
-                  cancel=True)
-            page.wait_for_timeout(500)
-            assert page.evaluate(RAILS) == ["beta", "gamma", "delta"], "Esc did not cancel the drag"
-            assert page.evaluate("() => document.querySelectorAll('.is-dragging').length") == 0
+        # Cancelled mid-flight: the order is exactly what it was.
+        _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]',
+              cancel=True)
+        page.wait_for_timeout(500)
+        assert page.evaluate(RAILS) == ["beta", "gamma", "delta"], "Esc did not cancel the drag"
+        assert page.evaluate("() => document.querySelectorAll('.is-dragging').length") == 0
 
-            # And carried through: delta lands before beta, and the server agrees.
-            _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]')
-            page.wait_for_function(f"() => ({RAILS})()[0] === 'delta'", timeout=15000)
-            page.wait_for_timeout(400)
-            assert page.evaluate(RAILS) == ["delta", "beta", "gamma"]
-            assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
-                == "alpha", "a drag is not a press: the open pane is still the open pane"
-            # The drop paints before it is written (#219): the record, not the pixels, is waited on.
-            _until(lambda: S.desk_state()["arrangement"]["order"]
-                   == ["alpha", "delta", "beta", "gamma"])
-            assert not errors, errors
-            browser.close()
+        # And carried through: delta lands before beta, and the server agrees.
+        _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]')
+        page.wait_for_function(f"() => ({RAILS})()[0] === 'delta'", timeout=15000)
+        page.wait_for_timeout(400)
+        assert page.evaluate(RAILS) == ["delta", "beta", "gamma"]
+        assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
+            == "alpha", "a drag is not a press: the open pane is still the open pane"
+        # The drop paints before it is written (#219): the record, not the pixels, is waited on.
+        _until(lambda: S.desk_state()["arrangement"]["order"]
+               == ["alpha", "delta", "beta", "gamma"])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -262,53 +260,51 @@ def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_
 
 
 @pytest.mark.browser
-def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
+def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path, desk_browser):
     """The rule this desk has kept since #5. Alt+arrows still moves; the resize is the shifted pair,
     because a gesture somebody has learned is not one to take away for a new one. Since the gutters
     (#234) the pair moves the gutter on the pane's right, as a drag of it would: from the open pane
     beside a rail, one step left pulls the rail out to the compact minimum and one step right puts
     it back -- a pair, not a ratchet. Up and down went with `rows`: a pane is always full height.
     Every other gesture's key is `tests/test_fleet_gutters.py`."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
-            tile = page.locator('.tile[data-repo="alpha"]')
-            tile.click(position={"x": 6, "y": 60})       # into the tile, not onto a control
-            page.evaluate("""() => document.querySelector('.tile[data-repo="alpha"]').focus()""")
-            page.keyboard.press("Alt+Shift+ArrowLeft")
-            page.wait_for_selector('.tile[data-repo="beta"].is-solo[data-tier="compact"]',
-                                   timeout=8000)
-            assert round(page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]')
-                                                  .getBoundingClientRect().width""")) == 160
-            # And back, so the keys are a pair and not a ratchet.
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=8000)
-            assert page.evaluate("() => document.querySelectorAll('.tile.is-solo').length") == 1
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            _until(lambda: (S.desk_state()["windows"]["main"].get("widths") or {}).get("beta") == 0)
+        tile = page.locator('.tile[data-repo="alpha"]')
+        tile.click(position={"x": 6, "y": 60})       # into the tile, not onto a control
+        page.evaluate("""() => document.querySelector('.tile[data-repo="alpha"]').focus()""")
+        page.keyboard.press("Alt+Shift+ArrowLeft")
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo[data-tier="compact"]',
+                               timeout=8000)
+        assert round(page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]')
+                                              .getBoundingClientRect().width""")) == 160
+        # And back, so the keys are a pair and not a ratchet.
+        page.keyboard.press("Alt+Shift+ArrowRight")
+        page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=8000)
+        assert page.evaluate("() => document.querySelectorAll('.tile.is-solo').length") == 1
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        _until(lambda: (S.desk_state()["windows"]["main"].get("widths") or {}).get("beta") == 0)
 
-            # Alt+arrows is still the move it has always been, and the open agent stays open.
-            page.keyboard.press("Alt+ArrowRight")
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile')]
-                          .map(t => t.dataset.repo)[0] === 'beta'""", timeout=8000)
-            assert page.evaluate(
-                "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha"
-            _until(lambda: S.desk_state()["arrangement"]["order"] == ["beta", "alpha", "gamma"])
-            assert not errors, errors
-            browser.close()
+        # Alt+arrows is still the move it has always been, and the open agent stays open.
+        page.keyboard.press("Alt+ArrowRight")
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#grid .tile')]
+                      .map(t => t.dataset.repo)[0] === 'beta'""", timeout=8000)
+        assert page.evaluate(
+            "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha"
+        _until(lambda: S.desk_state()["arrangement"]["order"] == ["beta", "alpha", "gamma"])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -318,50 +314,48 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_path):
+def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_path, desk_browser):
     """Two gestures the desk already had, under the names everybody already knows. Maximise is
     `openAgent`: on a pinned tile beside the open one, it makes that one the open agent and the
     other goes back to being a rail. Minimise is hide: off the glass, its place kept, and counted
     in the footer (the dock that held it went with the grid, #232, and the column's foot with the
     column, #233)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"], pinned=["beta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
-            page.locator('.tile[data-repo="beta"] .maxtoggle').click()
-            page.wait_for_function(
-                """() => !document.querySelector('.tile[data-repo="alpha"]')
-                           .classList.contains('is-solo')""", timeout=8000)
-            assert page.evaluate("() => openName()") == "beta"
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            assert S.desk_state()["windows"]["main"]["open"] == "beta"
+        page.locator('.tile[data-repo="beta"] .maxtoggle').click()
+        page.wait_for_function(
+            """() => !document.querySelector('.tile[data-repo="alpha"]')
+                       .classList.contains('is-solo')""", timeout=8000)
+        assert page.evaluate("() => openName()") == "beta"
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        assert S.desk_state()["windows"]["main"]["open"] == "beta"
 
-            page.locator('.tile[data-repo="beta"] .hidetoggle').click()
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="beta"]')
-                           .classList.contains('is-hidden')""", timeout=8000)
-            # It keeps its place: minimise is not "remove", and the footer counts it.
-            assert page.evaluate(
-                "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)") \
-                == ["beta", "alpha", "gamma"]
-            page.wait_for_function(
-                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
-                timeout=8000)
-            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
-            assert not errors, errors
-            browser.close()
+        page.locator('.tile[data-repo="beta"] .hidetoggle').click()
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="beta"]')
+                       .classList.contains('is-hidden')""", timeout=8000)
+        # It keeps its place: minimise is not "remove", and the footer counts it.
+        assert page.evaluate(
+            "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)") \
+            == ["beta", "alpha", "gamma"]
+        page.wait_for_function(
+            "() => document.getElementById('hiddencount').textContent === '1 hidden'",
+            timeout=8000)
+        _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -371,7 +365,7 @@ def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_p
 
 
 @pytest.mark.browser
-def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home, tmp_path):
+def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home, tmp_path, desk_browser):
     """`place()` runs about two and a half times a second while an agent is talking, and a drag
     takes longer than that.
 
@@ -384,36 +378,34 @@ def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home
     broken one component over. The band is gone (#233); a rail is a pane, drawn by `drawTile` and
     `drawPaneRail` together, and the same rule is asserted of both.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_function(f"() => ({RAILS})().length >= 3", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_function(f"() => ({RAILS})().length >= 3", timeout=15000)
 
-            held = page.evaluate("""() => {
-              const rail = document.querySelector('#grid .tile[data-tier="rail"]');
-              rail.classList.add('is-dragging');
-              // Twenty passes of exactly what the stream does while an agent talks.
-              for (let i = 0; i < 20; i++) redrawAll();
-              return {
-                dragging: rail.classList.contains('is-dragging'),
-                events: getComputedStyle(rail).pointerEvents,
-              };
-            }""")
-            assert not errors, errors
-            assert held["dragging"], "a draw put the gesture down"
-            assert held["events"] == "none", \
-                "the rail is hit-testable again, so the drag can only find itself"
-            browser.close()
+        held = page.evaluate("""() => {
+          const rail = document.querySelector('#grid .tile[data-tier="rail"]');
+          rail.classList.add('is-dragging');
+          // Twenty passes of exactly what the stream does while an agent talks.
+          for (let i = 0; i < 20; i++) redrawAll();
+          return {
+            dragging: rail.classList.contains('is-dragging'),
+            events: getComputedStyle(rail).pointerEvents,
+          };
+        }""")
+        assert not errors, errors
+        assert held["dragging"], "a draw put the gesture down"
+        assert held["events"] == "none", \
+            "the rail is hit-testable again, so the drag can only find itself"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -421,35 +413,33 @@ def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home
 
 
 @pytest.mark.browser
-def test_an_open_pane_drags_by_its_head_along_the_same_row(fleet_home, tmp_path):
+def test_an_open_pane_drags_by_its_head_along_the_same_row(fleet_home, tmp_path, desk_browser):
     """The column was the same arrangement seen from the other side, so it was the same gesture,
     measured down the page. The row has one side (#233): an open pane is dragged by its head and a
     rail by its face, both across, and both write the one `order`. Here the open pane is carried
     past two rails and lands before the third, still open."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="full"]', timeout=15000)
-            page.wait_for_function(f"() => ({RAILS})().length >= 3", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="full"]', timeout=15000)
+        page.wait_for_function(f"() => ({RAILS})().length >= 3", timeout=15000)
 
-            _drag(page, '.tile[data-repo="alpha"] .head .grip', '.tile[data-repo="delta"]')
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile')]
-                          .map(t => t.dataset.repo).join(',') === 'beta,gamma,alpha,delta'""",
-                timeout=15000)
-            assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
-                == "alpha"
-            assert not errors, errors
-            browser.close()
+        _drag(page, '.tile[data-repo="alpha"] .head .grip', '.tile[data-repo="delta"]')
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#grid .tile')]
+                      .map(t => t.dataset.repo).join(',') === 'beta,gamma,alpha,delta'""",
+            timeout=15000)
+        assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
+            == "alpha"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -457,61 +447,59 @@ def test_an_open_pane_drags_by_its_head_along_the_same_row(fleet_home, tmp_path)
 
 
 @pytest.mark.browser
-def test_no_control_in_the_head_is_clipped_however_narrow_the_tile(fleet_home, tmp_path):
+def test_no_control_in_the_head_is_clipped_however_narrow_the_tile(fleet_home, tmp_path, desk_browser):
     """The head is a title bar with seven things on it and `overflow: hidden` to stop them lying
     over the neighbouring tile. Clipping is the right answer for a *name*; for a button it is a
     control the operator can see the edge of and never press.
 
     Three open tiles across 1140px is the narrowest the glass draws them: two pinned beside the
     open one, split evenly, which is what the grid's 360px tracks were before it went (#232)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "rdsd-pbi-reporting", "backlog-health", "arl-usage")
     S.arrange(order=["rdsd-pbi-reporting", "backlog-health", "arl-usage"],
               pinned=["rdsd-pbi-reporting", "backlog-health"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1140, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile .head .maxtoggle", timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('.tile.is-solo').length === 3", timeout=15000)
-            widest = page.evaluate(
-                "() => Math.max(...[...document.querySelectorAll('.tile')]"
-                ".map(t => t.getBoundingClientRect().width))")
-            assert widest < 420, f"the tiles are not narrow, so this proves nothing: {widest}"
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1140, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile .head .maxtoggle", timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('.tile.is-solo').length === 3", timeout=15000)
+        widest = page.evaluate(
+            "() => Math.max(...[...document.querySelectorAll('.tile')]"
+            ".map(t => t.getBoundingClientRect().width))")
+        assert widest < 420, f"the tiles are not narrow, so this proves nothing: {widest}"
 
-            # Both axes. `overflow: hidden` clips sideways when a control does not fit on the
-            # line, and downwards when the whole row wraps past the head's height -- and the
-            # second was the one that got through the first version of this assertion.
-            clipped = page.evaluate("""() => {
-              const bad = [];
-              document.querySelectorAll('.tile').forEach(tile => {
-                const box = tile.getBoundingClientRect();
-                const head = tile.querySelector('.head').getBoundingClientRect();
-                tile.querySelectorAll('.head button').forEach(b => {
-                  const r = b.getBoundingClientRect();
-                  if (r.width < 8 || r.height < 8 ||
-                      r.right > box.right + 0.5 || r.left < box.left - 0.5 ||
-                      r.bottom > head.bottom + 0.5 || r.top < head.top - 0.5) {
-                    bad.push(tile.dataset.repo + ':' + b.className.split(' ')[0]);
-                  }
-                });
-              });
-              return bad;
-            }""")
-            assert not errors, errors
-            assert clipped == [], f"clipped out of reach: {clipped}"
-            # And the name is not what gives: it is which agent this is.
-            names = page.evaluate(
-                "() => [...document.querySelectorAll('.tile .head .repo')].map(n => n.textContent)")
-            assert "rdsd-pbi-reporting" in names, names
-            browser.close()
+        # Both axes. `overflow: hidden` clips sideways when a control does not fit on the
+        # line, and downwards when the whole row wraps past the head's height -- and the
+        # second was the one that got through the first version of this assertion.
+        clipped = page.evaluate("""() => {
+          const bad = [];
+          document.querySelectorAll('.tile').forEach(tile => {
+            const box = tile.getBoundingClientRect();
+            const head = tile.querySelector('.head').getBoundingClientRect();
+            tile.querySelectorAll('.head button').forEach(b => {
+              const r = b.getBoundingClientRect();
+              if (r.width < 8 || r.height < 8 ||
+                  r.right > box.right + 0.5 || r.left < box.left - 0.5 ||
+                  r.bottom > head.bottom + 0.5 || r.top < head.top - 0.5) {
+                bad.push(tile.dataset.repo + ':' + b.className.split(' ')[0]);
+              }
+            });
+          });
+          return bad;
+        }""")
+        assert not errors, errors
+        assert clipped == [], f"clipped out of reach: {clipped}"
+        # And the name is not what gives: it is which agent this is.
+        names = page.evaluate(
+            "() => [...document.querySelectorAll('.tile .head .repo')].map(n => n.textContent)")
+        assert "rdsd-pbi-reporting" in names, names
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
