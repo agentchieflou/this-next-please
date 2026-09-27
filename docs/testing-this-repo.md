@@ -330,6 +330,11 @@ writes is `record_mutations(page, ...)` (or `WATCH`'s `__deskWaits.watch(node)` 
 keeps it so. `AGENTDATA_DESK_WAIT_SCALE` scales the ceiling for a local throttled run; CI never sets
 it.
 
+No fixed waits is enforced (#306): `tests/test_hygiene_ratchet.py::test_no_flat_waits` fails on any
+`.wait_for_timeout(...)` under `tests/`, on a `time.sleep` in a browser file outside a polling loop
+that fails at its deadline, and on page code that awaits a fixed `setTimeout` promise. What counts, and
+the baseline, are in [Flat waits, skips, xfail and deselection are ratcheted](#flat-waits-skips-xfail-and-deselection-are-ratcheted).
+
 #### The guards that measure rather than read (#202)
 
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
@@ -748,6 +753,41 @@ python .github/scripts/coverage_floors.py --update      # rounds down to the nea
 ```
 
 Lowering one is an edit to that file with the reason in the commit message.
+
+## Flat waits, skips, xfail and deselection are ratcheted
+
+`tests/test_hygiene_ratchet.py` (#306) reads every file under `tests/` once with `ast` -- no test
+module is imported -- through `.github/scripts/hygiene_baseline.py`, and holds the tree to
+`tests/hygiene_baseline.json`:
+
+- **Flat waits: none.** A call to an attribute named `wait_for_timeout`; a `time.sleep` in a file
+  that imports playwright, `desk_harness` or `desk_waits` (or takes `desk_browser`/`new_desk_page`),
+  unless it is inside a `while` loop that fails at its deadline -- an `assert` or `raise` in the loop,
+  in its `else`, or as the statement right after it; and a string outside `tests/desk_waits.py` with
+  `new Promise(go => setTimeout(go, <ms>))` in it. A delayed stub (`setTimeout(() => go(...), 1500)`)
+  is not a wait. The fix is a condition: `page.wait_for_function`, `settle`, `observe_quiet`.
+- **Fall-through loops: per file, down only.** A polling `while` around a `time.sleep` in a browser
+  file that runs out its deadline and carries on. Give it its `assert` or `raise` and lower the count.
+- **Skips: per file, down only.** `pytest.skip(`, `pytest.mark.skip`, `pytest.mark.skipif` and
+  `pytest.importorskip(`; 0 for a file the baseline does not list. A `skipif` whose condition is only
+  an `os.name`/`sys.platform` comparison, on a function marked `windows` or `posix`, is the platform's
+  label and is not counted.
+- **xfail: none.** `pytest.xfail(` or `pytest.mark.xfail`.
+- **Deselection: none.** No `--deselect`, `-k`, `--ignore` or `--ignore-glob` in a `tests.yml` pytest
+  command or in pyproject's `addopts`, and no `collect_ignore` in a conftest.
+- **Tests: per file, up only.** The `def test_*` in each file.
+
+Each failure names the file and line and the fix. After removing a skip or fixing a loop:
+
+```bash
+python .github/scripts/hygiene_baseline.py --update   # lowers skips and loops, raises tests
+```
+
+It never moves a count the other way: it prints the file and exits 2. A platform-only test keeps its
+`windows`/`posix` marker and its `skipif`; raising the skip baseline for anything else, or lowering a
+test count for a test that was merged into another, is a hand edit of the baseline with the reason in
+the commit message, as with coverage floors. `test_the_baseline_is_the_tree_as_counted` keeps the
+file current, so a count that fell cannot quietly rise again.
 
 ## The agent PR check
 
