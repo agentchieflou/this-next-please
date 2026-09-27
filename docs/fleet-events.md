@@ -325,6 +325,11 @@ Carries `paths, how, by, queued`.
 {"schema": 1, "seq": 28, "ts": "2026-01-04T09:45:20", "repo": "luna", "ticket": "RDSD-118", "kind": "scope.added", "data": {"paths": ["models/RDSD.SemanticModel/definition/tables/Velocity.tmdl"], "how": "fingerprint", "by": "operator", "queued": false}}
 ```
 
+### From the mobile bridge (#538)
+
+The phone's outbox and inbox on OneDrive; the records, the checks and the codes are
+[fleet-mobile.md](fleet-mobile.md). All four are additive: the fold changes no state for them.
+
 **`mobile.exported`** — the bridge (#546) mirrored a pending approval into the phone's outbox
 (`outbox/approvals/<id>.json`). Once per approval id, never per attention row; no state changes. Carries
 `id, digest, expires` (the approval's digest and `created` + `fleet.approval_timeout`, UTC).

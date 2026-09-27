@@ -142,7 +142,9 @@ shows one in full, like any other.
 ## Still never
 
 Merging a pull request and closing a ticket are never done on an agent's own initiative (`AGENTS.md`
-rule 8). A wrap-up never offers a merge. It shows *done* unticked at end of project: a *done* row
+rule 8), and neither is a gated kind: no approval request is ever filed for one, from the desk or the phone. When
+the operator asks for a merge or a close in so many words, that is an instruction rule 8 says to carry out, not a
+decision this gate takes. A wrap-up never offers a merge. It shows *done* unticked at end of project: a *done* row
 the operator ticks is the operator's word, and the one way a ticket closes here. Approving arbitrary shell commands is also out of
 scope: that is the allow-list's job, and "pause for every tool call" was declined deliberately —
 an agent that asks about `git status` trains its operator to click yes without reading.

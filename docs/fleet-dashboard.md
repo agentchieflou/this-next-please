@@ -626,7 +626,9 @@ what it drew before, then reopens the stream.
 ## What is not here
 
 Authentication beyond the loopback token, and access from another machine — both out of scope, and
-both would change what this is. Notifications when a tile turns red are #97. Jira intake in the side
+both would change what this is. The phone is not an exception: the mobile bridge is the one mobile path
+([fleet-mobile.md](fleet-mobile.md), MOB-D10), and it changes neither the bind nor the token model. The laptop writes
+files into a folder OneDrive syncs and reads the phone's back from it; nothing reaches the desk from outside. Notifications when a tile turns red are #97. Jira intake in the side
 panel is #98.
 
 Cost and budget **are** here now (#201): a cell on every full pane, a number in every rail's label, the fleet's

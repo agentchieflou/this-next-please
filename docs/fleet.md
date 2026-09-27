@@ -348,7 +348,9 @@ fleet never creates a checkout: `git worktree add` is the operator's, in git or 
 reads and the sessions that could still be resumed — and now says where it is. `ad-fleet gc` takes
 it once everything in it is past the cutoff.
 
-**The repository belongs to the agent.** The fleet writes only under `~/.agentdata/fleet/`. Nothing
+**The repository belongs to the agent.** The fleet writes only under `~/.agentdata/fleet/` — except
+`fleet.mobile.folder`, which the operator names explicitly and which is never a repository (the phone bridge,
+[fleet-mobile.md](fleet-mobile.md) §The bridge folder). Nothing
 in `.agent/` is written by anything but the agent's own `ad-state`, and there is a test that walks
 four repositories after a run to prove it. The one documented exception is the inbox's *attach*
 above: a click, a copy into `.agent/in/<KEY>/`, an event — and the `inputs` line it produces is

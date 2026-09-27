@@ -1255,3 +1255,44 @@ def test_watch_refuses_beside_a_live_serve_and_runs_when_none_is_up(fleet_home, 
 
     os.remove(record)
     assert cli_fleet.main(["mobile", "watch"]) == 0 and loops == [7.0, bridge.TICK_S]
+
+
+# ------------------------------------------------------------------------ the written contract (#554)
+
+
+def test_the_mobile_contract_documents_every_record_kind_every_setting_and_every_refusal_code():
+    """docs/fleet-mobile.md is the contract the flows and the app are built from, so everything the laptop writes
+    or refuses is found there by name, read from the code rather than listed here (test_fleet_notify.py's pattern)."""
+    import re
+
+    from agentdata.fleet import events as E
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def source(*parts: str) -> str:
+        with open(os.path.join(repo_root, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    page = source("docs", "fleet-mobile.md")
+    code = source("agentdata", "fleet", "bridge.py") + source("agentdata", "fleet", "notify.py")
+    cli = source("agentdata", "cli_fleet.py")
+
+    kinds = set(re.findall(r'"kind": "(\w+)"', code)) | {"reply"}
+    assert {"attention", "approval", "decision", "notification", "heartbeat", "result", "reply"} <= kinds, kinds
+    for kind in sorted(kinds):
+        assert f"`{kind}`" in page, f"the {kind} record is not documented"
+    for key in sorted(set(bridge.settings({})) - {"expire_invalid"}):
+        assert f"fleet.mobile.{key}" in page, f"fleet.mobile.{key} is not documented"
+    verbs = re.search(r'mob\.add_argument\("what", choices=\[([^\]]+)\]', cli).group(1)
+    for verb in re.findall(r'"(\w+)"', verbs):
+        assert f"ad-fleet mobile {verb}" in page, f"ad-fleet mobile {verb} is not documented"
+    mobile_kinds = [k for k in E.KINDS if k.startswith("mobile.")]
+    assert len(mobile_kinds) == 4
+    for kind in mobile_kinds:
+        assert f"`{kind}`" in page, f"the {kind} event is not documented"
+    codes = set(re.findall(r'"(mobile_[a-z_]+)"', code + cli)) | {"mid_turn", "digest_mismatch"}
+    assert {"mobile_digest_mismatch", "mobile_serve_running", "mobile_wrong_repo"} <= codes, codes
+    for refusal in sorted(codes):
+        assert f"`{refusal}`" in page, f"the {refusal} refusal is not documented"
+    assert "misconfiguration guard, not authentication" in page
+    assert "now - At > 3 × EverySeconds" in page

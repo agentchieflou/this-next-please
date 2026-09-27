@@ -176,8 +176,9 @@ an unsigned Python GUI may run on a managed laptop is for its IT policy to answe
 ## What a shell must do (#100)
 
 Two thin shells now exist — `ide/jetbrains/` (a JCEF tool window) and `ide/vscode/` (a webview) —
-and this is the contract they follow, so a third host (Visual Studio, a tray app, a phone) needs no
-new server work.
+and this is the contract they follow, so a third host on the laptop (Visual Studio, a tray app) needs no
+new server work. A phone's window record would need none either, but a phone cannot reach a desk that listens on
+loopback: it goes through the mobile bridge's files instead ([fleet-mobile.md](fleet-mobile.md)).
 
 1. **Find the dashboard.** Read `$AGENTDATA_FLEET_DIR/serve.json`, or `~/.agentdata/fleet/serve.json`.
    It holds `url`, `token` and `port`.
