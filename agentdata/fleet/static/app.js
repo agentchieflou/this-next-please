@@ -4270,7 +4270,8 @@ function applyPreset(which) {
       fit = Math.max(1, Math.floor((room - n * RAIL_PX) / (TIER_COMPACT_FROM - RAIL_PX)));
       capped = "all that fit: " + fit + " of " + n;
     }
-    shown.forEach(function (name, at) { next[name] = at < fit ? 1 : 0; });
+    var keep = keyboardPane() || openName(), left = fit - +(shown.indexOf(keep) >= 0);
+    shown.forEach(function (name) { next[name] = name === keep || left-- > 0 ? 1 : 0; });
   } else if (which === "needs") {
     var red = shown.filter(needsPerson);
     if (!red.length) {

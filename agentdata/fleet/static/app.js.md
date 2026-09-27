@@ -2900,6 +2900,12 @@ the rest are rails: the most that fit at `--compact-from` beside the others' 48 
 the gaps, so the row never scrolls sideways (#577). It says so -- *all that fit: 4 of 6* -- and it
 is still one write that `u` takes back. In the stack every pane is widened, one under another.
 
+Above `var keep = keyboardPane() || openName(), left = fit - +(shown.indexOf(keep) >= 0);`:
+
+The pane you are in (the keyboard's, else the open one) is always one of the `fit`, wherever it
+sits in the row; the other slots go to the rest in order (decision 22 on #429). Uncapped, `fit` is
+every pane, so this changes nothing.
+
 Above `var here = openName();`:
 
 The keys go with the width: to the pane that had them if it is one of these, else the first.
