@@ -561,6 +561,9 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             argv = launches(2)
             assert posts[-1] == ("fresh", {"repo": "gamma"}), posts
             assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-gamma" in prompt_of(argv)
+            # The supervisor writes the `started` after the launch the fixture records (#586), so
+            # the stream is waited for rather than read at once.
+            assert _eventually(lambda: len([e for e in E.read("gamma") if e["kind"] == "started"]) == 2)
             began = [e["data"] for e in E.read("gamma") if e["kind"] == "started"][-1]
             assert began["new"] is True and began["leaves"]["session"] == "s-gamma", began
             # A ticket key in the box is today's *Start {ticket}*: it posts `start`, and the live agent
