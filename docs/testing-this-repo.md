@@ -843,21 +843,22 @@ Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh 
 
 | Tier | ubuntu · 3.14 | windows · 3.14 |
 |---|---|---|
-| `default` | parallel + serial + serial, named files + shuffled (2 seeds) | 3 shards, serial |
+| `default` | parallel + parallel, named files + serial + serial, named files + shuffled + shuffled (2 seeds) | 3 shards, serial |
 | `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 3 shards, serial |
-| `measured` | serial + shuffled (2 seeds) | serial |
-| `scale` | serial + shuffled (2 seeds) | serial |
-| `slow` | serial + shuffled (2 seeds) | serial |
+| `measured` | serial + shuffled + shuffled (2 seeds) | serial |
+| `scale` | serial + shuffled + shuffled (2 seeds) | serial |
+| `slow` | serial + shuffled + shuffled (2 seeds) | serial |
 | `laptop` | gated | gated |
 | `browser+slow` | serial | serial |
 | `browser+measured` | serial + serial, named files | serial |
-| `measured+scale` | serial + serial, named files + shuffled (2 seeds) | serial |
+| `measured+scale` | serial + serial, named files + shuffled + shuffled (2 seeds) | serial |
 | `laptop+measured` | gated | gated |
 
 Per job, as the checks are named:
 
 | Job | `default` | `browser` | `measured` | `scale` | `slow` | `laptop` | `browser+slow` | `browser+measured` | `measured+scale` | `laptop+measured` |
 |---|---|---|---|---|---|---|---|---|---|---|
+| `smoke · install, doctor, entry points and hygiene` | parallel, named files | — | — | — | — | — | — | — | — | — |
 | `ubuntu-latest · python 3.14` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files | gated |
 | `ubuntu · python 3.14 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — | — |
 | `ubuntu · python 3.14 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — | — |
@@ -871,6 +872,7 @@ Per job, as the checks are named:
 | `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
 | `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — | — |
 | `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · seed of the day` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
 <!-- tier-matrix:end -->
 
 `tests/test_hygiene_tier_matrix.py` keeps the block equal to the workflow (its failure names the refresh

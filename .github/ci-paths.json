@@ -194,6 +194,12 @@
         "changes · which groups a filter would run (report only)"
       ]
     },
+    "smoke": {
+      "always": true,
+      "names": [
+        "smoke · install, doctor, entry points and hygiene"
+      ]
+    },
     "pytest": {
       "groups": [
         "py",
@@ -277,6 +283,14 @@
         "suite · shuffled · browser · shard 2/2"
       ]
     },
+    "order-independence-nightly": {
+      "groups": [
+        "py"
+      ],
+      "names": [
+        "suite · shuffled · seed of the day"
+      ]
+    },
     "vscode-extension": {
       "groups": [
         "ide-vscode"
@@ -291,6 +305,12 @@
       ],
       "names": [
         "ide · jetbrains plugin"
+      ]
+    },
+    "ci-ok": {
+      "always": true,
+      "names": [
+        "ci-ok"
       ]
     }
   }
