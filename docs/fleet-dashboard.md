@@ -612,8 +612,11 @@ A `notify` event is a notification the sweep found (#97). **Only a desk's stream
 `notify.sweep` advances one shared cursor and hands what it found to whichever stream swept first,
 so a stream that does not draw `notify` frames -- `?notify=0` (the fleet map's), or `?frames=theme`
 (the settings page's) -- would take the desk's bell and chime and drop them. Those two skip the
-sweep entirely. With only a map or a settings window open, nothing sweeps, as when no window is
-open; the next desk stream announces what accumulated, dedupe and cooldown applying.
+sweep entirely. With only a map or a settings window open, no stream sweeps, as when no window is
+open; the next desk stream announces what accumulated, dedupe and cooldown applying. The bridge also
+sweeps (#549, MOB-D9): the streams and the bridge's thread share one process-wide `sweep_if_due`, so two
+callers inside one interval sweep once, and a desk opened after the bridge swept finds those in the
+drawer, not as fresh frames.
 
 A `tick` event goes out at least every 15 seconds. It is not decoration: a proxy that sees no bytes
 for a minute closes the connection, and the tiles then stop updating with nothing anywhere saying

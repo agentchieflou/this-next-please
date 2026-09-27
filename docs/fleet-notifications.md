@@ -135,4 +135,11 @@ Under `~/.agentdata/fleet/` (or `$AGENTDATA_FLEET_DIR`):
 ## Not here
 
 Email, Teams and Slack — a fleet that emails you is a fleet you stop reading. Native IDE balloons
-belong to #100, where the shells live. Mobile is out.
+belong to #100, where the shells live.
+
+Mobile is in, through the bridge and nowhere else (#549): beside the toast, `deliver()` writes one
+`notifications/<at>-<repo>-<state>-<seq>.json` into the bridge's outbox when `fleet.mobile.enabled` and
+`fleet.mobile.notify` are on. The same rules, cooldown and quiet hours decide it; quiet hours export it with
+`quiet: true` and the phone side decides whether to buzz. The file carries no URL, no tile link and no run token,
+and its `body` goes through the bridge's scrubber. The drawer entry says `mobile: true` when the file was written.
+Its keys are the bridge's `fleet.mobile.*` (#554 documents them in `docs/fleet-mobile.md`), not this table's.

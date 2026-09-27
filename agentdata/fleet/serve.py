@@ -2716,6 +2716,29 @@ def _sweep(url: str) -> list[dict]:
         return []
 
 
+# One sweep for the whole process (#549, MOB-D9): the desk's streams and the bridge's thread share `notify.state.json`'s
+# one cursor, so they share one lock and one stamp rather than each keeping a private `last_sweep`. The stamp is keyed
+# by `fleet_dir()`, whose `notify.state.json` it paces: one key in a real process.
+_SWEEP_LOCK = threading.Lock()
+_last_sweep_at: dict[str, float] = {}
+
+
+def sweep_if_due(url: str, every: float = NOTIFY_EVERY_S) -> list[dict]:
+    """Sweep (`_sweep(url)`) if `every` seconds passed since anyone last swept, else `[]`.
+
+    Two callers inside one interval sweep once, whatever their order; the caller that sweeps gets what it found, as a
+    stream always has. The bridge's thread (#550) calls it with `url=""` when no window is open: its finds reach the
+    drawer and the outbox, and a desk opened later shows them in the drawer, not as fresh `notify` frames.
+    """
+    key = fleet_dir()
+    with _SWEEP_LOCK:
+        now = time.time()
+        if now - _last_sweep_at.get(key, 0.0) < every:
+            return []
+        _last_sweep_at[key] = now
+        return _sweep(url)
+
+
 def _cursors(raw: str) -> dict:
     """`luna:12,other:4` -> {'luna': 12, 'other': 4}. The SSE resume point, per agent.
 
@@ -2820,8 +2843,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     `sweep=False` (#356: `?notify=0`, or `?frames=theme`) skips the notification sweep entirely.
     `notify.sweep` advances ONE shared cursor and hands what it found to whichever stream swept
     first, so a stream that is not a desk's took the desk's `notify` frames and dropped them. With
-    only such pages open nothing sweeps, as when no window is open; the next desk stream announces
-    what accumulated.
+    only such pages open no stream sweeps, as when no window is open; the bridge's thread does (#549,
+    `sweep_if_due`), and otherwise the next desk stream announces what accumulated.
 
     **The model list** (#361) is looked at the way config.json is: when `models.json` changes on
     disk, a digest of the ids, whether each is offered, and the efforts is compared with the one
@@ -2829,7 +2852,6 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     it without a frame: a page fetches `/api/models` itself.
     """
     last_beat = 0.0
-    last_sweep = 0.0
     seen_selection = -1
     last_config_mtime = -1.0
     seen_theme_state = None
@@ -2906,9 +2928,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
         # desk with project polling switched off must still carry it out.
         renew_tick()
-        if sweep and time.time() - last_sweep >= notify_every:
-            last_sweep = time.time()
-            for item in _sweep(url):
+        if sweep:
+            for item in sweep_if_due(url, notify_every):
                 write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
         try:
             # One registry read per tick, not one per repository plus one: `Registry()` parses

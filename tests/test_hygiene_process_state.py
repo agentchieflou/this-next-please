@@ -30,6 +30,8 @@ ALLOWED = {
                                       "test can only ever get back the bytes it would have made",
     "agentdata.fleet.serve._STRIPPED": "keyed by the file's path, mtime and size, so a test can only "
                                        "ever get back the bytes it would have stripped (#523)",
+    "agentdata.fleet.serve._last_sweep_at": "keyed by `fleet_dir()`, which each test owns, so a test only ever "
+                                            "reads the sweep stamp of its own fleet (#549)",
     "agentdata.fleet.serve._desk_seq": "only compared through `_desk_written`, which is reset",
     "agentdata.fleet.serve._config_gen": "a counter a stream compares only for change against the "
                                          "value it read itself (#348); its value carries nothing",

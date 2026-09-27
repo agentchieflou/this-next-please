@@ -436,6 +436,34 @@ def test_a_stream_told_not_to_sweep_never_sweeps(fleet_home, tmp_path, monkeypat
     assert len(calls) == 5
 
 
+def test_sweep_if_due_runs_once_per_interval_under_two_callers(fleet_home, monkeypatch):  # noqa: F811
+    """One process-wide sweep (#549, MOB-D9): a desk's stream and the bridge inside one interval sweep once."""
+    from agentdata.fleet import notify as N
+
+    calls = []
+    monkeypatch.setattr(N, "sweep", lambda **k: calls.append(k.get("url")) or [{"repo": "luna"}])
+    assert S.sweep_if_due("http://desk", every=60.0) == [{"repo": "luna"}]
+    assert S.sweep_if_due("", every=60.0) == [], "the second caller inside the interval swept again"
+    assert calls == ["http://desk"]
+
+    # Two at once, with the interval due for both: the lock lets one sweep, and the other finds it just done.
+    monkeypatch.setattr(S, "_last_sweep_at", {})
+    calls.clear()
+    barrier = threading.Barrier(2)
+
+    def caller(url):
+        barrier.wait()
+        S.sweep_if_due(url, every=60.0)
+    threads = [threading.Thread(target=caller, args=(u,)) for u in ("http://desk", "")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert len(calls) == 1, "two callers at once swept twice"
+    S.sweep_if_due("", every=0.0)
+    assert len(calls) == 2, "a due sweep did not run"
+
+
 # -------------------------------------------------------------------------------- the page itself
 
 
