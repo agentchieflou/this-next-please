@@ -807,6 +807,10 @@ def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path, d
     assert farm["panes"]["alpha"]["shown"] == "crop-seed", farm["panes"]["alpha"]
 
 
+#: The pressed choice's row in farmstead's table: the answer, circled in pen.
+PRESSED = '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]'
+
+
 @pytest.mark.browser
 def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The grammar (docs/skin-farmstead.md), every row from the fold's own events: an agent that was
@@ -837,8 +841,11 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
                                timeout=20000)
         page.locator(choice).first.click()
         page.wait_for_selector(choice + '[aria-pressed="true"]', timeout=20000)
+        # The pressed choice's own row: since #334 the unpressed choices carry a pencil loop that is
+        # drawn before the click, so any `ask-choice` row would let this settle before the pen's.
         _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn').length >= 8
-                         && Ink.inspect().layer.marks.some(m => m.selector.includes('ask-choice') && m.drawn === 1)""")
+                         && Ink.inspect().layer.marks.some(m => m.selector === '%s' && m.drawn === 1)"""
+                % PRESSED.replace('"', '\\"'))
         on = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
         # Done: the fold says so for a supervised agent.
         forced["state"]["gamma"] = "done"
@@ -868,7 +875,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     assert live(on, "beta", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q")[0]["tool"] == "highlighter"
     assert live(on, "alpha", ".tile.state-error")[-1]["shape"] in ("loop", "bang")
     assert {m["shape"] for m in live(on, "alpha", ".tile.state-error")} == {"loop", "bang"}
-    assert live(on, "beta", '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]')[0]["shape"] == "loop"
+    assert live(on, "beta", PRESSED)[0]["shape"] == "loop"
     assert live(on, "beta", ".tile .transcript li.friction")[0]["tool"] == "red"
     assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "marker"
     assert live(on, "gamma", ".tile.state-running .head .repo")[0]["tool"] == "pen"
