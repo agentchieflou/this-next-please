@@ -292,15 +292,14 @@ def test_the_router_only_stops_on_a_blocking_question():
 
 
 @pytest.mark.browser
-def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path):
+def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: three questions produce one card and one Send. Asserted on the
     rendered page, because a substring in `app.js` proves an author wrote a line, not that a
     person can see it."""
     import threading
 
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata.fleet import serve as S
-    from test_fleet_desk_browser import launch_chromium
+    from desk_harness import close_pages
 
     repo = make_project(tmp_path / "luna", phase="blocked", ticket="RDSD-118")
     # The three are open in `state.json` too, as they would be: `ad-state` writes the file and the
@@ -335,42 +334,41 @@ def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path)
     thread.start()
     port = server.server_address[1]
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
-            page.wait_for_selector('.tile[data-repo="luna"] .asks:not([hidden])', timeout=5000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
+        page.wait_for_selector('.tile[data-repo="luna"] .asks:not([hidden])', timeout=5000)
 
-            card = page.locator('.tile[data-repo="luna"] .asks')
-            # Two blocking questions on one card, and exactly one Send for both.
-            assert card.locator(".ask:not([hidden])").count() == 2, "two blocking questions, one card"
-            assert "2 questions" in card.locator(".asks-n").inner_text()
-            assert card.locator(".asks-send").count() == 1
-            assert card.locator('.ask[data-qid="q1"] .ask-choice').count() == 2
-            assert "default" in card.locator('.ask[data-qid="q1"] .ask-choice').first.inner_text()
-            # `--want file` says so where the answer is typed.
-            placeholder = card.locator('.ask[data-qid="q2"] .ask-answer').get_attribute("placeholder")
-            assert "path" in placeholder
+        card = page.locator('.tile[data-repo="luna"] .asks')
+        # Two blocking questions on one card, and exactly one Send for both.
+        assert card.locator(".ask:not([hidden])").count() == 2, "two blocking questions, one card"
+        assert "2 questions" in card.locator(".asks-n").inner_text()
+        assert card.locator(".asks-send").count() == 1
+        assert card.locator('.ask[data-qid="q1"] .ask-choice').count() == 2
+        assert "default" in card.locator('.ask[data-qid="q1"] .ask-choice').first.inner_text()
+        # `--want file` says so where the answer is typed.
+        placeholder = card.locator('.ask[data-qid="q2"] .ask-answer').get_attribute("placeholder")
+        assert "path" in placeholder
 
-            # The assumption is a row, not a card, and the tile is not red for it.
-            assumed = page.locator('.tile[data-repo="luna"] .assumed')
-            assert assumed.is_visible()
-            assert "the last full sprint" in assumed.inner_text()
+        # The assumption is a row, not a card, and the tile is not red for it.
+        assumed = page.locator('.tile[data-repo="luna"] .assumed')
+        assert assumed.is_visible()
+        assert "the last full sprint" in assumed.inner_text()
 
-            # Clicking a choice fills that question's answer and nothing else's.
-            card.locator('.ask[data-qid="q1"] .ask-choice').first.click()
-            assert card.locator('.ask[data-qid="q1"] .ask-answer').input_value() == "yes"
-            assert card.locator('.ask[data-qid="q2"] .ask-answer').input_value() == ""
+        # Clicking a choice fills that question's answer and nothing else's.
+        card.locator('.ask[data-qid="q1"] .ask-choice').first.click()
+        assert card.locator('.ask[data-qid="q1"] .ask-answer').input_value() == "yes"
+        assert card.locator('.ask[data-qid="q2"] .ask-answer').input_value() == ""
 
-            # Send with nothing typed says so rather than spending a turn.
-            page.locator('.tile[data-repo="luna"] .ask[data-qid="q1"] .ask-answer').fill("")
-            card.locator(".asks-send").click()
-            assert "pick a choice" in card.locator(".asks-note").inner_text()
-            assert not errors, errors
-            browser.close()
+        # Send with nothing typed says so rather than spending a turn.
+        page.locator('.tile[data-repo="luna"] .ask[data-qid="q1"] .ask-answer').fill("")
+        card.locator(".asks-send").click()
+        assert "pick a choice" in card.locator(".asks-note").inner_text()
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

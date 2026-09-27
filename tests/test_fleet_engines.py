@@ -21,7 +21,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -155,24 +155,22 @@ def test_the_probe_asks_every_row_the_table_has():
 
 
 @pytest.mark.browser
-def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path):
+def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path, desk_browser):
     """Measured, not asserted from memory. The other two columns cannot be measured from here --
     JCEF and the Simple Browser are not in this container -- and the table says so rather than
     guessing."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha")
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            version = page.evaluate("() => navigator.userAgent")
-            got = {name: bool(page.evaluate(probe)) for name, probe in FEATURES.items()}
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        version = page.evaluate("() => navigator.userAgent")
+        got = {name: bool(page.evaluate(probe)) for name, probe in FEATURES.items()}
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -204,7 +202,7 @@ def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path
 
 
 @pytest.mark.browser
-def test_the_webgl_row_is_what_the_probe_measured(fleet_home):
+def test_the_webgl_row_is_what_the_probe_measured(fleet_home, desk_browser):
     """The WebGL row, measured the way every other shell will be (#247): `/probe` in this engine,
     posted to the desk, classified by `probe.classify`.
 
@@ -217,21 +215,19 @@ def test_the_webgl_row_is_what_the_probe_measured(fleet_home):
 
     from agentdata.fleet import probe as PR
 
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     server, token, port = _serve()
     posts = []
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 720})
-            page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
-            page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
-                      wait_until="domcontentloaded")
-            page.wait_for_function(
-                "() => /saved|not saved/.test(document.getElementById('state').textContent)",
-                timeout=30000)
-            shown = page.text_content("#verdict")
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
+        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
+                  wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => /saved|not saved/.test(document.getElementById('state').textContent)",
+            timeout=30000)
+        shown = page.text_content("#verdict")
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -267,7 +263,7 @@ def test_the_webgl_row_is_what_the_probe_measured(fleet_home):
 
 
 @pytest.mark.browser
-def test_the_feature_rows_are_what_the_probe_recorded_in_this_engine(fleet_home):
+def test_the_feature_rows_are_what_the_probe_recorded_in_this_engine(fleet_home, desk_browser):
     """The rest of the table, measured the way the laptop's shells are (#235): `/probe` asks every
     row, the desk keeps the answers, and `probe.feature_cell` turns them into cells. In CI's
     Chromium those cells must be the Chromium column as written, and the probe's answers the ones
@@ -275,22 +271,20 @@ def test_the_feature_rows_are_what_the_probe_recorded_in_this_engine(fleet_home)
     this one does not."""
     from agentdata.fleet import probe as PR
 
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 720})
-            page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
-                      wait_until="domcontentloaded")
-            page.wait_for_function(
-                "() => /saved|not saved/.test(document.getElementById('state').textContent)",
-                timeout=30000)
-            asked = {name: bool(page.evaluate(probe)) for name, probe in FEATURES.items()
-                     if name != "WebGL"}
-            shown = page.text_content("#features")
-            left = page.evaluate("() => !!document.getElementById('cq-probe')")
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
+                  wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => /saved|not saved/.test(document.getElementById('state').textContent)",
+            timeout=30000)
+        asked = {name: bool(page.evaluate(probe)) for name, probe in FEATURES.items()
+                 if name != "WebGL"}
+        shown = page.text_content("#features")
+        left = page.evaluate("() => !!document.getElementById('cq-probe')")
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -309,29 +303,27 @@ def test_the_feature_rows_are_what_the_probe_recorded_in_this_engine(fleet_home)
 
 
 @pytest.mark.browser
-def test_the_gutter_keeps_the_pointer_when_the_hand_leaves_its_strip(fleet_home, tmp_path):
+def test_the_gutter_keeps_the_pointer_when_the_hand_leaves_its_strip(fleet_home, tmp_path, desk_browser):
     """Pointer capture on the gutter (#234), measured: the press takes the capture, and every move
     after it is the gutter's -- 150px to the right, and then up off the row altogether, into the
     toolbar, far from an 8px strip -- until the hand comes up, when the capture is let go. The
     width follows the hand the whole way, stays where the hand left it, and the release selects
     nothing and opens nothing."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
     S.update_window("main", open="alpha", widths={"alpha": 1, "beta": 1, "gamma": 0})
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function(
-                """() => document.querySelectorAll('#grid .tile.is-solo[data-tier="full"]').length === 2
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => document.querySelectorAll('#grid .tile.is-solo[data-tier="full"]').length === 2
                          && windowWrites === 0""", timeout=15000)
-            page.evaluate("""() => {
+        page.evaluate("""() => {
               const g = document.querySelector('.tile[data-repo="alpha"] > .gutter');
               window.__cap = { got: 0, lost: 0, moves: [] };
               g.addEventListener('gotpointercapture', () => { window.__cap.got += 1; });
@@ -340,31 +332,31 @@ def test_the_gutter_keeps_the_pointer_when_the_hand_leaves_its_strip(fleet_home,
                 if (gutterHeld) window.__cap.moves.push(e.target === g);
               }, true);
             }""")
-            before = page.evaluate(
-                "() => document.querySelector('.tile[data-repo=\"alpha\"]').getBoundingClientRect().width")
-            selected = page.evaluate("() => desk.desk.selected || ''")
-            x, y = _gutter_point(page, "alpha")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x + 150, y, steps=10)
-            page.mouse.move(x + 150, 4, steps=10)
-            page.wait_for_function(
-                """(want) => Math.abs(document.querySelector('.tile[data-repo="alpha"]')
+        before = page.evaluate(
+            "() => document.querySelector('.tile[data-repo=\"alpha\"]').getBoundingClientRect().width")
+        selected = page.evaluate("() => desk.desk.selected || ''")
+        x, y = _gutter_point(page, "alpha")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x + 150, y, steps=10)
+        page.mouse.move(x + 150, 4, steps=10)
+        page.wait_for_function(
+            """(want) => Math.abs(document.querySelector('.tile[data-repo="alpha"]')
                               .getBoundingClientRect().width - want) < 2""",
-                arg=before + 150, timeout=8000)
-            under = page.evaluate(f"""() => {{
+            arg=before + 150, timeout=8000)
+        under = page.evaluate(f"""() => {{
               const el = document.elementFromPoint({x + 150}, 4);
               return el ? (el.closest('#grid') ? 'the row' : el.tagName.toLowerCase()) : '';
             }}""")
-            page.mouse.up()
-            page.wait_for_function("() => !gutterHeld && windowWrites === 0", timeout=8000)
-            cap = page.evaluate("() => window.__cap")
-            after = page.evaluate(
-                "() => document.querySelector('.tile[data-repo=\"alpha\"]').getBoundingClientRect().width")
-            now = page.evaluate("() => ({ selected: desk.desk.selected || '', open: openName() })")
-            assert not errors, errors
-            browser.close()
+        page.mouse.up()
+        page.wait_for_function("() => !gutterHeld && windowWrites === 0", timeout=8000)
+        cap = page.evaluate("() => window.__cap")
+        after = page.evaluate(
+            "() => document.querySelector('.tile[data-repo=\"alpha\"]').getBoundingClientRect().width")
+        now = page.evaluate("() => ({ selected: desk.desk.selected || '', open: openName() })")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -383,25 +375,23 @@ def test_the_gutter_keeps_the_pointer_when_the_hand_leaves_its_strip(fleet_home,
 
 
 @pytest.mark.browser
-def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home, tmp_path):
+def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home, tmp_path, desk_browser):
     """All of them at once, which is the worst engine anyone will actually meet: no view
     transitions, no pointer capture, no `linear()`, no container queries, no `ResizeObserver`. The
     desk still hides a tile, still reorders, still resizes by the gutter -- whose move and release
     are heard on the document, so a lost capture costs nothing (#234) -- still gives every pane its
     tier, measured after each layout pass when there is no observer to say so (#235), still draws
     its traces, and still lands where it would have."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.add_init_script("""
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.add_init_script("""
               delete Document.prototype.startViewTransition;
               delete Element.prototype.setPointerCapture;
               delete Element.prototype.releasePointerCapture;
@@ -413,35 +403,35 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
                 return realSupports.apply(null, arguments);
               };
             """)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            # Attached is enough: gamma is a rail (#233), on the glass, and nothing here reads it.
-            page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        # Attached is enough: gamma is a rail (#233), on the glass, and nothing here reads it.
+        page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
 
-            page.evaluate("() => setHidden('beta', true)")
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="beta"]')
+        page.evaluate("() => setHidden('beta', true)")
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="beta"]')
                            .classList.contains('is-hidden')""", timeout=8000)
-            page.evaluate("() => moveTile('gamma', -1)")
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile')]
+        page.evaluate("() => moveTile('gamma', -1)")
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#grid .tile')]
                           .map(t => t.dataset.repo).indexOf('gamma') < 2""", timeout=8000)
-            # The gutter between the two panes on the glass, pulled so that the rail opens -- once
-            # the move above has finished travelling, or its box is where the gutter was.
-            pair = page.evaluate("""() => {
+        # The gutter between the two panes on the glass, pulled so that the rail opens -- once
+        # the move above has finished travelling, or its box is where the gutter was.
+        pair = page.evaluate("""() => {
               const on = [...document.querySelectorAll('#grid .tile')]
                 .filter(t => !t.classList.contains('is-hidden'));
               return { left: on[0].dataset.repo, wide: on[0].classList.contains('is-solo') };
             }""")
-            x, y = _gutter_point(page, pair["left"])
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x + (-400 if pair["wide"] else 400), y, steps=10)
-            page.mouse.up()
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile.is-solo').length === 2", timeout=8000)
-            out = page.evaluate("""() => ({
+        x, y = _gutter_point(page, pair["left"])
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x + (-400 if pair["wide"] else 400), y, steps=10)
+        page.mouse.up()
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile.is-solo').length === 2", timeout=8000)
+        out = page.evaluate("""() => ({
               traces: [...document.querySelectorAll('.tile .trace')]
                         .filter(c => c.getAttribute('aria-label')).length,
               order: [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo),
@@ -450,16 +440,16 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
               tiers: [...document.querySelectorAll('#grid .tile:not(.is-hidden)')]
                        .map(t => [t.classList.contains('is-solo'), t.dataset.tier || '']),
             })""")
-            assert not errors, errors
-            assert out["hidden"] == ["beta"], out
-            assert out["order"][0] != "alpha" or out["order"].index("gamma") < 2, out
-            assert out["traces"] >= 1, "the traces stopped drawing without view transitions"
-            # Without an observer the tiers still follow the widths: the pane the gutter opened is
-            # drawn wide, and the rail it left is a rail.
-            assert out["observer"] == "undefined", out
-            assert all((tier in ("compact", "full")) if wide else tier == "rail"
-                       for wide, tier in out["tiers"]), out["tiers"]
-            browser.close()
+        assert not errors, errors
+        assert out["hidden"] == ["beta"], out
+        assert out["order"][0] != "alpha" or out["order"].index("gamma") < 2, out
+        assert out["traces"] >= 1, "the traces stopped drawing without view transitions"
+        # Without an observer the tiers still follow the widths: the pane the gutter opened is
+        # drawn wide, and the rail it left is a rail.
+        assert out["observer"] == "undefined", out
+        assert all((tier in ("compact", "full")) if wide else tier == "rail"
+                   for wide, tier in out["tiers"]), out["tiers"]
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

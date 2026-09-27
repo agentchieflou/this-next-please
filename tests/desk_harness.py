@@ -20,12 +20,20 @@ test's contexts are closed when it ends, so nothing one test stored reaches the 
   `init_scripts` installed, at the desk's address, and a record of its page errors, console errors
   and warnings, failed requests and non-2xx answers.
 * `no_desk_driver` -- stops the worker's driver for a test that needs `asyncio.run`.
+* `desk_chromium_with` -- `launch(args)`: a Chromium of the test's own on the worker's driver, with
+  extra command-line switches (#384's Blink flag), closed at teardown.
 
-A sync Playwright started in a thread and a `with sync_playwright()` in the same thread cannot both
-be alive (Playwright raises "using Playwright Sync API inside the asyncio loop"), so while some
-browser tests are not on the harness yet, `pytest_runtest_setup` stops the shared driver before any
-browser test that does not use `desk_browser`; the next harness test starts it again. #303 removes
-it once every browser test is here.
+`--desk-cpu-throttle=RATE` (or `AGENTDATA_DESK_THROTTLE`; default 1) slows every desk page's main
+thread RATE times, to reproduce a slow CI runner on a laptop (#307): `desk_page`, and so
+`new_desk_page` and every helper built on it, sends CDP `Emulation.setCPUThrottlingRate` to the
+page it opens and sends it again each time the page's main frame navigates. `desk_page(throttle=)`
+picks a rate for one page whatever the option says.
+
+Every browser test is here (#303): nothing else under `tests/` starts a driver or launches Chromium,
+and `tests/test_hygiene_harness.py` keeps it so. A sync Playwright started in a thread and a second
+`with sync_playwright()` in the same thread cannot both be alive (Playwright raises "using
+Playwright Sync API inside the asyncio loop"); `no_desk_driver` stops the shared one for a test
+that needs `asyncio.run`.
 """
 from __future__ import annotations
 
@@ -51,6 +59,54 @@ COUNT_FETCHES = """
     return realFetch.apply(this, arguments).finally(() => { window.__inflight -= 1; });
   };
 """
+
+
+#: The variable `--desk-cpu-throttle` falls back to (#307).
+THROTTLE_ENV = "AGENTDATA_DESK_THROTTLE"
+#: The rate every desk page is opened at, set once per process by `pytest_configure`.
+THROTTLE = {"rate": 1.0}
+
+
+def pytest_addoption(parser):  # pragma: no cover - CLI plumbing
+    parser.addoption("--desk-cpu-throttle", action="store", type=float, default=None, metavar="RATE",
+                     help="slow every desk page's main thread RATE times with CDP "
+                          "Emulation.setCPUThrottlingRate, to reproduce a slow runner (default 1, "
+                          f"or ${THROTTLE_ENV})")
+
+
+def throttle_rate(option, environ) -> float:
+    """The throttle rate: the option when given, else `AGENTDATA_DESK_THROTTLE`, else 1. A rate under
+    1 (or one that is not a number) is a usage error, not a quietly unthrottled run."""
+    if option is None:
+        raw = (environ.get(THROTTLE_ENV) or "").strip()
+        if not raw:
+            return 1.0
+        try:
+            option = float(raw)
+        except ValueError:
+            raise pytest.UsageError(f"{THROTTLE_ENV}={raw!r} is not a number") from None
+    rate = float(option)
+    if not rate >= 1:
+        raise pytest.UsageError(f"--desk-cpu-throttle must be 1 or more (1 is no throttle), not {option}")
+    return rate
+
+
+def pytest_configure(config):  # pragma: no cover - CLI plumbing
+    THROTTLE["rate"] = throttle_rate(config.getoption("--desk-cpu-throttle", None), os.environ)
+
+
+def throttle_page(page, rate: float) -> None:
+    """Slow `page`'s main thread `rate` times (CDP `Emulation.setCPUThrottlingRate`), and keep it
+    slowed: a navigation can move the page to a new renderer process, which starts unthrottled, so
+    the rate is sent again whenever the main frame navigates."""
+    cdp = page.context.new_cdp_session(page)
+
+    def again(frame):
+        if frame.parent_frame is None:
+            cdp.send("Emulation.setCPUThrottlingRate", {"rate": rate})
+
+    cdp.send("Emulation.setCPUThrottlingRate", {"rate": rate})
+    page.on("framenavigated", again)
 
 
 def launch_chromium(p, args=()):
@@ -204,8 +260,7 @@ def close_pages(browser) -> None:
     close_new_contexts(browser, ())
 
 
-#: Where `_desk_driver` keeps this process's driver and browser, so `pytest_runtest_setup` can reach
-#: them before any fixture of the next test is set up.
+#: Where `_desk_driver` keeps this process's driver and browser, in the session's stash.
 HELD = pytest.StashKey[dict]()
 
 
@@ -228,40 +283,45 @@ def desk_browser(_desk_driver):
     close_new_contexts(_desk_driver.get("browser"), before)
 
 
-def off_the_harness(browser_marked: bool, fixturenames) -> bool:
-    """A browser test that does not use `desk_browser`: it opens its own `sync_playwright()`."""
-    return browser_marked and "desk_browser" not in fixturenames
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_setup(item):
-    """One driver at a time: a test off the harness cannot start its own driver while the shared
-    one is up in this thread, so stop the shared one first. The next harness test starts it again.
-
-    A hook and not an autouse fixture: a module-scoped `browser` fixture that opens its own
-    `sync_playwright()` (test_fleet_stream_resume's, test_fleet_theme_switch's, and the regressions
-    that import them) is set up before any function-scoped fixture of its module's first test, so
-    a fixture came too late whenever a harness test had run just before it in the same process."""
-    held = item.session.stash.get(HELD, None)
-    if held and off_the_harness(item.get_closest_marker("browser") is not None, item.fixturenames):
-        stop_driver(held)
-
-
 @pytest.fixture()
 def no_desk_driver(_desk_driver):
     """For a test that needs `asyncio.run` (or its own Playwright) in this thread: no shared driver."""
     stop_driver(_desk_driver)
 
 
+@pytest.fixture()
+def desk_chromium_with(desk_browser, _desk_driver):
+    """`launch(args)`: a Chromium of this test's own, on the worker's driver, started with the extra
+    command-line switches `args` -- for the test that measures an API behind a Blink flag the shared
+    browser was not started with (#384). Every one it launched is closed at teardown if the test has
+    not closed it already."""
+    launched = []
+
+    def launch(args=()):
+        browser = launch_chromium(_desk_driver["pw"], args=args)
+        launched.append(browser)
+        return browser
+
+    yield launch
+    for browser in launched:
+        if browser.is_connected():
+            browser.close()
+
+
 # ------------------------------------------------------------------------------------ the pages
 
 
-def desk_page(browser, *, width=1400, height=900, reduced=False, init_scripts=()):
+def desk_page(browser, *, width=1400, height=900, reduced=False, init_scripts=(), throttle=None):
     """A page in a fresh context of its own: `browser.new_page()` as the tests always had it, with
-    the viewport, reduced motion or not, and `init_scripts` added before anything loads."""
+    the viewport, reduced motion or not, and `init_scripts` added before anything loads. Its CPU is
+    throttled at `--desk-cpu-throttle` (`throttle_page`), or at `throttle` when one is given; a rate
+    of 1 sends nothing."""
     context = browser.new_context(viewport={"width": width, "height": height},
                                   reduced_motion="reduce" if reduced else "no-preference")
     page = context.new_page()
+    rate = THROTTLE["rate"] if throttle is None else float(throttle)
+    if rate > 1:
+        throttle_page(page, rate)
     for script in init_scripts:
         page.add_init_script(script)
     return page

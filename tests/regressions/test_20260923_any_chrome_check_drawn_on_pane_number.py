@@ -19,30 +19,28 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import _open, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 from test_fleet_ink_margin import (OPEN, SUPERVISED, alive, check_on, choose_on, desk_states,  # noqa: F401
                                    finished, margin_desk, measure_on)
 
 
 @pytest.mark.browser
-def test_the_check_and_the_bang_stay_off_the_pane_number_and_the_name(fleet_home, tmp_path, alive, finished):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_the_check_and_the_bang_stay_off_the_pane_number_and_the_name(fleet_home, tmp_path, alive, finished, desk_browser):
     alive.add(SUPERVISED)
     finished.add(SUPERVISED)
     margin_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=1400, reduced=True)
-            desk_states(page)
-            for look in ("glass:smoke", "graph:engineering"):
-                choose_on(page, look)
-                seen[look] = measure_on(page)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=1400, reduced=True)
+        desk_states(page)
+        for look in ("glass:smoke", "graph:engineering"):
+            choose_on(page, look)
+            seen[look] = measure_on(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for look, marks in seen.items():

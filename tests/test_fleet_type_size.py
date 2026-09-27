@@ -26,7 +26,7 @@ from agentdata.fleet import board as B, events as E, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_events import fleet_home  # noqa: F401 - fixture
 from test_fleet_skin_guard import rules
 
@@ -164,44 +164,42 @@ OVERFLOW = """sel => [...document.querySelectorAll(sel)].filter(el => el.getClie
 @pytest.mark.browser
 @pytest.mark.parametrize("skin", ["none", "glass:smoke"])
 @pytest.mark.parametrize("width", [1400, 700])
-def test_the_grown_words_still_fit_the_rail_the_chip_and_the_board(fleet_home, tmp_path, width, skin):
+def test_the_grown_words_still_fit_the_rail_the_chip_and_the_board(fleet_home, tmp_path, width, skin, desk_browser):
     """At 11px the rail's number, its state glyph and its unread badge stay inside the 48px face,
     and a pane's chip and a ticket's status are not clipped by their own box."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": width, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function(
-                """() => document.querySelectorAll('#grid .tile[data-tier="rail"]').length >= 2
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": width, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => document.querySelectorAll('#grid .tile[data-tier="rail"]').length >= 2
                      && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
                      && !document.body.classList.contains('is-stale')""", timeout=15000)
-            if skin != "none":
-                page.evaluate("s => post('theme', { skin: s })", skin)
-                family, variant = skin.split(":")
-                page.wait_for_function(
-                    """([f, v]) => document.body.dataset.skin === f && document.body.dataset.skinVariant === v
-                         && !!(document.head.querySelector('link[data-skin]') || {}).sheet""",
-                    arg=[family, variant], timeout=15000)
-            # Unread notes on the rails, so each badge shows a two-digit count: its widest.
-            page.evaluate("""names => names.forEach(repo => { for (let i = 0; i < 12; i++)
-                arrived({ repo, severity: 'info', title: 'note', body: '', at: '' }); })""", list(RAILED))
+        if skin != "none":
+            page.evaluate("s => post('theme', { skin: s })", skin)
+            family, variant = skin.split(":")
             page.wait_for_function(
-                """names => names.every(r => {
+                """([f, v]) => document.body.dataset.skin === f && document.body.dataset.skinVariant === v
+                         && !!(document.head.querySelector('link[data-skin]') || {}).sheet""",
+                arg=[family, variant], timeout=15000)
+        # Unread notes on the rails, so each badge shows a two-digit count: its widest.
+        page.evaluate("""names => names.forEach(repo => { for (let i = 0; i < 12; i++)
+                arrived({ repo, severity: 'info', title: 'note', body: '', at: '' }); })""", list(RAILED))
+        page.wait_for_function(
+            """names => names.every(r => {
                      const b = document.querySelector(`.tile[data-repo="${r}"] .pr-badge`);
                      return b && !b.hidden && b.textContent === '12'; })""", arg=list(RAILED), timeout=15000)
-            faces = page.evaluate(RAIL_FACES)
-            chips = page.evaluate(OVERFLOW, "#grid .tile .head .chip")
-            page.evaluate("() => boardPanel(true)")
-            page.wait_for_selector("#tickets li[data-key='RDSD-118'] .st", timeout=15000)
-            statuses = page.evaluate(OVERFLOW, "#tickets .st")
-            assert not errors, errors
-            browser.close()
+        faces = page.evaluate(RAIL_FACES)
+        chips = page.evaluate(OVERFLOW, "#grid .tile .head .chip")
+        page.evaluate("() => boardPanel(true)")
+        page.wait_for_selector("#tickets li[data-key='RDSD-118'] .st", timeout=15000)
+        statuses = page.evaluate(OVERFLOW, "#tickets .st")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 

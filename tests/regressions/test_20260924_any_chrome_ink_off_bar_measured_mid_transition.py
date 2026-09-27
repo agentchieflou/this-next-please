@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401
 from test_fleet_ink_margin import (OFF_AT_REST, OPEN, SUPERVISED, UNSUPERVISED, _sheet, desk_states, margin_desk,
@@ -40,34 +40,32 @@ LOOK = "glass:smoke"
 
 @pytest.mark.browser
 def test_ink_off_bars_are_measured_at_rest_not_on_their_transitions_first_frame(fleet_home, tmp_path, alive,
-                                                                               finished):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+                                                                               finished, desk_browser):
     alive.add(SUPERVISED)
     finished.add(SUPERVISED)
     margin_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=off", panes=len(OPEN), width=700, reduced=True)
-            desk_states(page)
-            cdp = page.context.new_cdp_session(page)
-            cdp.send("Animation.enable")
-            cdp.send("Animation.setPlaybackRate", {"playbackRate": 0})
-            _choose(page, LOOK)
-            page.wait_for_function(f"""() => (Ink.inspect().table === '{LOOK}' || (refresh(), false))
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=off", panes=len(OPEN), width=700, reduced=True)
+        desk_states(page)
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Animation.enable")
+        cdp.send("Animation.setPlaybackRate", {"playbackRate": 0})
+        _choose(page, LOOK)
+        page.wait_for_function(f"""() => (Ink.inspect().table === '{LOOK}' || (refresh(), false))
               && Ink.inspect().plain && ({_sheet('glass')}) && document.body.classList.contains('ink-off')
               && document.querySelector('.tile[data-repo="{UNSUPERVISED}"]').getAnimations().length > 0""",
-                                   timeout=30000, polling=250)
-            held = page.evaluate(f"""() => ({{
+                               timeout=30000, polling=250)
+        held = page.evaluate(f"""() => ({{
               shadow: getComputedStyle(document.querySelector('.tile[data-repo="{UNSUPERVISED}"]')).boxShadow,
               ready: ({OFF_AT_REST})() }})""")
-            bars_held = measure_off(page)
-            cdp.send("Animation.setPlaybackRate", {"playbackRate": 1})
-            page.wait_for_function(OFF_AT_REST, timeout=10000, polling=100)
-            bars = measure_off(page)
-            assert not errors, errors
-            browser.close()
+        bars_held = measure_off(page)
+        cdp.send("Animation.setPlaybackRate", {"playbackRate": 1})
+        page.wait_for_function(OFF_AT_REST, timeout=10000, polling=100)
+        bars = measure_off(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     # the first frame: it reads as an inset shadow, and it is not a bar

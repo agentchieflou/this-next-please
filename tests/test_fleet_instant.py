@@ -23,7 +23,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -141,7 +141,7 @@ def test_the_cached_desk_is_the_rows_without_the_transcripts():
 
 
 @pytest.mark.browser
-def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, tmp_path):
+def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, tmp_path, desk_browser):
     """The optimistic write has to land on the desk, not on a copy of it.
 
     `getArrangement` (then `getLayoutArrangement`) used to answer a fresh `{order, size, pinned}`
@@ -151,22 +151,20 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
     longer does. On a fast machine the desk has loaded before anyone can click, so it only ever
     showed up on the slowest runner in CI.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
 
-            out = page.evaluate("""() => {
+        out = page.evaluate("""() => {
               // The desk this window has not been told about yet, and a server that will not be
               // answering: what is left is whether the page can paint from what it already has.
               desk.desk = {};
@@ -178,11 +176,11 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
                 kept: (getArrangement().hidden || []).slice(),
               };
             }""")
-            assert not errors, errors
-            assert out["hidden"], "the tile waited for a server that is never going to answer"
-            assert out["kept"] == ["beta"], \
-                f"the write went into a throwaway object: {out['kept']}"
-            browser.close()
+        assert not errors, errors
+        assert out["hidden"], "the tile waited for a server that is never going to answer"
+        assert out["kept"] == ["beta"], \
+            f"the write went into a throwaway object: {out['kept']}"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -191,25 +189,23 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
 
 @pytest.mark.browser
 @pytest.mark.measured
-def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
+def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path, desk_browser):
     """Asserted by making the server slow. Anything that only passes against a fast local server
     is asserting that the network was quick, not that the page was."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
 
-            took = page.evaluate("""() => {
+        took = page.evaluate("""() => {
               // Two whole seconds before `arrange` is allowed to answer. Delayed in the page
               // rather than in the driver: a sleep inside a route handler blocks Playwright's
               // own thread, and then the test is measuring itself.
@@ -242,12 +238,12 @@ def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
               window.fetch = real;
               return { ms: ms, hidden: hidden, posted: settled };
             }""")
-            assert not errors, errors
-            assert took["hidden"], "the tile waited for the server before it moved"
-            assert not took["posted"], "the server answered first, so this proves nothing"
-            assert took["ms"] < LOCAL_BUDGET_MS, \
-                f"the tile took {took['ms']:.0f}ms to move, against a two-second server"
-            browser.close()
+        assert not errors, errors
+        assert took["hidden"], "the tile waited for the server before it moved"
+        assert not took["posted"], "the server answered first, so this proves nothing"
+        assert took["ms"] < LOCAL_BUDGET_MS, \
+            f"the tile took {took['ms']:.0f}ms to move, against a two-second server"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -255,41 +251,39 @@ def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_refused_arrangement_goes_back_and_says_why(fleet_home, tmp_path):
+def test_a_refused_arrangement_goes_back_and_says_why(fleet_home, tmp_path, desk_browser):
     """The other half of optimistic. A tile that silently returns to where it was is a page the
     operator stops trusting -- so the refusal arrives in the server's own words."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
 
-            page.route("**/api/arrange*", lambda route: route.fulfill(
-                status=409, content_type="application/json",
-                body=json.dumps({"ok": False, "error": "that arrangement was refused",
-                                 "hint": "the desk is held by another window",
-                                 "code": "desk_locked"})))
+        page.route("**/api/arrange*", lambda route: route.fulfill(
+            status=409, content_type="application/json",
+            body=json.dumps({"ok": False, "error": "that arrangement was refused",
+                             "hint": "the desk is held by another window",
+                             "code": "desk_locked"})))
 
-            page.evaluate("() => setHidden('beta', true)")
-            page.wait_for_function(
-                """() => !document.querySelector('.tile[data-repo="beta"]')
+        page.evaluate("() => setHidden('beta', true)")
+        page.wait_for_function(
+            """() => !document.querySelector('.tile[data-repo="beta"]')
                            .classList.contains('is-hidden')""", timeout=8000)
-            said = page.evaluate("() => document.getElementById('notice').textContent")
-            assert "refused" in said, said
-            assert "another window" in said, "the server's own hint, not a shrug"
-            assert page.evaluate(
-                "() => (getArrangement().hidden || []).indexOf('beta')") == -1
-            assert not errors, errors
-            browser.close()
+        said = page.evaluate("() => document.getElementById('notice').textContent")
+        assert "refused" in said, said
+        assert "another window" in said, "the server's own hint, not a shrug"
+        assert page.evaluate(
+            "() => (getArrangement().hidden || []).indexOf('beta')") == -1
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -297,27 +291,25 @@ def test_a_refused_arrangement_goes_back_and_says_why(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_path):
+def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_path, desk_browser):
     """Counted, not assumed."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
-            page.wait_for_timeout(400)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
+        page.wait_for_timeout(400)
 
-            # Only the fetches this gesture caused. The stream's own tick refreshes on its own
-            # clock, and counting those would be counting the server's heartbeat.
-            out = page.evaluate("""async () => {
+        # Only the fetches this gesture caused. The stream's own tick refreshes on its own
+        # clock, and counting those would be counting the server's heartbeat.
+        out = page.evaluate("""async () => {
               /* The stream refreshes on its own clock -- and `refreshSoon` arms a timer 400ms
                  out -- so with either still live this would be counting the server's heartbeat
                  rather than what the gesture decided. Closed, then given long enough for any
@@ -341,12 +333,12 @@ def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_pa
                        calls: seen,
                        fleet: seen.filter(u => u.indexOf('/api/fleet') >= 0) };
             }""")
-            assert not errors, errors
-            assert out["ok"] and out["row"], out
-            assert out["repo"] == "beta"
-            assert out["fleet"] == [], f"the action fetched the whole fleet as well: {out['calls']}"
-            assert len(out["calls"]) == 1, f"one round trip, not two: {out['calls']}"
-            browser.close()
+        assert not errors, errors
+        assert out["ok"] and out["row"], out
+        assert out["repo"] == "beta"
+        assert out["fleet"] == [], f"the action fetched the whole fleet as well: {out['calls']}"
+        assert len(out["calls"]) == 1, f"one round trip, not two: {out['calls']}"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -355,27 +347,25 @@ def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_pa
 
 @pytest.mark.browser
 @pytest.mark.measured
-def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
+def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path, desk_browser):
     """Fifty milliseconds, per gesture, measured by the page's own marks. What is timed is the
     part the page decides: painting what it already knows. The round trip after it is the
     server's business and has its own numbers."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
     S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="epsilon"]', state="attached", timeout=15000)
-            page.wait_for_timeout(400)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="epsilon"]', state="attached", timeout=15000)
+        page.wait_for_timeout(400)
 
-            marks = page.evaluate("""() => {
+        marks = page.evaluate("""() => {
               performance.clearMeasures();
               setHidden('beta', true);
               setHidden('beta', false);
@@ -390,16 +380,16 @@ def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
                 .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1],
                              ms: m.duration }));
             }""")
-            assert not errors, errors
-            assert len(marks) >= 4, f"the gestures were not marked at all: {marks}"
-            names = {m["name"] for m in marks}
-            assert {"widths:step", "widths:even"} <= names, f"a change of widths is unmarked: {names}"
-            over = [m for m in marks if m["ms"] > LOCAL_BUDGET_MS]
-            worst = max(m["ms"] for m in marks)
-            print(f"\nlocal gestures: {len(marks)} marked, worst {worst:.1f}ms "
-                  f"against a {LOCAL_BUDGET_MS:.0f}ms budget")
-            assert over == [], f"over the budget: {over}"
-            browser.close()
+        assert not errors, errors
+        assert len(marks) >= 4, f"the gestures were not marked at all: {marks}"
+        names = {m["name"] for m in marks}
+        assert {"widths:step", "widths:even"} <= names, f"a change of widths is unmarked: {names}"
+        over = [m for m in marks if m["ms"] > LOCAL_BUDGET_MS]
+        worst = max(m["ms"] for m in marks)
+        print(f"\nlocal gestures: {len(marks)} marked, worst {worst:.1f}ms "
+              f"against a {LOCAL_BUDGET_MS:.0f}ms budget")
+        assert over == [], f"over the budget: {over}"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -407,32 +397,30 @@ def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_home, tmp_path):
+def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_home, tmp_path, desk_browser):
     """Stale, then right, and honest about which. The first `/api/fleet` on a nine-project fleet
     is a catalogue read, a fold per agent and a ledger per agent; until it answered, the window
     said "no projects", which is the wrong answer given confidently."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
-            page.wait_for_function(
-                "() => { try { return !!sessionStorage.getItem(SNAP_KEY); } catch (e) "
-                "{ return false; } }", timeout=8000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
+        page.wait_for_function(
+            "() => { try { return !!sessionStorage.getItem(SNAP_KEY); } catch (e) "
+            "{ return false; } }", timeout=8000)
 
-            # Reload with the fleet held up for a second and a half. Without the cache this is a
-            # second and a half of "no projects yet". An init script, because it has to be in
-            # place before the page's own scripts run on the reload.
-            page.add_init_script("""
+        # Reload with the fleet held up for a second and a half. Without the cache this is a
+        # second and a half of "no projects yet". An init script, because it has to be in
+        # place before the page's own scripts run on the reload.
+        page.add_init_script("""
               const real = window.fetch;
               window.fetch = function (url, opts) {
                 if (String(url).indexOf('/api/fleet') >= 0) {
@@ -441,23 +429,23 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
                 return real.apply(this, arguments);
               };
             """)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=5000)
-            early = page.evaluate("""() => ({
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=5000)
+        early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,
               stale: document.body.classList.contains('is-stale'),
               empty: !document.getElementById('empty').hidden,
             })""")
-            assert early["tiles"] == 3, early
-            assert early["stale"], "a stale desk that does not admit it is a desk that lies"
-            assert not early["empty"], "it said there were no projects over three of them"
+        assert early["tiles"] == 3, early
+        assert early["stale"], "a stale desk that does not admit it is a desk that lies"
+        assert not early["empty"], "it said there were no projects over three of them"
 
-            page.wait_for_function(
-                "() => !document.body.classList.contains('is-stale')", timeout=15000)
-            assert page.evaluate("() => document.querySelectorAll('#grid .tile').length") == 3
-            assert not errors, errors
-            browser.close()
+        page.wait_for_function(
+            "() => !document.body.classList.contains('is-stale')", timeout=15000)
+        assert page.evaluate("() => document.querySelectorAll('#grid .tile').length") == 3
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -465,11 +453,10 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
 
 
 @pytest.mark.browser
-def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path):
+def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path, desk_browser):
     """`body.is-replaying` (#371): from `connect()` until the pass's `tick`, the stream is sending
     history, and a replayed `li.denied` looks exactly like a fresh one. The class says which, so
     the ink cues (#372) do not replay old hits; and when it clears, the whole pass is on the page."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
     for name in ("alpha", "beta"):
         E.append(name, [E.event(name, "denied", {"message": "no push"}, ticket="RDSD-1")])
@@ -477,24 +464,23 @@ def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            # `#link` says live at `onopen`, before the first pass's `tick`: the first pass has
-            # ended only when the class is gone too.
-            page.wait_for_function(
-                "() => !document.body.classList.contains('is-stale')"
-                " && !document.body.classList.contains('is-replaying')"
-                " && document.getElementById('link').textContent === 'live'"
-                " && document.querySelectorAll('.transcript li.denied').length === 2",
-                timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        # `#link` says live at `onopen`, before the first pass's `tick`: the first pass has
+        # ended only when the class is gone too.
+        page.wait_for_function(
+            "() => !document.body.classList.contains('is-stale')"
+            " && !document.body.classList.contains('is-replaying')"
+            " && document.getElementById('link').textContent === 'live'"
+            " && document.querySelectorAll('.transcript li.denied').length === 2",
+            timeout=15000)
 
-            # Every on and off of the class, with how many refusals the page held at that moment.
-            page.evaluate("""() => {
+        # Every on and off of the class, with how many refusals the page held at that moment.
+        page.evaluate("""() => {
               window.__replaying = [];
               new MutationObserver(function (records) {
                 records.forEach(function (r) {
@@ -507,18 +493,18 @@ def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path
               }).observe(document.body, { attributes: true, attributeFilter: ['class'],
                                           attributeOldValue: true });
             }""")
-            page.evaluate("() => { tiles.get('alpha').seq = 0; connect(); }")
-            page.wait_for_function(
-                "() => window.__replaying.some(function (m, i) { return m.on"
-                " && window.__replaying.slice(i + 1).some(function (n) { return !n.on; }); })",
-                timeout=15000)
-            seen = page.evaluate("() => window.__replaying")
-            first_on = next(i for i, m in enumerate(seen) if m["on"])
-            first_off = next(m for m in seen[first_on + 1:] if not m["on"])
-            assert first_off["denied"] == 3, (
-                f"the class cleared before the replay had landed: {seen}")
-            assert not errors, errors
-            browser.close()
+        page.evaluate("() => { tiles.get('alpha').seq = 0; connect(); }")
+        page.wait_for_function(
+            "() => window.__replaying.some(function (m, i) { return m.on"
+            " && window.__replaying.slice(i + 1).some(function (n) { return !n.on; }); })",
+            timeout=15000)
+        seen = page.evaluate("() => window.__replaying")
+        first_on = next(i for i, m in enumerate(seen) if m["on"])
+        first_off = next(m for m in seen[first_on + 1:] if not m["on"])
+        assert first_off["denied"] == 3, (
+            f"the class cleared before the replay had landed: {seen}")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
