@@ -1429,10 +1429,20 @@ def theme_state() -> dict:
         default_name = skin_info.get("base") or default_name
         skin_name = skin_info["full"]
 
+    def tokens(t):
+        # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
+        # the tokens are one set per palette, the same under every skin on it.
+        return T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
+
     t = theme_or_none(default_name)
-    # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
-    # the tokens are one set per palette, the same under every skin on it.
-    css_vars = T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
+    css_vars = tokens(t)
+    # `<skin>:auto` (#342): both sides, each exactly what choosing that variant serves, so the page
+    # follows the system's appearance without asking. `theme` and `css` stay the default variant's:
+    # the terminal's palette, which cannot follow, and what a reader that knows nothing of `auto` uses.
+    auto = {}
+    for side, v in ((skin_info or {}).get("auto") or {}).items():
+        st = theme_or_none(v["base"])
+        auto[side] = {"variant": v["variant"], "skin": v["full"], "theme": st.name, "css": tokens(st)}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
         proj_map = {}
@@ -1463,6 +1473,7 @@ def theme_state() -> dict:
         # file changes, and the served page itself (`page_theme`, #345) -- so the settings page's
         # "in effect now" is true of them as it is of the palette.
         "tiers": SET.tiers(cfg),
+        **({"auto": auto} if auto else {}),
     }
 
 
@@ -1513,10 +1524,23 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     class to append) and `body` (attributes after the class): all empty for no skin, no palette
     and the default tiers, so that page is byte-identical to the file."""
     from . import settings as SET
-    decl, attrs = [], ""
+    def safe(css):
+        return [f"{k}:{v}" for k, v in (css or {}).items() if CSS_TOKEN.match(str(k)) and CSS_HEX.match(str(v))]
+
+    decl, attrs, sheet = [], "", ""
     css = ts.get("css") or {}
-    if css and ts.get("theme") != "none":
-        decl = [f"{k}:{v}" for k, v in css.items() if CSS_TOKEN.match(str(k)) and CSS_HEX.match(str(v))]
+    auto = ts.get("auto") or {}
+    if auto.get("light") and auto.get("dark"):
+        # `<skin>:auto` (#342): the server cannot know the appearance, so the page carries both sets
+        # and the browser picks, in the first frame. `applyThemeState` then writes the same values
+        # inline for the side it resolves, and on every change of appearance.
+        light, dark = safe(auto["light"].get("css")), safe(auto["dark"].get("css"))
+        attrs = ' data-theme="custom"'
+        sheet = ('<style data-skin-auto="true">:root[data-theme="custom"]{' + ";".join(light) + "}"
+                 '@media (prefers-color-scheme: dark){:root[data-theme="custom"]{' + ";".join(dark) + "}}"
+                 "</style>")
+    elif css and ts.get("theme") != "none":
+        decl = safe(css)
         attrs = ' data-theme="custom"'
     if desk:
         tiers = ts.get("tiers") or {}
@@ -1533,11 +1557,17 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     # the one the page wears.
     family, _, variant = str(ts.get("skin") or "").partition(":")
     if family in ("", "none") or not SKIN_FAMILY.match(family):
-        return {"html": attrs, "link": "", "body_class": "", "body": ""}
+        return {"html": attrs, "link": sheet, "body_class": "", "body": ""}
     variant = variant if SKIN_FAMILY.match(variant) else ""
-    link = (f'<link rel="stylesheet" data-skin="true" '
-            f'href="/static/skins/{family}/skin.css?t={_escape(token)}">')
-    body = f' data-skin="{family}"' + (f' data-skin-variant="{variant}"' if variant else "")
+    link = sheet + (f'<link rel="stylesheet" data-skin="true" '
+                    f'href="/static/skins/{family}/skin.css?t={_escape(token)}">')
+    pair = ""
+    if sheet:
+        # The two variants, light then dark: common.js picks one before the page's first frame.
+        sides = [str(auto[s].get("variant") or "") for s in ("light", "dark")]
+        if all(SKIN_FAMILY.match(v) for v in sides):
+            variant, pair = sides[0], f' data-skin-auto="{sides[0]} {sides[1]}"'
+    body = f' data-skin="{family}"' + (f' data-skin-variant="{variant}"' if variant else "") + pair
     off = not desk or INK_OFF_UNTIL_DRAWN or not gate_on
     return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 

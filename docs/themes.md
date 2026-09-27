@@ -192,6 +192,21 @@ missing from the stylesheet.
 Selected as `<skin>` or `<skin>:<variant>`; a bare skin name means its default variant, and an
 unknown variant falls back to the default rather than taking the page down.
 
+**Auto: following the system's appearance (#342).** A skin with a light and a dark variant can also
+be chosen as `<skin>:auto`, "Auto" in the settings picker, and the desk then follows the system's
+light or dark appearance, switching live without a reload. Four skins can follow: `notebook`
+(`light` / `dark`), `glass` (`frost` / `smoke`), `graph` (`engineering` / `blueprint`) and `farmstead`
+(`daytime` / `cave`). Legalpad and napkin are light only and voxel is dark only, so their `auto`
+means the default variant, as an unknown variant does, and is saved as that variant.
+
+- **What is saved:** `theme.skin` is `<skin>:auto`, verbatim. Each side renders exactly what
+  choosing that variant renders: the same tokens, `--on-*` and `-text` included.
+- **What the terminal gets:** `theme.default` is the skin's default variant's palette, since a
+  terminal cannot follow the system (`notebook:auto` saves `eye-relief-day`).
+- **The first frame:** the served page carries both sides' tokens under `prefers-color-scheme`, and
+  the variant is picked as `common.js` runs, so the page is right in either appearance before its
+  first answer.
+
 | Name | Variant | Base palette | Ground | Composited panel | Text contrast | Why |
 |---|---|---|---|---|---|---|
 | `glass:smoke` | Smoke *(default)* | `dark` | `#14171A` | `#181D24` … `#273D57` | 8.9:1 at the worse end | neutral graphite behind the frost |

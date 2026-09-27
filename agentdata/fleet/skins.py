@@ -31,13 +31,18 @@ over that mesh -- computed by `composited_range` and checked at both ends. A str
 "both ends are this", which is what every other skin's panel is.
 
 Contract:
-- `theme.skin` in `~/.agentdata/config.json`, `'none'` by default, spelled `<skin>` or
-  `<skin>:<variant>`. A bare skin name means its default variant.
+- `theme.skin` in `~/.agentdata/config.json`, `'none'` by default, spelled `<skin>`,
+  `<skin>:<variant>` or `<skin>:auto`. A bare skin name means its default variant. `auto` follows the
+  system's light or dark appearance (#342) on a skin that declares an `auto` pair, one light and one
+  dark variant; on any other skin it means the default variant, as an unknown variant does.
 - No rasters: 100% original hand-authored vector SVG pixel art.
 - Fallbacks: `prefers-reduced-transparency`, and `prefers-reduced-motion` for any skin that moves.
 """
 from __future__ import annotations
 import os
+
+#: The variant name that follows the system's appearance (#342), on a skin with an `auto` pair.
+AUTO = "auto"
 
 SKINS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "skins")
 
@@ -50,6 +55,7 @@ SKINS = {
         "title": "Glass",
         "why": "frosted acrylic translucent panels with a subtle accent glow",
         "default": "smoke",
+        "auto": {"light": "frost", "dark": "smoke"},
         "variants": {
             "smoke": {"title": "Smoke", "base": "dark",
                       "mesh": [("#58A6FF", 0.35), ("#3FB950", 0.35), ("#D29922", 0.30)],
@@ -103,6 +109,7 @@ SKINS = {
         "title": "Farmstead",
         "why": "warm paper, wood trim and rustic crop-stage markers inspired by pixel farming",
         "default": "daytime",
+        "auto": {"light": "daytime", "dark": "cave"},
         "variants": {
             "daytime": {"title": "Daytime", "base": "sand", "composited_panel": "#E8DDC3",
                         "inks": {"pencil": "#74695A"},
@@ -124,6 +131,7 @@ SKINS = {
         "title": "Graph paper",
         "why": "a 28px grid, a mechanical pencil, ruled marks and every agent's hour plotted on it",
         "default": "engineering",
+        "auto": {"light": "engineering", "dark": "blueprint"},
         "variants": {
             "engineering": {"title": "Engineering", "base": "eye-relief-day",
                             "composited_panel": "#F3F6EC", "grid": "#A8C3A0",
@@ -191,6 +199,7 @@ SKINS = {
         "title": "Notebook",
         "why": "a graph-ruled notebook drawn live in pencil, pen, marker and highlighter",
         "default": "light",
+        "auto": {"light": "light", "dark": "dark"},
         "variants": {
             "light": {"title": "Notebook", "base": "eye-relief-day", "composited_panel": "#FBFBF6",
                       "inks": {"pencil": "#50545C", "pen": "#22398F", "red": "#C8352B",
@@ -277,6 +286,8 @@ def split(name: str) -> tuple[str, str]:
     skin = SKINS.get(skin_name)
     if not skin:
         return skin_name, ""
+    if variant == AUTO and skin.get("auto"):
+        return skin_name, AUTO
     if variant not in skin["variants"]:
         variant = skin["default"]
     return skin_name, variant
@@ -293,6 +304,23 @@ def get_skin(name: str) -> dict | None:
     skin = SKINS.get(skin_name)
     if not skin:
         return None
+    if variant == AUTO:
+        # `base` and `composited_panel` are the default variant's: what the terminal gets, since it
+        # cannot follow the system, and what a reader that knows nothing of `auto` falls back to.
+        chosen = skin["variants"][skin["default"]]
+        return {
+            "name": skin_name,
+            "title": skin["title"],
+            "why": skin["why"],
+            "variant": AUTO,
+            "variant_title": "Auto",
+            "variant_why": "follows the system's light or dark appearance",
+            "base": chosen["base"],
+            "composited_panel": chosen["composited_panel"],
+            "full": f"{skin_name}:{AUTO}",
+            "auto": {side: {"variant": v, "base": skin["variants"][v]["base"], "full": f"{skin_name}:{v}"}
+                     for side, v in skin["auto"].items()},
+        }
     chosen = skin["variants"][variant]
     return {
         "name": skin_name,
@@ -343,6 +371,9 @@ def list_skins() -> list[dict]:
             "base": fallback["base"],
             "composited_panel": fallback["composited_panel"],
             "variants": variants(name),
+            # The light and dark variant `<skin>:auto` follows (#342), or absent: the picker offers
+            # "Auto" only where it is there.
+            **({"auto": dict(skin["auto"])} if skin.get("auto") else {}),
         })
     return out
 

@@ -216,8 +216,7 @@ function mapShow(graph) {
 
 function mapTheme(t) {
   if (!t) return;
-  applyTheme(t.css, t.theme);
-  applySkin(t.skin);
+  applyThemeState(t);
 }
 
 function mapNewer(next, now) {
