@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import time
 
 import pytest
 
@@ -50,6 +51,18 @@ def _running(pid: int) -> bool:
     return True
 
 
+def _still_running(pids, within=15.0):
+    """The pids still running when all have gone (none) or `within` seconds have passed. A condition
+    wait: the SIGKILL `proc.run` sends the copy's group is delivered at once, but on a loaded machine
+    a killed process can take a moment to end."""
+    deadline = time.monotonic() + within
+    while True:
+        left = [p for p in pids if _running(p)]
+        if not left or time.monotonic() > deadline:
+            return left
+        time.sleep(0.05)
+
+
 def test_every_copy_is_a_row_and_the_exit_code_says_whether_all_passed(stress_one, capsys):
     """Two copies over two rounds of a passing node: four `passed` rows and exit 0. One copy of a
     failing node: a `failed` row and exit 1."""
@@ -81,7 +94,7 @@ def test_a_copy_that_runs_out_of_time_is_a_timeout_row_and_leaves_no_process(str
     out = capsys.readouterr().out
     assert [line.strip().split(",")[2] for line in out.splitlines()[1:]] == ["timeout", "timeout"], out
     left = [int(p) for line in pids.read_text(encoding="utf-8").splitlines() for p in line.split()]
-    assert [p for p in left if _running(p)] == [], (left, out)
+    assert _still_running(left) == [], (left, out)
 
 
 def test_the_script_refuses_what_it_cannot_run(stress_one):
