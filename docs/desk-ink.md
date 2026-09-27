@@ -669,14 +669,50 @@ frames, so it cues nothing. Skins play nothing for `is-grouped`.
 asked for another frame while more wait or a piece is still in the effects group. A piece older than 90 frames (1.5 s
 at 60 Hz) is taken out, freed and counted in `reaped`. That is a safety net; no shipped skin relies on it.
 
-**`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused}`:
-`armed` says the next match may cue, `zero` counts leave-row matches whose box is stamped empty, and `children` counts
-the effects group's pieces, none on an idle desk.
+**`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused,
+animating, animated, skipped}`: `armed` says the next match may cue, `zero` counts leave-row matches whose box is
+stamped empty, and `children` counts the effects group's pieces, none on an idle desk. The last three are §Moving the
+page's.
 
 **The rule.** A cue is decoration. It never shows a state the page does not have, ends by moving, shrinking or being
 covered and never by an alpha fade, draws nothing under reduced motion, and leaves an idle desk at zero frames. Its
 durations are counted in frames and live in the skin module, under the canvas's ceiling
 ([desk-motion.md](desk-motion.md) §Effects on the canvas).
+
+### Moving the page (#374)
+
+A cue may move the pane it plays in for a moment: a hit shakes it, a pop swells it, a flash rings it. The skin asks,
+from its `cue` hook, and `fx.js` does it; no skin calls `el.animate` itself:
+
+```js
+export function cue({ api }, name, el) { api.fx.animate(el.closest(".tile"), "hit"); }   // true if it started
+```
+
+| Kind | What moves | Over |
+| --- | --- | --- |
+| `hit` | `transform`: translateX 0, -3px, 3px, -2px, 0 | 240 ms |
+| `pop` | `transform`: scale 1, 1.015, 1 | 200 ms |
+| `flash` | `filter`: none, `drop-shadow(0 0 4px currentColor)`, twice (two flashes at most, WCAG 2.3.1) | 320 ms |
+
+It is a Web Animations API animation on the pane with `fill: "none"`: it composites over the pane's own style
+(`composite: "add"` for a transform, so a pane with its own keeps it) and leaves nothing when it ends. Only
+`transform` and `filter`, never a property that lays out, fades or recolours. No `style` is read or written, and no
+class or attribute; a MutationObserver on `<body>` records nothing from the start to ten frames after the end. The
+panel is opaque, so the flash's halo falls outside the pane and never behind a word.
+
+**Where it may run.** On a connected pane of the grid (`#grid > .tile[data-repo]`) with a box, and at most four at
+once. `animate` answers `false`, and counts it in `skipped`, under reduced motion; without a skin or with the layer
+stopped (`body.ink-off`, `?ink=off`, where `fx.js` is never fetched); while the page is hidden; when the pane holds the
+focus; when a selection that is not collapsed touches it (text being selected or read); and when the pane already
+animates. An unknown kind is `false`, said once in the console.
+
+**Taken back.** `Ink.setSkin(null)`, a table change, `Ink.off()`, reduced motion turning on, a focus arriving in the
+pane and the pane leaving the page each cancel it at once, and the pane is as it was. Start and end each tell the
+layer the pane moved, so the marks follow it for `FOLLOW_MS` and the frame after measures the true box. At rest
+nothing is scheduled: the focus and reduced-motion listeners live only while an animation does.
+
+**The rule.** The layer's only touches on the page are the reveal's `clip-path` while a line is written and fx.js's
+transient animations while a cue plays; neither is there at rest.
 
 ## Following the page
 
@@ -699,6 +735,7 @@ on the page for as long as the layer runs.
 | a scroll, a pane's transcript included | a capturing `scroll` listener re-measures. A mark is clipped to every scrolling ancestor, so a line scrolled out of a transcript takes its ellipse with it |
 | any of these, in a pane | a mark in a pane's lane is also clipped to the pane's border box, inset 1px, where the other clips are taken: no mark is drawn past its pane, whatever its shape or `pad` says. The header's lane keeps the viewport. It is a safety net; the shapes keep their own geometry inside (#331) |
 | a reorder (FLIP) or any transition | `transitionrun`/`animationstart` follows every frame for 400ms (`--motion-slow` and a margin) |
+| a pane a cue moves (#374) | `fx.js` calls the layer's `onMove` at the start and at the end: a Web Animations API animation fires no transition or animation event |
 | fonts arriving | re-measures, because the text wrapped |
 | the palette or the colour scheme | reads the inks again and repaints, and a skin's ground, paper and frames are made again (#388) |
 
