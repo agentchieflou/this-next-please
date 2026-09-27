@@ -213,6 +213,39 @@ skip, or a `pytest.importorskip("playwright.sync_api")` — is reported as a fai
 `tests/regressions/test_20260923_any_linux_ci_skipped_every_browser_test.py`). Without the variable
 nothing changes.
 
+#### Writing a browser test (#299)
+
+Write it on the harness, `tests/desk_harness.py` (a plugin `tests/conftest.py` lists in
+`pytest_plugins`). Each xdist worker, or the one serial process, starts **one** Playwright driver
+and **one** Chromium, lazily, for the first test that asks for `desk_browser`, and keeps them to the
+end; every page is a fresh context, closed when its test ends. A worker that runs no browser test
+starts no Node. Starting a driver and a browser per test cost about 0.65 s each time; a context on a
+browser that is up costs under 0.1 s.
+
+| Fixture | Gives |
+| --- | --- |
+| `desk_server` | a desk served on a daemon thread: `.url(extra="")`, `.token`, `.port`, `.base`, `.server`; stopped at teardown |
+| `desk_browser` | the worker's Chromium (from `launch_chromium`, relaunched if a test closed it); the contexts the test made are closed at teardown |
+| `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` installed; `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
+| `no_desk_driver` | no shared driver in this thread, for a test that needs `asyncio.run` |
+
+```python
+@pytest.mark.browser
+def test_the_open_pane_is_full(fleet_home, tmp_path, desk_server, new_desk_page):
+    _desk_of(tmp_path)                       # the agents, before the page asks for them
+    page, record = new_desk_page(desk_server, width=1400, height=900)
+    page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
+    assert page.evaluate("() => openName()") == "alpha"
+    assert not record["errors"], record
+```
+
+No `pytest.importorskip("playwright.sync_api")` of its own and no `browser.close()`: the harness does
+both. A test that still opens `with sync_playwright()` works beside it (the harness stops the shared
+driver before any browser test that does not use `desk_browser`, because two sync drivers cannot
+live in one thread), and #300–#303 move the rest over. `tests/test_fleet_desk_browser.py` and
+`tests/test_fleet_ink.py` are the pattern; `test_fleet_ink`'s `_serve`, `_stop` and `_open` are thin
+wrappers over the harness, so the modules that import them keep working.
+
 #### The guards that measure rather than read (#202)
 
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick

@@ -25,7 +25,6 @@ import gzip
 import math
 import os
 import re
-import threading
 import urllib.request
 
 import pytest
@@ -35,7 +34,7 @@ from agentdata.fleet import events as E, probe as PR, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import COUNT_FETCHES, close_pages, desk_page, serve_desk  # noqa: F401 - re-exported
 from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -105,10 +104,9 @@ def _desk_of(tmp_path, names=("alpha", "beta")):
 
 
 def _serve():
-    server, token = S.build(0)
-    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05},
-                     daemon=True).start()
-    return server, token, server.server_address[1]
+    """A desk on a thread of its own (`desk_harness.serve_desk`), as `(server, token, port)`."""
+    desk = serve_desk()
+    return desk.server, desk.token, desk.port
 
 
 def _stop(server):
@@ -131,10 +129,8 @@ def _open(browser, port, token, extra="", *, panes=2, width=1400, height=900, re
           count=False):
     """A desk page, waited on until every pane has its width and the ink module has run. `panes`
     is how many have a width. `count` counts its fetches in flight, for `IDLE_LOOP`."""
-    page = browser.new_page(viewport={"width": width, "height": height},
-                            reduced_motion="reduce" if reduced else "no-preference")
-    if count:
-        page.add_init_script(COUNT_FETCHES)
+    page = desk_page(browser, width=width, height=height, reduced=reduced,
+                     init_scripts=(COUNT_FETCHES,) if count else ())
     errors, asked = [], []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("request", lambda r: asked.append(r.url))
@@ -384,42 +380,40 @@ def test_theme_check_holds_ink_on_paper():
 
 
 @pytest.mark.browser
-def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
+def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path, desk_browser):
     """Nothing visible changes in slice B. With the gate off (nothing measured) and with it forced
     on, a desk no skin draws on fetches none of the layer, puts no canvas on the page, adopts no
     stylesheet and -- idle -- writes nothing at all."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for extra, off in (("", True), ("&ink=on", False)):
-                page, errors, asked = _open(browser, port, token, extra, count=True)
-                state = page.evaluate("""() => ({
-                  ink: !!document.getElementById('ink'), sheets: document.adoptedStyleSheets.length,
-                  off: document.body.classList.contains('ink-off'), inspect: Ink.inspect(),
-                  canvases: [...document.querySelectorAll('canvas')].map(c => c.id || c.className),
-                  // What `body.ink-off` could change on its own: nothing, while no table is set.
-                  keyed: [...document.styleSheets].flatMap(s => [...s.cssRules].map(r => r.cssText))
-                           .filter(t => t.includes('ink-off')) })""")
-                assert state["off"] is off, (extra, state)
-                assert not state["ink"] and state["sheets"] == 0 and state["keyed"] == [], state
-                assert state["inspect"]["layer"] is None and state["inspect"]["plain"] is False
-                assert "ink" not in state["canvases"], state
-                fetched = [u.split("?")[0].split(str(port))[1] for u in asked if "/static/" in u]
-                assert [u for u in fetched if u.startswith("/static/ink/")] == ["/static/ink/ink.js"]
-                assert not [u for u in fetched if "vendor/three" in u], fetched
-                # And idle is idle: the panes test's loop, with the layer's module on the page --
-                # and with a *start fresh* button on alpha's head (#489: its session is stale).
-                page.wait_for_selector('.tile[data-repo="alpha"] .freshtoggle:not([hidden])', timeout=10000)
-                # And the bottom row's *Start fresh* on every full pane with an empty box (#509).
-                page.wait_for_function(FULL_PANE_STARTS_FRESH, timeout=10000)
-                count = page.evaluate(IDLE_LOOP)
-                assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
-                assert not errors, errors
-                page.close()
-            browser.close()
+        browser = desk_browser
+        for extra, off in (("", True), ("&ink=on", False)):
+            page, errors, asked = _open(browser, port, token, extra, count=True)
+            state = page.evaluate("""() => ({
+              ink: !!document.getElementById('ink'), sheets: document.adoptedStyleSheets.length,
+              off: document.body.classList.contains('ink-off'), inspect: Ink.inspect(),
+              canvases: [...document.querySelectorAll('canvas')].map(c => c.id || c.className),
+              // What `body.ink-off` could change on its own: nothing, while no table is set.
+              keyed: [...document.styleSheets].flatMap(s => [...s.cssRules].map(r => r.cssText))
+                       .filter(t => t.includes('ink-off')) })""")
+            assert state["off"] is off, (extra, state)
+            assert not state["ink"] and state["sheets"] == 0 and state["keyed"] == [], state
+            assert state["inspect"]["layer"] is None and state["inspect"]["plain"] is False
+            assert "ink" not in state["canvases"], state
+            fetched = [u.split("?")[0].split(str(port))[1] for u in asked if "/static/" in u]
+            assert [u for u in fetched if u.startswith("/static/ink/")] == ["/static/ink/ink.js"]
+            assert not [u for u in fetched if "vendor/three" in u], fetched
+            # And idle is idle: the panes test's loop, with the layer's module on the page --
+            # and with a *start fresh* button on alpha's head (#489: its session is stale).
+            page.wait_for_selector('.tile[data-repo="alpha"] .freshtoggle:not([hidden])', timeout=10000)
+            # And the bottom row's *Start fresh* on every full pane with an empty box (#509).
+            page.wait_for_function(FULL_PANE_STARTS_FRESH, timeout=10000)
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -432,17 +426,6 @@ FULL_PANE_STARTS_FRESH = """() => {
   return starts.length > 0 && starts.every(b => b.textContent === 'Start fresh');
 }"""
 
-
-#: Every fetch the page makes, counted while it is in flight -- so the idle loop below starts only
-#: once no answer the page asked for before the replay can still land in the middle of it.
-COUNT_FETCHES = """
-  window.__inflight = 0;
-  const realFetch = window.fetch;
-  window.fetch = function () {
-    window.__inflight += 1;
-    return realFetch.apply(this, arguments).finally(() => { window.__inflight -= 1; });
-  };
-"""
 
 #: The idle desk (`test_fleet_panes`): `/api/fleet` replayed byte for byte, every path drawn once,
 #: then eight more passes watched by a MutationObserver over the whole document. Opened with
@@ -492,30 +475,28 @@ IDLE_LOOP = """async () => {
 
 
 @pytest.mark.browser
-def test_the_layer_fetches_three_once_from_the_vendored_copy_with_the_token(fleet_home, tmp_path):
+def test_the_layer_fetches_three_once_from_the_vendored_copy_with_the_token(fleet_home, tmp_path, desk_browser):
     """Only when the gate is on AND a skin draws: the layer's modules and the vendored three.js,
     each once, each with this run's token, and one canvas behind the page -- a second table does
     not make a second."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, asked = _open(browser, port, token, "&ink=on")
-            assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
-            assert _set(page)["drawn"] == "ink"
-            assert _set(page, dict(TABLE, name="again"))["drawn"] == "ink"
-            canvas = page.evaluate("""() => { const c = document.querySelectorAll('canvas#ink');
-              const s = getComputedStyle(c[0]);
-              return { n: c.length, position: s.position, z: s.zIndex, events: s.pointerEvents,
-                       hidden: c[0].getAttribute('aria-hidden'), last: document.body.lastElementChild.id,
-                       width: c[0].width, inner: innerWidth * Math.min(2, devicePixelRatio || 1) }; }""")
-            assert canvas["n"] == 1 and canvas["position"] == "fixed" and canvas["z"] == "-1", canvas
-            assert canvas["events"] == "none" and canvas["hidden"] == "true", canvas
-            assert canvas["width"] == canvas["inner"], canvas
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, asked = _open(browser, port, token, "&ink=on")
+        assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
+        assert _set(page)["drawn"] == "ink"
+        assert _set(page, dict(TABLE, name="again"))["drawn"] == "ink"
+        canvas = page.evaluate("""() => { const c = document.querySelectorAll('canvas#ink');
+          const s = getComputedStyle(c[0]);
+          return { n: c.length, position: s.position, z: s.zIndex, events: s.pointerEvents,
+                   hidden: c[0].getAttribute('aria-hidden'), last: document.body.lastElementChild.id,
+                   width: c[0].width, inner: innerWidth * Math.min(2, devicePixelRatio || 1) }; }""")
+        assert canvas["n"] == 1 and canvas["position"] == "fixed" and canvas["z"] == "-1", canvas
+        assert canvas["events"] == "none" and canvas["hidden"] == "true", canvas
+        assert canvas["width"] == canvas["inner"], canvas
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     fetched = [u.split(str(port))[1] for u in asked if "/static/" in u]
@@ -528,43 +509,41 @@ def test_the_layer_fetches_three_once_from_the_vendored_copy_with_the_token(flee
 
 
 @pytest.mark.browser
-def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet_home, tmp_path):
+def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet_home, tmp_path, desk_browser):
     """`app.js` will see the layer through `window.Ink` and nothing else. A mistake in a skin is an
     exception at the call that made it, naming the row -- never a mark that silently never comes."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            api = page.evaluate("""async () => {
-              const shapes = await import(q('/static/ink/shapes.js'));
-              const pen = await import(q('/static/ink/pen.js'));
-              const bad = [];
-              for (const row of [{selector: '.tile', tool: 'crayon', shape: 'loop'},
-                                 {selector: '.tile', tool: 'pen', shape: 'star'},
-                                 {selector: '.tile[', tool: 'pen', shape: 'loop'},
-                                 {selector: '.tile', tool: 'eraser', shape: 'loop'},
-                                 {selector: '.tile', tool: 'pen', shape: 'arrow'},
-                                 {tool: 'pen', shape: 'loop'},
-                                 {selector: '.tile', tool: 'pencil', ink: 'crayon', shape: 'loop'},
-                                 {selector: '.tile', tool: 'pencil', shape: 'loop', cap: 'arrow'},
-                                 {selector: '.tile', tool: 'pencil', shape: 'underline', cap: 'arrow', tip: true}]) {
-                try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
-                catch (e) { bad.push(e.message); }
-              }
-              // The hand is on, off or a stick of chalk (#387): a table's own option, not a row's.
-              let hand = 'accepted';
-              try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}] }); }
-              catch (e) { hand = e.name + ': ' + e.message; }
-              return { keys: Object.keys(Ink).sort(), frozen: Object.isFrozen(Ink),
-                       ready: await Ink.ready, enabled: Ink.enabled, tools: Ink.tools, shapes: Ink.shapes,
-                       layerShapes: shapes.SHAPE_NAMES, penTools: Object.keys(pen.TOOLS), bad, hand,
-                       table: Ink.inspect().table };
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        api = page.evaluate("""async () => {
+          const shapes = await import(q('/static/ink/shapes.js'));
+          const pen = await import(q('/static/ink/pen.js'));
+          const bad = [];
+          for (const row of [{selector: '.tile', tool: 'crayon', shape: 'loop'},
+                             {selector: '.tile', tool: 'pen', shape: 'star'},
+                             {selector: '.tile[', tool: 'pen', shape: 'loop'},
+                             {selector: '.tile', tool: 'eraser', shape: 'loop'},
+                             {selector: '.tile', tool: 'pen', shape: 'arrow'},
+                             {tool: 'pen', shape: 'loop'},
+                             {selector: '.tile', tool: 'pencil', ink: 'crayon', shape: 'loop'},
+                             {selector: '.tile', tool: 'pencil', shape: 'loop', cap: 'arrow'},
+                             {selector: '.tile', tool: 'pencil', shape: 'underline', cap: 'arrow', tip: true}]) {
+            try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
+            catch (e) { bad.push(e.message); }
+          }
+          // The hand is on, off or a stick of chalk (#387): a table's own option, not a row's.
+          let hand = 'accepted';
+          try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}] }); }
+          catch (e) { hand = e.name + ': ' + e.message; }
+          return { keys: Object.keys(Ink).sort(), frozen: Object.isFrozen(Ink),
+                   ready: await Ink.ready, enabled: Ink.enabled, tools: Ink.tools, shapes: Ink.shapes,
+                   layerShapes: shapes.SHAPE_NAMES, penTools: Object.keys(pen.TOOLS), bad, hand,
+                   table: Ink.inspect().table };
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert api["frozen"] and api["keys"] == sorted(["ready", "enabled", "verdict", "tools", "shapes",
@@ -589,28 +568,26 @@ CLIPPED = {"name": "clip", "marks": [
 
 
 @pytest.mark.browser
-def test_a_mark_is_clipped_to_its_pane(fleet_home, tmp_path):
+def test_a_mark_is_clipped_to_its_pane(fleet_home, tmp_path, desk_browser):
     """#331: a mark in a pane's lane is cut to the pane's border box, inset 1px, as well as to the
     viewport and its scrolling ancestors -- a safety net under the shapes, which keep their own
     geometry inside. An outline padded 20px off the pane is drawn, and none of it outside."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page, CLIPPED)
-            _mark(page, "alpha", "ink-loop")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'outline' && m.drawn === 1)")
-            [mark] = _marks(page)
-            pane = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="alpha"]')
-              .getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom }; }""")
-            # The right-hand stroke stands 20px past the pane's right edge: where it would be drawn.
-            outside = page.evaluate("b => Ink.sample(b)", {"x": pane["r"] + 2, "y": pane["y"] + 4,
-                                                           "w": 28, "h": pane["b"] - pane["y"] - 8})
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page, CLIPPED)
+        _mark(page, "alpha", "ink-loop")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'outline' && m.drawn === 1)")
+        [mark] = _marks(page)
+        pane = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="alpha"]')
+          .getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom }; }""")
+        # The right-hand stroke stands 20px past the pane's right edge: where it would be drawn.
+        outside = page.evaluate("b => Ink.sample(b)", {"x": pane["r"] + 2, "y": pane["y"] + 4,
+                                                       "w": 28, "h": pane["b"] - pane["y"] - 8})
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     # Drawn whole -- four strokes, their full length -- and every one of them is outside the pane,
@@ -623,31 +600,29 @@ def test_a_mark_is_clipped_to_its_pane(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_snap_keeps_an_outline_in_the_padding_band_and_leaves_an_underline_with_no_line_alone(fleet_home, tmp_path):
+def test_snap_keeps_an_outline_in_the_padding_band_and_leaves_an_underline_with_no_line_alone(fleet_home, tmp_path, desk_browser):
     """#331, `shapes.snap` in the page: an outline's edges go onto a grid line inside the box's
     padding band, or down its middle where the band is narrower than a square -- never outside the
     border box, never over the content. An underline takes the first grid line in [its text's foot
     + 2, the next row's top - 2], and is left as it was when there is none."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            got = page.evaluate("""async () => {
-              const S = await import(q('/static/ink/shapes.js'));
-              const box = { x: 0, y: 0, w: 300, h: 200 }, at = { x: 13, y: 17 };
-              const outline = band => S.snap(S.SHAPES.outline({ box, pad: 0, seed: 7 }), 'outline', box, at, 28,
-                                             { band: [band, band, band, band] }).map(p => p.pts);
-              const ubox = { x: 0, y: 0, w: 100, h: 16 };
-              const under = S.SHAPES.underline({ box: ubox, base: 16, floor: 30 });
-              return { narrow: outline(10), wide: outline(40), under,
-                       none: S.snap(under, 'underline', ubox, { x: 0, y: 15 }, 28, { base: 16, floor: 30 }),
-                       some: S.snap(under, 'underline', ubox, { x: 0, y: 0 }, 28, { base: 16, floor: 40 }) };
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        got = page.evaluate("""async () => {
+          const S = await import(q('/static/ink/shapes.js'));
+          const box = { x: 0, y: 0, w: 300, h: 200 }, at = { x: 13, y: 17 };
+          const outline = band => S.snap(S.SHAPES.outline({ box, pad: 0, seed: 7 }), 'outline', box, at, 28,
+                                         { band: [band, band, band, band] }).map(p => p.pts);
+          const ubox = { x: 0, y: 0, w: 100, h: 16 };
+          const under = S.SHAPES.underline({ box: ubox, base: 16, floor: 30 });
+          return { narrow: outline(10), wide: outline(40), under,
+                   none: S.snap(under, 'underline', ubox, { x: 0, y: 15 }, 28, { base: 16, floor: 30 }),
+                   some: S.snap(under, 'underline', ubox, { x: 0, y: 0 }, 28, { base: 16, floor: 40 }) };
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     L, T, R, B = 13, 17, 313, 217
@@ -677,66 +652,64 @@ def test_snap_keeps_an_outline_in_the_padding_band_and_leaves_an_underline_with_
 
 
 @pytest.mark.browser
-def test_a_mark_is_drawn_when_its_class_appears_and_erased_or_struck_when_it_goes(fleet_home, tmp_path):
+def test_a_mark_is_drawn_when_its_class_appears_and_erased_or_struck_when_it_goes(fleet_home, tmp_path, desk_browser):
     """Ground rules 1 and 2. The class is the truth: added, the mark is drawn -- there is ink in its
     box; removed, a pencil mark is erased (gone, and its box clean) and an ink mark is struck
     through with one pen line, which stays. Back before the eraser reached it, it simply stays."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page, dict(TABLE, speed=3))
-            _mark(page, "alpha", "ink-pencil")
-            _mark(page, "beta", "ink-hl")
-            _rest(page, "Ink.inspect().layer.marks.length === 2")
-            by = {m["tool"]: m for m in _marks(page)}
-            pencil, hl = by["pencil"], by["highlighter"]
-            assert (pencil["tool"], pencil["lane"], pencil["state"], pencil["drawn"]) == \
-                ("pencil", "pane:alpha", "drawn", 1), pencil
-            assert (hl["tool"], hl["lane"], hl["state"], hl["drawn"]) == \
-                ("highlighter", "pane:beta", "drawn", 1), hl
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page, dict(TABLE, speed=3))
+        _mark(page, "alpha", "ink-pencil")
+        _mark(page, "beta", "ink-hl")
+        _rest(page, "Ink.inspect().layer.marks.length === 2")
+        by = {m["tool"]: m for m in _marks(page)}
+        pencil, hl = by["pencil"], by["highlighter"]
+        assert (pencil["tool"], pencil["lane"], pencil["state"], pencil["drawn"]) == \
+            ("pencil", "pane:alpha", "drawn", 1), pencil
+        assert (hl["tool"], hl["lane"], hl["state"], hl["drawn"]) == \
+            ("highlighter", "pane:beta", "drawn", 1), hl
 
-            def ink_in(m, pad=6):
-                b = m["box"]
-                return page.evaluate("b => Ink.sample(b)", {"x": b["x"] - pad, "y": b["y"] - pad,
-                                                            "w": b["w"] + 2 * pad, "h": b["h"] + 2 * pad})
-            assert ink_in(pencil) > 20 and ink_in(hl) > 20
+        def ink_in(m, pad=6):
+            b = m["box"]
+            return page.evaluate("b => Ink.sample(b)", {"x": b["x"] - pad, "y": b["y"] - pad,
+                                                        "w": b["w"] + 2 * pad, "h": b["h"] + 2 * pad})
+        assert ink_in(pencil) > 20 and ink_in(hl) > 20
 
-            _mark(page, "alpha", "ink-pencil", False)
-            _mark(page, "beta", "ink-hl", False)
-            _rest(page, "Ink.inspect().layer.marks.every(m => m.tool !== 'pencil')"
-                        " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
-            left = _marks(page)
-            assert ink_in(pencil) == 0, "the eraser left the pencil on the paper"
-            struck = {m["id"]: m for m in left}
-            assert struck[hl["id"]]["state"] == "struck", left
-            strike = next(m for m in left if m["strikeOf"] == hl["id"])
-            assert (strike["tool"], strike["shape"], strike["drawn"]) == ("pen", "strike", 1), strike
+        _mark(page, "alpha", "ink-pencil", False)
+        _mark(page, "beta", "ink-hl", False)
+        _rest(page, "Ink.inspect().layer.marks.every(m => m.tool !== 'pencil')"
+                    " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
+        left = _marks(page)
+        assert ink_in(pencil) == 0, "the eraser left the pencil on the paper"
+        struck = {m["id"]: m for m in left}
+        assert struck[hl["id"]]["state"] == "struck", left
+        strike = next(m for m in left if m["strikeOf"] == hl["id"])
+        assert (strike["tool"], strike["shape"], strike["drawn"]) == ("pen", "strike", 1), strike
 
-            # A mark that comes back before its eraser starts is not drawn twice.
-            page.evaluate("""() => { const a = document.querySelector('.tile[data-repo="alpha"]');
-              a.classList.add('ink-pencil', 'ink-loop'); }""")
-            _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha').length === 2")
-            page.evaluate("""() => new Promise(done => {
-              const a = document.querySelector('.tile[data-repo="alpha"]');
-              a.classList.remove('ink-loop', 'ink-pencil');      // both leave: the loop is struck first,
-              requestAnimationFrame(() => requestAnimationFrame(() => {
-                a.classList.add('ink-pencil');                    // and the pencil is back before its turn
-                done();
-              }));
-            })""")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf)"
-                        " && Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha').length === 3")
-            alpha = [m for m in _marks(page) if m["lane"] == "pane:alpha"]
-            kept = [m for m in alpha if m["tool"] == "pencil"]
-            assert len(kept) == 1 and kept[0]["id"] == max(m["id"] for m in alpha
-                                                           if m["tool"] == "pencil"), alpha
-            assert kept[0]["state"] == "drawn" and not kept[0]["erased"], kept
-            assert not errors, errors
-            browser.close()
+        # A mark that comes back before its eraser starts is not drawn twice.
+        page.evaluate("""() => { const a = document.querySelector('.tile[data-repo="alpha"]');
+          a.classList.add('ink-pencil', 'ink-loop'); }""")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha').length === 2")
+        page.evaluate("""() => new Promise(done => {
+          const a = document.querySelector('.tile[data-repo="alpha"]');
+          a.classList.remove('ink-loop', 'ink-pencil');      // both leave: the loop is struck first,
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            a.classList.add('ink-pencil');                    // and the pencil is back before its turn
+            done();
+          }));
+        })""")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf)"
+                    " && Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha').length === 3")
+        alpha = [m for m in _marks(page) if m["lane"] == "pane:alpha"]
+        kept = [m for m in alpha if m["tool"] == "pencil"]
+        assert len(kept) == 1 and kept[0]["id"] == max(m["id"] for m in alpha
+                                                       if m["tool"] == "pencil"), alpha
+        assert kept[0]["state"] == "drawn" and not kept[0]["erased"], kept
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -761,21 +734,19 @@ RECORD = """async ([classes]) => {
 
 
 @pytest.mark.browser
-def test_two_panes_draw_at_once_and_one_panes_marks_never_interleave(fleet_home, tmp_path):
+def test_two_panes_draw_at_once_and_one_panes_marks_never_interleave(fleet_home, tmp_path, desk_browser):
     """Lanes: one queue per agent's pane. Two agents' marks are drawn in the same frames; one
     agent's second mark is not begun until its first is finished."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page, dict(TABLE, speed=2))
-            frames = page.evaluate(RECORD, [[["alpha", "ink-loop"], ["alpha", "ink-pencil"],
-                                             ["beta", "ink-loop"]]])
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page, dict(TABLE, speed=2))
+        frames = page.evaluate(RECORD, [[["alpha", "ink-loop"], ["alpha", "ink-pencil"],
+                                         ["beta", "ink-loop"]]])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     ids = {}
@@ -796,52 +767,50 @@ def test_two_panes_draw_at_once_and_one_panes_marks_never_interleave(fleet_home,
 
 
 @pytest.mark.browser
-def test_the_marks_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_home, tmp_path):
+def test_the_marks_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_home, tmp_path, desk_browser):
     """plan-panes ground rule 4 and plan-ink's "a panes drag redraws them in place": while the hand
     holds a gutter, every frame that moves a pane has the marks where the pane is -- checked by a
     ResizeObserver that runs after the layer's, in the same frame -- and the layer writes nothing to
     the page to do it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta", "gamma"))
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=3)
-            _set(page, dict(TABLE, speed=4))
-            for repo, cls in (("alpha", "ink-hl"), ("beta", "ink-loop"), ("beta", "ink-pencil"),
-                              ("gamma", "ink-done")):
-                _mark(page, repo, cls)
-            _rest(page, "Ink.inspect().layer.marks.length === 4")
-            page.evaluate("""(drift) => {
-              window.__follow = { frames: 0, worst: 0, writes: [] };
-              const check = new Function('return (' + drift + ')();');
-              new ResizeObserver(() => {
-                const d = check();
-                window.__follow.frames += 1;
-                window.__follow.worst = Math.max(window.__follow.worst, ...d, 0);
-              }).observe(document.querySelector('.tile[data-repo="beta"]'));
-              new MutationObserver(rs => rs.forEach(r => {
-                if (r.target.id === 'ink' || (r.attributeName === 'style' && r.target.style &&
-                                              r.target.style.getPropertyValue('clip-path')))
-                  window.__follow.writes.push(r.attributeName || r.type);
-              })).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
-            }""", DRIFT)
-            before = page.evaluate(DRIFT)
-            x, y = _gutter_point(page, "alpha")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x + 120, y, steps=24)
-            page.wait_for_function("() => window.__follow.frames >= 3", timeout=8000)
-            held = page.evaluate(DRIFT)
-            page.mouse.up()
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            _rest(page)
-            after = page.evaluate(DRIFT)
-            follow = page.evaluate("() => window.__follow")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=3)
+        _set(page, dict(TABLE, speed=4))
+        for repo, cls in (("alpha", "ink-hl"), ("beta", "ink-loop"), ("beta", "ink-pencil"),
+                          ("gamma", "ink-done")):
+            _mark(page, repo, cls)
+        _rest(page, "Ink.inspect().layer.marks.length === 4")
+        page.evaluate("""(drift) => {
+          window.__follow = { frames: 0, worst: 0, writes: [] };
+          const check = new Function('return (' + drift + ')();');
+          new ResizeObserver(() => {
+            const d = check();
+            window.__follow.frames += 1;
+            window.__follow.worst = Math.max(window.__follow.worst, ...d, 0);
+          }).observe(document.querySelector('.tile[data-repo="beta"]'));
+          new MutationObserver(rs => rs.forEach(r => {
+            if (r.target.id === 'ink' || (r.attributeName === 'style' && r.target.style &&
+                                          r.target.style.getPropertyValue('clip-path')))
+              window.__follow.writes.push(r.attributeName || r.type);
+          })).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
+        }""", DRIFT)
+        before = page.evaluate(DRIFT)
+        x, y = _gutter_point(page, "alpha")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x + 120, y, steps=24)
+        page.wait_for_function("() => window.__follow.frames >= 3", timeout=8000)
+        held = page.evaluate(DRIFT)
+        page.mouse.up()
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        _rest(page)
+        after = page.evaluate(DRIFT)
+        follow = page.evaluate("() => window.__follow")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert max(before) < 0.5 and max(held) < 0.5 and max(after) < 0.5, (before, held, after)
@@ -850,26 +819,24 @@ def test_the_marks_follow_a_gutter_drag_in_the_frame_that_moves_the_panes(fleet_
 
 
 @pytest.mark.browser
-def test_the_marks_follow_a_window_resize(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_the_marks_follow_a_window_resize(fleet_home, tmp_path, desk_browser):
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page, dict(TABLE, speed=4))
-            _mark(page, "alpha", "ink-hl")
-            _mark(page, "beta", "ink-loop")
-            _rest(page, "Ink.inspect().layer.marks.length === 2")
-            wide = {m["lane"]: m["box"] for m in _marks(page)}
-            page.set_viewport_size({"width": 1000, "height": 700})
-            page.wait_for_function(f"() => innerWidth === 1000 && ({DRIFT})().every(d => d < 0.5)"
-                                   " && document.getElementById('ink').width === 1000 * "
-                                   "Math.min(2, devicePixelRatio || 1)", timeout=10000)
-            narrow = {m["lane"]: m["box"] for m in _marks(page)}
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page, dict(TABLE, speed=4))
+        _mark(page, "alpha", "ink-hl")
+        _mark(page, "beta", "ink-loop")
+        _rest(page, "Ink.inspect().layer.marks.length === 2")
+        wide = {m["lane"]: m["box"] for m in _marks(page)}
+        page.set_viewport_size({"width": 1000, "height": 700})
+        page.wait_for_function(f"() => innerWidth === 1000 && ({DRIFT})().every(d => d < 0.5)"
+                               " && document.getElementById('ink').width === 1000 * "
+                               "Math.min(2, devicePixelRatio || 1)", timeout=10000)
+        narrow = {m["lane"]: m["box"] for m in _marks(page)}
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     beta = "pane:beta"   # the right-hand pane: a narrower window moves it left and makes it narrower
@@ -877,29 +844,27 @@ def test_the_marks_follow_a_window_resize(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_reduced_motion_draws_at_once_with_no_travelling_pen(fleet_home, tmp_path):
+def test_reduced_motion_draws_at_once_with_no_travelling_pen(fleet_home, tmp_path, desk_browser):
     """plan-ink: *reduced motion draws at once, with no travelling pen* -- and leaves at once."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
-            _set(page)
-            came = page.evaluate(RECORD, [[["alpha", "ink-loop"], ["alpha", "ink-pencil"],
-                                           ["beta", "ink-write"]]])
-            went = page.evaluate("""async () => {
-              const a = document.querySelector('.tile[data-repo="alpha"]');
-              a.classList.remove('ink-loop', 'ink-pencil');
-              const l0 = Ink.inspect().layer.frames;
-              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-              const l = Ink.inspect().layer;
-              return { frames: l.frames - l0, marks: l.marks.map(m => [m.selector, m.state, m.strikeOf, m.drawn]),
-                       write: l.marks.find(m => m.shape === 'write').clip, reduced: l.reduced, hands: l.hands };
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        _set(page)
+        came = page.evaluate(RECORD, [[["alpha", "ink-loop"], ["alpha", "ink-pencil"],
+                                       ["beta", "ink-write"]]])
+        went = page.evaluate("""async () => {
+          const a = document.querySelector('.tile[data-repo="alpha"]');
+          a.classList.remove('ink-loop', 'ink-pencil');
+          const l0 = Ink.inspect().layer.frames;
+          await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+          const l = Ink.inspect().layer;
+          return { frames: l.frames - l0, marks: l.marks.map(m => [m.selector, m.state, m.strikeOf, m.drawn]),
+                   write: l.marks.find(m => m.shape === 'write').clip, reduced: l.reduced, hands: l.hands };
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     whole = [f for f in came if f["marks"] and all(m[2] == 1 for m in f["marks"])
@@ -970,71 +935,67 @@ ERASE = """async () => {
 
 
 @pytest.mark.browser
-def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path):
+def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path, desk_browser):
     """#387: `hand: 'chalk'` puts a worn stick of chalk in every hand -- the pencil's, the pen's and
     the eraser's -- and `hand: true` keeps the lit pencil, the pen and the pencil's eraser end. A
     hand that is none of these is refused, naming `hand`, and the table in force stays."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for hand, pencil, pen, eraser in (("chalk", "chalk", "chalk", "chalk"),
-                                              (True, "pencil", "pen:pen", "eraser")):
-                page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
-                _set(page, dict(CHALK, hand=hand))
-                assert _layer(page)["handModel"] == "", "a hand was shown before a mark was drawn"
-                refused = page.evaluate("""() => { try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [] }); return ''; }
-                                                   catch (e) { return e.message; } }""")
-                assert "`hand`" in refused and page.evaluate("() => Ink.inspect().table") == "chalk", refused
-                drew = page.evaluate(HANDS_AT, [["pencil", "ink-pencil"], ["pen", "ink-pen"]])
-                _rest(page, "Ink.inspect().layer.marks.filter(m => m.drawn === 1).length === 2")
-                frames = page.evaluate(ERASE)
-                assert frames[-1]["erased"] == [], frames[-1]
-                erasing = [f for f in frames if f["hand"] and f["erased"] == [True]]
-                assert erasing, "no frame showed the eraser at the pencil"
-                models = {f["model"] for f in frames}
-                # The render contract holds with the chalk: at rest, nothing written, nothing drawn.
-                count = page.evaluate(IDLE_LOOP)
-                assert not errors, errors
-                page.close()
-                assert drew == [pencil, pen], (hand, drew)
-                # Every sampled frame: the last hand shown is the pen that drew, or the eraser.
-                assert models <= {pen, eraser}, (hand, models)
-                assert {f["model"] for f in erasing} == {eraser}, (hand, erasing[:3])
-                assert count["n"] == 0 and count["renders"] == 0, (hand, count)
-
-            # Reduced motion: the marks are drawn at once, and no hand at all -- chalk or not.
-            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
-            _set(page, dict(CHALK, hand="chalk"))
-            came = page.evaluate(RECORD, [[["alpha", "ink-pencil"], ["alpha", "ink-pen"]]])
-            layer = _layer(page)
-            assert not any(f["hands"] for f in came), "a hand travelled under reduced motion"
-            assert layer["hands"] is False and layer["handModel"] == "", layer["handModel"]
+        browser = desk_browser
+        for hand, pencil, pen, eraser in (("chalk", "chalk", "chalk", "chalk"),
+                                          (True, "pencil", "pen:pen", "eraser")):
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            _set(page, dict(CHALK, hand=hand))
+            assert _layer(page)["handModel"] == "", "a hand was shown before a mark was drawn"
+            refused = page.evaluate("""() => { try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [] }); return ''; }
+                                               catch (e) { return e.message; } }""")
+            assert "`hand`" in refused and page.evaluate("() => Ink.inspect().table") == "chalk", refused
+            drew = page.evaluate(HANDS_AT, [["pencil", "ink-pencil"], ["pen", "ink-pen"]])
+            _rest(page, "Ink.inspect().layer.marks.filter(m => m.drawn === 1).length === 2")
+            frames = page.evaluate(ERASE)
+            assert frames[-1]["erased"] == [], frames[-1]
+            erasing = [f for f in frames if f["hand"] and f["erased"] == [True]]
+            assert erasing, "no frame showed the eraser at the pencil"
+            models = {f["model"] for f in frames}
+            # The render contract holds with the chalk: at rest, nothing written, nothing drawn.
+            count = page.evaluate(IDLE_LOOP)
             assert not errors, errors
-            browser.close()
+            page.close()
+            assert drew == [pencil, pen], (hand, drew)
+            # Every sampled frame: the last hand shown is the pen that drew, or the eraser.
+            assert models <= {pen, eraser}, (hand, models)
+            assert {f["model"] for f in erasing} == {eraser}, (hand, erasing[:3])
+            assert count["n"] == 0 and count["renders"] == 0, (hand, count)
+
+        # Reduced motion: the marks are drawn at once, and no hand at all -- chalk or not.
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        _set(page, dict(CHALK, hand="chalk"))
+        came = page.evaluate(RECORD, [[["alpha", "ink-pencil"], ["alpha", "ink-pen"]]])
+        layer = _layer(page)
+        assert not any(f["hands"] for f in came), "a hand travelled under reduced motion"
+        assert layer["hands"] is False and layer["handModel"] == "", layer["handModel"]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
 
 @pytest.mark.browser
-def test_ink_catches_up_in_frames_not_milliseconds(fleet_home, tmp_path):
+def test_ink_catches_up_in_frames_not_milliseconds(fleet_home, tmp_path, desk_browser):
     """Ground rule 5. CI draws in software, so the ink's own budget is counted in frames: a mark is
     on the paper within the frames a hand at the layer's pen speed needs for its length at 60 Hz
     (plus the travel between strokes and a margin) -- a slower frame moves the pen further, so it
     is never more -- and over more than one frame, because it is drawn, not shown."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page)
-            rec = page.evaluate(RECORD, [[["alpha", "ink-loop"], ["alpha", "ink-hl"]]])
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page)
+        rec = page.evaluate(RECORD, [[["alpha", "ink-loop"], ["alpha", "ink-hl"]]])
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     last = rec[-1]
@@ -1057,12 +1018,11 @@ def catch_up_frames(marks, speed=1.0, hz=60):
 
 
 @pytest.mark.browser
-def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home, tmp_path):
+def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home, tmp_path, desk_browser):
     """The rule of the epic: only a shell whose probe says `hardware` gets ink. Software, no WebGL,
     an unnamed renderer, a probe that did not finish and a shell nobody measured all arrive at
     `body.ink-off` -- and so does a hardware shell opened with `?ink=off`. The hardware one draws,
     except on a phone: a coarse pointer at 390 px is `narrow` and off, unless `?ink=on` (#580)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     shells = {"pycharm": _facts(), "vscode": _facts(renderer=SWIFTSHADER),
               "edge": _facts(webgl="none", renderer=""), "chromium": _facts(renderer=""),
@@ -1074,41 +1034,40 @@ def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home,
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for w in ("pycharm", "vscode", "edge", "chromium", "left", "browser", "pycharm&ink=off"):
-                page, errors, asked = _open(browser, port, token, f"&w={w}")
-                got = page.evaluate("""async () => ({ verdict: Ink.verdict, enabled: Ink.enabled,
-                  off: document.body.classList.contains('ink-off'),
-                  drawn: (await Ink.setSkin({ name: 'gate', marks: [
-                           { selector: '.tile .repo', tool: 'pen', shape: 'underline' }] })).drawn,
-                  canvas: !!document.getElementById('ink') })""")
-                got["three"] = any("vendor/three" in u for u in asked)
-                seen[w] = got
-                assert not errors, (w, errors)
-                page.close()
-            phone = {}
-            for name, extra in (("plain", ""), ("on", "&ink=on")):
-                context = browser.new_context(viewport={"width": 390, "height": 844},
-                                              is_mobile=True, has_touch=True)
-                page = context.new_page()
-                errors, asked = [], []
-                page.on("pageerror", lambda e: errors.append(str(e)))
-                page.on("request", lambda r: asked.append(r.url))
-                page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm{extra}",
-                          wait_until="domcontentloaded")
-                page.wait_for_function("() => !!window.Ink && !!document.querySelector('.tile .repo')",
-                                       timeout=15000)
-                got = page.evaluate("""async () => ({ verdict: Ink.verdict, enabled: Ink.enabled,
-                  off: document.body.classList.contains('ink-off'),
-                  drawn: (await Ink.setSkin({ name: 'gate', marks: [
-                           { selector: '.tile .repo', tool: 'pen', shape: 'underline' }] })).drawn,
-                  canvas: !!document.getElementById('ink') })""")
-                got["three"] = any("vendor/three" in u for u in asked)
-                phone[name] = got
-                assert not errors, (name, errors)
-                context.close()
-            browser.close()
+        browser = desk_browser
+        for w in ("pycharm", "vscode", "edge", "chromium", "left", "browser", "pycharm&ink=off"):
+            page, errors, asked = _open(browser, port, token, f"&w={w}")
+            got = page.evaluate("""async () => ({ verdict: Ink.verdict, enabled: Ink.enabled,
+              off: document.body.classList.contains('ink-off'),
+              drawn: (await Ink.setSkin({ name: 'gate', marks: [
+                       { selector: '.tile .repo', tool: 'pen', shape: 'underline' }] })).drawn,
+              canvas: !!document.getElementById('ink') })""")
+            got["three"] = any("vendor/three" in u for u in asked)
+            seen[w] = got
+            assert not errors, (w, errors)
+            page.close()
+        phone = {}
+        for name, extra in (("plain", ""), ("on", "&ink=on")):
+            context = browser.new_context(viewport={"width": 390, "height": 844},
+                                          is_mobile=True, has_touch=True)
+            page = context.new_page()
+            errors, asked = [], []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.on("request", lambda r: asked.append(r.url))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm{extra}",
+                      wait_until="domcontentloaded")
+            page.wait_for_function("() => !!window.Ink && !!document.querySelector('.tile .repo')",
+                                   timeout=15000)
+            got = page.evaluate("""async () => ({ verdict: Ink.verdict, enabled: Ink.enabled,
+              off: document.body.classList.contains('ink-off'),
+              drawn: (await Ink.setSkin({ name: 'gate', marks: [
+                       { selector: '.tile .repo', tool: 'pen', shape: 'underline' }] })).drawn,
+              canvas: !!document.getElementById('ink') })""")
+            got["three"] = any("vendor/three" in u for u in asked)
+            phone[name] = got
+            assert not errors, (name, errors)
+            context.close()
+        close_pages(browser)
     finally:
         _stop(server)
     on = seen.pop("pycharm")
@@ -1145,7 +1104,7 @@ def _choose(page, skin):
 
 
 @pytest.mark.browser
-def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_path):
+def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_path, desk_browser):
     """How a skin registers (docs/desk-ink.md §Writing a skin): `static/ink/skins/<name>.js`. The
     server lists the names on <body>; the skin chosen in the config (the settings page, skins.py)
     reaches the page as `applySkin`, which writes it and its variant on <body>; and the ink layer
@@ -1153,7 +1112,6 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
     gate is on and as plain CSS where it is off, its materials run -- a ground, a paper, a frame
     per pane -- and all of it gone when the skin goes, the page's traces it drew beside them (#257)
     included. A skin with no module is asked for nothing."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata.fleet import skins as K
     # A skin skins.py offers that ships no module yet, if one is left (#249-#256 ship them).
     plain_skin = next((n for n in K.SKINS if n not in S.ink_skins()), "")
@@ -1161,44 +1119,43 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for extra in ("&ink=on", ""):
-                (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "example"}}',
-                                                            encoding="utf-8")
-                page, errors, asked = _open(browser, port, token, extra)
-                _no_skin_css(page)
-                assert page.evaluate("() => document.body.dataset.inkSkins") == " ".join(S.ink_skins())
-                page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=10000)
-                _mark(page, "alpha", "ink-example")
-                if extra:
-                    _rest(page, "Ink.inspect().layer.marks.length === 1"
-                                " && Ink.inspect().layer.skin.frames === 2")
-                    seen["on"] = page.evaluate("""() => { const l = Ink.inspect().layer;
-                      return { tool: l.marks[0].tool, skin: l.skin, mode: l.mode,
-                               corner: Ink.sample({ x: 2, y: innerHeight - 30, w: 20, h: 20 }) }; }""")
-                    _choose(page, "example:red")
-                    _rest(page, "Ink.inspect().table === 'example:red'"
-                                " && Ink.inspect().layer.marks.length === 1")
-                    seen["red"] = _marks(page)[0]["tool"]
-                else:
-                    page.wait_for_function("""() => getComputedStyle(document.querySelector(
-                      '.tile[data-repo="alpha"] .head')).textDecorationLine === 'underline'""",
-                                           timeout=10000)
-                    seen["plain"] = True
-                _choose(page, "none")
-                page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
-                seen.setdefault("gone", []).append(page.evaluate(
-                    "() => ({ canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer })"))
-                if plain_skin:                                  # a skin with no module
-                    _choose(page, plain_skin)
-                    page.wait_for_function("s => document.body.dataset.skin === s", arg=plain_skin,
-                                           timeout=10000)
-                seen.setdefault("asked", []).extend(
-                    u.split(str(port))[1] for u in asked if "/static/ink/skins/" in u)
-                assert not errors, errors
-                page.close()
-            browser.close()
+        browser = desk_browser
+        for extra in ("&ink=on", ""):
+            (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "example"}}',
+                                                        encoding="utf-8")
+            page, errors, asked = _open(browser, port, token, extra)
+            _no_skin_css(page)
+            assert page.evaluate("() => document.body.dataset.inkSkins") == " ".join(S.ink_skins())
+            page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=10000)
+            _mark(page, "alpha", "ink-example")
+            if extra:
+                _rest(page, "Ink.inspect().layer.marks.length === 1"
+                            " && Ink.inspect().layer.skin.frames === 2")
+                seen["on"] = page.evaluate("""() => { const l = Ink.inspect().layer;
+                  return { tool: l.marks[0].tool, skin: l.skin, mode: l.mode,
+                           corner: Ink.sample({ x: 2, y: innerHeight - 30, w: 20, h: 20 }) }; }""")
+                _choose(page, "example:red")
+                _rest(page, "Ink.inspect().table === 'example:red'"
+                            " && Ink.inspect().layer.marks.length === 1")
+                seen["red"] = _marks(page)[0]["tool"]
+            else:
+                page.wait_for_function("""() => getComputedStyle(document.querySelector(
+                  '.tile[data-repo="alpha"] .head')).textDecorationLine === 'underline'""",
+                                       timeout=10000)
+                seen["plain"] = True
+            _choose(page, "none")
+            page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
+            seen.setdefault("gone", []).append(page.evaluate(
+                "() => ({ canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer })"))
+            if plain_skin:                                  # a skin with no module
+                _choose(page, plain_skin)
+                page.wait_for_function("s => document.body.dataset.skin === s", arg=plain_skin,
+                                       timeout=10000)
+            seen.setdefault("asked", []).extend(
+                u.split(str(port))[1] for u in asked if "/static/ink/skins/" in u)
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         _stop(server)
     on = seen["on"]
@@ -1214,41 +1171,39 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
 
 
 @pytest.mark.browser
-def test_a_skin_hook_that_throws_is_the_skins_problem_and_the_ground_can_be_sampled(fleet_home, tmp_path):
+def test_a_skin_hook_that_throws_is_the_skins_problem_and_the_ground_can_be_sampled(fleet_home, tmp_path, desk_browser):
     """A skin's mistake is said once, in the console, and the desk goes on drawing its marks. And a
     skin that asks for `sampleGround` has its ground and paper as a texture while it frames."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            said = []
-            page.on("console", lambda m: said.append(m.text) if m.type == "error" else None)
-            page.evaluate("""async (table) => {
-              window.__sampled = [];
-              await Ink.setSkin(table, {
-                sampleGround: true,
-                ground({ THREE, scene, api }) {
-                  const { w, h } = api.viewport;
-                  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-                                           new THREE.MeshBasicMaterial({ color: 0x336699 }));
-                  m.position.set(w / 2, -h / 2, 0);
-                  scene.add(m);
-                },
-                paper() { throw new Error('a skin bug'); },
-                frame({ api }, el, box) {
-                  window.__sampled.push(!!api.groundTexture && api.groundSize.x > 0 && box.w > 0);
-                },
-              });
-              document.querySelector('.tile[data-repo="alpha"]').classList.add('ink-hl');
-            }""", dict(TABLE, speed=4))
-            _rest(page, "Ink.inspect().layer.marks.length === 1")
-            state = page.evaluate("() => ({ skin: Ink.inspect().layer.skin, sampled: window.__sampled,"
-                                  " drawn: Ink.inspect().layer.marks[0].drawn })")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        said = []
+        page.on("console", lambda m: said.append(m.text) if m.type == "error" else None)
+        page.evaluate("""async (table) => {
+          window.__sampled = [];
+          await Ink.setSkin(table, {
+            sampleGround: true,
+            ground({ THREE, scene, api }) {
+              const { w, h } = api.viewport;
+              const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+                                       new THREE.MeshBasicMaterial({ color: 0x336699 }));
+              m.position.set(w / 2, -h / 2, 0);
+              scene.add(m);
+            },
+            paper() { throw new Error('a skin bug'); },
+            frame({ api }, el, box) {
+              window.__sampled.push(!!api.groundTexture && api.groundSize.x > 0 && box.w > 0);
+            },
+          });
+          document.querySelector('.tile[data-repo="alpha"]').classList.add('ink-hl');
+        }""", dict(TABLE, speed=4))
+        _rest(page, "Ink.inspect().layer.marks.length === 1")
+        state = page.evaluate("() => ({ skin: Ink.inspect().layer.skin, sampled: window.__sampled,"
+                              " drawn: Ink.inspect().layer.marks[0].drawn })")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert state["drawn"] == 1, state
@@ -1258,53 +1213,51 @@ def test_a_skin_hook_that_throws_is_the_skins_problem_and_the_ground_can_be_samp
 
 
 @pytest.mark.browser
-def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
+def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path, desk_browser):
     """Decision 3: no WebGL gets the same page with plain borders and highlights, and no animation.
     The same mark table, as a constructed stylesheet under `body.ink-off` -- so the browser matches
     the selectors, a mark comes and goes with the class, and the fallback writes nothing to the
     page to do it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, asked = _open(browser, port, token)
-            out = page.evaluate("""async (table) => {
-              // What the fallback could write: a stylesheet element, or a style on an element.
-              // (app.js goes on drawing the desk meanwhile, and its writes are its own.)
-              let n = 0;
-              const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style' ||
-                [...r.addedNodes].some(a => a.nodeName === 'STYLE' || a.nodeName === 'LINK')).length; });
-              obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
-              const drawn = (await Ink.setSkin(table)).drawn;
-              const a = document.querySelector('.tile[data-repo="alpha"]');
-              const b = document.querySelector('.tile[data-repo="beta"]');
-              const look = () => {
-                const head = getComputedStyle(a.querySelector('.head'));
-                const name = getComputedStyle(b.querySelector('.repo'));
-                const under = getComputedStyle(a.querySelector('.repo'));
-                return { outline: head.outlineStyle + ' ' + head.outlineWidth,
-                         highlight: name.backgroundColor,
-                         underline: under.textDecorationLine,
-                         margin: getComputedStyle(b.querySelector('.head')).boxShadow,
-                         ring: getComputedStyle(a.querySelector('.head .n')).boxShadow,
-                         cross: getComputedStyle(b).boxShadow };
-              };
-              const bare = look();
-              a.classList.add('ink-loop', 'ink-pencil', 'ink-o');
-              b.classList.add('ink-hl', 'ink-done', 'ink-x');
-              const marked = look();
-              a.classList.remove('ink-loop', 'ink-pencil', 'ink-o');
-              b.classList.remove('ink-hl', 'ink-done', 'ink-x');
-              const gone = look();
-              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
-              obs.disconnect();
-              return { drawn, bare, marked, gone, writes: n, rules: document.adoptedStyleSheets
-                         .flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n') };
-            }""", dict(TABLE, marks=TABLE["marks"] + OX["marks"]))
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, asked = _open(browser, port, token)
+        out = page.evaluate("""async (table) => {
+          // What the fallback could write: a stylesheet element, or a style on an element.
+          // (app.js goes on drawing the desk meanwhile, and its writes are its own.)
+          let n = 0;
+          const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style' ||
+            [...r.addedNodes].some(a => a.nodeName === 'STYLE' || a.nodeName === 'LINK')).length; });
+          obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
+          const drawn = (await Ink.setSkin(table)).drawn;
+          const a = document.querySelector('.tile[data-repo="alpha"]');
+          const b = document.querySelector('.tile[data-repo="beta"]');
+          const look = () => {
+            const head = getComputedStyle(a.querySelector('.head'));
+            const name = getComputedStyle(b.querySelector('.repo'));
+            const under = getComputedStyle(a.querySelector('.repo'));
+            return { outline: head.outlineStyle + ' ' + head.outlineWidth,
+                     highlight: name.backgroundColor,
+                     underline: under.textDecorationLine,
+                     margin: getComputedStyle(b.querySelector('.head')).boxShadow,
+                     ring: getComputedStyle(a.querySelector('.head .n')).boxShadow,
+                     cross: getComputedStyle(b).boxShadow };
+          };
+          const bare = look();
+          a.classList.add('ink-loop', 'ink-pencil', 'ink-o');
+          b.classList.add('ink-hl', 'ink-done', 'ink-x');
+          const marked = look();
+          a.classList.remove('ink-loop', 'ink-pencil', 'ink-o');
+          b.classList.remove('ink-hl', 'ink-done', 'ink-x');
+          const gone = look();
+          await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+          obs.disconnect();
+          return { drawn, bare, marked, gone, writes: n, rules: document.adoptedStyleSheets
+                     .flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n') };
+        }""", dict(TABLE, marks=TABLE["marks"] + OX["marks"]))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert out["drawn"] == "plain"
@@ -1322,29 +1275,27 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_lost_context_turns_ink_off_and_the_same_table_falls_back(fleet_home, tmp_path):
+def test_a_lost_context_turns_ink_off_and_the_same_table_falls_back(fleet_home, tmp_path, desk_browser):
     """A context the GPU takes back is the fallback for the rest of the page's life: the canvas
     goes, `body.ink-off` comes, and the table in force is drawn as plain CSS at once."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page, dict(TABLE, speed=4))
-            _mark(page, "alpha", "ink-loop")
-            _rest(page, "Ink.inspect().layer.marks.length === 1")
-            page.evaluate("""() => { const c = document.getElementById('ink');
-              const gl = c.getContext('webgl2') || c.getContext('webgl');
-              gl.getExtension('WEBGL_lose_context').loseContext(); }""")
-            page.wait_for_function("() => document.body.classList.contains('ink-off')", timeout=10000)
-            out = page.evaluate("""() => ({ verdict: Ink.verdict, enabled: Ink.enabled,
-              canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer,
-              outline: getComputedStyle(document.querySelector('.tile[data-repo="alpha"] .head')).outlineStyle })""")
-            again = page.evaluate("async t => (await Ink.setSkin(t)).drawn", TABLE)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page, dict(TABLE, speed=4))
+        _mark(page, "alpha", "ink-loop")
+        _rest(page, "Ink.inspect().layer.marks.length === 1")
+        page.evaluate("""() => { const c = document.getElementById('ink');
+          const gl = c.getContext('webgl2') || c.getContext('webgl');
+          gl.getExtension('WEBGL_lose_context').loseContext(); }""")
+        page.wait_for_function("() => document.body.classList.contains('ink-off')", timeout=10000)
+        out = page.evaluate("""() => ({ verdict: Ink.verdict, enabled: Ink.enabled,
+          canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer,
+          outline: getComputedStyle(document.querySelector('.tile[data-repo="alpha"] .head')).outlineStyle })""")
+        again = page.evaluate("async t => (await Ink.setSkin(t)).drawn", TABLE)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert out["enabled"] is False and out["canvas"] is False and out["layer"] is None, out
@@ -1353,34 +1304,32 @@ def test_a_lost_context_turns_ink_off_and_the_same_table_falls_back(fleet_home, 
 
 
 @pytest.mark.browser
-def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_three(fleet_home, tmp_path):
+def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_three(fleet_home, tmp_path, desk_browser):
     """Asked before three.js is fetched, the way the probe asks: a shell with no context costs the
     desk nothing but the front door."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            context = browser.new_context()
-            context.add_init_script("""
-              const real = HTMLCanvasElement.prototype.getContext;
-              HTMLCanvasElement.prototype.getContext = function (kind, attrs) {
-                if (/webgl/.test(String(kind))) return null;
-                return real.call(this, kind, attrs);
-              };""")
-            page = context.new_page()
-            errors, asked = [], []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.on("request", lambda r: asked.append(r.url))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&ink=on", wait_until="domcontentloaded")
-            page.wait_for_function("() => !!window.Ink && document.querySelectorAll('.tile.is-solo').length === 2",
-                                   timeout=15000)
-            out = page.evaluate("""async t => ({ drawn: (await Ink.setSkin(t)).drawn, verdict: Ink.verdict,
-              off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink') })""",
-                                TABLE)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        context = browser.new_context()
+        context.add_init_script("""
+          const real = HTMLCanvasElement.prototype.getContext;
+          HTMLCanvasElement.prototype.getContext = function (kind, attrs) {
+            if (/webgl/.test(String(kind))) return null;
+            return real.call(this, kind, attrs);
+          };""")
+        page = context.new_page()
+        errors, asked = [], []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("request", lambda r: asked.append(r.url))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&ink=on", wait_until="domcontentloaded")
+        page.wait_for_function("() => !!window.Ink && document.querySelectorAll('.tile.is-solo').length === 2",
+                               timeout=15000)
+        out = page.evaluate("""async t => ({ drawn: (await Ink.setSkin(t)).drawn, verdict: Ink.verdict,
+          off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink') })""",
+                            TABLE)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert out["drawn"] == "plain" and out["off"] and not out["canvas"], out
@@ -1389,7 +1338,7 @@ def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_
 
 
 @pytest.mark.browser
-def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path, monkeypatch):
+def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The render contract with the layer running: once the marks are drawn, an idle desk is still
     zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn.
     With a pane's model chip waiting for the next turn on it, too (#492).
@@ -1403,7 +1352,6 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     every row pass too: patched by repo, not emptied and cloned again (#514). `SIBS_IN_PLACE` draws
     it by hand: the row keeps its element, a state and age that change are written in place, and
     after several draws one click on it opens beta, through one handler."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
     from agentdata.fleet import wrapup as WRAP
 
@@ -1429,76 +1377,75 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     _run_again("alpha")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
-            page.wait_for_function("""() => { const b = document.querySelector('.tile[data-repo="alpha"] .bm-name');
-                return b.textContent === 'luna 5.6' && b.classList.contains('next'); }""", timeout=10000)
-            page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 1"
-                                   " && !!document.querySelector('.tile[data-repo=\"alpha\"] .spill')"
-                                   ".textContent", timeout=15000)
-            page.wait_for_function(f"""() => {{ const s = document.querySelectorAll('{SIBS}');
-              return s.length === 1 && s[0].querySelector('.sib-open').title.indexOf('beta') >= 0; }}""",
-                                   timeout=15000)
-            first = page.evaluate(f"""() => {{ window.__run1 = document.querySelector('{RUNS}');
-              return {{ words: window.__run1.textContent,
-                        hidden: window.__run1.parentElement.hidden }}; }}""")
-            _run_again("alpha")
-            page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 2",
-                                   timeout=15000)
-            arrived = page.evaluate(f"""() => {{ const li = [...document.querySelectorAll('{RUNS}')];
-              return {{ kept: li[0] === window.__run1, words: li.map(e => e.textContent) }}; }}""")
-            _set(page, dict(TABLE, speed=4))
-            for repo, cls in (("alpha", "ink-loop"), ("alpha", "ink-write"), ("beta", "ink-hl")):
-                _mark(page, repo, cls)
-            _rest(page, "Ink.inspect().layer.marks.length === 3")
-            # A *start fresh* button is on the glass through every loop below (#489).
-            assert page.is_visible('.tile[data-repo="alpha"] .freshtoggle')
-            assert page.evaluate(FULL_PANE_STARTS_FRESH), "#509: a full pane's empty box reads Start fresh"
-            count = page.evaluate(IDLE_LOOP)
-            kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
-            in_place = page.evaluate(RUNS_IN_PLACE)
-            # And with the model card open on it (#366): `m` on a pane, the list drawn, the keyboard
-            # on the pressed pill -- and still nothing written and nothing drawn while it waits.
-            page.focus('.tile[data-repo="alpha"]')
-            page.keyboard.press("m")
-            page.wait_for_function("""() => !document.getElementById('modelcard').hidden
-                && document.activeElement.matches('#modelcard .mp-models button.pill[aria-pressed="true"]')""",
-                                   timeout=10000)
-            carded = page.evaluate(IDLE_LOOP)
-            assert page.evaluate("document.activeElement.closest('#modelcard') !== null")
-            # And with the dispatch card open on a pane instead (#368): a ticket dropped on alpha,
-            # its pre-flight read and its model picker drawn.
-            page.keyboard.press("Escape")
-            page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
-            page.evaluate("""() => {
-              const tile = document.querySelector('.tile[data-repo="alpha"]');
-              const dt = new DataTransfer();
-              dt.setData('application/x-agentdata-ticket', 'RDSD-1');
-              dt.setData('text/plain', 'RDSD-1');
-              tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
-            }""")
-            page.wait_for_function("""() => !document.getElementById('dispatch').hidden
-                && document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'
-                && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
-                                   timeout=10000)
-            dispatched = page.evaluate(IDLE_LOOP)
-            # And with the wrap-up sheet open (#510): `w` on the pane, the rows drawn, nothing running.
-            page.keyboard.press("Escape")
-            page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
-            page.focus('.tile[data-repo="alpha"]')
-            page.keyboard.press("w")
-            page.wait_for_function("""() => !document.querySelector('#inspector .wrapsheet').hidden
-                && document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)').length > 0""",
-                                   timeout=15000)
-            assert WRAP.wait("alpha", 10) and WRAP.job_state("alpha")["state"] == "planned"
-            page.wait_for_function("() => !/reading/.test(document.querySelector('.wrapsheet .wrap-status').textContent)",
-                                   timeout=5000)
-            wrapping = page.evaluate(IDLE_LOOP)
-            # Last, because its click opens beta.
-            sibs = page.evaluate(SIBS_IN_PLACE)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+        page.wait_for_function("""() => { const b = document.querySelector('.tile[data-repo="alpha"] .bm-name');
+            return b.textContent === 'luna 5.6' && b.classList.contains('next'); }""", timeout=10000)
+        page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 1"
+                               " && !!document.querySelector('.tile[data-repo=\"alpha\"] .spill')"
+                               ".textContent", timeout=15000)
+        page.wait_for_function(f"""() => {{ const s = document.querySelectorAll('{SIBS}');
+          return s.length === 1 && s[0].querySelector('.sib-open').title.indexOf('beta') >= 0; }}""",
+                               timeout=15000)
+        first = page.evaluate(f"""() => {{ window.__run1 = document.querySelector('{RUNS}');
+          return {{ words: window.__run1.textContent,
+                    hidden: window.__run1.parentElement.hidden }}; }}""")
+        _run_again("alpha")
+        page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 2",
+                               timeout=15000)
+        arrived = page.evaluate(f"""() => {{ const li = [...document.querySelectorAll('{RUNS}')];
+          return {{ kept: li[0] === window.__run1, words: li.map(e => e.textContent) }}; }}""")
+        _set(page, dict(TABLE, speed=4))
+        for repo, cls in (("alpha", "ink-loop"), ("alpha", "ink-write"), ("beta", "ink-hl")):
+            _mark(page, repo, cls)
+        _rest(page, "Ink.inspect().layer.marks.length === 3")
+        # A *start fresh* button is on the glass through every loop below (#489).
+        assert page.is_visible('.tile[data-repo="alpha"] .freshtoggle')
+        assert page.evaluate(FULL_PANE_STARTS_FRESH), "#509: a full pane's empty box reads Start fresh"
+        count = page.evaluate(IDLE_LOOP)
+        kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
+        in_place = page.evaluate(RUNS_IN_PLACE)
+        # And with the model card open on it (#366): `m` on a pane, the list drawn, the keyboard
+        # on the pressed pill -- and still nothing written and nothing drawn while it waits.
+        page.focus('.tile[data-repo="alpha"]')
+        page.keyboard.press("m")
+        page.wait_for_function("""() => !document.getElementById('modelcard').hidden
+            && document.activeElement.matches('#modelcard .mp-models button.pill[aria-pressed="true"]')""",
+                               timeout=10000)
+        carded = page.evaluate(IDLE_LOOP)
+        assert page.evaluate("document.activeElement.closest('#modelcard') !== null")
+        # And with the dispatch card open on a pane instead (#368): a ticket dropped on alpha,
+        # its pre-flight read and its model picker drawn.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+        page.evaluate("""() => {
+          const tile = document.querySelector('.tile[data-repo="alpha"]');
+          const dt = new DataTransfer();
+          dt.setData('application/x-agentdata-ticket', 'RDSD-1');
+          dt.setData('text/plain', 'RDSD-1');
+          tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
+        }""")
+        page.wait_for_function("""() => !document.getElementById('dispatch').hidden
+            && document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'
+            && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
+                               timeout=10000)
+        dispatched = page.evaluate(IDLE_LOOP)
+        # And with the wrap-up sheet open (#510): `w` on the pane, the rows drawn, nothing running.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
+        page.focus('.tile[data-repo="alpha"]')
+        page.keyboard.press("w")
+        page.wait_for_function("""() => !document.querySelector('#inspector .wrapsheet').hidden
+            && document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)').length > 0""",
+                               timeout=15000)
+        assert WRAP.wait("alpha", 10) and WRAP.job_state("alpha")["state"] == "planned"
+        page.wait_for_function("() => !/reading/.test(document.querySelector('.wrapsheet .wrap-status').textContent)",
+                               timeout=5000)
+        wrapping = page.evaluate(IDLE_LOOP)
+        # Last, because its click opens beta.
+        sibs = page.evaluate(SIBS_IN_PLACE)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle desk with ink on it wrote to the page: {count}"
@@ -1584,43 +1531,41 @@ def _run_again(name):
 
 
 @pytest.mark.browser
-def test_the_handwriting_reveal_uncovers_the_text_and_leaves_the_page_as_it_found_it(fleet_home, tmp_path):
+def test_the_handwriting_reveal_uncovers_the_text_and_leaves_the_page_as_it_found_it(fleet_home, tmp_path, desk_browser):
     """The one write the layer makes to the page: the `clip-path` of the element being written,
     while it is written. A pencil note that is erased is covered again; a table taken away takes
     every clip it wrote with it."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
-            _set(page)
-            clips = page.evaluate("""async () => {
-              const t = document.querySelector('.tile[data-repo="alpha"]');
-              const el = t.querySelector('.ticket');
-              const seen = new Set();
-              t.classList.add('ink-write');
-              await new Promise(done => {
-                const tick = () => {
-                  seen.add(el.style.getPropertyValue('clip-path') ? 'part' : 'none');
-                  const l = Ink.inspect().layer;
-                  if (l && l.marks.length && !l.busy) return done();
-                  requestAnimationFrame(tick);
-                };
-                requestAnimationFrame(tick);
-              });
-              return { seen: [...seen], after: el.getAttribute('style') };
-            }""")
-            _mark(page, "alpha", "ink-write", False)
-            _rest(page, "Ink.inspect().layer.marks.length === 0")
-            erased = page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"] .ticket')"
-                                   ".style.getPropertyValue('clip-path')")
-            page.evaluate("() => Ink.setSkin(null)")
-            restored = page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"] .ticket')"
-                                     ".getAttribute('style')")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on")
+        _set(page)
+        clips = page.evaluate("""async () => {
+          const t = document.querySelector('.tile[data-repo="alpha"]');
+          const el = t.querySelector('.ticket');
+          const seen = new Set();
+          t.classList.add('ink-write');
+          await new Promise(done => {
+            const tick = () => {
+              seen.add(el.style.getPropertyValue('clip-path') ? 'part' : 'none');
+              const l = Ink.inspect().layer;
+              if (l && l.marks.length && !l.busy) return done();
+              requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          });
+          return { seen: [...seen], after: el.getAttribute('style') };
+        }""")
+        _mark(page, "alpha", "ink-write", False)
+        _rest(page, "Ink.inspect().layer.marks.length === 0")
+        erased = page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"] .ticket')"
+                               ".style.getPropertyValue('clip-path')")
+        page.evaluate("() => Ink.setSkin(null)")
+        restored = page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"] .ticket')"
+                                 ".getAttribute('style')")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert "part" in clips["seen"], clips
@@ -1631,35 +1576,33 @@ def test_the_handwriting_reveal_uncovers_the_text_and_leaves_the_page_as_it_foun
 
 @pytest.mark.browser
 @pytest.mark.measured
-def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path):
+def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, desk_browser):
     """Ground rule 5's other half: the ink draws after the gesture, never inside it. The page's own
     gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=4, width=1600)
-            _set(page, dict(TABLE, speed=0.25))
-            for repo in names:
-                _mark(page, repo, "ink-loop")
-            page.wait_for_function("() => Ink.inspect().layer && Ink.inspect().layer.busy", timeout=10000)
-            marks = page.evaluate("""() => {
-              performance.clearMeasures();
-              setHidden('beta', true);
-              setHidden('beta', false);
-              moveTile('gamma', 1);
-              moveTile('gamma', -1);
-              const alpha = document.querySelector('.tile[data-repo="alpha"]');
-              stepGutter(alpha, -1);
-              evenGutter(alpha);
-              return { busy: Ink.inspect().layer.busy, measures: performance.getEntriesByType('measure')
-                .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration })) };
-            }""")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=4, width=1600)
+        _set(page, dict(TABLE, speed=0.25))
+        for repo in names:
+            _mark(page, repo, "ink-loop")
+        page.wait_for_function("() => Ink.inspect().layer && Ink.inspect().layer.busy", timeout=10000)
+        marks = page.evaluate("""() => {
+          performance.clearMeasures();
+          setHidden('beta', true);
+          setHidden('beta', false);
+          moveTile('gamma', 1);
+          moveTile('gamma', -1);
+          const alpha = document.querySelector('.tile[data-repo="alpha"]');
+          stepGutter(alpha, -1);
+          evenGutter(alpha);
+          return { busy: Ink.inspect().layer.busy, measures: performance.getEntriesByType('measure')
+            .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration })) };
+        }""")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert marks["busy"], "the ink had finished before the gestures: nothing was measured against it"
@@ -1690,13 +1633,12 @@ PURE = """([boxes, want]) => (%s)(boxes)[0].some(p =>
 
 
 @pytest.mark.browser
-def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_path):
+def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_path, desk_browser):
     """#385. A row draws with one tool's hand in another tool's ink: `{tool: 'pencil', ink: 'pen'}`
     is drawn in the pen's colour, recoloured with it, and erased (pencil's way of leaving), not
     struck. An underline ends in an arrowhead or a bar, one stroke more, which stays at the growing
     end. Plain, the borrowed ink is the underline's colour and a dashed underline stays dashed.
     Reduced motion draws the cap at once, and an idle desk is still idle."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     # Pure inks on <html>, which the layer observes. The pencil's is not the pen's, so a mark drawn
     # in its own tool's ink reads as the wrong colour.
@@ -1705,101 +1647,100 @@ def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_pat
       s.setProperty('--ink-green', '#00ff00'); }"""
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
+        browser = desk_browser
 
-            # Plain (the gate is off): the look is CSS in the borrowed ink.
-            page, errors, _ = _open(browser, port, token)
-            page.evaluate(inks, ["#ff0000", "#0000ff"])
-            plain = page.evaluate("""async (t) => {
-                await Ink.setSkin(t);
-                const look = r => { const s = getComputedStyle(document.querySelector(
-                  `.tile[data-repo="${r}"] .repo`));
-                  return [s.textDecorationLine, s.textDecorationStyle, s.textDecorationColor]; };
-                return { off: document.body.classList.contains('ink-off'),
-                         alpha: look('alpha'), beta: look('beta') };
-            }""", {"name": "plain", "marks": [
-                {"selector": ".tile[data-repo=\"alpha\"] .repo", "tool": "pencil", "ink": "pen",
-                 "shape": "underline", "dash": True},
-                {"selector": ".tile[data-repo=\"beta\"] .repo", "tool": "pencil", "ink": "green",
-                 "shape": "underline"}]})
-            assert plain["off"], plain
-            assert plain["alpha"] == ["underline", "dashed", "rgb(255, 0, 0)"], plain
-            assert plain["beta"] == ["underline", "solid", "rgb(0, 255, 0)"], plain
-            assert not errors, errors
-            page.close()
+        # Plain (the gate is off): the look is CSS in the borrowed ink.
+        page, errors, _ = _open(browser, port, token)
+        page.evaluate(inks, ["#ff0000", "#0000ff"])
+        plain = page.evaluate("""async (t) => {
+            await Ink.setSkin(t);
+            const look = r => { const s = getComputedStyle(document.querySelector(
+              `.tile[data-repo="${r}"] .repo`));
+              return [s.textDecorationLine, s.textDecorationStyle, s.textDecorationColor]; };
+            return { off: document.body.classList.contains('ink-off'),
+                     alpha: look('alpha'), beta: look('beta') };
+        }""", {"name": "plain", "marks": [
+            {"selector": ".tile[data-repo=\"alpha\"] .repo", "tool": "pencil", "ink": "pen",
+             "shape": "underline", "dash": True},
+            {"selector": ".tile[data-repo=\"beta\"] .repo", "tool": "pencil", "ink": "green",
+             "shape": "underline"}]})
+        assert plain["off"], plain
+        assert plain["alpha"] == ["underline", "dashed", "rgb(255, 0, 0)"], plain
+        assert plain["beta"] == ["underline", "solid", "rgb(0, 255, 0)"], plain
+        assert not errors, errors
+        page.close()
 
-            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
-            page.evaluate(inks, ["#ff0000", "#0000ff"])
-            table = {"name": "caps", "speed": 4, "marks": [
-                {"selector": ".tile.borrowed .repo", "tool": "pencil", "ink": "pen", "shape": "underline"},
-                {"selector": ".tile.arrow-cap .repo", "tool": "pen", "shape": "underline",
-                 "grow": ".transcript > li", "cap": "arrow"},
-                {"selector": ".tile.bar-cap .repo", "tool": "pen", "shape": "underline", "cap": "bar"}]}
-            _set(page, table)
+        page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+        page.evaluate(inks, ["#ff0000", "#0000ff"])
+        table = {"name": "caps", "speed": 4, "marks": [
+            {"selector": ".tile.borrowed .repo", "tool": "pencil", "ink": "pen", "shape": "underline"},
+            {"selector": ".tile.arrow-cap .repo", "tool": "pen", "shape": "underline",
+             "grow": ".transcript > li", "cap": "arrow"},
+            {"selector": ".tile.bar-cap .repo", "tool": "pen", "shape": "underline", "cap": "bar"}]}
+        _set(page, table)
 
-            # The pencil's hand in the pen's ink, read where the line is.
-            _mark(page, "alpha", "borrowed")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
-            line = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
-            assert (line["tool"], line["ink"], line["cap"], line["strokes"]) == ("pencil", "pen", "", 1), line
-            b = line["bounds"][0]
-            at = [{"x": b["x"], "y": b["y"], "w": b["r"] - b["x"], "h": b["b"] - b["y"],
-                   "at": [(fx, fy) for fx in (0.2, 0.35, 0.5, 0.65, 0.8) for fy in (0.4, 0.5, 0.6)]}]
-            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
-            assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
+        # The pencil's hand in the pen's ink, read where the line is.
+        _mark(page, "alpha", "borrowed")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+        line = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+        assert (line["tool"], line["ink"], line["cap"], line["strokes"]) == ("pencil", "pen", "", 1), line
+        b = line["bounds"][0]
+        at = [{"x": b["x"], "y": b["y"], "w": b["r"] - b["x"], "h": b["b"] - b["y"],
+               "at": [(fx, fy) for fx in (0.2, 0.35, 0.5, 0.65, 0.8) for fy in (0.4, 0.5, 0.6)]}]
+        page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+        assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
 
-            # A second pure colour, set the same way, recolours it.
-            page.evaluate(inks, ["#0000ff", "#00ff00"])
-            page.wait_for_function(PURE, arg=[at, 2], timeout=10000)
-            assert not page.evaluate(PURE, [at, 1]), page.evaluate(READ, at)
+        # A second pure colour, set the same way, recolours it.
+        page.evaluate(inks, ["#0000ff", "#00ff00"])
+        page.wait_for_function(PURE, arg=[at, 2], timeout=10000)
+        assert not page.evaluate(PURE, [at, 1]), page.evaluate(READ, at)
 
-            # It leaves the pencil's way: erased, never struck.
-            _mark(page, "alpha", "borrowed", False)
-            _rest(page, "!Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha')")
-            assert not any(m["strikeOf"] for m in _marks(page)), _marks(page)
+        # It leaves the pencil's way: erased, never struck.
+        _mark(page, "alpha", "borrowed", False)
+        _rest(page, "!Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha')")
+        assert not any(m["strikeOf"] for m in _marks(page)), _marks(page)
 
-            # A bar is one stroke more, standing across the line's end.
-            _mark(page, "beta", "bar-cap")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.state === 'drawn')")
-            bar = next(m for m in _marks(page) if m["lane"] == "pane:beta")
-            assert (bar["cap"], bar["ink"], bar["strokes"], bar["drawn"]) == ("bar", "pen", 2, 1), bar
-            assert abs(bar["bounds"][1]["r"] - bar["bounds"][0]["r"]) <= 2, bar["bounds"]
-            assert bar["bounds"][1]["b"] - bar["bounds"][1]["y"] >= 9, bar["bounds"]
+        # A bar is one stroke more, standing across the line's end.
+        _mark(page, "beta", "bar-cap")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.state === 'drawn')")
+        bar = next(m for m in _marks(page) if m["lane"] == "pane:beta")
+        assert (bar["cap"], bar["ink"], bar["strokes"], bar["drawn"]) == ("bar", "pen", 2, 1), bar
+        assert abs(bar["bounds"][1]["r"] - bar["bounds"][0]["r"]) <= 2, bar["bounds"]
+        assert bar["bounds"][1]["b"] - bar["bounds"][1]["y"] >= 9, bar["bounds"]
 
-            # An arrowhead at the end of a growing line: after two arrivals it is at the new end.
-            _mark(page, "alpha", "arrow-cap")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
-            arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
-            assert (arrow["cap"], arrow["strokes"], arrow["drawn"]) == ("arrow", 2, 1), arrow
-            line0, head0 = arrow["bounds"]
-            assert abs(head0["r"] - line0["r"]) <= 2, arrow["bounds"]
-            page.evaluate("""() => { const tr = document.querySelector('.tile[data-repo="alpha"] .transcript');
-              for (const t of ['one', 'two']) { const li = document.createElement('li');
-                                                li.textContent = t; tr.appendChild(li); } }""")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.drawn === 1"
-                        f" && m.bounds[0].r > {line0['r']} + 15)")
-            arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
-            line1, head1 = arrow["bounds"]
-            assert line1["r"] > line0["r"] + 15 and abs(head1["r"] - line1["r"]) <= 2, arrow["bounds"]
-            assert head1["x"] > head0["x"] + 15, "the arrowhead stayed where the line was"
+        # An arrowhead at the end of a growing line: after two arrivals it is at the new end.
+        _mark(page, "alpha", "arrow-cap")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+        arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+        assert (arrow["cap"], arrow["strokes"], arrow["drawn"]) == ("arrow", 2, 1), arrow
+        line0, head0 = arrow["bounds"]
+        assert abs(head0["r"] - line0["r"]) <= 2, arrow["bounds"]
+        page.evaluate("""() => { const tr = document.querySelector('.tile[data-repo="alpha"] .transcript');
+          for (const t of ['one', 'two']) { const li = document.createElement('li');
+                                            li.textContent = t; tr.appendChild(li); } }""")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.drawn === 1"
+                    f" && m.bounds[0].r > {line0['r']} + 15)")
+        arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+        line1, head1 = arrow["bounds"]
+        assert line1["r"] > line0["r"] + 15 and abs(head1["r"] - line1["r"]) <= 2, arrow["bounds"]
+        assert head1["x"] > head0["x"] + 15, "the arrowhead stayed where the line was"
 
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
-            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
-            assert not errors, errors
-            page.close()
+        count = page.evaluate(IDLE_LOOP)
+        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+        assert not errors, errors
+        page.close()
 
-            # Reduced motion: the line and its cap are on the paper at once, and no pen travels.
-            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
-            _set(page, table)
-            came = page.evaluate(RECORD, [[["alpha", "arrow-cap"]]])
-            whole = [f for f in came if any(m[1] == "pane:alpha" and m[2] == 1 and m[5] == 2
-                                            for m in f["marks"])]
-            assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
-            assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
-            assert not errors, errors
-            browser.close()
+        # Reduced motion: the line and its cap are on the paper at once, and no pen travels.
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        _set(page, table)
+        came = page.evaluate(RECORD, [[["alpha", "arrow-cap"]]])
+        whole = [f for f in came if any(m[1] == "pane:alpha" and m[2] == 1 and m[5] == 2
+                                        for m in f["marks"])]
+        assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
+        assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -1841,114 +1782,112 @@ def _hugs(got):
 
 
 @pytest.mark.browser
-def test_the_o_and_the_x(fleet_home, tmp_path):
+def test_the_o_and_the_x(fleet_home, tmp_path, desk_browser):
     """#386. `ring` is a tight O round a small box (a pane's number), close enough that it never
     crosses the name 8px away, for a one-digit and a two-digit number; `cross` is an X in the pane's
     margin, down the middle of a rail. Each is drawn when its class comes and leaves by its tool's
     rule: the pencil's O is erased, the red X struck. Plain, the O is a rounded 2px shadow in its
     ink and the X a margin bar beside a selected pane's focus ring. Reduced motion draws both at
     once, and an idle desk writes nothing and draws nothing."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
+        browser = desk_browser
 
-            # Plain: the same two rows as CSS, in their own inks.
-            page, errors, _ = _open(browser, port, token)
-            page.evaluate("""() => { const s = document.documentElement.style;
-              s.setProperty('--ink-pencil', '#0000ff'); s.setProperty('--ink-red', '#ff0000'); }""")
-            plain = page.evaluate("""async (t) => {
-              const drawn = (await Ink.setSkin(t)).drawn;
-              const a = document.querySelector('.tile[data-repo="alpha"]');
-              const b = document.querySelector('.tile[data-repo="beta"]');
-              const n = a.querySelector('.head .n');
-              const bare = [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow];
-              a.classList.add('ink-o'); b.classList.add('ink-x');
-              const ns = getComputedStyle(n), o = { shadow: ns.boxShadow, radius: ns.borderTopLeftRadius };
-              const x = getComputedStyle(b).boxShadow;
-              const was = b.classList.contains('is-selected');
-              b.classList.add('is-selected');
-              const sel = getComputedStyle(b).boxShadow;
-              b.classList.toggle('is-selected', was);
-              a.classList.remove('ink-o'); b.classList.remove('ink-x');
-              return { drawn, bare, o, x, sel, shapes: Ink.shapes,
-                       gone: [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow] };
-            }""", OX)
-            assert not errors, errors
-            page.close()
-            assert plain["drawn"] == "plain" and {"ring", "cross"} <= set(plain["shapes"]), plain
-            assert plain["o"]["shadow"] == "rgb(0, 0, 255) 0px 0px 0px 2px", plain
-            assert plain["o"]["radius"] == "999px", plain
-            assert plain["x"].startswith("rgb(255, 0, 0) 3px 0px 0px 0px inset"), plain
-            assert "rgb(255, 0, 0) 3px 0px 0px 0px inset" in plain["sel"], plain
-            assert "0px 0px 0px 2px" in plain["sel"], ("the selected pane lost its focus ring", plain)
-            assert plain["gone"] == plain["bare"], plain
+        # Plain: the same two rows as CSS, in their own inks.
+        page, errors, _ = _open(browser, port, token)
+        page.evaluate("""() => { const s = document.documentElement.style;
+          s.setProperty('--ink-pencil', '#0000ff'); s.setProperty('--ink-red', '#ff0000'); }""")
+        plain = page.evaluate("""async (t) => {
+          const drawn = (await Ink.setSkin(t)).drawn;
+          const a = document.querySelector('.tile[data-repo="alpha"]');
+          const b = document.querySelector('.tile[data-repo="beta"]');
+          const n = a.querySelector('.head .n');
+          const bare = [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow];
+          a.classList.add('ink-o'); b.classList.add('ink-x');
+          const ns = getComputedStyle(n), o = { shadow: ns.boxShadow, radius: ns.borderTopLeftRadius };
+          const x = getComputedStyle(b).boxShadow;
+          const was = b.classList.contains('is-selected');
+          b.classList.add('is-selected');
+          const sel = getComputedStyle(b).boxShadow;
+          b.classList.toggle('is-selected', was);
+          a.classList.remove('ink-o'); b.classList.remove('ink-x');
+          return { drawn, bare, o, x, sel, shapes: Ink.shapes,
+                   gone: [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow] };
+        }""", OX)
+        assert not errors, errors
+        page.close()
+        assert plain["drawn"] == "plain" and {"ring", "cross"} <= set(plain["shapes"]), plain
+        assert plain["o"]["shadow"] == "rgb(0, 0, 255) 0px 0px 0px 2px", plain
+        assert plain["o"]["radius"] == "999px", plain
+        assert plain["x"].startswith("rgb(255, 0, 0) 3px 0px 0px 0px inset"), plain
+        assert "rgb(255, 0, 0) 3px 0px 0px 0px inset" in plain["sel"], plain
+        assert "0px 0px 0px 2px" in plain["sel"], ("the selected pane lost its focus ring", plain)
+        assert plain["gone"] == plain["bare"], plain
 
-            # Drawn: the layer starts with both shapes, and each leaves by its tool's rule.
-            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
-            assert {"ring", "cross"} <= set(page.evaluate("() => Ink.shapes"))
-            assert _set(page, OX)["drawn"] == "ink"
-            _mark(page, "alpha", "ink-o")
-            _mark(page, "alpha", "ink-x")
-            _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha'"
-                        " && m.drawn === 1).length === 2")
-            by = {m["shape"]: m for m in _marks(page)}
-            assert (by["ring"]["tool"], by["ring"]["strokes"]) == ("pencil", 1), by
-            assert (by["cross"]["tool"], by["cross"]["strokes"]) == ("red", 2), by
-            _hugs(page.evaluate(RING))
+        # Drawn: the layer starts with both shapes, and each leaves by its tool's rule.
+        page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+        assert {"ring", "cross"} <= set(page.evaluate("() => Ink.shapes"))
+        assert _set(page, OX)["drawn"] == "ink"
+        _mark(page, "alpha", "ink-o")
+        _mark(page, "alpha", "ink-x")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha'"
+                    " && m.drawn === 1).length === 2")
+        by = {m["shape"]: m for m in _marks(page)}
+        assert (by["ring"]["tool"], by["ring"]["strokes"]) == ("pencil", 1), by
+        assert (by["cross"]["tool"], by["cross"]["strokes"]) == ("red", 2), by
+        _hugs(page.evaluate(RING))
 
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
-            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+        count = page.evaluate(IDLE_LOOP)
+        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
 
-            # A two-digit number: the O widens with it and still stays off the name.
-            page.evaluate("""() => {
-              document.querySelector('.tile[data-repo="alpha"] .head .n').textContent = '12';
-              Ink.refresh(); }""")
-            page.wait_for_function(f"""() => {{ const g = ({RING})(); return ({AT_REST})()
-              && g.digits === '12' && !!g.mark && g.mark.drawn === 1
-              && Math.abs(g.mark.box.w - g.n.w) < 0.5; }}""", timeout=20000)
-            _hugs(page.evaluate(RING))
+        # A two-digit number: the O widens with it and still stays off the name.
+        page.evaluate("""() => {
+          document.querySelector('.tile[data-repo="alpha"] .head .n').textContent = '12';
+          Ink.refresh(); }""")
+        page.wait_for_function(f"""() => {{ const g = ({RING})(); return ({AT_REST})()
+          && g.digits === '12' && !!g.mark && g.mark.drawn === 1
+          && Math.abs(g.mark.box.w - g.n.w) < 0.5; }}""", timeout=20000)
+        _hugs(page.evaluate(RING))
 
-            _mark(page, "alpha", "ink-o", False)
-            _mark(page, "alpha", "ink-x", False)
-            _rest(page, "!Ink.inspect().layer.marks.some(m => m.shape === 'ring')"
-                        " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
-            left = _marks(page)
-            cross = next(m for m in left if m["shape"] == "cross")
-            assert cross["state"] == "struck", left
-            assert [m["strikeOf"] for m in left if m["strikeOf"]] == [cross["id"]], left
-            assert not errors, errors
-            page.close()
+        _mark(page, "alpha", "ink-o", False)
+        _mark(page, "alpha", "ink-x", False)
+        _rest(page, "!Ink.inspect().layer.marks.some(m => m.shape === 'ring')"
+                    " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
+        left = _marks(page)
+        cross = next(m for m in left if m["shape"] == "cross")
+        assert cross["state"] == "struck", left
+        assert [m["strikeOf"] for m in left if m["strikeOf"]] == [cross["id"]], left
+        assert not errors, errors
+        page.close()
 
-            # Reduced motion: both on the paper at once, and no pen travels.
-            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
-            _set(page, OX)
-            came = page.evaluate(RECORD, [[["alpha", "ink-o"], ["alpha", "ink-x"]]])
-            whole = [f for f in came
-                     if sum(1 for m in f["marks"] if m[1] == "pane:alpha" and m[2] == 1) == 2]
-            assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
-            assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
-            assert not errors, errors
-            page.close()
+        # Reduced motion: both on the paper at once, and no pen travels.
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        _set(page, OX)
+        came = page.evaluate(RECORD, [[["alpha", "ink-o"], ["alpha", "ink-x"]]])
+        whole = [f for f in came
+                 if sum(1 for m in f["marks"] if m[1] == "pane:alpha" and m[2] == 1) == 2]
+        assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
+        assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+        assert not errors, errors
+        page.close()
 
-            # A rail: only the first pane is open, so beta is 48px wide and the X goes down its middle.
-            S.update_window("main", open="alpha", widths={"alpha": 1})
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=1)
-            _set(page, OX)
-            rail = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="beta"]')
-              .getBoundingClientRect(); return { x: r.left, w: r.width }; }""")
-            assert rail["w"] < 90, rail
-            _mark(page, "beta", "ink-x")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'cross' && m.drawn === 1)")
-            [cross] = [m for m in _marks(page) if m["shape"] == "cross"]
-            assert (cross["lane"], cross["strokes"]) == ("pane:beta", 2), cross
-            u = _union(cross["bounds"])
-            assert abs((u["x"] + u["r"]) / 2 - (rail["x"] + rail["w"] / 2)) <= 3, (u, rail)
-            assert not errors, errors
-            browser.close()
+        # A rail: only the first pane is open, so beta is 48px wide and the X goes down its middle.
+        S.update_window("main", open="alpha", widths={"alpha": 1})
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=1)
+        _set(page, OX)
+        rail = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="beta"]')
+          .getBoundingClientRect(); return { x: r.left, w: r.width }; }""")
+        assert rail["w"] < 90, rail
+        _mark(page, "beta", "ink-x")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'cross' && m.drawn === 1)")
+        [cross] = [m for m in _marks(page) if m["shape"] == "cross"]
+        assert (cross["lane"], cross["strokes"]) == ("pane:beta", 2), cross
+        u = _union(cross["bounds"])
+        assert abs((u["x"] + u["r"]) / 2 - (rail["x"] + rail["w"] / 2)) <= 3, (u, rail)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -2012,7 +1951,7 @@ REFUSE = """() => new Promise(done => Ink.setSkin({ name: 'refuse', series: fals
 
 
 @pytest.mark.browser
-def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path):
+def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path, desk_browser):
     """#388. `api.stroke` draws a skin's material with a tool's own stroke -- here the pencil's grain
     in the pen's ink -- into a group a hook was handed, from head 0: the skin advances the head in
     `tick`, and the line is on the paper in the pen's ink once complete and nowhere at head 0. At
@@ -2021,86 +1960,84 @@ def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path):
     line again, in the new ink, and the live strokes do not grow. Replacing the skin frees every
     geometry it made. A tool or an ink that is no tool is refused, naming it. Reduced motion draws
     the line whole on the first tick."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
-            page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+        page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
 
-            # The geometries on the GPU before the skin, read through `api.renderer` from a hook.
-            assert page.evaluate(PROBE) == "ink"
-            _rest(page, "!!window.__r")
-            before = page.evaluate("() => window.__r.info.memory.geometries")
+        # The geometries on the GPU before the skin, read through `api.renderer` from a hook.
+        assert page.evaluate(PROBE) == "ink"
+        _rest(page, "!!window.__r")
+        before = page.evaluate("() => window.__r.info.memory.geometries")
 
-            # Drawn at the pen's speed, then on the paper in the pen's ink, never the pencil's.
-            assert page.evaluate(MATERIAL) == "ink"
-            _rest(page, DRAWN)
-            at = page.evaluate(LINE, [20, 200])
-            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
-            assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
-            ticks = page.evaluate("() => __m.ticks")
-            assert ticks[0][2] < ticks[0][3] / 2 and all(t[4] is False for t in ticks), ticks
-            assert _layer(page)["skin"]["strokes"] == 1, _layer(page)["skin"]
+        # Drawn at the pen's speed, then on the paper in the pen's ink, never the pencil's.
+        assert page.evaluate(MATERIAL) == "ink"
+        _rest(page, DRAWN)
+        at = page.evaluate(LINE, [20, 200])
+        page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+        assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
+        ticks = page.evaluate("() => __m.ticks")
+        assert ticks[0][2] < ticks[0][3] / 2 and all(t[4] is False for t in ticks), ticks
+        assert _layer(page)["skin"]["strokes"] == 1, _layer(page)["skin"]
 
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
-            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+        count = page.evaluate(IDLE_LOOP)
+        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
 
-            # At head 0 the line is nowhere.
-            page.evaluate("() => { __m.hold = true; __m.h.head(0); }")
-            bare = page.evaluate(READ, at)[0]
-            assert not any(px[3] > 8 for px in bare), bare
-            page.evaluate("() => { __m.h.head(__m.h.len); __m.hold = false; }")
-            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+        # At head 0 the line is nowhere.
+        page.evaluate("() => { __m.hold = true; __m.h.head(0); }")
+        bare = page.evaluate(READ, at)[0]
+        assert not any(px[3] > 8 for px in bare), bare
+        page.evaluate("() => { __m.h.head(__m.h.len); __m.hold = false; }")
+        page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
 
-            # A palette change empties the group: the old handle is dead, `frame` is called again,
-            # and the line drawn again in the new group reads in the new ink.
+        # A palette change empties the group: the old handle is dead, `frame` is called again,
+        # and the line drawn again in the new group reads in the new ink.
+        page.evaluate("() => { window.__old = __m.h; window.__was = __m.frames; }")
+        page.evaluate(INK_PEN, ["#00ff00", None])
+        _rest(page, "__old.dead && __m.frames > __was && __m.h !== __old && " + DRAWN)
+        page.wait_for_function(PURE, arg=[at, 1], timeout=10000)
+        assert not page.evaluate(PURE, [at, 0]), page.evaluate(READ, at)
+
+        # Five resizes of the window, and so of the pane: each builds its frame again, and the
+        # live strokes stay one.
+        live = []
+        for i in range(5):
             page.evaluate("() => { window.__old = __m.h; window.__was = __m.frames; }")
-            page.evaluate(INK_PEN, ["#00ff00", None])
+            page.set_viewport_size({"width": 1340 - 60 * i, "height": 900})
             _rest(page, "__old.dead && __m.frames > __was && __m.h !== __old && " + DRAWN)
-            page.wait_for_function(PURE, arg=[at, 1], timeout=10000)
-            assert not page.evaluate(PURE, [at, 0]), page.evaluate(READ, at)
+            live.append(_layer(page)["skin"]["strokes"])
+        assert live == [1] * 5, live
+        assert _layer(page)["skin"]["errors"] == [], _layer(page)["skin"]
+        during = page.evaluate("() => window.__r.info.memory.geometries")
+        assert during > before, (before, during)
 
-            # Five resizes of the window, and so of the pane: each builds its frame again, and the
-            # live strokes stay one.
-            live = []
-            for i in range(5):
-                page.evaluate("() => { window.__old = __m.h; window.__was = __m.frames; }")
-                page.set_viewport_size({"width": 1340 - 60 * i, "height": 900})
-                _rest(page, "__old.dead && __m.frames > __was && __m.h !== __old && " + DRAWN)
-                live.append(_layer(page)["skin"]["strokes"])
-            assert live == [1] * 5, live
-            assert _layer(page)["skin"]["errors"] == [], _layer(page)["skin"]
-            during = page.evaluate("() => window.__r.info.memory.geometries")
-            assert during > before, (before, during)
+        # Replacing the skin frees every geometry it made.
+        assert page.evaluate(PROBE) == "ink"
+        _rest(page, "Ink.inspect().table === 'probe'")
+        after = page.evaluate("() => window.__r.info.memory.geometries")
+        assert after == before, (before, during, after)
+        assert _layer(page)["skin"]["strokes"] == 0, _layer(page)["skin"]
 
-            # Replacing the skin frees every geometry it made.
-            assert page.evaluate(PROBE) == "ink"
-            _rest(page, "Ink.inspect().table === 'probe'")
-            after = page.evaluate("() => window.__r.info.memory.geometries")
-            assert after == before, (before, during, after)
-            assert _layer(page)["skin"]["strokes"] == 0, _layer(page)["skin"]
+        # A tool, or an ink, that is no tool is refused, naming the argument.
+        refused = page.evaluate(REFUSE)
+        assert refused[0].startswith("TypeError: ") and "`tool` \"crayon\"" in refused[0], refused
+        assert refused[1].startswith("TypeError: ") and "`ink` \"crayon\"" in refused[1], refused
+        assert not errors, errors
+        page.close()
 
-            # A tool, or an ink, that is no tool is refused, naming the argument.
-            refused = page.evaluate(REFUSE)
-            assert refused[0].startswith("TypeError: ") and "`tool` \"crayon\"" in refused[0], refused
-            assert refused[1].startswith("TypeError: ") and "`ink` \"crayon\"" in refused[1], refused
-            assert not errors, errors
-            page.close()
-
-            # Reduced motion: the whole line on the first tick, and on the paper to its end.
-            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
-            page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
-            assert page.evaluate(MATERIAL) == "ink"
-            _rest(page, DRAWN)
-            ticks = page.evaluate("() => __m.ticks")
-            assert len(ticks) == 1 and ticks[0][:2] == [1, 1] and ticks[0][2] == ticks[0][3], ticks
-            assert ticks[0][4] is True, ticks
-            page.wait_for_function(PURE, arg=[page.evaluate(LINE, [185, 20]), 0], timeout=10000)
-            assert not errors, errors
-            browser.close()
+        # Reduced motion: the whole line on the first tick, and on the paper to its end.
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
+        assert page.evaluate(MATERIAL) == "ink"
+        _rest(page, DRAWN)
+        ticks = page.evaluate("() => __m.ticks")
+        assert len(ticks) == 1 and ticks[0][:2] == [1, 1] and ticks[0][2] == ticks[0][3], ticks
+        assert ticks[0][4] is True, ticks
+        page.wait_for_function(PURE, arg=[page.evaluate(LINE, [185, 20]), 0], timeout=10000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)

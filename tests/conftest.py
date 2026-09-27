@@ -25,8 +25,9 @@ import traceback
 
 import pytest
 
-# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317).
-pytest_plugins = ["orphans"]
+# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317);
+# tests/desk_harness.py is the browser tests' one driver and browser per worker (#299).
+pytest_plugins = ["orphans", "desk_harness"]
 
 from subproc import agentdata_env  # noqa: E402 - after pytest_plugins, which #317 puts right after pytest
 
