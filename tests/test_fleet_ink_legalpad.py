@@ -594,19 +594,30 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
             browser = launch_chromium(p)
             page, errors, _ = _desk(browser, port, token, panes=2, reduced=True)
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
-            went = page.evaluate(f"""async () => {{
-              const l0 = Ink.inspect().layer.frames;
-              document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
-              document.querySelector('.tile[data-repo="idle"]').classList.replace('state-idle', 'state-done');
-              unread.set('idle', 1); bell();
-              // Read once the check is on the paper (#470), not after a fixed two of the test's
-              // frames: on a loaded runner the layer's frame for these changes can come after the
-              // test's second. "At once" is the layer's own frame count, still held to 2 below.
-              let waited = 0;
+            # `idle` is done through a real event (#470), so the server's fold says done too and no
+            # /api/fleet answer can take the check's class away. The choice and the bell go on the page
+            # in the task that brings `is-done`; the layer's frames are counted from there to the frame
+            # the check is on the paper.
+            page.evaluate("""() => { const idle = document.querySelector('.tile[data-repo="idle"]');
               const ticked = () => Ink.inspect().layer.marks.some(m => m.shape === 'check' && !m.strikeOf);
-              do {{ await new Promise(d => requestAnimationFrame(d)); waited += 1; }} while (!ticked() && waited < 120);
+              const seen = new MutationObserver(async () => {
+                if (!idle.classList.contains('is-done')) return;
+                seen.disconnect();
+                const l0 = Ink.inspect().layer.frames;
+                document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
+                unread.set('idle', 1); bell();
+                let waited = 0;
+                do { await new Promise(d => requestAnimationFrame(d)); waited += 1; } while (!ticked() && waited < 120);
+                window.__went = { frames: Ink.inspect().layer.frames - l0, waited };
+              });
+              seen.observe(idle, { attributes: true, attributeFilter: ['class'] }); }""")
+            E.append("idle", [_ev("idle", "phase_changed", {"from": "", "to": "done"})])
+            page.wait_for_function("() => window.__went !== undefined", timeout=15000)
+            went = page.evaluate(f"""async () => {{
+              await refreshAfterNow();
+              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
               const l = Ink.inspect().layer;
-              return {{ frames: l.frames - l0, busy: l.busy, hands: l.hands, reduced: l.reduced, waited,
+              return {{ ...window.__went, busy: l.busy, hands: l.hands, reduced: l.reduced,
                        idle: document.querySelector('.tile[data-repo="idle"]').className,
                        marks: l.marks.map(m => [m.selector, m.shape, m.state, m.drawn, m.strikeOf]),
                        count: {SKIN}.inspect().count }};
@@ -621,6 +632,7 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
     assert all(m[3] == 1 for m in live), live
     assert not [m for m in live if m[1] == "loop"], "the pencil loops erased at once"
     assert [m[2] for m in live if m[1] == "ellipse"] == ["drawn"] and [m for m in live if m[1] == "check"], went
+    assert "is-done" in went["idle"].split() and [m[2] for m in live if m[1] == "check"] == ["drawn"], went
     assert any(m[2] == "struck" for m in went["marks"]), went["marks"]
     assert went["count"]["strike"] == 1, went["count"]
 

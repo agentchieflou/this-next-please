@@ -130,6 +130,12 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Approval gate | nobody answered within `fleet.approval_timeout` | `refused: approval_timeout`, exit 2, naming `ad-fleet approve <id>` | `test_fleet_approval.py::test_a_timeout_says_how_to_release_it_and_that_re_running_is_safe` |
 | Approval gate | the request could not be recorded, so it fails closed | `refused: approval_unavailable`, exit 2, nothing sent | `test_fleet_approval.py::test_the_gate_fails_closed_when_it_cannot_record_the_request` |
 | Approval gate | a denial carries no reason, or an approval is answered twice | `ApprovalError`, exit 2 | `test_fleet_approval.py::test_a_denial_without_a_reason_is_refused` |
+| Approval gate | a denial with no reason | `refused: reason_required`, exit 2; nothing written | `test_fleet_approval.py::test_a_denial_without_a_reason_is_refused` |
+| Approval gate | a decision that is neither `approved` nor `denied` | `refused: bad_state`, exit 2; nothing written | `test_fleet_approval.py::test_a_denial_without_a_reason_is_refused` |
+| Approval gate | an approval answered a second time | `refused: already_decided`, exit 2 | `test_fleet_approval.py::test_the_operator_commands_round_trip` |
+| Approval gate | an id with no waiting request | `refused: not_waiting`, exit 2, listing what is waiting | `test_fleet_approval.py::test_an_unknown_id_names_what_is_actually_waiting` |
+| Approval gate | a decision naming another request's digest (#543) | `ApprovalError` `digest_mismatch`; no decision file written | `test_fleet_approval.py::test_decide_refuses_a_digest_that_does_not_match_the_request_on_disk` |
+| Approval gate | a decision file whose digest is not the request's (MOB-D1) | `refused: approval_denied`, exit 2, reason *digest mismatch*; nothing posted | `test_fleet_approval.py::test_require_refuses_a_decision_carrying_a_wrong_digest_and_the_agent_stops` |
 | DPM | the artifact directory is outside the governed tree | `error`, exit 2 | `test_dpm.py::test_convert_refuses_paths_outside_governed_dir` |
 | DPM extract | the field schema is malformed (no fields, a duplicate name, a non-list) | `DpmError`, exit 2, naming the defect | `test_dpm_extract.py::test_a_broken_schema_is_refused_rather_than_quietly_finding_nothing` |
 | DPM extract | a document's route is OCR | `needs_ocr_review`; the text is never read for values | `test_dpm_extract.py::test_an_ocr_document_is_flagged_and_never_extracted_from` |
