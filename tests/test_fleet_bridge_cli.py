@@ -66,7 +66,8 @@ def no_desk(monkeypatch):
 
 
 def test_mobile_status_prints_valid_toon_with_the_folder_facts(fleet_home, tmp_path, capsys, no_desk):  # noqa: F811
-    cfg = _cfg(tmp_path)
+    # The folder holds a `:` on every OS, as a Windows drive letter does, so TOON quotes it here too.
+    cfg = _cfg(tmp_path if os.name == "nt" else tmp_path / "C:")
     C.save(cfg)
     code, out = _run(["mobile", "status"], capsys)
     assert code == 0 and "ok: true" in _toon_ok(out) and "enabled: true" in out and "bridge_running: false" in out
@@ -82,7 +83,7 @@ def test_mobile_status_prints_valid_toon_with_the_folder_facts(fleet_home, tmp_p
     code, out = _run(["mobile", "status"], capsys)
     meta = dict(line.split(": ", 1) for line in _toon_ok(out).splitlines()
                 if line.startswith("  ") and ": " in line and not line.startswith("   "))
-    meta = {k.strip(): v for k, v in meta.items()}
+    meta = {k.strip(): toon.read_cell(v) for k, v in meta.items()}  # each value as TOON encoded it, read back
     assert meta["folder"].endswith("OneDrive/FleetAgent") and meta["operator"] == UPN
     assert meta["expire_s"] == "900" and meta["notify"] == "true" and meta["serve_up"] == "false"
     assert meta["last_export"] and meta["last_inbox"] and meta["bridge_running"] == "true"
