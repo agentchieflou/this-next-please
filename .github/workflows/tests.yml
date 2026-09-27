@@ -261,7 +261,9 @@ jobs:
         run: python -m playwright install --with-deps chromium
       # Under `-n 2`: the ubuntu legs ran this tier under `-n auto` for months (#227 is Windows-only),
       # and tests/durations.json puts the tier at about 25 minutes of test time, 12-13 per shard,
-      # which a serial shard would spend on its own. Step cap 15: no green run of this job yet.
+      # which a serial shard would spend on its own. Measured locally on 4 shared cores (#312's
+      # handover): 9m44s and 11m32s under `-n 2`, against 14m35s and 16m37s serially. Step cap 15:
+      # no green run of this job yet; the three runs criterion 1 asks for set it.
       - name: pytest · browser
         timeout-minutes: 15
         env:
