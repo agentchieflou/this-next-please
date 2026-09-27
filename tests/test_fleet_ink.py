@@ -1610,8 +1610,9 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
         assert not errors, errors
         # #307, after the gestures, so their marks are taken as they always were: a page at rate 1
         # and one at rate 4, timed in turn seven times, first on the desk and then on a page of
-        # another site. The loop's own cost is its quickest unthrottled run (a busy machine only
-        # adds to it); the throttled figure is the median, so no single run decides it.
+        # another site. The loop's own cost is its quickest unthrottled run in either round (a
+        # busy machine only adds to it, and it is the same loop on both pages); each round's
+        # throttled figure is its median, so no single run decides it.
         # The ink page goes first: its four slow marks are still drawing, and that load lands on
         # the unthrottled loop, while the throttled one's idle share absorbs it (on a 4-core
         # Windows runner the desk round's quickest unthrottled run was 81.6 ms against 35.9 ms
@@ -1636,9 +1637,10 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+    own = min(loop[1] for loop in loops)
     for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
         print(f"  a fixed loop {where}: {loop[1]:.1f}ms, throttled at 4 {loop[4]:.1f}ms")
-        assert loop[4] >= 3 * loop[1], (where, loops)
+        assert loop[4] >= 3 * own, (where, own, loops)
 
 
 #: A fixed piece of main-thread work, timed on the page in ms (#307: about 40 ms unthrottled).
