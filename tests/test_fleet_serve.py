@@ -6,6 +6,7 @@ proven headlessly is everything that would silently break: the token, the loopba
 frames, the fact that the page fetches nothing from the internet, and that the wheel ships it.
 """
 from __future__ import annotations
+import calendar
 import json
 import re
 import os
@@ -70,8 +71,8 @@ def a_repo(tmp_path, name="luna", **kw):
 
 def test_a_request_without_the_token_is_refused(running):
     base, token, _ = running
-    for path in ("/", "/settings", "/api/fleet", "/api/themes",
-                 "/static/app.js", "/static/common.js", "/static/settings.js"):
+    for path in ("/", "/settings", "/m", "/api/fleet", "/api/themes",
+                 "/static/app.js", "/static/common.js", "/static/settings.js", "/static/m/m.js"):
         with pytest.raises(urllib.error.HTTPError) as e:
             get(base, path)
         assert e.value.code == 403, path
@@ -141,6 +142,88 @@ def test_a_pending_approval_reaches_the_page_with_its_payload(running, tmp_path,
     data = json.loads(body)
     assert data["repos"][0]["state"] == "waiting_approval"
     assert data["approvals"][0]["payload"]["transition"] == "31 In Review"
+
+
+def test_the_attention_route_answers_only_the_bridges_allow_listed_keys_and_six_agents_fit_in_8kb(running, tmp_path,
+                                                                                                  monkeypatch):
+    """`/api/attention` (#559) is `bridge.attention_row()` over the same snapshot `/api/fleet` folds: one allow-list
+    for the phone's folder and the phone's page, and a fraction of the bytes."""
+    from agentdata.fleet import bridge
+
+    base, token, _ = running
+    for name in ("luna", "uat", "velocity", "prod", "ops", "lab"):
+        a_repo(tmp_path, name, ticket="RDSD-1")
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    id = approval.require("jira-transition", "RDSD-1: In Progress -> In Review", {"key": "RDSD-1"},
+                          ticket="RDSD-1", timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    state = os.path.join(registry.fleet_dir(), bridge.STATE_FILE)
+    assert not os.path.exists(state)
+
+    _, body, _ = get(base, "/api/attention", token)
+    data = json.loads(body)
+    assert set(data) == {"ok", "schema", "generated", "rows"} and data["ok"] is True and data["schema"] == 1
+    assert len(body.encode("utf-8")) < 8 * 1024, len(body)
+    rows = {r["repo"]: r for r in data["rows"]}
+    assert set(rows) == {"luna", "uat", "velocity", "prod", "ops", "lab"}
+    for row in rows.values():
+        assert set(row) == bridge.ATTENTION_KEYS, set(row) ^ bridge.ATTENTION_KEYS
+        assert row["seq"] == 0 and row["digest"] == bridge.attention_digest(row)
+    assert rows["luna"]["approvals"] == [id] and rows["luna"]["needs_human"] is True
+
+    def keys(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                yield from keys(v)
+
+    for key in keys(data):
+        assert key not in ("path", "pid", "console", "recent", "trace") and not key.endswith("_source"), key
+    assert not os.path.exists(state), "a GET minted the bridge's state file"
+
+    # `seq` is the bridge's, read and never bumped.
+    with open(state, "w", encoding="utf-8") as f:
+        json.dump({"schema": 1, "attention_seq": {"luna": 7}}, f)
+    before = open(state, "rb").read()
+    rows = {r["repo"]: r for r in json.loads(get(base, "/api/attention", token)[1])["rows"]}
+    assert rows["luna"]["seq"] == 7 and rows["uat"]["seq"] == 0
+    assert open(state, "rb").read() == before
+
+
+def test_the_approval_route_answers_one_mirror_with_its_digest_and_never_the_payload(running, tmp_path, monkeypatch):
+    base, token, _ = running
+    a_repo(tmp_path, "luna")
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    id = approval.require("jira-transition", "RDSD-1: In Progress -> In Review",
+                          {"key": "RDSD-1", "transition": "31 In Review"}, ticket="RDSD-1", timeout=0).id
+    decided = approval.require("jira-comment", "RDSD-1: comment", {"key": "RDSD-1"}, timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    approval.decide(decided, approval.APPROVED, by="operator")
+    request = approval.read_request(id)
+
+    _, body, _ = get(base, f"/api/approval?id={id}", token)
+    data = json.loads(body)
+    assert data["ok"] is True and data["id"] == id and data["repo"] == "luna"
+    assert re.fullmatch(r"[0-9a-f]{64}", data["digest"]) and data["digest"] == approval.digest(request)
+    created = calendar.timegm(time.strptime(request["created"], "%Y-%m-%dT%H:%M:%S"))
+    assert data["created"] == request["created"] + "Z"
+    assert data["expires"] == time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                            time.gmtime(created + approval.timeout_seconds()))
+    assert data["payload_preview"] == {"key": "RDSD-1", "transition": "31 In Review"}
+    assert "payload" not in data and "pid" not in data and str(request["pid"]) not in body
+
+    for missing in (decided, "luna-jira-transition-20260101T000000-dead"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base, f"/api/approval?id={missing}", token)
+        assert e.value.code == 404, missing
+        assert json.loads(e.value.read()) == {"ok": False, "error": f"no approval called {missing} is waiting"}
+    for bad in ("", "..%2Fserve", "a" * 97, "luna%20x"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base, f"/api/approval?id={bad}", token)
+        assert e.value.code == 400, bad
 
 
 def test_approving_from_the_page_releases_the_agent(running, tmp_path, monkeypatch):
@@ -479,6 +562,30 @@ def test_the_map_page_fits_inside_the_desk_budget_and_its_scripts_inside_their_o
     assert sent < MAP_BUDGET, (sent, scripts_)
 
 
+#: The phone page's own scripts (#581, P-15): `static/m/**/*.js`, gzipped as served. Outside the desk's
+#: 200 KiB like `MAP_BUDGET`: a desk never fetches them. `m/m.js` measured 2,746 B at #581; /m does
+#: four verbs and nothing else (the issue's Out of scope), so 4 KiB is its room, not a target.
+M_BUDGET = 4 * 1024
+
+
+def test_the_phone_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
+    """`m.html` and `m.css` sit in `static/` beside the desk's files, so the 200 KiB above counts them;
+    they are held to 4 KiB of it together, like the map's. The phone's scripts have a budget of
+    their own (P-15)."""
+    import gzip as gz
+
+    def wire(rel):
+        return len(gz.compress(S.static_body(rel), 6, mtime=0))
+
+    page = wire("m.html") + wire("m.css")
+    assert page < 4 * 1024, page
+    scripts_ = m_scripts()
+    assert scripts_ == ["m/m.js"], scripts_
+    sent = sum(wire(n) for n in scripts_)
+    print(f"\n  phone page {page} bytes gzipped; phone scripts {sent} bytes gzipped {scripts_}")
+    assert sent < M_BUDGET, (sent, scripts_)
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""
@@ -490,7 +597,7 @@ def test_the_page_and_its_assets_are_served_compressed():
     thread.start()
     port = server.server_address[1]
     try:
-        for route in ("/", "/settings", "/map", "/static/app.js", "/static/common.js",
+        for route in ("/", "/settings", "/map", "/m", "/static/m/m.js", "/static/app.js", "/static/common.js",
                       "/static/settings.js", "/static/app.css", "/static/ink/ink.js",
                       "/static/ink/layer.js"):
             asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
@@ -534,13 +641,18 @@ def scripts() -> list[str]:
              if n.endswith(".js")]
     # The map's scripts (#405), walked all the way down: its scene and skins (#409, #414) will
     # live in folders under `static/map/`.
-    return sorted(top + ink + skins + map_scripts())
+    return sorted(top + ink + skins + map_scripts() + m_scripts())
 
 
-def map_scripts() -> list[str]:
-    """Every `.js` under `static/map/`, as a path under `static/`."""
+def m_scripts() -> list[str]:
+    """Every `.js` under `static/m/` (#581), as a path under `static/`."""
+    return map_scripts("m")
+
+
+def map_scripts(folder="map") -> list[str]:
+    """Every `.js` under `static/map/` (or another page's folder), as a path under `static/`."""
     found = []
-    for root, _, files in os.walk(os.path.join(STATIC, "map")):
+    for root, _, files in os.walk(os.path.join(STATIC, folder)):
         for n in files:
             if n.endswith(".js"):
                 found.append(os.path.relpath(os.path.join(root, n), STATIC).replace(os.sep, "/"))
@@ -582,7 +694,8 @@ def test_the_script_writes_text_rather_than_markup():
 PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("settings.html", ["settings.js", "common.js"]),
                 ("probe.html", ["probe.js", "common.js"]),
-                ("map.html", ["map/map.js", "common.js"])]
+                ("map.html", ["map/map.js", "common.js"]),
+                ("m.html", ["m/m.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
@@ -682,7 +795,7 @@ def test_the_wheel_ships_the_static_files():
 def test_the_dashboard_is_documented_including_the_keyboard_map():
     text = open(CONTRACT, encoding="utf-8").read()
     for endpoint in ("/api/fleet", "/api/events", "/api/approve", "/api/deny", "/api/start",
-                     "/api/send", "/api/stop"):
+                     "/api/send", "/api/stop", "/api/attention", "/api/approval?id="):
         assert endpoint in text, f"{endpoint} is not documented"
     for key in ("Esc", "1", "9", "a"):
         assert f"`{key}`" in text, f"the {key} key is not in the keyboard map"
@@ -700,7 +813,7 @@ def test_the_page_can_actually_fetch_its_own_css_and_js(running):
     the URLs out of the served HTML and fetches exactly those.
     """
     base, token, _ = running
-    for page in ("/", "/settings"):
+    for page in ("/", "/settings", "/m"):
         html = urllib.request.urlopen(f"{base}{page}?t={token}", timeout=5).read().decode()
 
         refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)

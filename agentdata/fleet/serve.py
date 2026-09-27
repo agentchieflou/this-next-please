@@ -96,8 +96,10 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `picker.js` (#362) is the model picker, a classic script the desk and /settings both load right
 # after `common.js`.
+#
+# `/m` (#581), the phone page, brings `m.css` and its one script, `m/m.js`.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js")
+          "map.css", "map/map.js", "m.css", "m/m.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -111,8 +113,12 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 #
 # `/map` (#405) is the fourth: the fleet's structure as an accessible tree (docs/fleet-map.md
 # §The page), read-only, and a page rather than a desk view for the reason settings is one.
+#
+# `/m` (#581) is the fifth: the phone page, one column over `/api/attention` and `/api/approval`
+# (#559) with the four verbs (approve, deny, send, answer), for a tablet on this machine's
+# localhost. Not inked: it is not in `INKED_PAGES`, and it wears `ink-off` like the map.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html"}
+         "/map": "map.html", "/m": "m.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
@@ -550,6 +556,53 @@ def row_for(name: str) -> dict:
         if row.get("repo") == name:
             return row
     return {}
+
+
+APPROVAL_ID = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
+
+
+def _attention_seq() -> dict:
+    """The bridge's `attention_seq`, read and never written: a GET neither bumps it nor mints the state file."""
+    from . import bridge
+
+    try:
+        state = textio.read_json(os.path.join(fleet_dir(), bridge.STATE_FILE), bridge.STATE_FILE)
+    except (OSError, ValueError):
+        return {}
+    seq = state.get("attention_seq") if isinstance(state, dict) else None
+    return seq if isinstance(seq, dict) else {}
+
+
+def attention_answer() -> dict:
+    """`GET /api/attention` (#559): `bridge.attention_row()` over one `fleet_snapshot()`, the function the outbox
+    writes with, so the folder and the page share one allow-list. Nothing else of the snapshot rides along."""
+    from . import bridge
+
+    snap = fleet_snapshot()
+    scrub = bridge.Scrubber().scrub
+    seqs = _attention_seq()
+    rows = []
+    for row in snap.get("repos") or []:
+        repo = str(row.get("repo") or "")
+        if repo:
+            try:
+                seq = int(seqs.get(repo) or 0)
+            except (TypeError, ValueError):
+                seq = 0
+            rows.append(bridge.attention_row(row, scrub, snap.get("approvals") or [], seq))
+    return {"ok": True, "schema": bridge.MOBILE_SCHEMA,
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows}
+
+
+def approval_answer(id: str) -> dict | None:
+    """`GET /api/approval?id=` (#559): one waiting request as the bridge mirrors it (a scrubbed preview, the digest of
+    all of it, `expires`), or None for an id that is unknown or already decided. Never `payload`, never `pid`."""
+    from . import bridge
+
+    for request in approval.pending():
+        if request.get("id") == id:
+            return bridge.approval_record(request, bridge.Scrubber())
+    return None
 
 
 def fleet_snapshot() -> dict:
@@ -3143,6 +3196,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()}, gzip_ok=True)
+        if route == "/api/attention":
+            # The phone's view of the fleet (#559): the bridge's allow-listed rows, never `/api/fleet`'s.
+            return self._json(attention_answer())
+        if route == "/api/approval":
+            id = (query.get("id") or [""])[0]
+            if not APPROVAL_ID.match(id):
+                return self._refuse(400, "an approval id is 1-96 letters, digits, dots, dashes or underscores",
+                                    "take the id from /api/attention's `approvals`")
+            record = approval_answer(id)
+            if record is None:
+                return self._json({"ok": False, "error": f"no approval called {id} is waiting"}, 404)
+            return self._json({"ok": True, **record})
         if route == "/api/map":
             from . import fleetmap
 

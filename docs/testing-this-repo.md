@@ -260,6 +260,16 @@ that into the job summary and uploads the recorded demo beside it.
 | the ground | a repaint under 4 ms, and the drift timer off under reduced motion | `test_fleet_trace.py` |
 | latency | every marked local gesture under 50 ms, hiding a tile painted against a server held for two seconds, and one round trip per action | `test_fleet_instant.py` |
 
+The payload budgets are plain tests. Each measures what the server sends (`serve.static_body`, gzip level 6), and
+none is raised by a card (decisions 18 and 19 on #429):
+
+| Budget | Holds | In |
+| --- | --- | --- |
+| the static payload | every file in `static/` and `static/ink/` under 200 KiB, `m.html` and `m.css` included | `test_fleet_serve.py` |
+| `MAP_BUDGET` | `static/map/**/*.js` outside `map/skins/` under 32 KiB; `map.html` + `map.css` under 4 KiB of the 200 | `test_fleet_serve.py` |
+| `M_BUDGET` | `static/m/**/*.js` under 4 KiB (P-15; `m/m.js` was 2,746 B at #581); `m.html` + `m.css` under 4 KiB of the 200 | `test_fleet_serve.py` |
+| `INK_BUDGET`, `FX_BUDGET` | the ink layer's modules, and `fx.js` on its own ([desk-ink.md](desk-ink.md) §Budgets) | `test_fleet_ink.py` |
+
 Two of those deserve their reasoning repeated here, because the obvious version of each is wrong:
 
 * **Frame time is measured as long tasks, not as frame gaps.** A headless runner throttles
