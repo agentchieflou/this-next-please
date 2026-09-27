@@ -45,7 +45,7 @@ A palette colours the UI, and the notebook chooses the paper and its inks. Every
 | `--ink-pen` | `#22398F` | `#94B4FF` | ballpoint, gel ink by night |
 | `--ink-red`, `--ink-marker` | `#C8352B` | `#FF6A5E` | the red pen and the marker |
 | `--ink-green` | `#2E7A4D` | `#6FD39A` | the check |
-| `--ink-highlighter` | `#F3DF4B` | `#E6D548` | multiplied by day, screened by night |
+| `--ink-highlighter` | `#F3DF4B` | `#CEBF40` | multiplied by day, screened by night (#329: `#E6D548` screened left the text at 4.26:1) |
 
 `theme.check` gets every pair: each ink 3:1 on its paper, the text 4.5:1 on the paper and through the highlighter,
 for the variant's palette. The words are the palette's own `--text` and `--muted` (#257: a skin never recolours the

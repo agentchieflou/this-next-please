@@ -33,7 +33,8 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import AT_REST, COUNT_FETCHES, IDLE_LOOP, catch_up_frames
+from test_fleet_ink import AT_REST, COUNT_FETCHES, IDLE_LOOP, _choose, catch_up_frames
+from test_fleet_ink_notebook import _read_through_the_highlighter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -460,6 +461,15 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
                            "gamma": _live("done", stale={"stale": True})})
             steps["set"] = at_rest("document.querySelectorAll('.tile.state-done').length === 1"
                                    " && Ink.inspect().layer.marks.some(m => m.shape === 'check')")
+            # #329, folded here (decision 13): the needs-you name and its question read at 4.5:1
+            # through each variant's highlighter, measured from the pixels under them; then smoke again.
+            for variant in VARIANTS:
+                if variant != "smoke":
+                    _choose(page, "glass:" + variant)
+                _ready(page, variant)
+                steps.setdefault("read", []).extend(_read_through_the_highlighter(page, "alpha", "glass:" + variant))
+            _choose(page, "glass:smoke")
+            _ready(page, "smoke")
             page.click('.tile[data-repo="alpha"] .ask-choice >> nth=0')
             steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop')")
             page.click('.tile[data-repo="alpha"] .ask-choice >> nth=1')

@@ -142,7 +142,7 @@ and again on every frame it draws, because the stylesheet can land after the ski
 | `--farm-sun` (the light's colour) | `#FFF4E0` | `#FFD9A8` lamplight | `#D2DEF2` |
 | `--farm-band-light` | 0.55 | 0.9 | 0.9 |
 | `--ink-pencil` | `#74695A` | `#968F82` | `#8A97AB` |
-| `--ink-highlighter` | the palette's | `#A8861F` | the palette's |
+| `--ink-highlighter` | `#E2B45C` straw | `#816718` | `#D4A73D` |
 | `--farm-rain` (a rain streak on the boards) | `#A9C4DC` | `#9DB8D6` | `#8FB0D8` |
 | `--farm-firefly` (a glow on the soil) | — | `#D8F07A` | — |
 
@@ -158,8 +158,9 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
 * **A pane's text is on `--farm-paper`**, which a test holds equal to the variant's `composited_panel`. So
   `theme.check(base, composited_panel=paper, inks=...)` is the check of what the operator reads, and the table's inks
   are checked on the same paper: pencil, pen, red, green, marker and highlighter. The palette's pencil is too faint on
-  every one of the three papers, and the cave's highlighter washed its text out (4.20:1). The overrides above are why
-  all three pass.
+  every one of the three papers, and the cave's highlighter washed its text out (4.20:1). Read through the layer's
+  real blend (#329), the palette's amber left the name at 3.76:1 by day and the rainy day's at 4.49:1, and the cave's
+  first override at 4.05:1; each weather has its own now. The overrides above are why all three pass.
 * **The header's and footer's text is on the lit plank.** Every texel of the plank, recoloured for the weather and lit
   as the shader lights it, keeps 4.5:1 under each colour `skin.css` writes the bands' text in. That is what sets the
   daylight band light at 0.55.

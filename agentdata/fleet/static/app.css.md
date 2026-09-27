@@ -497,6 +497,14 @@ to sit here was focus mode's -- a filter that dimmed every rail whose agent want
 replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
 nothing back when one of them stops needing you, so there is nothing left to hold.
 
+### `body[data-skin] .tile.needs-human .head .repo`
+
+Under a skin, the name of the agent that needs you is written in `--text`, not red (#329). Every
+skin but voxel lays the highlighter on it, and red through the swipe read at 1.7-2.4:1; `--text`
+reads at 4.5:1 or better through every variant's highlighter (`theme.check` rule 5), ink on and in
+the plain fallback. The highlight, the chip, the rail and the rim still say "needs you". `none`
+keeps `--human-text` (#328).
+
 ### `.outside`
 
 Above `.outside {`:

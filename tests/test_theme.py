@@ -418,3 +418,37 @@ def test_theme_escapes_are_byte_identical_to_golden():
     }
     for t in theme.list_themes():
         assert theme.escapes(t) == golden[t.name]
+
+
+def test_theme_check_rule_5_reads_the_highlighter_as_the_ink_layer_blends_it():
+    """#329: rule 5 used to read the text through a 38% tint of the highlighter, but the ink layer
+    screens the swipe onto a dark ground at 0.42 of the ink and multiplies it into a light one at
+    0.68 (`static/ink/pen.js`). Glass smoke's old amber passed the tint and read 4.10:1 on the
+    frost's light end; the new one passes. `plain=True` is the plain fallback's 38% tint."""
+    dark, panel = theme.get("dark"), "#273D57"
+    assert theme.is_dark("#1B1E25") and not theme.is_dark("#FBFBF6")
+    assert theme.highlight_under("#000000", "#FFFFFF", True) == theme.rgb_to_hex((0.42,) * 3)
+    assert theme.highlight_under("#FFFFFF", "#000000", False) == theme.rgb_to_hex((0.32,) * 3)
+    old = "#D29922"
+    assert round(theme.contrast_ratio(dark.text, theme.highlight_under(panel, old, True)), 2) == 4.10
+    with pytest.raises(theme.ThemeError) as exc:
+        theme.check(dark, composited_panel=panel, skin="glass:smoke", inks={"highlighter": old})
+    assert "through the highlighter is 4.10:1" in exc.value.args[0]
+    theme.check(dark, composited_panel=panel, skin="glass:smoke", inks={"highlighter": "#A97B1B"})
+    # The same old ink, read the plain way, is the 38% tint -- which it passes.
+    theme.check(dark, composited_panel=panel, inks={"highlighter": old}, plain=True)
+    assert theme.contrast_ratio(dark.text, theme.mix(panel, old, theme.INK_TINT)) >= 4.5
+    # `dark` is the variant's, not the panel's: a light paper named dark is screened.
+    with pytest.raises(theme.ThemeError):
+        theme.check(dark, composited_panel=panel, inks={"highlighter": old}, dark=True)
+
+
+def test_the_highlighter_model_uses_the_constants_the_shader_draws_with():
+    """`HL_SCREEN` and `HL_MULTIPLY` are pen.js's highlighter branch, so the model cannot drift."""
+    import os
+    pen = open(os.path.join(os.path.dirname(theme.__file__), "fleet", "static", "ink", "pen.js"),
+               encoding="utf-8").read()
+    branch = pen[pen.index("if (uKind > 3.5 && uKind < 4.5)"):]
+    branch = branch[:branch.index("return;")]
+    assert f"uColor * ha * {theme.HL_SCREEN}" in branch, branch
+    assert f"mix(vec3(1.0), uColor, ha * {theme.HL_MULTIPLY})" in branch, branch
