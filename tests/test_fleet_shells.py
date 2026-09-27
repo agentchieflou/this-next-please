@@ -185,10 +185,13 @@ def test_open_all_leaves_exactly_the_windows_the_shells_name():
     """`ad-fleet open --all` leaves each IDE view's window to its IDE, and `IDE_WINDOWS` is how it
     knows them. Read from the source rather than trusted: a shell that renamed its window would
     otherwise be given a browser tab sharing its record the next time the operator opened them all.
-    The spike's desktop window (#353) is such a host too."""
+    The spike's desktop window (#353) is such a host too, and so are a phone and a tablet (#580),
+    which name their window in the link they open (`/open?w=phone&ink=off`), not in a source here."""
     named = {m.group(1) for body in [*shells().values(), *desktop_sources().values()]
              for m in re.finditer(r'\bWINDOW = "([^"]+)"', body)}
-    assert named == set(O.IDE_WINDOWS)
+    assert named | {"phone", "tablet"} == set(O.IDE_WINDOWS)
+    assert len(O.IDE_WINDOWS) == len(named) + 2
+    assert "/open?w=phone&ink=off" in read(DOC) and "/open?w=tablet&ink=off" in read(DOC)
 
 
 def test_both_shells_ping_before_starting_a_second_server():

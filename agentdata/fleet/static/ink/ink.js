@@ -56,6 +56,9 @@ if (asked === "off") {
   verdict.source = "override";
   verdict.why = "forced on by ?ink=on: a test override, not a measurement (the probe says " +
                 facts.probe + " for " + (facts.shell || "this shell") + ")";
+} else if (window.matchMedia && matchMedia("(pointer: coarse) and (max-width: 900px)").matches) {
+  verdict.source = "narrow";
+  verdict.why = "a coarse pointer under 900px: the canvas is rebuilt on every resize and a mobile URL bar fires those";
 } else if (facts.probe === "hardware") {
   verdict.on = true;
   verdict.why = "the probe measured hardware WebGL in " + facts.shell;
