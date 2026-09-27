@@ -31,6 +31,7 @@ from agentdata.fleet import events as E
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet import make_project
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
 # The desk module's globals are process-wide; without this the saved-desk test's pins and arrangement
@@ -186,12 +187,12 @@ def desk(fleet_home, tmp_path):                                 # noqa: F811
 
 
 def _page(browser, url):
-    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page = counted(browser.new_page(viewport={"width": 1440, "height": 900}))
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_selector(".tile.is-solo", timeout=15000)
-    page.wait_for_timeout(900)
+    settle(page)
     return browser, page, errors
 
 
@@ -272,7 +273,7 @@ def test_the_sidebar_sits_beside_the_grid_and_does_not_cover_it(desk, desk_brows
     """HIG *Split views*. Five fixed overlays at one edge is what this replaced."""
     browser, page, _ = _page(desk_browser, desk)
     page.keyboard.press("b")
-    page.wait_for_timeout(500)
+    settle(page)
     got = page.evaluate("""() => {
         const s = document.getElementById('side'), m = document.querySelector('main');
         if (!s || s.hidden) return null;
@@ -430,7 +431,7 @@ def test_the_number_on_a_tile_is_the_key_that_focuses_it(desk, desk_browser):
     """
     browser, page, _ = _page(desk_browser, desk)
     page.evaluate("() => moveTile(document.querySelector('.tile').dataset.repo, 1)")
-    page.wait_for_timeout(900)
+    settle(page)
     got = page.evaluate("""() => {
         const byBadge = {};
         document.querySelectorAll('.tile').forEach(t => {
@@ -453,12 +454,12 @@ def test_a_pinned_tile_can_still_be_moved(desk, desk_browser):
     browser, page, _ = _page(desk_browser, desk)
     names = page.evaluate("() => getEffectiveOrder()")
     page.evaluate("async (n) => { await toggleTilePin(n[0]); await toggleTilePin(n[1]); }", names)
-    page.wait_for_timeout(900)
+    settle(page)
     assert page.evaluate("() => (getArrangement().pinned || []).length") == 2, \
         "two quick pins must both survive"
     before = page.evaluate("() => getEffectiveOrder()")
     page.evaluate("(n) => moveTile(n, 1)", before[0])
-    page.wait_for_timeout(1200)
+    settle(page)
     after = page.evaluate("() => getEffectiveOrder()")
     close_pages(browser)
     assert len(before) >= 2 and before != after, f"a pinned tile would not move: {before} -> {after}"
@@ -564,7 +565,7 @@ def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monk
         window.confirm = (msg) => { window._confirmed.push(msg); return false; };
     }""")
     page.evaluate("() => dispatch('DATAENG-9', 'asks')")
-    page.wait_for_timeout(500)
+    settle(page)
     confirmed = page.evaluate("() => window._confirmed")
     assert len(confirmed) == 1, "confirm dialog did not appear for reworded cross_project refusal"
     assert "different board" in confirmed[0]

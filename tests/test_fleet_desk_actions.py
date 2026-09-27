@@ -28,6 +28,7 @@ from agentdata.fleet import supervisor
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, settle
 from test_fleet import make_project
 from test_fleet_desk_regressions import _drain_and_age
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
@@ -141,12 +142,12 @@ def desk(fleet_home, tmp_path):                                 # noqa: F811
 
 
 def _page(browser, url):
-    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page = counted(browser.new_page(viewport={"width": 1440, "height": 900}))
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_selector(".tile.is-solo", timeout=15000)
-    page.wait_for_timeout(900)
+    settle(page)
     return browser, page, errors
 
 
@@ -166,6 +167,17 @@ def _press(page, selector: str) -> None:
     pane under where the button had been, and the pane selected itself instead."""
     page.wait_for_function(_LINES, timeout=15000)
     page.click(selector)
+
+
+def _routed(page, flag: str) -> None:
+    """Until a route handler has set `window[flag]` -- it has the request -- or 15 s; the
+    assertion after it says what never came."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    try:
+        page.wait_for_function("(f) => window[f] === true", arg=flag, timeout=15000)
+    except PlaywrightTimeout:
+        pass
 
 
 def _visible(page, repo: str) -> bool:
@@ -277,7 +289,9 @@ def test_a_tile_never_ends_up_painted_away_from_where_the_layout_put_it(desk, de
     }""")
     assert inverted > 0, "a re-ordered tile travels to its new place; it does not teleport"
 
-    page.wait_for_timeout(1200)                             # longer than the 260ms transition
+    # Past the transition: `playFlip` lets the tiles go two frames after the move and they travel
+    # for 260ms; settled is every one of them come to rest, and the arrangement written.
+    settle(page)
 
     after = page.evaluate("() => Array.from(document.querySelectorAll('.tile')).map(t => t.dataset.repo)")
     assert after[0] == before[1] and after[1] == before[0], "the move actually happened"
@@ -300,11 +314,11 @@ def test_a_viewer_who_asked_for_less_motion_gets_no_transform_at_all(desk, desk_
     script also skips measuring, so the work is not done either.
     """
     browser = desk_browser
-    page = browser.new_page(viewport={"width": 1440, "height": 900},
-                            reduced_motion="reduce")
+    page = counted(browser.new_page(viewport={"width": 1440, "height": 900},
+                                    reduced_motion="reduce"))
     page.goto(desk, wait_until="domcontentloaded")
     page.wait_for_selector(".tile.is-solo", timeout=15000)
-    page.wait_for_timeout(900)
+    settle(page)
 
     assert page.evaluate("() => reduceMotion()") is True
     page.evaluate("() => moveTile(document.querySelectorAll('.tile')[0].dataset.repo, 1)")
@@ -804,6 +818,7 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
     # #534: a poll of the page's own (the stream's `refreshSoon`) can be in flight when the hold
     # goes in, and `refresh()` hands back that poll instead of asking again. One is parked here
     # so that it always is, and the snapshot held below is asked for after it.
+    # Each handler says on the page when it has the request, so the test waits on the page (#305).
     parked = []
 
     def park(route):
@@ -811,11 +826,10 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
             route.continue_()
         else:
             parked.append(route)
+            page.evaluate("() => { window.__parked = true; }")
     page.route(re.compile(r"/api/fleet\?"), park)
     page.evaluate("() => { refresh(); }")
-    deadline = time.time() + 15
-    while not parked and time.time() < deadline:
-        page.wait_for_timeout(20)
+    _routed(page, "__parked")
     assert parked, "the poll already in flight was never asked for"
     held, released = [], []
 
@@ -824,12 +838,11 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
             route.continue_()
         else:
             held.append((route, route.fetch()))     # read by the server now, handed over later
+            page.evaluate("() => { window.__held = true; }")
     page.route(re.compile(r"/api/fleet\?"), hold)
     page.evaluate("() => { refreshAfterNow(); }")
     parked[0].continue_()
-    deadline = time.time() + 15
-    while not held and time.time() < deadline:
-        page.wait_for_timeout(20)
+    _routed(page, "__held")
     assert held, "the snapshot before the adopt was never asked for"
 
     _press(page, '.tile[data-repo="busy"] .adopt')
@@ -952,6 +965,10 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
 
 # ------------------------------------------------------- the skins, rendered (#4)
 
+# The skin sheet on the page, if any, is the one its `href` names, loaded (#305).
+SKIN_SHEET = ("(() => { const l = document.head.querySelector('link[data-skin]'); "
+              "return !l || (!!l.sheet && l.sheet.href === l.href); })()")
+
 
 @pytest.mark.browser
 def test_every_skin_variant_actually_repaints_the_page(desk, desk_browser):
@@ -968,10 +985,13 @@ def test_every_skin_variant_actually_repaints_the_page(desk, desk_browser):
     seen = {}
     for skin_name, variant, spec in K.every_variant():
         full = f"{skin_name}:{variant}"
+        # The stream's theme frame for this pick, then a refresh read after it, and the skin's
+        # sheet loaded from the address it names before anything is computed from it.
+        heard = page.evaluate("() => themeEvents")
         page.evaluate("(name) => post('theme', { skin: name })", full)
-        page.wait_for_timeout(450)
+        page.wait_for_function("(n) => themeEvents > n", arg=heard, timeout=DESK_WAIT_MS)
         page.evaluate("() => refresh()")
-        page.wait_for_timeout(650)
+        settle(page, allow_ground=True, also=SKIN_SHEET)
 
         body = page.evaluate("""() => ({
             skin: document.body.getAttribute('data-skin'),

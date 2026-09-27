@@ -29,10 +29,21 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_column import _until
 from desk_harness import close_pages
-from desk_waits import counted
+from desk_waits import DESK_WAIT_MS, counted, observe_quiet, settle
 from test_fleet_gutters import _gutter_point
 
 SKINS = ["none", "glass:smoke"]
+
+# The skin the server was told is the page's, and its stylesheet has loaded (#305): the family and
+# variant on `<body>`, and the `link[data-skin]` sheet read from the address it now names -- or, for
+# `none`, no skin sheet at all.
+SKIN_ON = """(s) => {
+  const [family, variant] = s.split(':');
+  const b = document.body, l = document.head.querySelector('link[data-skin]');
+  if ((b.getAttribute('data-skin') || 'none') !== family) return false;
+  if ((b.getAttribute('data-skin-variant') || '') !== (variant || '')) return false;
+  return family === 'none' ? !l : !!(l && l.sheet && l.sheet.href === l.href);
+}"""
 
 
 @pytest.fixture()
@@ -99,7 +110,7 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
         page.wait_for_function(
             "() => !!document.querySelector('.tile .trace[aria-label]')", timeout=15000)
-        page.wait_for_timeout(400)
+        settle(page)
         page.screenshot(path=os.path.join(shots, "ownership-desk.png"))
 
         # 1. The swap. One agent opened from its rail and then the one before it again, each
@@ -107,11 +118,11 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         #    gesture uses.
         page.locator('.tile[data-repo="luna"] .pane-rail').click()
         page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
-        page.wait_for_timeout(450)
+        settle(page)
         page.screenshot(path=os.path.join(shots, "ownership-open.png"))
         page.evaluate("() => backToPrevious()")
         page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
-        page.wait_for_timeout(350)
+        settle(page)
 
         # 2. The resize: the gutter on the open pane's right, pulled left until the rail beside
         #    it is a pane of its own (#234), and one step back from the keyboard. Once the swap
@@ -130,7 +141,7 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         page.wait_for_function("() => windowWrites === 0", timeout=8000)
         _until(lambda: (S.desk_state()["windows"].get("main") or {}).get("widths", {})
                .get("luna", 0) > 0)
-        page.wait_for_timeout(450)
+        settle(page)
         page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
 
         # 3. The hide, and back. Painted before the server answers, and the footer says where
@@ -143,7 +154,7 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         page.wait_for_function(
             "() => document.getElementById('hiddencount').textContent === '1 hidden'",
             timeout=8000)
-        page.wait_for_timeout(350)
+        settle(page)
         page.screenshot(path=os.path.join(shots, "ownership-hidden.png"))
         page.locator("#hiddencount").click()
         page.wait_for_function(
@@ -171,10 +182,11 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             }""")
         assert page.evaluate("() => source === null"), "a hidden page kept its stream open"
         page.on("request", heard)
-        page.evaluate(
-            "() => { window.__shown = 'visible'; document.dispatchEvent(new Event('visibilitychange')); }")
+        # Until the new stream's own request has been heard: `heard` was added first, so it has it.
+        with page.expect_request(lambda r: "/api/events" in r.url, timeout=8000):
+            page.evaluate(
+                "() => { window.__shown = 'visible'; document.dispatchEvent(new Event('visibilitychange')); }")
         page.wait_for_function("() => !!source && source.readyState === 1", timeout=8000)
-        page.wait_for_timeout(300)
         page.remove_listener("request", heard)
         upto = [a for a, _ in asked].index("events")
         assert [a for a, _ in asked[:upto]] == ["fleet"], asked
@@ -194,15 +206,20 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         # 4. The reconnect. The stream is dropped and the desk keeps what it had -- and the
         #    window that comes back shows it before the fleet answers.
         page.evaluate("() => { if (source) { source.close(); source = null; } }")
-        page.wait_for_timeout(300)
+        # Over the page's own work: what the dropped stream left behind (a `refreshSoon` it had
+        # armed, one refresh) runs out, and then the desk is counted.
+        observe_quiet(page, passes=1, drive=False)
         still_there = page.evaluate(
             "() => document.querySelectorAll('#grid .tile').length")
         assert still_there == 5, "the desk emptied when the stream went"
+        # The fleet's answer is held until the test has looked (#305): a hold of 1200 ms was a race
+        # with the look itself on a loaded runner, which lost it when the look came later.
         page.add_init_script("""
-              const real = window.fetch;
+              const real = window.fetch, held = [];
+              window.__releaseFleet = () => { window.__fleetFree = true; held.splice(0).forEach(go => go()); };
               window.fetch = function (url, opts) {
-                if (String(url).indexOf('/api/fleet') >= 0) {
-                  return new Promise(go => setTimeout(() => go(real(url, opts)), 1200));
+                if (!window.__fleetFree && String(url).indexOf('/api/fleet') >= 0) {
+                  return new Promise(go => held.push(go)).then(() => real(url, opts));
                 }
                 return real.apply(this, arguments);
               };
@@ -220,12 +237,13 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         assert early["tiles"] == 5, early
         assert early["stale"], "the reconnect did not say the desk was the old one"
         page.screenshot(path=os.path.join(shots, "ownership-stale.png"))
+        page.evaluate("() => window.__releaseFleet()")
         page.wait_for_function(
             "() => !document.body.classList.contains('is-stale')", timeout=15000)
 
         # 5. The redraw. Twenty passes with nothing to change, touching nothing at all --
         #    which is the render contract, and what every gesture above rests on.
-        page.wait_for_timeout(400)
+        settle(page)
         touched = page.evaluate("""() => {
               const w = __deskWaits.watch(document.body);
               for (let i = 0; i < 20; i++) redrawAll();
@@ -237,7 +255,8 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
 
         for skin in SKINS:
             S.act("theme", {"skin": skin})
-            page.wait_for_timeout(500)
+            page.wait_for_function(SKIN_ON, arg=skin, timeout=DESK_WAIT_MS)
+            settle(page, allow_ground=True)
             page.screenshot(path=os.path.join(
                 shots, "ownership-" + skin.replace(":", "-") + ".png"))
 
