@@ -325,7 +325,7 @@ def _state_path() -> str:
 def _fresh_state() -> dict:
     return {"schema": MOBILE_SCHEMA, "laptop_id": _secrets.token_hex(16), "processed": {}, "attention_digests": {},
             "attention_seq": {}, "exported": {}, "last_export": "", "last_inbox_seen": "", "last_heartbeat": "",
-            "rejected_24h": 0}
+            "rejected_24h": 0, "failures": {}}
 
 
 def _read_state_unlocked() -> dict:
@@ -515,10 +515,11 @@ def heartbeat_record(cfg: dict | None, state: dict, counts: dict) -> dict:
 
 
 def write_result(folder: str, nonce: str, kind_of: str, ok: bool, *, id: str = "", repo: str = "", code: str = "",
-                 error: str = "", hint: str = "", via: str = "", answered=None) -> str:
+                 error: str = "", hint: str = "", via: str = "", answered=None, late: bool | None = None) -> str:
     """`outbox/results/<nonce>.result.json`: the laptop's verdict on one phone decision or reply. #547 and #548 call it.
 
-    The words are the supervisor's or the bridge's own; `via` (`say`|`send`) and `answered` belong to replies.
+    The words are the supervisor's or the bridge's own; `via` (`say`|`send`) and `answered` belong to replies, `late`
+    to an applied decision (#547).
     """
     if kind_of not in ("decision", "reply"):
         raise BridgeError(f"{kind_of!r} is not a result kind", "decision | reply", code="bad_kind")
@@ -532,6 +533,8 @@ def write_result(folder: str, nonce: str, kind_of: str, ok: bool, *, id: str = "
     if kind_of == "reply":
         record["via"] = via if via in ("say", "send") else ""
         record["answered"] = [_cap(a, 32) for a in (answered or [])]
+    elif late is not None:
+        record["late"] = bool(late)
     record["at"] = _utc()
     return textio.write_json(outbox_dir(folder, "results", safe_file_name(f"{nonce}.result") + ".json"), record)
 
@@ -719,3 +722,368 @@ def prune(folder: str, state: dict, now: float | None = None) -> list[str]:
                   if (_epoch((v or {}).get("at", "")) or now) < now - keep]:
         processed.pop(nonce, None)
     return removed
+
+
+# ============================================================================== the applier: decisions (#547)
+#
+# `inbox/` is a local write path: anyone who can write into the operator's OneDrive folder can drop a file there. So a
+# phone's decision reaches `approval.decide()` only after every check below has passed, in this order, and every
+# refusal leaves **no decision file**: the agent's own `require()` loop then times out and refuses the write. The
+# operator check (`by` against `fleet.mobile.operator`) is a misconfiguration guard, not authentication; signed
+# decisions are B12. A record is known by its `nonce`, never by its file name: the sync client resurrects a file it was
+# mid-upload on and makes `<name>-<DEVICE>` copies, and either one is a replay.
+#
+# The checks, first failure wins, each a `mobile_*` code in `rejected/<name>.why.json`:
+#   size > INBOX_MAX_BYTES (never parsed)            mobile_too_large
+#   not JSON (`textio.read_json`: any BOM, cp1252)   mobile_bad_json
+#   not an object, `schema != 1`, unknown `kind`     mobile_bad_schema
+#   nonce malformed, or already seen                 mobile_replay
+#   `issued` more than SKEW_S in the future          mobile_bad_time
+#   not `now <= expires <= issued + expire_s`        mobile_expired
+#   `by` is not the operator (case-insensitive)      mobile_wrong_operator
+# and for a decision:
+#   no such request on disk                          mobile_unknown_id
+#   already decided                                  mobile_already_decided
+#   `digest != approval.digest(request)`             mobile_digest_mismatch
+#   `decision` not approved|denied, bad `device`     mobile_bad_schema
+#   a denial with a blank reason                     mobile_reason_required
+# `force` is never read (MOB-D8).
+
+INBOX, PROCESSED, REJECTED = "inbox", "processed", "rejected"
+SKEW_S = 300
+WHY_MAX = 200
+DEVICE_MAX = 64
+_NONCE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+_ID = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
+_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?$")
+# An ApprovalError from `decide()` itself (a race lost after the checks passed) in the phone's vocabulary.
+_DECIDE_CODES = {"not_waiting": "mobile_unknown_id", "already_decided": "mobile_already_decided",
+                 "digest_mismatch": "mobile_digest_mismatch", "reason_required": "mobile_reason_required",
+                 "bad_state": "mobile_bad_schema"}
+
+__all__ += ["apply_once"]
+
+
+class _Refused(Exception):
+    def __init__(self, code: str, error: str, hint: str = ""):
+        super().__init__(error)
+        self.code, self.error, self.hint = code, error, hint
+
+
+def _stamp(value) -> float | None:
+    return _epoch(value) if isinstance(value, str) and _STAMP.match(value) else None
+
+
+class _Pass:
+    """What one `apply_once` knows: the folder, the settings, the time, and the nonces the sidecars name."""
+
+    def __init__(self, cfg: dict | None, folder: str, now: float):
+        self.cfg, self.folder, self.now = cfg, folder, now
+        self.settings = settings(cfg)
+        self._scrubber: Scrubber | None = None
+        self._seen: set[str] | None = None
+        self._repos: set[str] | None = None
+
+    @property
+    def scrubber(self) -> Scrubber:
+        if self._scrubber is None:
+            self._scrubber = Scrubber()
+        return self._scrubber
+
+    def seen(self) -> set[str]:
+        """Every nonce a `processed/` or `rejected/` sidecar names: the replay guard that outlives the state file."""
+        if self._seen is None:
+            self._seen = set()
+            for sub, suffix in ((PROCESSED, ".result.json"), (REJECTED, ".why.json")):
+                directory = os.path.join(self.folder, sub)
+                for name in _names(directory):
+                    if name.endswith(suffix):
+                        try:
+                            nonce = textio.read_json(os.path.join(directory, name), "sidecar").get("nonce")
+                        except (OSError, ValueError, AttributeError):
+                            continue
+                        if nonce:
+                            self._seen.add(str(nonce))
+        return self._seen
+
+    def registered(self, repo: str) -> bool:
+        if self._repos is None:
+            from .registry import Registry
+
+            try:
+                self._repos = {r.name for r in Registry().sorted()}
+            except Exception:                              # noqa: BLE001 - a missing registry names no repo
+                self._repos = set()
+        return repo in self._repos
+
+
+def _move(src: str, dest: str) -> bool:
+    """`os.replace`, retried as `textio._replace_with_retry` retries it (the sync client holds files briefly)."""
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    for attempt in range(textio.REPLACE_ATTEMPTS):
+        try:
+            os.replace(textio.longpath(src), textio.longpath(dest))
+            return True
+        except PermissionError:
+            _time.sleep(textio.REPLACE_BACKOFF * (attempt + 1))
+        except OSError:
+            break
+    return False
+
+
+def _nonce_of(record) -> str:
+    nonce = record.get("nonce") if isinstance(record, dict) else None
+    return nonce if isinstance(nonce, str) and _NONCE.match(nonce) else ""
+
+
+def _repo_of(p: "_Pass", record) -> tuple[str, str]:
+    """The repo (and ticket) a file names: a known approval's, else a registered repo it names itself, else none."""
+    from . import approval
+
+    if not isinstance(record, dict):
+        return "", ""
+    id = record.get("id")
+    if isinstance(id, str) and _ID.match(id):
+        request = approval.read_request(id)
+        if request.get("repo"):
+            return str(request["repo"]), str(request.get("ticket") or "")
+    repo = record.get("repo")
+    return (repo, "") if isinstance(repo, str) and repo and p.registered(repo) else ("", "")
+
+
+def _emit(repo: str, kind: str, data: dict, ticket: str = "") -> None:
+    """On the repo's own stream, as `say` does; a lock that cannot be taken writes nothing and changes nothing."""
+    from . import events as E
+
+    try:
+        E.append(repo, [E.event(repo, kind, data, ticket=ticket)])
+    except Exception:                                      # noqa: BLE001 - a breadcrumb never changes a verdict
+        from ..log import debug_exc
+
+        debug_exc(kind)
+
+
+def _read(entry):
+    """The file's JSON, `st_size` first: a file over the cap is never opened."""
+    if entry.stat().st_size > INBOX_MAX_BYTES:
+        raise _Refused("mobile_too_large", f"the file is over {INBOX_MAX_BYTES // 1024} KB and was not read",
+                       "a phone record is a few hundred bytes; check what wrote it")
+    try:
+        return textio.read_json(entry.path, "inbox file")
+    except ValueError:
+        raise _Refused("mobile_bad_json", "the file is not JSON", "FleetDecide writes one JSON object") from None
+
+
+def _check_common(p: _Pass, record, state: dict) -> dict:
+    """Schema, nonce, time, expiry, operator: every inbox file, whatever its kind."""
+    if not isinstance(record, dict):
+        raise _Refused("mobile_bad_schema", "the file is not a JSON object", "FleetDecide writes one JSON object")
+    if record.get("schema") != MOBILE_SCHEMA:
+        raise _Refused("mobile_bad_schema", f"schema {record.get('schema')!r} is not {MOBILE_SCHEMA}",
+                       "the flow and the laptop disagree on the contract; update the one that is behind")
+    if record.get("kind") not in ("decision", "reply"):
+        raise _Refused("mobile_bad_schema", f"kind {record.get('kind')!r} is not decision or reply",
+                       "only FleetDecide writes into inbox/")
+    nonce = _nonce_of(record)
+    if not nonce:
+        raise _Refused("mobile_replay", "the nonce is missing or malformed",
+                       "a nonce is 16-64 letters, digits, - or _; FleetDecide mints one per press")
+    if nonce in state["processed"] or nonce in p.seen():
+        raise _Refused("mobile_replay", "this nonce was already applied or refused",
+                       "a synced copy or a resurrected file; nothing to do")
+    issued, expires = _stamp(record.get("issued")), _stamp(record.get("expires"))
+    if issued is None or issued > p.now + SKEW_S:
+        raise _Refused("mobile_bad_time", "`issued` is missing or in the future",
+                       "check the phone's clock; issued may lead the laptop by at most 5 minutes")
+    if expires is None or not p.now <= expires <= issued + p.settings["expire_s"]:
+        raise _Refused("mobile_expired", "the decision has expired, or expires later than fleet.mobile.expire_s allows",
+                       "decide again from the phone")
+    by, operator = record.get("by"), p.settings["operator"]
+    if not operator or not isinstance(by, str) or by.casefold() != operator.casefold():
+        raise _Refused("mobile_wrong_operator", "the file was not written by the configured operator",
+                       "fleet.mobile.operator names who may decide from the phone; a misconfiguration guard, "
+                       "not authentication" if operator else "set fleet.mobile.operator to your UPN")
+    return record
+
+
+def _check_decision(record: dict) -> tuple[dict, str, str, str]:
+    """The request it answers, and its decision, reason and device, or a refusal. Nothing is written here."""
+    from . import approval
+
+    id = record.get("id")
+    request = approval.read_request(id) if isinstance(id, str) and _ID.match(id) else {}
+    if not request:
+        raise _Refused("mobile_unknown_id", "no approval with that id is on this laptop",
+                       "it was pruned, or the phone read another laptop's outbox")
+    if approval.read_decision(id):
+        raise _Refused("mobile_already_decided", f"{id} was already decided",
+                       "an approval is answered once; the outbox has the decision")
+    if record.get("digest") != approval.digest(request):
+        raise _Refused("mobile_digest_mismatch", "the decision names a different request (digest mismatch)",
+                       "the request on the laptop is not the one the phone showed; read it again")
+    decision, reason, device = record.get("decision"), record.get("reason"), record.get("device", "")
+    if decision not in (approval.APPROVED, approval.DENIED) or not isinstance(reason, (str, type(None))) \
+            or not isinstance(device, (str, type(None))):
+        raise _Refused("mobile_bad_schema", "decision must be approved or denied; reason and device are text",
+                       "only FleetDecide writes into inbox/")
+    reason = (reason or "")[:LIMITS["reason"]]
+    if decision == approval.DENIED and not reason.strip():
+        raise _Refused("mobile_reason_required", "a denial needs a reason",
+                       "the agent quotes it; deny again with a reason")
+    return request, decision, reason, (device or "")[:DEVICE_MAX]
+
+
+def _apply_decision(p: _Pass, path: str, name: str, record: dict) -> None:
+    from . import approval
+
+    request, decision, reason, device = _check_decision(record)
+    id, nonce, by = request["id"], record["nonce"], record["by"]
+    created = _epoch(request.get("created", ""))
+    late = created is not None and p.now > created + approval.timeout_seconds(p.cfg)
+    try:
+        decided = approval.decide(id, decision, reason=reason, by=f"mobile:{by}", digest=record["digest"],
+                                  via="mobile", nonce=nonce, late=late)
+    except approval.ApprovalError as e:
+        raise _Refused(_DECIDE_CODES.get(e.code, "mobile_" + (e.code or "refused")), e.msg, e.hint) from None
+
+    entry = {"at": _utc(p.now), "kind": "decision", "code": "", "name": name, "moved": False,
+             "device": p.scrubber.scrub(device, DEVICE_MAX)}
+    update_state(lambda s: s["processed"].__setitem__(nonce, entry))
+    _emit(str(request.get("repo") or ""), "mobile.decision",
+          {"id": id, "kind": "decision", "decision": decision, "by": f"mobile:{by}", "nonce": nonce, "late": late},
+          str(request.get("ticket") or ""))
+    _finish(p, path, name, nonce, ok=True, id=id, late=late)
+    mirror = outbox_dir(p.folder, "approvals", safe_file_name(id) + ".decision.json")
+    if not os.path.exists(mirror):
+        textio.write_json(mirror, decision_mirror(id, decided, p.scrubber.scrub))
+
+    def mirrored(s: dict) -> None:
+        if id in s["exported"]:
+            s["exported"][id]["decided"] = True
+    update_state(mirrored)
+
+
+def _finish(p: _Pass, path: str, name: str, nonce: str, *, ok: bool, id: str = "", late: bool | None = None,
+            refused: _Refused | None = None, verdict: bool = True, kind_of: str = "decision", repo: str = "") -> None:
+    """Move the file to `processed/` or `rejected/` with its sidecar, and write the verdict (`verdict=False`: a
+    replay's, whose first verdict stands). The caller records the nonce first, so a move that fails is retried on the
+    next tick rather than read again as a new record."""
+    sub = PROCESSED if ok else REJECTED
+    if _move(path, os.path.join(p.folder, sub, name)) and nonce and verdict:
+        update_state(lambda s: s["processed"].get(nonce, {}).__setitem__("moved", True))
+    if ok:
+        result = write_result(p.folder, nonce, "decision", True, id=id, late=late)
+        textio.write_json(os.path.join(p.folder, PROCESSED, name + ".result.json"), textio.read_json(result, "result"))
+        return
+    textio.write_json(os.path.join(p.folder, REJECTED, name + ".why.json"),
+                      {"code": refused.code, "error": refused.error, "hint": refused.hint, "at": _utc(p.now),
+                       "nonce": nonce})
+    if nonce and verdict:
+        write_result(p.folder, nonce, kind_of, False, id=id, repo=repo, code=refused.code, error=refused.error,
+                     hint=refused.hint)
+
+
+def _reject(p: _Pass, path: str, name: str, record, refused: _Refused) -> None:
+    """To `rejected/` with `<name>.why.json`; a readable nonce gets its result and its place in the state file (a
+    replay's does not: the first verdict stands); `mobile.rejected` on the stream of the repo the file names."""
+    nonce = _nonce_of(record)
+    kind = record.get("kind") if isinstance(record, dict) and record.get("kind") in ("decision", "reply") else ""
+    replay = refused.code == "mobile_replay"
+    id = record.get("id") if isinstance(record, dict) and isinstance(record.get("id"), str) else ""
+    if nonce and not replay:
+        entry = {"at": _utc(p.now), "kind": kind, "code": refused.code, "name": name, "moved": False}
+        update_state(lambda s: s["processed"].__setitem__(nonce, entry))
+    named = record.get("repo") if isinstance(record, dict) and isinstance(record.get("repo"), str) else ""
+    _finish(p, path, name, nonce, ok=False, id=id[:LIMITS["id"]], refused=refused, verdict=not replay,
+            kind_of="reply" if kind == "reply" else "decision", repo=named)
+    repo, ticket = _repo_of(p, record)
+    if repo:
+        _emit(repo, "mobile.rejected", {"nonce": nonce, "kind": kind, "code": refused.code,
+                                        "why": p.scrubber.scrub(refused.error, WHY_MAX)}, ticket)
+
+
+def _retry_move(p: _Pass, path: str, name: str, state: dict) -> bool:
+    """A file whose nonce is recorded under this very name but whose move failed last tick: move it now."""
+    if not any(v.get("name") == name and not v.get("moved") for v in state["processed"].values()
+               if isinstance(v, dict)):
+        return False
+    try:
+        record = textio.read_json(path, "inbox file") if os.path.getsize(path) <= INBOX_MAX_BYTES else {}
+    except (OSError, ValueError):
+        return False
+    nonce = _nonce_of(record)
+    entry = state["processed"].get(nonce) if nonce else None
+    if not entry or entry.get("name") != name or entry.get("moved"):
+        return False
+    if _move(path, os.path.join(p.folder, PROCESSED if not entry.get("code") else REJECTED, name)):
+        update_state(lambda s: s["processed"].get(nonce, {}).__setitem__("moved", True))
+    return True
+
+
+def _rejected_24h(folder: str, now: float) -> int:
+    directory = os.path.join(folder, REJECTED)
+    return sum(1 for name in _names(directory)
+               if name.endswith(".why.json") and not _older(os.path.join(directory, name), now - KEEP_OUTBOX_S))
+
+
+def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
+    """One pass over `inbox/`: every `*.json` file checked, then applied or rejected. Returns `{applied, rejected,
+    retried}`. A missing inbox is an empty one. Refuses as `check_folder` does.
+
+    `retried` counts files left for the next tick: an unexpected failure (logged through `debug_exc`; the same one
+    twice is `mobile_unreadable`), a move that did not happen, or a reply before #548 lands.
+    """
+    folder = check_folder(cfg)
+    p = _Pass(cfg, folder, _time.time() if now is None else now)
+    counts = {"applied": 0, "rejected": 0, "retried": 0}
+    try:
+        entries = sorted(os.scandir(textio.longpath(os.path.join(folder, INBOX))), key=lambda e: e.name)
+    except OSError:
+        entries = []
+    files = [e for e in entries if e.name.endswith(".json") and not e.name.startswith("~$") and e.is_file()]
+    for entry in files:
+        path, name = entry.path, entry.name
+        state = read_state()
+        record = None
+        try:
+            if _retry_move(p, path, name, state):
+                counts["retried"] += 1
+                continue
+            try:
+                record = _read(entry)
+                _check_common(p, record, state)
+                if record["kind"] == "reply":
+                    counts["retried"] += 1                  # #548 applies replies; until then one waits here
+                    continue
+                _apply_decision(p, path, name, record)
+                counts["applied"] += 1
+            except _Refused as refused:
+                _reject(p, path, name, record, refused)
+                counts["rejected"] += 1
+            if name in state["failures"]:
+                update_state(lambda s: s["failures"].pop(name, None))
+        except Exception as e:                             # noqa: BLE001 - one bad file never stops the pass
+            from ..log import debug_exc
+
+            debug_exc(f"mobile inbox {name}")
+            # The state file's `failures` (name -> the failure it met last tick): the same one twice is unreadable.
+            signature = f"{type(e).__name__}: {e}"[:LIMITS["reason"]]
+            if state["failures"].get(name) == signature:
+                update_state(lambda s: s["failures"].pop(name, None))
+                try:
+                    _reject(p, path, name, record or {}, _Refused("mobile_unreadable", signature,
+                                                                  "it failed the same way twice; see the debug log"))
+                    counts["rejected"] += 1
+                except Exception:                          # noqa: BLE001
+                    debug_exc(f"mobile inbox {name} (reject)")
+                    counts["retried"] += 1
+            else:
+                update_state(lambda s: s["failures"].__setitem__(name, signature))
+                counts["retried"] += 1
+
+    def seen(s: dict) -> None:
+        if files:
+            s["last_inbox_seen"] = _utc(p.now)
+        s["rejected_24h"] = _rejected_24h(folder, p.now)
+    update_state(seen)
+    return counts
