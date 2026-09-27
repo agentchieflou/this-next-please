@@ -29,6 +29,12 @@ function parseColour(css, THREE) {
   return [out.r, out.g, out.b, 1];
 }
 
+/** @param {Record<string, number[]>} inks @returns {Record<string, string>} */
+function hexes(inks) {
+  const hex = c => Math.round(clamp(c, 0, 1) * 255).toString(16).padStart(2, "0");
+  return Object.fromEntries(Object.entries(inks).map(([k, v]) => [k, ("#" + v.slice(0, 3).map(hex).join("")).toUpperCase()]));
+}
+
 function seedOf(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -133,6 +139,11 @@ class Layer {
     if (this.scheme && this.scheme.addEventListener) this.scheme.addEventListener("change", this.onScheme);
     this.onFonts = () => { this.dirty.geom = true; this.kick(); };
     if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener("loadingdone", this.onFonts);
+    this.onSheet = e => {
+      const el = /** @type {Element} */ (e.target);
+      if (el && el.tagName === "LINK" && /\bstylesheet\b/i.test(el.getAttribute("rel") || "")) { this.dirty.colours = true; this.kick(); }
+    };
+    document.addEventListener("load", this.onSheet, true);
   }
 
   setTable(t) {
@@ -1201,7 +1212,7 @@ class Layer {
     } : null;
     return { lanes, marks, series, skin, fx: this.fx && this.fx.inspect(), frames: this.frames, renders: this.renders, busy: this.busy(),
              hands: this.hands(), handModel: this.handModel, reduced: this.instant(), canvas: this.canvas.isConnected,
-             webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
+             webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark, inks: hexes(this.inks) };
   }
 
   sample(box) {
@@ -1248,6 +1259,7 @@ class Layer {
     }
     if (this.scheme && this.scheme.removeEventListener) this.scheme.removeEventListener("change", this.onScheme);
     if (document.fonts && document.fonts.removeEventListener) document.fonts.removeEventListener("loadingdone", this.onFonts);
+    document.removeEventListener("load", this.onSheet, true);
     this.canvas.removeEventListener("webglcontextlost", this.onLost);
     try {
       this.renderer.dispose();
