@@ -27,7 +27,7 @@ from . import textio
 from . import toon
 from . import ui
 from .console import prompt as ask_line, utf8_stdout
-from .fleet import (agentstate, approval, board as B, catalogue as CAT,
+from .fleet import (agentstate, approval, board as B, bridge as BR, catalogue as CAT,
                     console as fleet_console, events as E, handoff,
                     inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
                     poll as P, preflight as PF, probe as PR, scan as SC, serve as S, supervisor)
@@ -1443,6 +1443,7 @@ def cmd_quickstart(a) -> int:
         except S.ServeError as e:
             return _refuse("ad-fleet quickstart", e)
         _refresh_models(server)
+        BR.start(server.stopping)
         url = S.url_for(server, token)
         S.record(server, token)
 
@@ -1975,6 +1976,35 @@ def cmd_notify(a) -> int:
     return EXIT_OK
 
 
+def cmd_mobile(a) -> int:
+    """The bridge to the phone (epic #538). `watch` runs the bridge's loop in the foreground, for a laptop with no desk
+    running; beside a live `ad-fleet serve`, which already runs it as a thread, it refuses (two sweepers would split
+    `notify.state.json`'s one cursor, #356)."""
+    import threading
+
+    source = f"ad-fleet mobile {a.what}"
+    try:
+        pid = int(O.serve_record().get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    if pid and supervisor.pid_alive(pid):
+        return _refuse(source, BR.BridgeError(f"ad-fleet serve is running (pid {pid}) and already sweeps",
+                                              "stop it, or let it run the bridge", code="mobile_serve_running"))
+    try:
+        folder = BR.check_folder()
+    except BR.BridgeError as e:
+        return _refuse(source, e)
+    every = max(1.0, float(a.every))
+    _emit(source, {"folder": folder, "operator": BR.settings()["operator"], "every": every,
+                   "note": "stop with Ctrl-C"})
+    sys.stdout.flush()
+    try:
+        BR.run_loop(threading.Event(), tick=every)
+    except KeyboardInterrupt:
+        pass
+    return EXIT_OK
+
+
 def _serve_url() -> str:
     """Where the dashboard is, if one is running. A toast that cannot deep-link still notifies."""
     try:
@@ -2011,6 +2041,7 @@ def cmd_serve(a) -> int:
     except S.ServeError as e:
         return _refuse("ad-fleet serve", e)
     _refresh_models(server)
+    BR.start(server.stopping)
     url = S.url_for(server, token)
     S.record(server, token)
     # `--fresh` (#511, DAY-D4): the page opens the fresh day's preview. The server launches nothing,
@@ -2390,6 +2421,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="list: recent; test: one of each severity; tail: what would fire now")
     note.add_argument("--limit", type=int, default=50, help="how many to list")
     note.set_defaults(fn=cmd_notify)
+
+    mob = sub.add_parser("mobile", help="the bridge to the phone: its outbox and inbox on OneDrive")
+    mob.add_argument("what", choices=["watch"],
+                     help="watch: run the bridge in the foreground when no ad-fleet serve is running")
+    mob.add_argument("--every", type=float, default=BR.TICK_S, help="watch: seconds between passes")
+    mob.set_defaults(fn=cmd_mobile)
 
     srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
     srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
