@@ -63,6 +63,9 @@ KINDS = (
     "inbox.attached",
     # the handoff pipeline (#162)
     "handoff.brief", "scope.added",
+    # the mobile bridge (#546): a pending approval was mirrored to the phone's outbox, once per id. Additive:
+    # the fold changes no state for it.
+    "mobile.exported",
 )
 
 # The same shape `config.py` refuses to store, reused rather than re-invented: a value under a key

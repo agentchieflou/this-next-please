@@ -697,3 +697,38 @@ def test_the_subagents_case_replayed_through_the_fake_copilot_folds(tmp_path):
     assert _live_subagents(events[:first_end + 2]) == 0
     assert _live_subagents(events[:first_end], live=False) == 0
     assert kinds[-1] == "exited" and _live_subagents(events) == 0
+
+
+def test_approval_resolved_carries_the_reason(fleet_home, monkeypatch):
+    """The approve comment is a note the agent can quote, so it rides the event that releases it; and
+    the contract's two approval samples carry exactly the keys the gate emits (#543)."""
+    import threading
+
+    from agentdata.fleet import approval
+
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    got = {}
+
+    def agent():
+        got["d"] = approval.require("jira-transition", "RDSD-1 -> Done", {"key": "RDSD-1"},
+                                    ticket="RDSD-1", timeout=20, poll=0.02)
+
+    t = threading.Thread(target=agent)
+    t.start()
+    deadline = time.time() + 5
+    while not approval.pending() and time.time() < deadline:
+        time.sleep(0.02)
+    id = approval.pending()[0]["id"]
+    approval.decide(id, approval.APPROVED, reason="and link the PR", by="operator")
+    t.join(timeout=10)
+
+    emitted = {e["kind"]: e["data"] for e in E.read("luna")}
+    assert emitted["approval_resolved"] == {"id": id, "kind": "jira-transition", "decision": "approved",
+                                            "by": "operator", "reason": "and link the PR"}
+    assert got["d"].reason == "and link the PR"
+
+    text = open(CONTRACT, encoding="utf-8").read()
+    samples = {s["kind"]: s["data"] for s in (json.loads(line) for line in text.splitlines()
+                                              if line.startswith('{"schema"'))}
+    for kind in ("needs_approval", "approval_resolved"):
+        assert set(samples[kind]) == set(emitted[kind]), (kind, sorted(samples[kind]), sorted(emitted[kind]))
