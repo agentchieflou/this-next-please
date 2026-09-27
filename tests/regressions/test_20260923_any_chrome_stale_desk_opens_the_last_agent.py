@@ -25,9 +25,9 @@ from agentdata.fleet import serve as S  # noqa: F401 - the desk the fixtures own
 
 # The desk's globals are reset for every test by tests/conftest.py (#298): without that this runs on
 # whatever desk the previous test in the worker left loaded, and never reads its own desk.json.
+from desk_harness import close_pages
 from test_fleet_demo_ownership import (_desk_of_five, _serve,  # noqa: F401
                                        fleet_home)
-from test_fleet_desk_browser import launch_chromium
 
 SOLO = "(document.querySelector('.tile.is-solo') || {dataset: {}}).dataset.repo"
 SLOW_FLEET = """
@@ -42,40 +42,38 @@ SLOW_FLEET = """
 
 
 @pytest.mark.browser
-def test_a_reload_draws_the_agent_that_was_open_not_the_one_the_last_answer_saw(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_reload_draws_the_agent_that_was_open_not_the_one_the_last_answer_saw(fleet_home, tmp_path, desk_browser):
     _desk_of_five(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 1000})
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
 
-            # The fleet answers while luna is open, and then the operator goes back.
-            page.locator('.tile[data-repo="luna"] .pane-rail').click()
-            page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
-            page.evaluate("() => refresh()")
-            page.wait_for_function(f"() => {SOLO} === 'luna' && !pendingRefresh", timeout=8000)
-            page.evaluate("() => backToPrevious()")
-            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        # The fleet answers while luna is open, and then the operator goes back.
+        page.locator('.tile[data-repo="luna"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
+        page.evaluate("() => refresh()")
+        page.wait_for_function(f"() => {SOLO} === 'luna' && !pendingRefresh", timeout=8000)
+        page.evaluate("() => backToPrevious()")
+        page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
 
-            page.add_init_script(SLOW_FLEET)
-            page.reload(wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=5000)
-            early = page.evaluate(f"""() => ({{
-              stale: document.body.classList.contains('is-stale'),
-              open: {SOLO},
-            }})""")
-            assert early["stale"], early
-            assert early["open"] == "rdsd-pbi-reporting", \
-                f"the stale desk opened {early['open']}, the agent from a click before"
+        page.add_init_script(SLOW_FLEET)
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=5000)
+        early = page.evaluate(f"""() => ({{
+          stale: document.body.classList.contains('is-stale'),
+          open: {SOLO},
+        }})""")
+        assert early["stale"], early
+        assert early["open"] == "rdsd-pbi-reporting", \
+            f"the stale desk opened {early['open']}, the agent from a click before"
 
-            page.wait_for_function("() => !document.body.classList.contains('is-stale')", timeout=15000)
-            assert page.evaluate(SOLO) == "rdsd-pbi-reporting"
-            browser.close()
+        page.wait_for_function("() => !document.body.classList.contains('is-stale')", timeout=15000)
+        assert page.evaluate(SOLO) == "rdsd-pbi-reporting"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
