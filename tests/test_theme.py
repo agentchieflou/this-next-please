@@ -401,6 +401,51 @@ def test_the_pressed_ground_holds_text_at_4_5():
         assert colour in exc.value.hint, (colour, exc.value.hint)
 
 
+def test_theme_check_rule_10_focus_is_never_a_state():
+    """Rule 10 of theme.check (#339): `--focus`, the keyboard ring, the selected pane's ring and a pressed
+    control's ring, reads >= 3:1 on the palette's panel and every panel it is drawn on, and is achromatic or
+    >= 30 degrees of hue from every chromatic role -- for every built-in with `skins.panels_on(name)` and 200
+    random rolls. It is the cursor where the cursor passes, else the text made neutral; and a palette whose
+    neutral cannot reach 3:1 is refused by rule 10 alone, naming the ring and the panel."""
+    from agentdata.fleet import skins
+
+    palettes = [(t, skins.panels_on(t.name)) for t in theme.list_themes() if t.name != "none"]
+    palettes += [(theme.random_theme(i * 1013 + 7), []) for i in range(200)]
+    kept = []
+    for t, panels in palettes:
+        theme.check(t, panels=panels)
+        c = theme.to_css(t, panels=panels)
+        roles = [c[r] for r in ROLES]
+        focus = c["--focus"]
+        assert all(theme.contrast_ratio(focus, g) >= 3.0 for g in (c["--panel"], *panels)), (t.name, focus)
+        assert theme.saturation(focus) <= 0.25 or all(
+            theme.hue_distance(focus, r) >= 30 for r in roles if theme.saturation(r) > 0.25), (t.name, focus)
+        if focus == t.cursor:
+            kept.append(t.name)
+        else:
+            assert focus == theme.neutral(t.text), (t.name, focus)
+        assert theme.escapes(t).endswith(f"\x1b]12;{t.cursor}\x1b\\"), "the terminal's cursor is unchanged"
+    # The issue's own measurements at 8557b2b: dark's cursor is --running's hue, sand's is --waiting's.
+    assert "vanta-black" in kept and "dark" not in kept and "sand" not in kept, kept
+    assert theme.to_css(theme.get("dark"))["--focus"] == theme.neutral("#E3E7EA")
+
+    crafted = Theme(
+        name="red-ink", title="Red ink", why="a saturated text whose grey is too light to ring with",
+        ground="#FFFFFF", text="#B00000", accent="#B00000", cursor="#B00000",
+        ansi=theme._make_ansi("#FFFFFF", "#B00000", "#B00000", light=True),
+        status={"ok": "#2E7D32", "warn": "#8A6D00", "fail": "#C62828", "skip": "#6E6E6E",
+                "info": "#1565C0"},
+        light=True, muted="#595959",
+    )
+    c = theme.to_css(crafted)
+    assert c["--focus"] == theme.neutral("#B00000") and theme.contrast_ratio(c["--focus"], "#FFFFFF") < 3.0, c
+    with pytest.raises(ThemeError) as exc:
+        check(crafted)
+    # Refused by rule 10, the last: rules 1-9 passed it.
+    assert "the focus ring is" in str(exc.value) and "below 3:1 floor" in str(exc.value), str(exc.value)
+    assert c["--focus"] in exc.value.hint and "#B00000" in exc.value.hint, exc.value.hint
+
+
 def test_theme_escapes_are_byte_identical_to_golden():
     """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b."""
     golden = {

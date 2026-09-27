@@ -78,11 +78,16 @@ def _stop(server):
     server.server_close()
 
 
-def _page(browser, port, token, *, w="", width=1400, height=900, wide=1):
+def _page(browser, port, token, *, w="", width=1400, height=900, wide=1, touch=False):
     """A desk page, waited on until it has settled: `wide` panes with a width, every pane with its
     tier, and this window's own first write (`seen`) answered -- so what a test counts afterwards
-    is what its gesture caused."""
-    page = browser.new_page(viewport={"width": width, "height": height})
+    is what its gesture caused. `touch` makes it a tablet's or a phone's: a touch screen, and the
+    page taken as a mobile one."""
+    if touch:
+        page = browser.new_context(viewport={"width": width, "height": height}, has_touch=True,
+                                   is_mobile=True).new_page()
+    else:
+        page = browser.new_page(viewport={"width": width, "height": height})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     posts = []
@@ -105,6 +110,10 @@ READ = """() => [...document.querySelectorAll('#grid .tile:not(.is-hidden):not(.
   .map(t => { const r = t.getBoundingClientRect();
               return { repo: t.dataset.repo, left: r.left, width: r.width,
                        wide: t.classList.contains('is-solo'), tier: t.dataset.tier || '' }; })"""
+
+
+#: The row's order as the page draws it.
+ORDER = "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)"
 
 
 def _read(page):
@@ -181,6 +190,28 @@ def _drag_gutter(page, repo, dx, *, steps=12, cancel=False):
     if cancel:
         page.keyboard.press("Escape")
     page.mouse.up()
+
+
+def _touch(page, selector, *, dx=0, until=None):
+    """A finger on `selector`, through the touch screen itself (CDP), so the page sees `touch`
+    pointer events and the tap, click and double click Chromium makes of them. With `until`, the
+    finger stays down until the page shows it -- the long-press, held for as long as the page takes
+    and no flat wait; with `dx`, it drifts that far across in two moves before it comes up. Returns
+    what the page said while the finger was still down: whether a reorder had lifted."""
+    box = page.locator(selector).bounding_box()
+    assert box, f"nothing to touch at {selector}"
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+    for step in (dx / 2, dx) if dx else ():
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove",
+                                              "touchPoints": [{"x": x + step, "y": y}]})
+    if until:
+        page.wait_for_selector(until, timeout=8000)
+    lifted = page.evaluate("() => dragging !== null || !!document.querySelector('.is-dragging')")
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    cdp.detach()
+    return lifted
 
 
 def _near(a, b, slack=1.0):
@@ -833,7 +864,12 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
     """The rule every gesture on this page keeps. `Alt+Shift+←/→` moves the gutter on the pane's
     right one step; `Alt+Enter` evens it (the double click); `←`/`→` walk the row; `Shift+Enter` on
     a rail opens it beside (the Shift-click); `Enter` swaps it in; `u` takes the last change back.
-    A rail stepped wide keeps the keyboard, so the next press still reaches it."""
+    A rail stepped wide keeps the keyboard, so the next press still reaches it.
+
+    And every touch twin (#577). On a tablet (1180x820, a touch screen) two taps on a gutter are
+    its double click, and a finger held on a rail is its Shift-click: it opens beside the pane with
+    the keys, in one write, and nothing is reordered. In a phone's stack (390x844) a finger that
+    drifts 4 px on a rail lifts no reorder -- the order is `Alt+←/→`'s there -- and a tap opens it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta"]
     _repos(tmp_path, names)
@@ -915,9 +951,63 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
             sent = list(posts)
             assert not errors, errors
+            page.close()
+
+            # The touch twins (#577): a tablet, then a phone.
+            S.update_window("main", open="alpha",
+                            widths={"alpha": 3, "beta": 2, "gamma": 0, "delta": 0})
+            tablet, errors, touched = _page(browser, port, token, width=1180, height=820, wide=2,
+                                            touch=True)
+            order = tablet.evaluate(ORDER)
+            _read_settled(tablet)
+            touched.clear()
+            gutter = '.tile[data-repo="alpha"] > .gutter'
+            _gutter_point(tablet, "alpha")
+            _touch(tablet, gutter)
+            _touch(tablet, gutter)
+            tablet.wait_for_function(f"() => Math.abs(({width})('alpha') - ({width})('beta')) < 1",
+                                     timeout=8000)
+            tablet.wait_for_function("() => windowWrites === 0", timeout=8000)
+            tapped = _read_settled(tablet)
+            tapped_sent = list(touched)
+            touched.clear()
+            held_lifted = _touch(tablet, '.tile[data-repo="gamma"] .pane-rail',
+                                 until='.tile[data-repo="gamma"].is-solo')
+            tablet.wait_for_function("() => windowWrites === 0", timeout=8000)
+            held = _read_settled(tablet)
+            held_open = tablet.evaluate("() => openName()")
+            held_order = tablet.evaluate(ORDER)
+            held_sent = list(touched)
+            assert not errors, errors
+            tablet.context.close()
+
+            S.update_window("main", open="alpha",
+                            widths={"alpha": 1, "beta": 0, "gamma": 0, "delta": 0})
+            phone, errors, touched = _page(browser, port, token, width=390, height=844, touch=True)
+            _read_settled(phone)
+            touched.clear()
+            drift_lifted = _touch(phone, '.tile[data-repo="delta"] .pane-rail', dx=4)
+            phone.locator('.tile[data-repo="beta"] .pane-rail').tap()
+            phone.wait_for_function("() => windowWrites === 0 && openName() === 'beta'",
+                                    timeout=8000)
+            phone_order = phone.evaluate(ORDER)
+            phone_sent = list(touched)
+            assert not errors, errors
             browser.close()
     finally:
         _stop(server)
+
+    assert len(_widths_posts(tapped_sent)) == 1, tapped_sent
+    assert _near(tapped["alpha"]["width"], tapped["beta"]["width"]), tapped
+    assert not held_lifted, "a finger held on a rail lifted it for a reorder"
+    assert held_open == "alpha", "the long-press opens beside the pane with the keys, not in it"
+    assert _near(held["alpha"]["width"], held["gamma"]["width"], 1.5), held
+    assert held["gamma"]["wide"] and not held["delta"]["wide"], held
+    assert held_order == order, (order, held_order)
+    assert [u for u, _ in held_sent if "/api/" in u and "/api/window" not in u] == [], held_sent
+    assert len(_window_posts(held_sent)) == 1, held_sent
+    assert not drift_lifted, "a 4 px drift on a rail in the stack lifted a reorder"
+    assert phone_order == order and not [u for u, _ in phone_sent if "/api/arrange" in u], phone_sent
 
     assert _near(step["beta"]["width"], start["beta"]["width"] - 40, 1.5), (start, step)
     assert _near(step["gamma"]["left"], start["gamma"]["left"]), (start, step)

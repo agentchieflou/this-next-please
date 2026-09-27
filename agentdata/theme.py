@@ -93,6 +93,36 @@ def mix(h1: str, h2: str, weight: float) -> str:
     return rgb_to_hex((r, g, b))
 
 
+def saturation(h: str) -> float:
+    """HSV saturation, 0-1: how far from grey."""
+    return colorsys.rgb_to_hsv(*hex_to_rgb(h))[1]
+
+
+#: A colour whose HSV saturation is at or under this reads as grey: it cannot be mistaken for a state.
+ACHROMATIC = 0.25
+#: The hue a mark that says "focused", "selected", "pressed" or "which project" keeps from every state colour.
+STATE_HUE_GAP = 30.0
+
+
+def neutral(h: str, cap: float = 0.12) -> str:
+    """`h` with its HSV value kept and its saturation capped at `cap` (#339): the same lightness, nearly grey."""
+    hh, ss, vv = colorsys.rgb_to_hsv(*hex_to_rgb(h))
+    return rgb_to_hex(colorsys.hsv_to_rgb(hh, min(ss, cap), vv))
+
+
+def clear_of_states(colour: str, roles) -> bool:
+    """True when `colour` cannot be read as a state (#339): achromatic, or >= 30 degrees of hue from every
+    chromatic role colour in `roles`. An achromatic role (a grey idle) has no hue to be confused with."""
+    if saturation(colour) <= ACHROMATIC:
+        return True
+    return all(hue_distance(colour, r) >= STATE_HUE_GAP for r in roles if saturation(r) > ACHROMATIC)
+
+
+def marks_clear(colour: str | None, grounds, roles) -> bool:
+    """The step-1 test of #339: a mark colour that is >= 3:1 on every one of `grounds` and clear of every state."""
+    return bool(colour) and all(contrast_ratio(colour, g) >= 3.0 for g in grounds) and clear_of_states(colour, roles)
+
+
 def _muted(t: Theme, accent: str | None = None) -> str:
     """Derive a muted colour: mix text towards ground at the largest weight that keeps >= 4.6:1."""
     if not t.text or not t.ground:
@@ -149,7 +179,8 @@ def to_css(t: Theme, project_accent: str | None = None, panels=()) -> dict[str, 
       --select: ground moved 18% toward accent
       --muted: t.muted or derived at >= 4.6:1
       --accent: accent or project's own
-      --focus: cursor
+      --focus: cursor when it is >= 3:1 on --panel and every one of `panels` and clear of every state
+        (`clear_of_states`), else `neutral(text)` (#339): focus, selection and pressed never wear a state
       --running: status.info
       --waiting: status.warn
       --human: status.fail
@@ -180,19 +211,32 @@ def to_css(t: Theme, project_accent: str | None = None, panels=()) -> dict[str, 
         "--select": select,
         "--muted": muted,
         "--accent": accent,
-        "--focus": t.cursor,
         "--running": t.status.get("info", "#58A6FF"),
         "--waiting": t.status.get("warn", "#D29922"),
         "--human": t.status.get("fail", "#FF5C5C"),
         "--done": t.status.get("ok", "#3FB950"),
         "--idle": t.status.get("skip", "#8B949E"),
     }
+    roles = [out[r] for r in ROLES]
+    out["--focus"] = t.cursor if marks_clear(t.cursor, (panel, *panels), roles) else neutral(t.text)
     for role in ROLES:
         out["--on-" + role[2:]] = on_role(out[role], t.text, t.ground)
     grounds = (t.ground, panel, select, *panels)
     for role in ROLES:
         out[role + "-text"] = role_text(out[role], t.text, grounds)
     return out
+
+
+def pane_mark(t: Theme, panels=()) -> str:
+    """The colour a pane's project strip falls back to when no project chose one (#339): the palette's accent
+    when it passes the `--focus` test (>= 3:1 on `--panel` and every panel, clear of every state), else the
+    palette's `--muted` made neutral. `""` for the plain palette, whose strip `.tile`'s own border paints."""
+    if t.name == "none" or t.ground is None or t.text is None:
+        return ""
+    c = to_css(t, panels=panels)
+    if marks_clear(t.accent, (c["--panel"], *panels), [c[r] for r in ROLES]):
+        return t.accent
+    return neutral(c["--muted"])
 
 
 def css(t: Theme, project_accent: str | None = None, panels=()) -> dict[str, str]:
@@ -257,6 +301,9 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
        only input: a project's accent paints only the pane's left edge. `--accent` on `--panel` or
        `--select` is not held: random rolls fall under 2.5:1 there, and a pressed control's ring is
        a second mark -- its word carries the state.
+    10. Focus is never a state (#339): to_css(t)["--focus"] >= 3:1 on target_ground and on each of
+       `panels`, and achromatic (HSV saturation <= 0.25) or >= 30 degrees of hue from every chromatic
+       role -- the keyboard ring, the selected pane's ring and a pressed control's ring.
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return
@@ -372,6 +419,25 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
             f"{skin_ctx}theme '{t.name}': text on the pressed ground is {cr_pressed:.2f}:1, below 4.5:1 floor",
             hint=f"{skin_ctx}text '{tokens['--text']}' on --select '{tokens['--select']}' "
                  f"(ground '{t.ground}' moved 18% toward accent '{tokens['--accent']}')"
+        )
+
+    # Rule 10: focus is never a state (#339)
+    focus = worded["--focus"]
+    roles = [worded[r] for r in ROLES]
+    for g in grounds:
+        cr_focus = contrast_ratio(focus, g)
+        if cr_focus < 3.0:
+            raise ThemeError(
+                f"{skin_ctx}theme '{t.name}': the focus ring is {cr_focus:.2f}:1 on '{g}', below 3:1 floor",
+                hint=f"{skin_ctx}--focus '{focus}' on '{g}' (the cursor '{t.cursor}', or text '{t.text}' made neutral)"
+            )
+    if not clear_of_states(focus, roles):
+        near = min((r for r in ROLES if saturation(worded[r]) > ACHROMATIC),
+                   key=lambda r: hue_distance(focus, worded[r]))
+        raise ThemeError(
+            f"{skin_ctx}theme '{t.name}': the focus ring is {hue_distance(focus, worded[near]):.1f} degrees "
+            f"from {near}, under {STATE_HUE_GAP:.0f}",
+            hint=f"{skin_ctx}--focus '{focus}' vs {near} '{worded[near]}': focus must never read as a state"
         )
 
 

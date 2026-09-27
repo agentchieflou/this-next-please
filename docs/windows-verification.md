@@ -1350,3 +1350,73 @@ desk-engines.md §What happens without each one describes. A cell is never upgra
 - **Are container queries worth leaning on for the tiers?** (P10) plan-panes said they would be
   used only if all three engines run them. The tiers do not use them either way, because the
   attribute is what tests and draw code can read. The answer decides only whether a later slice may.
+
+
+## Mobile (#538, #539): the bridge, the phone and the tenant
+
+CI proves the bridge on a temp folder: the outbox records, the inbox checks in order, the scrubber, the
+thread's pass and its heartbeat (`tests/test_fleet_bridge.py`). Nothing in the mobile lane has yet run on
+the laptop, the tenant or a phone, and the research notes mark every one of the questions below
+**UNVERIFIED**. These rows are how the mobile sitting (#582) answers them; #561 and #565 run M8–M10 and M1
+early. A row measures and records. It never changes a default: three defaults wait on these numbers, and
+the sitting decides them with the number beside each (MOB-D3 and MOB-D11 in `docs/plan-mobile.md`):
+
+- `fleet.mobile.expire_s`, 900 s (60–3600): how long a phone decision stays valid (M1, M10).
+- `HEARTBEAT_S`, 300 s in `agentdata/fleet/bridge.py`: how often the laptop says it is alive (M1, M4).
+- `TICK_S`, 5 s in the same file: how often the bridge passes over the folder (M5, M11).
+
+The scriptable rows (M2, M5, M6, M7, M12) are one function in `tests/laptop/test_12_mobile.py`. Run it with
+the bridge configured (`fleet.mobile.folder` set, as `docs/fleet-mobile.md` describes):
+
+```powershell
+$env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop -k 12_mobile -s   # pwsh 7
+```
+
+It writes one record per row into `.agent/out/verification-<ts>.toon` and prints it. Everything else here
+is done by hand. Fill in **Host** and **Date** as you go, or leave *not yet measured*; never leave a row
+blank.
+
+| # | Do this | Expect | Host | Date |
+|---|---|---|---|---|
+| M1 | The round trip, ten times: an agent asks for approval (`ad-fleet approvals` lists it), the push arrives, tap Approve, then `ad-fleet mobile status` until `last_inbox` moves, then `outbox/results/<nonce>.result.json` appears. Time four intervals each trip: request to push, push to tap, tap to `last_inbox`, `last_inbox` to the result | the median and the worst of each interval, over ten trips. The notes' budget to compare against: a median under 10 min, and the worst under `fleet.approval_timeout` | _not yet measured_ | — |
+| M2 | `ad-fleet mobile export` once (or the scripted row), with the OneDrive activity centre open, then look at the folder on the OneDrive web view | how many uploads each file got, and whether a `.tmp` name was ever listed: the design expects one upload per file and none | _not yet measured_ | — |
+| M3 | Lock the screen (Win+L), then from the phone send a reply to an agent running in a console | which one arrives: a line typed into the console (`via: say` in the result), or `console_unreachable` in `outbox/results/` | _not yet measured_ | — |
+| M4 | Lock the screen for 15 minutes with `ad-fleet serve` (or `ad-fleet mobile watch`) running | how many heartbeats the `FleetHeartbeat` row's version history shows for those 15 minutes; `HEARTBEAT_S` expects three | _not yet measured_ | — |
+| M5 | Close every desk window, six agents registered, then `ad-fleet mobile watch` (or the scripted row, which times `fleet_snapshot()` itself) | the per-tick cost of `fleet_snapshot()` in ms, median and worst over six ticks: the number that decides whether `TICK_S` stays 5 | _not yet measured_ | — |
+| M6 | `Get-ChildItem Env:OneDrive*` and `reg query HKCU\Software\Microsoft\OneDrive\Accounts /s` | the business sync root's path from each, whether `%OneDriveCommercial%` and `Accounts\Business1\UserFolder` agree, and which one `fleet.mobile.folder` sits under | _not yet measured_ | — |
+| M7 | `attrib` on the bridge folder's `inbox/`, and `python -c "import os; print(hex(os.stat(r'<inbox>').st_file_attributes))"` | whether the `P` letter shows and `0x80000` (pinned) is set, with `0x100000` (unpinned) and `0x400000` (recall on data access) clear | _not yet measured_ | — |
+| M8 | On an Android phone whose Power Apps app protection policy has *Org data notifications* = **Block org data**, trigger a notification | the policy's value and whether the buzz arrived: delivered or blocked, recorded (#561 runs it) | _not yet measured_ | — |
+| M9 | From a mail on the managed phone, open the `ms-apps:` link and the `https://apps.powerapps.com/play/e/…` link | which app each opens: Power Apps mobile, or a browser, and if a browser, whether Android's *Open by default* setting fixes it | _not yet measured_ | — |
+| M10 | Push latency, five times per OS: drop a notification file into the outbox, then time until the phone buzzes | the median per OS, and the flow's poll interval it sat under | _not yet measured_ | — |
+| M11 | Restart the fleet with six repos registered, so every attention row is rewritten at once | whether every row in the attention list is updated within two polls, or the trigger's known ~30-pending-changes-per-poll issue shows | _not yet measured_ | — |
+| M12 | With the sync client active, 200 writes through `textio.write_text` into the bridge folder (the scripted row does this in its own subfolder, and removes it) | `report["how"]` for each write: the design expects `atomic` every time, and never the in-place fallback that follows 5 locked `os.replace` attempts | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+The notes are the research behind [plan-mobile.md](plan-mobile.md); they are not in this repository, and
+plan-mobile.md §Open questions quotes each question.
+
+- **How long does a round trip take through OneDrive?** (M1) `flows_and_onedrive_bridge.md` Q7 estimates
+  ~2 min best, 5–10 min typical, and unbounded when sync pauses on a metered network or battery saver. The
+  answer sets `fleet.mobile.expire_s` and `HEARTBEAT_S`.
+- **Does a file renamed from a never-synced `.tmp` upload as a create, or is a staging folder needed?** (M2)
+  `flows_and_onedrive_bridge.md` Q8.
+- **Does `say`'s `WriteConsoleInputW` work while the desktop is locked?** (M3) `laptop_bridge_design.md`
+  Q4, Gaps. It decides whether a phone reply ever reaches a console session while the operator is away.
+- **Does the sync client keep uploading, and `ad-fleet serve` keep ticking, on a locked desktop?** (M4)
+  `laptop_bridge_design.md` Q3, Gaps.
+- **What does `fleet_snapshot()` cost from a bridge tick with no desk open?** (M5) `laptop_bridge_design.md`
+  Q2, Gaps. The answer decides `TICK_S`.
+- **Where is the business sync root on this laptop?** (M6) `laptop_bridge_design.md` Q6, Gaps: neither
+  `%OneDriveCommercial%` nor `Accounts\Business1\UserFolder` is documented on Learn.
+- **Does a pinned folder read as pinned through `st_file_attributes`?** (M7) `laptop_bridge_design.md` Q6,
+  Gaps: the doctor's online-only check reads `0x100000` and `0x400000`.
+- **Is a push delivered on Android under *Block org data*?** (M8) `notifications_intune_powerapps.md` KQ2.
+  [fleet-mobile.md](fleet-mobile.md) §The IT ask, ask 1, leaves the value to IT until this row is run.
+- **Do deep links open Power Apps mobile under the MDM?** (M9) `notifications_intune_powerapps.md` KQ3.
+- **How long does a push take?** (M10) `notifications_intune_powerapps.md` KQ2, Gaps. With M1, it sets
+  `fleet.mobile.expire_s`.
+- **Does the ~30-pending-changes-per-poll issue bite on a fleet restart?** (M11)
+  `flows_and_onedrive_bridge.md` Q1. With M5, it bears on `TICK_S`.
+- **Does the sync client ever hold a fresh file long enough to force the in-place fallback?** (M12)
+  `laptop_bridge_design.md` Q9, Gaps.

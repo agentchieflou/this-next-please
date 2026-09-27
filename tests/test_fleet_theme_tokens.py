@@ -217,6 +217,66 @@ def _chip_desk(tmp_path, alive, finished):
     S.update_window("main", open=names[0], widths={n: 1 for n in names})
 
 
+# ------------------------------------------------------------ #339: rings, read off the screen
+
+RECT = """(sel) => { const el = document.querySelector(sel);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height }; }"""
+#: Keyboard focus as a person gives it: a Tab first, so the ring is the `:focus-visible` one.
+FOCUS = """(sel) => { const el = document.querySelector(sel); el.focus(); return el.matches(':focus-visible'); }"""
+
+
+def _pixels(page, clip):
+    from test_fleet_desk_glass import _png_pixels
+
+    w, h, bpp, rows = _png_pixels(page.screenshot(clip=clip))
+    return [tuple(row[x * bpp:x * bpp + 3]) for row in rows for x in range(w)]
+
+
+def _median(pixels):
+    """The median pixel by luminance, as `#RRGGBB`."""
+    px = sorted(pixels, key=lambda c: theme.rel_luminance(tuple(v / 255 for v in c)))[len(pixels) // 2]
+    return "#{:02X}{:02X}{:02X}".format(*px)
+
+
+def _ring(page, sel, side):
+    """How a 2px ring 2-4px outside `sel`'s box (a `:focus-visible` outline at offset 2, the selection's
+    `--focus` ring) reads against the pixels just outside it, 4-6px out: the median of one pixel row
+    inside each band, 16px about the middle of the `side` edge (`top` or `bottom`), from a clipped
+    screenshot."""
+    import math
+
+    r = page.evaluate(RECT, sel)
+    assert r and r["w"] and r["h"], (sel, r)
+    edge = r["y"] if side == "top" else r["y"] + r["h"]
+    rows = ((math.ceil(edge - 2.5) - 1, math.ceil(edge - 4.5) - 1) if side == "top"
+            else (math.floor(edge + 2.5), math.floor(edge + 4.5)))
+    x = round(r["x"] + r["w"] / 2) - 8
+    ring, out = (_median(_pixels(page, {"x": x, "y": y, "width": 16, "height": 1})) for y in rows)
+    return round(theme.contrast_ratio(ring, out), 2), ring, out
+
+
+def _rings(page, look, selected=None):
+    """#339's rings on this page: Tab to the sidebar button in the header and to a pane, each ring >= 3:1
+    against the pixels just outside it; and, with `selected`, the selected pane's outer ring under ink."""
+    page.keyboard.press("Tab")
+    low = []
+    for sel, side in (("#sidetoggle", "bottom"), ("#grid > .tile[data-repo]:not(.is-hidden)", "top")):
+        assert page.evaluate(FOCUS, sel), (look, sel, "not :focus-visible")
+        ratio, ring, out = _ring(page, sel, side)
+        if ratio < 3.0:
+            low.append(f"{look}: the focus ring on {sel} {ring} against {out} = {ratio}")
+    page.evaluate("() => document.activeElement.blur()")
+    if selected:
+        sel = f'#grid > .tile[data-repo="{selected}"].is-selected'
+        page.wait_for_function("(sel) => !!document.querySelector(sel)", arg=sel, timeout=15000)
+        ratio, ring, out = _ring(page, sel, "top")
+        if ratio < 3.0:
+            low.append(f"{look}: the selected pane's ring {ring} against {out} = {ratio}")
+    return low
+
+
 @pytest.mark.browser
 @pytest.mark.parametrize("ink", ["on", "off"])
 @pytest.mark.parametrize("look", ["voxel:overworld", "voxel:nether", "glass:azure", "none"])
@@ -248,10 +308,18 @@ def test_every_chip_word_and_age_read_at_4_5_on_the_chip(fleet_home, tmp_path, a
                          && [...document.styleSheets].some(s => (s.href || '').includes('/skins/{family}/'))""",
                     timeout=15000)
             chips = page.evaluate(CHIPS)
+            # #339: with ink on, on voxel:overworld and the plain page (light), the keyboard's rings read at
+            # 3:1 on what is around them, and so does the selected pane's two-tone ring on voxel.
+            rings = []
+            if ink == "on" and look in ("voxel:overworld", "none"):
+                if look != "none":
+                    S.select(selected="wait")
+                rings = _rings(page, look, selected="wait" if look != "none" else None)
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
+    assert not rings, rings
     assert {c["repo"] for c in chips} == set(STATES), chips
     low = []
     for c in chips:
@@ -362,6 +430,46 @@ PAINTED = """(sel) => Object.fromEntries(Object.entries(sel).map(([k, s]) => {
 SERVED = "() => getComputedStyle(document.documentElement).getPropertyValue('--human-text').trim()"
 
 
+#: #339's pressed controls: an open sidebar tab and a pinned pane's pin. Each one's computed colour and
+#: box-shadow, its rect, and the served `--text`.
+PRESSED_CONTROLS = {"tab": ".side-tabs .segment.active", "pin": ".tile.is-pinned .head .pintoggle"}
+PRESSED_READ = """(sel) => Object.fromEntries(Object.entries(sel).map(([k, s]) => {
+  const el = document.querySelector(s), c = getComputedStyle(el), r = el.getBoundingClientRect();
+  return [k, { color: c.color, shadow: c.boxShadow, rect: { x: r.left, y: r.top, width: r.width, height: r.height } }];
+}))"""
+#: The word and the pin's glyph (its stroke is `currentColor`) made transparent, for the pixels under them.
+UNWORDED = """(sel) => { const st = document.createElement('style');
+  st.textContent = Object.values(sel).join(', ') + ' { color: transparent !important; }';
+  document.head.appendChild(st); }"""
+
+
+def _pressed(page, look):
+    """#339, criterion 6: the sidebar open on a tab (the window's `section`) and the pinned pane's pin compute `color` equal
+    to the served `--text` and a ring; with the word and glyph transparent, `--text` against the median
+    of each control's own pixels is >= 4.5:1. Returns what failed."""
+    try:
+        page.wait_for_function("(sel) => { if (Object.values(sel).every(s => !!document.querySelector(s))) return true;"
+                               " refresh(); return false; }", arg=PRESSED_CONTROLS, timeout=15000, polling=250)
+    except Exception:
+        pytest.fail(f"{look}: the pressed controls never showed: " + str(page.evaluate(
+            "(sel) => Object.fromEntries(Object.entries(sel).map(([k, s]) => [k, !!document.querySelector(s)]))"
+            " ", PRESSED_CONTROLS)) + " " + str(page.evaluate("() => [...document.querySelectorAll('.tile')]"
+            ".map(t => t.className)")))
+    text = page.evaluate("() => getComputedStyle(document.documentElement).getPropertyValue('--text').trim()")
+    read = page.evaluate(PRESSED_READ, PRESSED_CONTROLS)
+    page.evaluate(UNWORDED, PRESSED_CONTROLS)
+    page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
+    low = []
+    for name, got in read.items():
+        if got["color"] != _hex_to_rgb(text) or got["shadow"] in ("", "none"):
+            low.append(f"{look}: the pressed {name} is {got['color']} with ring {got['shadow']!r}; --text is {text}")
+        ground = _median(_pixels(page, got["rect"]))
+        ratio = theme.contrast_ratio(text, ground)
+        if ratio < 4.5:
+            low.append(f"{look}: --text {text} on the pressed {name}'s median {ground} = {ratio:.2f}")
+    return low
+
+
 def _words_desk(tmp_path):
     """Two panes from real events: `err`, whose last turn ended in exit 2 (its why line and its
     transcript's `li.error`), and `ask`, holding a blocking question (the card's head)."""
@@ -402,7 +510,7 @@ def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home
     the dark `:root` block's own `--human-text`. One server and one browser; a page per look."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _words_desk(tmp_path)
-    seen = {}
+    seen, low = {}, []
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
@@ -422,6 +530,31 @@ def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home
                               && l.href.includes('/static/skins/' + family + '/skin.css'))""",
                     arg=[look, family], timeout=30000, polling=250)
                 seen[look] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
+                if look == "voxel:overworld":
+                    S.arrange(pinned=["err"])
+                    S.update_window("main", section="drawer")
+                    low += _pressed(page, look)
+                assert not errors, (look, errors)
+                page.close()
+
+            # #339 on the other looks the criteria name, ink on: farmstead:daytime's keyboard rings and its
+            # selected pane's ring; the pressed tab and pin on the plain page, sand with no skin and
+            # notebook:light.
+            S.select(selected="ask")
+            for look, chosen in (("farmstead:daytime", '{"skin": "farmstead:daytime"}'),
+                                 ("none", "{}"), ("sand", '{"skin": "none", "default": "sand"}'),
+                                 ("notebook:light", '{"skin": "notebook:light"}')):
+                _choose(fleet_home, chosen)
+                page, errors, _ = _open(browser, port, token, "&ink=on", panes=2)
+                if ":" in look:
+                    page.wait_for_function(
+                        """(look) => (Ink.inspect().table === look || (refresh(), false))
+                             && !document.body.classList.contains('ink-off')""",
+                        arg=look, timeout=30000, polling=250)
+                if look == "farmstead:daytime":
+                    low += _rings(page, look, selected="ask")
+                else:
+                    low += _pressed(page, look)
                 assert not errors, (look, errors)
                 page.close()
 
@@ -435,10 +568,12 @@ def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home
             page.wait_for_function("() => !document.documentElement.dataset.theme && !document.body.dataset.skin",
                                    timeout=15000)
             seen["none (dark)"] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
+            low += _rings(page, "none (dark)")
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
+    assert not low, low
 
     # Every look first, so a page that paints its words in anything but its served token says which.
     unpainted = {look: (served or "no --human-text served", painted) for look, (served, painted) in seen.items()
@@ -455,3 +590,66 @@ def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home
     dark_word = _root_blocks(_app_css())["dark"].get("--human-text")
     assert served and served.lower() == str(dark_word).lower(), (served, dark_word, painted)
     assert painted == {"asks": _hex_to_rgb(served), "why": _hex_to_rgb(served)}, (served, painted)
+
+
+# ------------------------------------------------------------ #339: focus, selection and pressed never wear a state
+
+#: The four pressed rules #339 draws the model picker's way: `--text` on `--select` and a ring.
+PRESSED = (".segment.active", ".head .pintoggle.active", ".tile.is-pinned .head .pintoggle",
+           ".head .pintoggle.active, .head .maxtoggle.active")
+
+
+def test_focus_selection_and_pressed_never_take_a_state_or_the_accent_in_app_css():
+    """#339, static. No `:focus-visible` rule in app.css takes its colour from `--accent`; no rule whose
+    selector has `.active` or `.is-pinned` writes `color: var(--accent)`; the four pressed rules set
+    `color: var(--text)`, `background: var(--select)` and a ring in `--focus`; under ink the selected pane
+    wears the two-tone ring; the pane's strip is `--focus`; and both plain `:root` blocks carry a `--focus`
+    chosen by the palette rule (their own `--text` made neutral) that passes rule 10 on their surfaces."""
+    blocks = _blocks(_app_css())
+    focus_rules = [(s, d) for s, d in blocks if ":focus-visible" in s]
+    assert len(focus_rules) >= 5, focus_rules
+    bad = [f"{s} {{ {p}: {v} }}" for s, d in focus_rules for p, v in d.items() if "--accent" in v]
+    bad += [f"{s} {{ color: {d['color']} }}" for s, d in blocks
+            if (".active" in s or ".is-pinned" in s) and "var(--accent)" in d.get("color", "")]
+    assert not bad, bad
+    for sel in PRESSED:
+        decls = next((d for s, d in blocks if s == sel), None)
+        assert decls, f"no rule {sel!r}"
+        assert decls.get("color") == "var(--text)" and decls.get("background") == "var(--select)", (sel, decls)
+        assert decls.get("box-shadow") == "inset 0 0 0 2px var(--focus)", (sel, decls)
+    inked = next(d for s, d in blocks if s == "body:has(> #ink[data-skin]) .tile.is-selected")
+    assert inked["box-shadow"] == "0 0 0 2px var(--bg), 0 0 0 4px var(--focus), 0 0 0 6px var(--bg)", inked
+    tile = next(d for s, d in blocks if s == ".tile")
+    assert tile["border-left"] == "3px solid var(--focus)", tile
+    for scheme, tokens in _root_blocks(_app_css()).items():
+        focus, roles = tokens["--focus"], [tokens["--" + r] for r in ROLES]
+        assert focus.lower() == theme.neutral(tokens["--text"]).lower(), (scheme, focus)
+        assert theme.clear_of_states(focus, roles), (scheme, focus)
+        for g in ("--bg", "--panel", "--select"):
+            assert theme.contrast_ratio(focus, tokens[g]) >= 3.0, (scheme, g, focus, tokens[g])
+
+
+def test_a_pane_no_project_coloured_wears_no_state_in_the_fleet(fleet_home, tmp_path):
+    """#339, `/api/fleet`. On voxel:overworld, voxel:nether and farmstead:daytime every pane's accent is
+    achromatic or >= 30 degrees from every chromatic role of the palette it is served on, and >= 3:1 on
+    its panel -- unless `theme.projects` chose it, which is used as chosen. On the plain page (`none`) no
+    pane is sent an accent at all (the tile's own `--focus` border paints the strip), and never
+    `#3FB950`, the done green."""
+    _desk_of(tmp_path, ("alpha", "beta", "gamma"))
+    cfg = fleet_home.parent / "cfg.json"
+    for look in ("voxel:overworld", "voxel:nether", "farmstead:daytime"):
+        cfg.write_text('{"theme": {"skin": "%s", "projects": {"gamma": {"accent": "#3FB950"}}}}' % look,
+                       encoding="utf-8")
+        base = skins.get_skin(look)["base"]
+        panels = skins.panels_on(base)
+        tokens = theme.to_css(theme.get(base), panels=panels)
+        roles = [tokens["--" + r] for r in ROLES]
+        accents = {r["repo"]: r["accent"] for r in S.fleet_snapshot()["repos"]}
+        assert accents["gamma"] == "#3FB950", accents                  # the operator's choice, as chosen
+        for repo in ("alpha", "beta"):
+            mark = accents[repo]
+            assert mark == theme.pane_mark(theme.get(base), panels=panels), (look, repo, mark)
+            assert theme.clear_of_states(mark, roles), (look, repo, mark)
+            assert all(theme.contrast_ratio(mark, g) >= 3.0 for g in (tokens["--panel"], *panels)), (look, mark)
+    cfg.write_text('{"theme": {}}', encoding="utf-8")
+    assert {r["repo"]: r["accent"] for r in S.fleet_snapshot()["repos"]} == {"alpha": "", "beta": "", "gamma": ""}

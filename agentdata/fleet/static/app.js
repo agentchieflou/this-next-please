@@ -3409,6 +3409,7 @@ function playFlip(first) {
 }
 
 var DRAG_SLOP = 4;
+var LONG_PRESS_MS = 400;
 
 var dragging = null;
 
@@ -3425,6 +3426,8 @@ function swallowNextClick() {
 function bindDragToReorder(handle, host, name) {
   handle.addEventListener("pointerdown", function (e) {
     if (e.button !== 0) return;
+    var touch = e.pointerType === "touch";
+    if (touch && STACKED && STACKED.matches) return;
     var ctrl = e.target.closest("button, input, select, textarea, a");
     if (ctrl && ctrl !== handle) return;
     var siblings = Array.prototype.filter.call(host.parentNode.children, function (n) {
@@ -3436,8 +3439,20 @@ function bindDragToReorder(handle, host, name) {
     var started = false;
     var target = null;
     var down = getComputedStyle(host.parentNode).flexDirection === "column";
+    var hold = touch && handle.classList.contains("pane-rail") ? setTimeout(function () {
+      clear();
+      var released = function () {
+        document.removeEventListener("pointerup", released, true);
+        document.removeEventListener("pointercancel", released, true);
+        swallowNextClick();
+      };
+      document.addEventListener("pointerup", released, true);
+      document.addEventListener("pointercancel", released, true);
+      openBeside(railTarget(name));
+    }, LONG_PRESS_MS) : 0;
 
     var lift = function () {
+      clearTimeout(hold);
       started = true;
       dragging = name;
       try {
@@ -3449,6 +3464,7 @@ function bindDragToReorder(handle, host, name) {
     };
 
     var clear = function () {
+      clearTimeout(hold);
       dragging = null;
       toggle(host, "is-dragging", false);
       style(host, "transform", "");
@@ -4251,12 +4267,20 @@ function applyPreset(which) {
   if (!shown.length || gutterHeld) return false;
   var next = {};
   var open;
+  var capped = "";
   if (which === "one") {
     var one = keyboardPane() || openName();
     shown.forEach(function (name) { next[name] = name === one ? 1 : 0; });
     open = one;
   } else if (which === "all") {
-    shown.forEach(function (name) { next[name] = 1; });
+    var n = shown.length, fit = n;
+    var room = rowWidth - ROW_PAD_PX - (n - 1) * ROW_GAP_PX;
+    if (rowWidth && !(STACKED && STACKED.matches) && n * TIER_COMPACT_FROM > room) {
+      fit = Math.max(1, Math.floor((room - n * RAIL_PX) / (TIER_COMPACT_FROM - RAIL_PX)));
+      capped = "all that fit: " + fit + " of " + n;
+    }
+    var keep = keyboardPane() || openName(), left = fit - +(shown.indexOf(keep) >= 0);
+    shown.forEach(function (name) { next[name] = name === keep || left-- > 0 ? 1 : 0; });
   } else if (which === "needs") {
     var red = shown.filter(needsPerson);
     if (!red.length) {
@@ -4270,6 +4294,7 @@ function applyPreset(which) {
     return false;
   }
   widthsNow(widthsWith(next), which, open, "layout");
+  if (capped) say(capped);
   return true;
 }
 

@@ -10,6 +10,17 @@ const QUIET = /(^|\s)is-(stale|replaying)(\s|$)/;
 const ROWS = 16, WAIT = 16, PER_FRAME = 4;
 const REAP = 90;
 const OBSERVED = ["class", "id", "hidden", "data-tier", "data-skin", "data-skin-variant", "open"];
+const PANE = "#grid > .tile[data-repo]";
+const MOVING = 4;
+const X = px => ({ transform: "translateX(" + px + "px)" });
+const S = n => ({ transform: "scale(" + n + ")" });
+const F = on => ({ filter: on ? "drop-shadow(0 0 4px currentColor)" : "none" });
+
+export const KINDS = Object.freeze({
+  hit: Object.freeze({ ms: 240, easing: "ease-in-out", add: true, frames: [X(0), X(-3), X(3), X(-2), X(0)] }),
+  pop: Object.freeze({ ms: 200, easing: "ease-out", add: true, frames: [S(1), S(1.015), S(1)] }),
+  flash: Object.freeze({ ms: 320, easing: "linear", add: false, frames: [F(0), F(1), F(0), F(1), F(0)] }),
+});
 
 const attrs = sel => Array.from(String(sel || "").matchAll(/\[\s*([\w-]+)/g), m => m[1]);
 
@@ -55,8 +66,51 @@ export function attach(layer, spec) {
   });
   mo.observe(body, { attributes: true, attributeFilter: ["class"], attributeOldValue: true });
   const push = (...cue) => { if (queue.length < WAIT) queue.push(cue); else dropped += 1; };
+  const moving = new Map(), animated = { hit: 0, pop: 0, flash: 0 }, told = new Set();
+  let skipped = 0;
+  const onFocus = e => { for (const el of Array.from(moving.keys())) if (el.contains(e.target)) still(el); };
+  const onReduce = () => { if (L.instant()) stillAll(); };
+  const listen = on => {
+    const how = on ? "addEventListener" : "removeEventListener";
+    document[how]("focusin", onFocus, true);
+    if (L.reduce && L.reduce[how]) L.reduce[how]("change", onReduce);
+  };
+  function still(el) {
+    const a = moving.get(el);
+    if (!a) return;
+    moving.delete(el);
+    a.cancel();
+    if (!moving.size) listen(false);
+    L.onMove();
+  }
+  function stillAll() {
+    for (const el of Array.from(moving.keys())) still(el);
+  }
+  /** @param {Element} el @param {string} kind @returns {boolean} */
+  function animate(el, kind) {
+    const k = Object.prototype.hasOwnProperty.call(KINDS, kind) ? KINDS[kind] : null;
+    if (!k) {
+      if (!told.has(kind)) { told.add(kind); console.error("ink: fx.animate: " + JSON.stringify(kind) + " is not hit, pop or flash"); }
+      return false;
+    }
+    const r = el && el.isConnected && el.matches(PANE) ? el.getBoundingClientRect() : null;
+    const sel = window.getSelection();
+    if (gone || !r || !r.width || !r.height || L.stopped || !L.skin || L.instant() || document.hidden ||
+        body.classList.contains("ink-off") || el.matches(":focus-within") ||
+        (sel && !sel.isCollapsed && sel.containsNode(el, true)) || el.getAnimations().length || moving.size >= MOVING) {
+      skipped += 1;
+      return false;
+    }
+    const a = el.animate(k.frames, { duration: k.ms, easing: k.easing, fill: "none", composite: k.add ? "add" : "replace" });
+    if (!moving.size) listen(true);
+    moving.set(el, a);
+    animated[kind] += 1;
+    a.onfinish = a.oncancel = () => { if (moving.get(el) === a) still(el); };
+    L.onMove();
+    return true;
+  }
   return {
-    api: Object.freeze({}),
+    api: Object.freeze({ animate }),
     match() {
       const quiet = QUIET.test(body.className);
       const go = armed && !quiet && !!L.skin && !L.instant();
@@ -90,6 +144,7 @@ export function attach(layer, spec) {
       }
     },
     deliver() {
+      for (const el of Array.from(moving.keys())) if (!el.isConnected) still(el);
       for (let n = 0; n < PER_FRAME && queue.length; n++) {
         const [name, el, box, how] = queue.shift();
         L.hook("cue", L.ctx(group), name, el, box, how);
@@ -113,6 +168,7 @@ export function attach(layer, spec) {
     detach() {
       if (gone) return null;
       gone = true;
+      stillAll();
       mo.disconnect();
       queue = [];
       L.empty(group);
@@ -124,7 +180,8 @@ export function attach(layer, spec) {
       let zero = 0;
       for (const c of rows) if (c.on === "leave") for (const e of c.live.values()) if (e.zeroAt) zero += 1;
       return { loaded: true, rows: rows.length, delivered, queued: queue.length, dropped, armed, reaped, zero,
-               children: group.children.length, refused };
+               children: group.children.length, refused, animating: moving.size, animated: Object.assign({}, animated),
+               skipped };
     },
   };
 }
