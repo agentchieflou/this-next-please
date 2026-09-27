@@ -500,7 +500,10 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
             m.wait_for_timeout(300)
             tablet = m.evaluate(STACK)
             # #577: `all` on the tablet widens only the panes that fit, rails the rest and says
-            # so, in one write that `u` takes back in one press.
+            # so, in one write that `u` takes back in one press. The pane you are in stays wide
+            # even when it is last in the row (decision 22).
+            m.locator('.tile[data-repo="r05"] .pane-rail').tap()
+            m.wait_for_function("() => openName() === 'r05' && windowWrites === 0", timeout=10000)
             posts = []
             m.on("request", lambda r: posts.append(r.url + " " + (r.post_data or "")) if r.method == "POST" else None)
             m.locator("#preset-all").tap()
@@ -569,6 +572,7 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
     fit = int(capped["said"].split(": ")[1].split(" of ")[0])
     assert 1 < fit < 6 and capped["wrap"] == "nowrap" and capped["sw"] <= capped["cw"], capped
     assert len(capped["open"]) == fit and all(t["width"] >= 160 for t in capped["open"]), capped
+    assert [t["repo"] for t in capped["open"]] == names[:fit - 1] + ["r05"], capped
     assert len(capped["bar"]) == 6 - fit and all(r["tier"] == "rail" for r in capped["bar"]), capped
     writes = [u for u in capped["posts"] if '"widths"' in u]
     assert len(writes) == 1 and all("/api/window" in u for u in capped["posts"]), capped

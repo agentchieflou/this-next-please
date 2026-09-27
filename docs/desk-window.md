@@ -235,7 +235,7 @@ One segmented control in the header, where the arrangement picker was:
 | Preset | Key | Widths |
 | --- | --- | --- |
 | **one** | `1` | the pane the keyboard is on, or else the open one, wide; every other a rail |
-| **all** | `=` | an even share each. The tiers decide what that looks like on this glass: three panes on the laptop panel are compact, the same three on a 2 560 px monitor are full. Where they cannot all be compact (six on a tablet's 820 px), only the first that fit at `--compact-from` are widened, the rest are rails, and it says *all that fit: 4 of 6* (#577). In the stack every pane is widened and the grid scrolls down |
+| **all** | `=` | an even share each. The tiers decide what that looks like on this glass: three panes on the laptop panel are compact, the same three on a 2 560 px monitor are full. Where they cannot all be compact (six on a tablet's 820 px), the pane you are in and the first others that fit at `--compact-from` are widened, the rest are rails, and it says *all that fit: 4 of 6* (#577). In the stack every pane is widened and the grid scrolls down |
 | **needs me** | `f` | every agent that needs a person wide, the rest rails, and the keys moved to one of them |
 
 Each is one write, undoable from the footer, and applies at once under reduced motion. They are
