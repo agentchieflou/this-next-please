@@ -276,15 +276,17 @@ jobs:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -m "not slow and not measured and not scale" --junitxml=junit/windows-pytest.xml
       # #435: late in the serial step Chromium has failed to fetch a script with
-      # `net::ERR_NO_BUFFER_SPACE` (Winsock WSAENOBUFS). The suspect is the dynamic port range run
-      # dry by sockets held in TIME_WAIT. Print both after the suite, pass or fail, so the next red
-      # run says whether that is it. Diagnostics only: this step never fails the job.
-      - name: sockets after the suite (TIME_WAIT, dynamic ports)
+      # `net::ERR_NO_BUFFER_SPACE` (Winsock WSAENOBUFS), and the desk has logged WinError 10053.
+      # #465's TIME_WAIT count read 4 on a green run and 2 on a red one (train 7): not the port range.
+      # After the suite, pass or fail: the TIME_WAIT count and the dynamic port range as before, the
+      # 10 PIDs that own the most TCP sockets with their image names, and how many chrome.exe and
+      # node.exe are still alive (.github/scripts/sockets.py). Diagnostics only: never fails the job.
+      - name: sockets after the suite (owners, live browsers, TIME_WAIT, dynamic ports)
         if: always()
         shell: pwsh
+        timeout-minutes: 2
         run: |
-          $waiting = @(netstat -ano -p tcp | Select-String -SimpleMatch 'TIME_WAIT').Count
-          Write-Host "TCP connections in TIME_WAIT: $waiting"
+          python .github/scripts/sockets.py --top 10
           netsh int ipv4 show dynamicport tcp
           exit 0
       - name: the measured and scale tiers, with the machine to themselves
