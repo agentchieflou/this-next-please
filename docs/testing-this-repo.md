@@ -745,7 +745,27 @@ artifacts of a green run and run:
 gh run download <run-id> --pattern 'junit-*' --dir junit-run
 python .github/scripts/durations.py update junit-run/junit-ubuntu-latest-*/*.xml --os linux --out tests/durations.json
 python .github/scripts/durations.py update junit-run/junit-windows-*/*.xml --os windows --out tests/durations.json
+python .github/scripts/durations.py counts junit-run/junit-ubuntu-latest-*/*.xml --out tests/browser_counts.json
 ```
 
 Within one junit file a file's tests are summed per tier; across junit files the max is taken, not the sum, since
 both legs of an OS run the same files. The other OS's key is kept and the output is byte-stable.
+
+### The browser tier's time budget
+
+Decision 13 held the slow tiers under a tenth of the suite and let no card add a browser test. Decision 20 (P-2,
+#587) turned the second half into a **time budget**: a card may add browser tests while the browser tier, costed
+from `tests/durations.json`, stays inside it. The tenth stays as it was.
+
+- **The budget** is `BROWSER_BUDGET_S` in `tests/test_suite_hygiene.py`: per OS, the summed time of every tier that
+  carries `browser` in `tests/durations.json` on green run 36255196023 @ 06b177e (Linux 2,144.1 s, Windows
+  1,265.2 s), plus 5%, rounded down: **2,251 s and 1,328 s**. 5% is 63 s on the Windows 3.14 `pytest` step
+  (31.6 minutes of its 40-minute job cap on that run), about 17 browser tests at the tier's mean.
+- **The cost of a new test** is its file's measured time per browser test (`tests/browser_counts.json` holds the
+  counts of the measured run), or the tier's mean for a file the run did not measure. A removed test gives its time
+  back.
+- **The check** folds into `test_the_expensive_tiers_are_a_small_part_of_the_suite`, which already collects the
+  suite: it names each OS over budget and the files that grew. `test_the_browser_budget_is_the_measured_time_plus_a_small_headroom`
+  fails a refreshed `durations.json` whose browser tier outgrew the budget, or whose counts came from another run.
+- **Refresh both files from the same run.** A refresh that lands over the budget is a finding for the operator.
+  Raising `BROWSER_BUDGET_S` is the operator's call, never a card's.
