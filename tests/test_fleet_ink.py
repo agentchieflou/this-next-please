@@ -1612,6 +1612,11 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
         # and one at rate 4, timed in turn seven times, first on the desk and then on a page of
         # another site. The loop's own cost is its quickest unthrottled run (a busy machine only
         # adds to it); the throttled figure is the median, so no single run decides it.
+        # The ink page goes first: its four slow marks are still drawing, and that load lands on
+        # the unthrottled loop, while the throttled one's idle share absorbs it (on a 4-core
+        # Windows runner the desk round's quickest unthrottled run was 81.6 ms against 35.9 ms
+        # one round later, when the ink had finished).
+        page.close()
         timed = {rate: desk_page(browser, throttle=rate) for rate in (1, 4)}
         loops = []
         for url in (f"http://127.0.0.1:{port}/?t={token}", f"http://localhost:{port}/settings?t={token}"):
