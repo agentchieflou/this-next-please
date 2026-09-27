@@ -62,6 +62,23 @@ flex` and an id selector outranks the user-agent `[hidden]` rule, so a "closed" 
 the glass swallowing the clicks meant for the tiles under it. `el.hidden = true` is how this
 page closes everything, so it means what it says here or it means nothing.
 
+### `html`, `body`, `header, footer`, `footer` (the viewport, #573)
+
+The viewport foundations for a phone or a tablet (epic #541), each a no-op on a rectangular
+desktop window, where every `env(safe-area-inset-*)` is 0:
+
+- `html { overscroll-behavior-y: contain }`: pull-to-refresh on Chrome for Android no longer
+  reloads the desk mid-approval (no effect on iOS before 16).
+- `body`'s `height: 100dvh` follows a `100vh` line kept as the fallback: iOS's `100vh` is the
+  *large* viewport, so the footer and the reply row sat under the browser's chrome.
+- `header, footer` keep 14 px at the sides or the landscape notch's inset, whichever is larger,
+  and the footer adds the home indicator's inset to its 6 px at the bottom. Both need the pages'
+  `viewport-fit=cover`; `interactive-widget=resizes-content` lets the keyboard resize the layout
+  on Chrome and Firefox for Android, and Safari keeps the reply row a flex child in a pane that
+  scrolls (never `position: fixed`).
+- At 640 px and under, every `kbd` hint is hidden beside the `.keys` popover (MOB-D17's
+  breakpoint): a phone has no keyboard to name.
+
 ### `.toolbar-group`
 
 Beside `position: relative;`:
@@ -389,12 +406,16 @@ start: a rule that named only `.tile` once left the column's drag with nothing t
 
 ### `.tile .head, .pane-rail`
 
-Above `.tile .head, .pane-rail { touch-action: none; user-select: none; -webkit-user-select: no …`:
+Above `.tile .head, .pane-rail { touch-action: pan-y; user-select: none; -webkit-user-select: no …`:
 
 A title bar is not text to be selected, and while it was the browser turned the second drag in
 a row into a native drag of the selection the first one had made -- which arrives as
 `pointercancel` and ends the gesture on the frame it began. `draggable` used to suppress this
 as a side effect; saying it outright is what replaces it.
+
+`pan-y`, not `none` (#573): a finger can start a vertical scroll on a head or a rail, and the
+reorder still begins on a sideways start; a vertical one the browser takes arrives as the
+`pointercancel` the drag already handles. `.gutter` keeps `none`: a gutter has no scroll to give.
 
 ### `.tile.is-pinned .head .n::after`
 
@@ -617,6 +638,8 @@ The card behind the model button. Fixed, because it is one card for the page and
 whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. It
 scrolls inside itself (#366): the picker's pills are taller than a short window, and the arrows
 and the wheel have to reach the effort toolbar at the bottom of it.
+Its `100dvh` cap (after the `100vh` fallback, #573) is the visible viewport, so on a phone the
+card never sits under the keyboard or the URL bar.
 
 ## #216: arriving, and going away again
 
