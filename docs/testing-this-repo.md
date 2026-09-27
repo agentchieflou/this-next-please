@@ -45,17 +45,17 @@ test, `test_ui.py::test_every_command_still_works_without_rich`.
 python -m pytest -q -n auto -m "not browser and not measured and not scale and not slow"
 ```
 
-**43 seconds, 3,174 tests.** This is the one to run while you are working, and it is what almost
-every change is actually tested by: four tiers are held out, and between them they are 5% of the
-suite. The same selection takes 2 minutes 27 serially, so the four cores are most of the win and
-the tiers are the rest.
+**4,203 tests, about two minutes on four cores** (116 s on 27 Sep 2026, on a container whose four
+cores three builders shared). This is the one to run while you are working, and it is what almost
+every change is actually tested by: four tiers are held out, and between them they are 411 tests,
+8.9% of the suite. Its 23 `laptop` tests are selected and skip (§Markers).
 
 ### The rest
 
 ```bash
-python -m pytest -q -n auto -m "not measured and not scale"   # + the browser tests, 2m21
-python -m pytest -q -m "measured or scale"                    # the two that need the machine, 1m18
-python -m pytest -q                                           # everything, serially: about 7m30
+python -m pytest -q -n auto -m "not measured and not scale"   # + the browser tests: ~25 min of test time
+python -m pytest -q -m "(measured or scale) and not slow"     # the two that need the machine, 2m27
+python -m pytest -q                                           # everything, serially: ~34 min of test time
 python -m pytest -q --shuffle-seed 1                          # catch order dependence
 HYPOTHESIS_PROFILE=ci python -m pytest -q                     # properties at CI's example count
 AGENTDATA_LAPTOP=1 python -m pytest -m laptop                 # the laptop runbook (real tools)
@@ -67,24 +67,26 @@ $env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop     # the same from pwsh
 
 ## The tiers, and why they exist
 
-There are 3,443 tests and the whole suite serially takes **about seven and a half minutes** — the
-tiers below, one after another. That number is not a complaint about any one test; it is what
-happens when 3,400 tests arrive in three weeks and nobody asks what the expensive parts have in
-common. Measured on this container, four cores, each tier timed on its own:
+There are 4,614 tests (`--collect-only`, 27 Sep 2026), and the whole suite serially takes **about 34
+minutes of test time** on CI's Linux runners, three quarters of it the browser tier
+(`tests/durations.json`, one green run; §Step budgets). That number is not a complaint about any one
+test; it is what happens when thousands of tests arrive in weeks and nobody asks what the expensive
+parts have in common. The counts are by tier marker, so a test in two tiers counts in both (8 are
+`browser` and `measured`, 1 is `browser` and `slow`, 2 are `measured` and `scale`):
 
 | Tier | Tests | Cost | What makes it cost |
 | --- | --- | --- | --- |
-| the inner loop | 3,174 | 147 s serial, **43 s on 4 cores** | nothing in particular |
-| `browser` | 108 | 229 s serial; with the inner loop on 4 cores the two together are 142 s | each one launches Chromium and binds a server |
-| `measured` + `scale` | 13 | **78 s, and it must stay serial** | a duration is asserted, or the data is large |
-| `slow` | 51 | minutes | builds a wheel in a fresh venv, or spawns three subprocesses per command |
+| the inner loop | 4,203 | 374 s of test time on CI's Linux; **116 s on 4 shared cores** here | nothing in particular |
+| `browser` | 349 | about 1,525 s of test time on CI's Linux: two whole-file shards per run (#312) | each one launches Chromium and binds a server |
+| `measured` + `scale` | 19 (15 and 6) | **147 s here, and it must stay serial** | a duration is asserted, or the data is large |
+| `slow` | 52 | about 67 s on CI's Linux, 138 s on Windows | builds a wheel in a fresh venv, or spawns three subprocesses per command |
 | `laptop` | 23 | — | needs real tools; gated on `AGENTDATA_LAPTOP=1` |
 
-Everything but the last two, in the two passes CI runs on Linux: **3 minutes 40**, against about
-7m30 serial. On CI's own hardware the win is larger than this container's: the ubuntu suite step
-went from **5m14 to 85 s**.
+The "here" times are this container's on 27 Sep 2026, each tier on its own, while other builders
+shared its four cores; the rest are the summed test times in `tests/durations.json`. Which job runs
+each tier, and how, is the generated matrix in *What CI runs*.
 
-**108 browser tests are half the wall clock and 3% of the suite.** That is the whole finding, and
+**349 browser tests are three quarters of the test time and 8% of the suite.** That is the whole finding, and
 the tiers follow from it: the expensive things are expensive for four distinct reasons, and each
 reason wants a different treatment.
 
@@ -247,7 +249,8 @@ python -m pytest -m browser  # or just `pytest`; they run with everything else
 They **skip with the reason named** when there is no browser, and never fail for its absence:
 `AGENTDATA_CHROMIUM` points at one you already have, which is what a machine that ships a browser
 separately from the wheel needs (Playwright pins a build to its own version and otherwise refuses to
-start). CI installs chromium on the ubuntu leg, the Linux browser jobs and every Windows job, so these run there
+start). CI installs chromium on the ubuntu leg, the Linux browser jobs and every Windows job (the matrix in
+*What CI runs* says which tier runs in each), so these run there
 rather than skipping — a browser test that skips everywhere is the harness that let the defects
 through in the first place.
 
@@ -761,6 +764,51 @@ this section, the template and the rule together.
 ## What CI runs
 
 A red job is handled as *When CI is red* says: a flake issue and a reproduction first, never a re-run into green.
+
+### Which tier runs where
+
+<!-- tier-matrix:start -->
+Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh with `python tests/tier_matrix.py --write`. A cell names how the tier runs there: `parallel` (`-n auto`), `2 workers` (`-n 2`), `serial`, `shuffled` (serial, `--shuffle-seed`), `N shards` (whole-file `--shard=K/N` jobs), `named files` (a step that names its test files runs only the tiers those files hold, per `tests/durations.json`), `gated` (selected, and skipped unless `AGENTDATA_LAPTOP=1`), `SKIPS` (a `browser` test selected where no Chromium is installed), or `—` (not selected). `+` joins two steps.
+
+| Tier | ubuntu · 3.14 | windows · 3.14 |
+|---|---|---|
+| `default` | parallel + serial + serial, named files + shuffled (2 seeds) | 3 shards, serial |
+| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 3 shards, serial |
+| `measured` | serial + shuffled (2 seeds) | serial |
+| `scale` | serial + shuffled (2 seeds) | serial |
+| `slow` | serial + shuffled (2 seeds) | serial |
+| `laptop` | gated | gated |
+| `browser+slow` | serial | serial |
+| `browser+measured` | serial + serial, named files | serial |
+| `measured+scale` | serial + serial, named files + shuffled (2 seeds) | serial |
+| `laptop+measured` | gated | gated |
+
+Per job, as the checks are named:
+
+| Job | `default` | `browser` | `measured` | `scale` | `slow` | `laptop` | `browser+slow` | `browser+measured` | `measured+scale` | `laptop+measured` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `ubuntu-latest · python 3.14` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files | gated |
+| `ubuntu · python 3.14 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — | — |
+| `ubuntu · python 3.14 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — | — |
+| `windows · python 3.14 · shard 1/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 2/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 3/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · packaging and shells` | — | — | serial | serial | serial | — | serial | serial | serial | gated |
+| `lint · bash 4.4 and pwsh 7 floors` | serial, named files | — | — | — | — | — | — | — | — | — |
+| `coverage · per-module floors` | serial | — | serial | serial | serial | gated | — | — | serial | gated |
+| `suite · shuffled · seed 1` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
+| `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
+| `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — | — |
+<!-- tier-matrix:end -->
+
+`tests/test_hygiene_tier_matrix.py` keeps the block equal to the workflow (its failure names the refresh
+command), every tier but `laptop` on at least one Linux and one Windows job, and no `SKIPS` cell anywhere; the
+`scale` test `test_the_expensive_tiers_are_a_small_part_of_the_suite` fails when a test carries a combination of
+tier markers the matrix does not list (#315). The table below is the prose per job.
+
+### What each job proves
+
 
 | Job | What it proves |
 |---|---|

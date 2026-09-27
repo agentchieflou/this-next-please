@@ -473,11 +473,17 @@ def test_the_expensive_tiers_are_a_small_part_of_the_suite():
 
     Folded in (decision 13), since it needs the same whole-suite collections: `--shard=K/3` (#310)
     splits a shuffled selection, with and without `-m`, into whole-file shards whose node ids are
-    disjoint, add up to exactly the selection and keep its shuffled order."""
+    disjoint, add up to exactly the selection and keep its shuffled order. And every combination of
+    tier markers the suite holds is one tests/tier_matrix.py renders (#315): its plugin rides the
+    slow-tiers collection, which holds every test that carries a tier marker."""
+    tests_dir = os.path.join(REPO_ROOT, "tests")
+
     def collect(*args):
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join(
+            p for p in (tests_dir, os.environ.get("PYTHONPATH", "")) if p)}
         return subprocess.Popen([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
                                  "--collect-only", *args],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=REPO_ROOT)
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=REPO_ROOT, env=env)
 
     def lines(proc):
         out, err = proc.communicate(timeout=600)
@@ -487,7 +493,7 @@ def test_the_expensive_tiers_are_a_small_part_of_the_suite():
     inner = "not browser and not slow and not measured and not scale"
     shuffled = ("--shuffle-seed", "1")
     procs = {("", 0): collect("-m", "", *shuffled),
-             ("slow tiers", 0): collect("-m", "browser or measured or scale or slow or laptop"),
+             ("slow tiers", 0): collect("-m", "browser or measured or scale or slow or laptop", "-p", "tier_matrix"),
              (inner, 0): collect("-m", inner, *shuffled)}
     for k in (1, 2, 3):  # all at once: seven collections one after another cost minutes
         procs[("", k)] = collect("-m", "", *shuffled, f"--shard={k}/3")
@@ -501,6 +507,13 @@ def test_the_expensive_tiers_are_a_small_part_of_the_suite():
     assert slow_tiers < total * 0.10, (
         f"{slow_tiers} of {total} tests are in a tier the inner loop skips; the inner loop is "
         "supposed to be nearly all of it")
+
+    import tier_matrix
+    found = {ln.split(": ", 1)[1] for ln in out[("slow tiers", 0)] if ln.startswith("tier-matrix-combination: ")}
+    assert found, "tests/tier_matrix.py's plugin printed no combination"
+    missing = found - {tier_matrix.label(c) for c in tier_matrix.COMBINATIONS}
+    assert not missing, (f"tests carry {sorted(missing)}, which tests/tier_matrix.py's COMBINATIONS lacks: "
+                         f"add them and run `{tier_matrix.REFRESH}`")
 
     for expr in ("", inner):
         whole = ids[(expr, 0)]
