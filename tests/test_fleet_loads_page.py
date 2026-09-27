@@ -12,6 +12,8 @@
   record as `from=settings`; a cold open is `from=""`.
 * The ink's first frame is read from the layer's own counter, never from an ink-module change.
 
+The five that drive Chromium carry `browser` (#602): they run in the browser shards, with the page
+diagnostics a browser test gets when it fails; the two markup tests stay in the default tier.
 One browser for the module; a server per test. Every wait is on a condition: a request caught with
 `expect_request`, a page function, or `loads.load()` polled against a deadline.
 """
@@ -212,6 +214,7 @@ def _control(ctx, posts, port, token):
     return _pages(posts)
 
 
+@pytest.mark.browser
 def test_nothing_is_measured_unless_measuring_is_on(fleet_home, tmp_path, browser, posts):
     _desk_of(tmp_path)
     _switch(False)
@@ -241,6 +244,7 @@ def test_nothing_is_measured_unless_measuring_is_on(fleet_home, tmp_path, browse
         _stop(server)
 
 
+@pytest.mark.browser
 def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, browser, posts,
                                                         monkeypatch):
     _desk_of(tmp_path)
@@ -280,6 +284,7 @@ def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, br
     assert kept[1]["fleet_ms"] is None           # /settings does not read /api/fleet
 
 
+@pytest.mark.browser
 def test_a_round_trip_is_filed_from_settings(fleet_home, tmp_path, browser, posts):
     _desk_of(tmp_path)
     _switch(True)
@@ -309,6 +314,7 @@ def test_a_round_trip_is_filed_from_settings(fleet_home, tmp_path, browser, post
     assert {("desk", ""), ("desk", "settings")} <= rows
 
 
+@pytest.mark.browser
 def test_the_probe_page_posts_no_load(fleet_home, tmp_path, browser, posts):
     _desk_of(tmp_path)
     _switch(True)
@@ -328,6 +334,7 @@ def test_the_probe_page_posts_no_load(fleet_home, tmp_path, browser, posts):
         _stop(server)
 
 
+@pytest.mark.browser
 def test_the_first_ink_frame_is_read_without_the_ink_modules(fleet_home, tmp_path, browser, posts):
     _desk_of(tmp_path)
     _switch(True)

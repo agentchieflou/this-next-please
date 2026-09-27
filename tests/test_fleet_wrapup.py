@@ -44,6 +44,7 @@ class Recorder:
 
     def __init__(self, fake: FJ.FakeJira, status: str = "To Do", delay: float = 0.0):
         self.fake, self.status, self.delay = fake, status, delay
+        self.gate: threading.Event | None = None             # set: every call parks until the test opens it
         self.calls: list[tuple[list[str], str, dict]] = []
         self.canned: dict = {}
         self.lock = threading.Lock()
@@ -53,6 +54,8 @@ class Recorder:
         return [a for a, _, _ in self.calls if "--dry-run" not in a]
 
     def __call__(self, argv, cwd, env=None):
+        if self.gate is not None:
+            self.gate.wait(20)                              # 20 s only ends a hang
         with self.lock:
             self.calls.append((list(argv), cwd, dict(env or {})))
             if self.delay:
@@ -361,16 +364,25 @@ def test_a_mid_turn_agent_gets_every_row_skipped_and_nothing_runs(luna):
 
 
 def test_the_desk_answers_at_once_and_the_rows_arrive_later(luna):
-    luna["rec"].delay = 2.0
-    t0 = time.monotonic()
+    # Not a clock (#602, as #590 did for the fleet sweep): every read parks on a gate, so an answer that comes
+    # while nothing has been read is one the desk gave without waiting on the plan. A desk that planned inline
+    # would sit behind the gate until it gave up, and then answer with the rows already read.
+    gate = threading.Event()
+    luna["rec"].gate = gate
     ans = S.act("wrapup", {"repo": "luna", "mode": "day", "dry_run": True})
-    assert time.monotonic() - t0 < 0.2 and ans["reading"] is True and ans["job"]
+    assert not gate.is_set() and ans["reading"] is True and ans["job"]
+    assert WRAP.job_state("luna")["state"] == "reading", "the desk waited on the plan"
     again = S.act("wrapup", {"repo": "luna", "mode": "day", "dry_run": True})
     assert again["job"] == ans["job"], "a second ask while one reads joins it"
     server, token = S.build(0)
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     try:
         url = f"http://127.0.0.1:{server.server_address[1]}/api/wrapup?repo=luna&t={token}"
+        # The page's poll is answered while the plan is still parked: it reads the job, not the repo.
+        with urllib.request.urlopen(url, timeout=10) as r:
+            parked = json.loads(r.read())
+        assert parked["state"] == "reading" and parked["job"] == ans["job"], parked
+        gate.set()
         deadline, got = time.time() + 15, {}
         while time.time() < deadline:
             with urllib.request.urlopen(url, timeout=10) as r:

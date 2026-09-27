@@ -141,6 +141,7 @@ def _shell() -> str:
     return SH.detect()
 
 
+@pytest.mark.measured          # a 15-minute budget on the quickstart's own `elapsed` (#602)
 def test_quickstart_sets_up_the_desk_from_the_real_parent_folder(run, recorder):
     """One command, the real folder, the clock running -- and the summary that says what answered.
 
