@@ -561,6 +561,9 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             argv = launches(2)
             assert posts[-1] == ("fresh", {"repo": "gamma"}), posts
             assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-gamma" in prompt_of(argv)
+            # The supervisor writes the `started` after the launch the fixture records (#586), so
+            # the stream is waited for rather than read at once.
+            assert _eventually(lambda: len([e for e in E.read("gamma") if e["kind"] == "started"]) == 2)
             began = [e["data"] for e in E.read("gamma") if e["kind"] == "started"][-1]
             assert began["new"] is True and began["leaves"]["session"] == "s-gamma", began
             # A ticket key in the box is today's *Start {ticket}*: it posts `start`, and the live agent
@@ -629,6 +632,48 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             head.click()
             argv = launches(4)
             assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-eps" in prompt_of(argv)
+            assert not errors, errors
+
+            # #544: the sidebar toggle works on a window that has never been seen. A phone's first
+            # write is a rail tap, which makes the record; the page used to read the record's old
+            # default section `tickets` (the board's list) back as the open section, and the toggle
+            # opened that dead id forever. Then the map's `Enter` path: a record made before any
+            # page has read it; and a record an older server wrote with `tickets`, left as it is.
+            sections = ("", "board", "unsorted", "drawer", "found", "inspector")
+            S.update_window(w="frommap", open="alpha")
+            S.update_window(w="oldrecord", open="alpha", section="tickets")
+            for w, first in (("phone544", "rail tap"), ("frommap", "none"), ("oldrecord", "none")):
+                phone = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
+                tab = phone.new_page()
+                tab.on("pageerror", lambda e: errors.append(str(e)))
+                tab.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&w={w}", wait_until="domcontentloaded")
+                tab.wait_for_selector(".tile:visible", timeout=15000)
+                if first == "rail tap":
+                    rail = tab.locator('.tile[data-tier="rail"] .pane-rail').first
+                    name = rail.evaluate("el => el.closest('.tile').dataset.repo")
+                    rail.tap()
+                    tab.wait_for_selector(f'.tile[data-repo="{name}"]:not([data-tier="rail"])', timeout=10000)
+                    assert _eventually(lambda: S.desk_state()["windows"].get(w, {}).get("open") == name)
+                    tab.wait_for_function(                    # the answer is back on the page
+                        f"() => !windowWrites && ((desk.desk.windows || {{}})[W_NAME] || {{}}).open === '{name}'",
+                        timeout=10000)
+                if w != "oldrecord":
+                    assert S.desk_state()["windows"][w]["section"] in sections, S.desk_state()["windows"][w]
+                tab.click("#sidetoggle")
+                tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
+                assert _eventually(lambda: S.desk_state()["windows"][w]["section"] in sections[1:])
+                # At 390 px the open sidebar lies over the toolbar, so a pointer cannot reach the
+                # button a second time; the sheet with its own close is #576. The press is the
+                # button's own click, which is what the toggle is.
+                tab.locator("#sidetoggle").dispatch_event("click")
+                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                tab.keyboard.press("b")                       # `b` still opens the board ...
+                tab.wait_for_function(
+                    "() => !document.getElementById('side').hidden && !document.getElementById('board').hidden",
+                    timeout=5000)
+                tab.keyboard.press("Escape")                  # ... and `Esc` still closes it
+                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                phone.close()
             assert not errors, errors
             browser.close()
     finally:

@@ -142,6 +142,10 @@ it with **widths**, in each window's own record:
   holds is refused `widths_stale`: another page under the same `?w=` moved them first. The page
   then puts its own back and reads the desk again. `widths` that are not repository-to-weight are
   refused `widths_shape`.
+* **`section`** is `""` (the sidebar shut) or one of the page's sections: `board`, `unsorted`,
+  `drawer`, `found`, `inspector`. A new record starts at `""` (#544). The page ignores any other
+  value, so an older record's `"tickets"` (the board's list, not a section) no longer leaves the
+  sidebar toggle opening nothing. No `desk.json` is migrated.
 
 `size` is still read and kept by the server (`serve.size_cell`, both of its spellings, columns
 capped at 4) because desk.json files written before this carry it. `POST /api/arrange` still takes

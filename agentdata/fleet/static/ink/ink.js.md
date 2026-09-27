@@ -98,6 +98,15 @@ tool's identity, not its hand, and stay the layer's.
 
 ## the gate
 
+### `const verdict`
+
+The order is the rule: `?ink=off`, then `?ink=on`, then `narrow`, then the probe. `narrow` (#580,
+MOB-D19) turns ink off on a coarse pointer under 900 px whatever the probe said: a phone that opens
+the laptop's `w`-less URL inherits the `browser` record, which may say `hardware`, and a phone that
+ran `/probe` classifies as `hardware` too. The layer rebuilds its canvas on every `resize`, which a
+mobile URL bar fires over and over, and three.js is 163 KB. `?ink=on` is tested first, so the test
+override still forces ink on at 390 px. docs/desk-ink.md §The gate has the table.
+
 ## the table
 
 ### `function normalise`

@@ -66,6 +66,10 @@ MAX_BODY = 64 * 1024
 # a new route it must call, or a changed meaning for one it already calls.
 CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
+# What a request's `Host` may name, with this server's port (#551). The peer check above cannot see
+# DNS rebinding: a hostile name that re-resolves to 127.0.0.1 connects from loopback, and once it is
+# same-origin it could read `/open`'s redirect. Only the `Host` header still carries that name.
+HOSTS_ALLOWED = ("127.0.0.1", "localhost", "[::1]")
 
 POLL_EVERY_S = 5.0           # the floor between two ticks of the shared poller, however many tabs
 # The same idea for the event fold. `E.refresh` is not free -- per repository it reads the cursor,
@@ -649,7 +653,9 @@ def fleet_snapshot() -> dict:
     except Exception:                    # noqa: BLE001 - an unreadable skills folder is not a dead desk
         installed = None
 
-    for row in supervisor.status():
+    # The same registry the states are read from (#586): a second `Registry()` in `status()` could
+    # list a repo registered since, whose `state.json` this snapshot would then never read.
+    for row in supervisor.status(registry):
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
         repo_state: dict = {}                # the previous row's repository (and its state) in hand
@@ -1810,7 +1816,7 @@ def update_window(w: str = "main", **kwargs) -> dict:
                                  code="widths_stale")
         win = wins.setdefault(w, {
             "focus": False,
-            "section": "tickets",
+            "section": "",
             # Which agent this window has OPEN (#203). Per window, not shared: the left monitor
             # reads one agent while the centre reads another, and `selected` -- which the inspector
             # follows -- stays the one thing every window agrees on.
@@ -3094,6 +3100,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------ plumbing
 
+    def _host_ok(self) -> bool:
+        """`Host` is a loopback name with this server's port, or the request is refused (#551)."""
+        given = (self.headers.get("Host") or "").strip().lower()
+        name, _, port = given.rpartition(":")
+        return name in HOSTS_ALLOWED and port == str(self.server.server_address[1])
+
     def _authorized(self, query: dict) -> bool:
         host = (self.client_address[0] or "").strip("[]")
         if host not in LOOPBACK:
@@ -3142,6 +3154,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         route = url.path.rstrip("/") or "/"
+        if not self._host_ok():
+            # Before any route, the two tokenless ones included, and the same answer a bad token gets.
+            return self._json({"ok": False, "error": "not authorized"}, 403)
 
         # Two routes answer without the token, and both are loopback-only like everything else.
         #
@@ -3529,6 +3544,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:               # noqa: N802 - stdlib's name
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        if not self._host_ok():
+            return self._json({"ok": False, "error": "not authorized"}, 403)
         if not self._authorized(query):
             return self._refuse(403, "not authorized", "open the URL `ad-fleet serve` printed")
         route = url.path.rstrip("/")
@@ -3544,8 +3561,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(413, "body too large",
                                 "raise `fleet.attach.max_mb`, or drop the file from inside the "
                                 "checkout so it is scoped rather than copied")
+        raw = self.rfile.read(length)
+        if len(raw) < length:
+            # The connection ended before the body did: a request that never arrived (#584). A read at
+            # the end of the stream is `b""`, which `or b"{}"` below would act on as an empty object; a
+            # closing page's `/api/load` cut off after its headers was once kept as a fourth, empty load.
+            # Nothing is done and nothing answered: nobody is left to read it.
+            self.close_connection = True
+            return None
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
         except ValueError:
             return self._refuse(400, "body is not JSON")
         if not isinstance(body, dict):

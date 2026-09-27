@@ -73,6 +73,19 @@ def test_a_link_fact_host_is_kept_and_any_other_dotted_host_is_scrubbed(site):
     assert "build.other.example" not in out and "https://<host>/job" in out
 
 
+def test_a_version_number_is_not_a_host_but_an_address_still_is(site):
+    """`_HOST` took any three dotted labels for a host, so the phone read `released <host>` for
+    `released 0.17.0` (#546's `says` and approval summaries). No DNS name ends in a numeric label
+    and a three-part number is no IPv4 address: `v?N.N.N` is kept. A four-part address is not."""
+    s = bridge.Scrubber()
+    out = s.scrub("bumped to 0.17.0, pandas 2.2.3 and v1.4.10 on python 3.12.3; db at 10.20.30.40, "
+                  "ip-10.0.0.1 and etl-07.dc2.corp.example; build 0.17.0.1 and 1.2.3.corp.example", 1000)
+    for kept in ("0.17.0", "2.2.3", "v1.4.10", "3.12.3"):
+        assert kept in out, (kept, out)
+    for leaked in ("10.20.30.40", "10.0.0.1", "etl-07", "corp.example", "0.17.0.1"):
+        assert leaked not in out, (leaked, out)
+
+
 def test_onedrive_reserved_characters_and_a_leading_tilde_never_appear_in_a_file_name():
     names = ["RDSD#1", "50%-done", "~lock", "~~con", "con", "NUL.json", "aux.decision.json",
              'a<b>c:d"e/f\\g|h?i*j', "x" * 200, "", "~", "#%", "trailing. ", "lpt1"]

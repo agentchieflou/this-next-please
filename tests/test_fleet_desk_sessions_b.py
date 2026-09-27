@@ -187,6 +187,20 @@ def test_cli_open_all_leaves_the_ide_views_to_their_ide(fleet_home, monkeypatch,
     assert urls == [f"{URL}&w=main", f"{URL}&w=left"]
 
 
+def test_cli_open_all_leaves_a_phone_or_tablet_record_to_its_device(fleet_home, monkeypatch, capsys):  # noqa: F811
+    """A phone or tablet opens the desk as `w=phone` or `w=tablet` (#580, MOB-D23). A laptop tab
+    under either name would share the device's record, so `--all` leaves them as it leaves the IDE
+    views, and says so."""
+    _write_desk(json.dumps({"windows": {"main": {}, "phone": {"open": "alpha"}, "left": {},
+                                        "tablet": {}}}))
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[2]: main,left" in out, out
+    assert "skipped[2]: phone,tablet" in out, out
+    assert urls == [f"{URL}&w=main", f"{URL}&w=left"]
+
+
 @pytest.mark.parametrize("text,skipped", [
     ("{not json", "skipped[0]:"),
     (json.dumps({"windows": {"pycharm": {}}}), "skipped[1]: pycharm"),

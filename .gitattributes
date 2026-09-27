@@ -3,6 +3,11 @@
 tests/fixtures/** -text
 *.dax -text
 
+# The Power App sources, flows and workbook are pasted or imported byte for byte, and
+# tests/test_mobile_powerapp.py holds them to LF: a Windows checkout with core.autocrlf=true must not
+# rewrite them (the Windows 3.12 leg of train 13).
+mobile/** -text
+
 # Shell scripts are executed, not just read: a CRLF .sh dies under Git Bash with `$'\r': command
 # not found`, and cmd.exe wants CRLF for multi-line blocks. Pin both rather than leaving it to
 # whatever core.autocrlf a checkout happens to have.

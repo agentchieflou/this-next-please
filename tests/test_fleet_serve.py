@@ -7,6 +7,7 @@ frames, the fact that the page fetches nothing from the internet, and that the w
 """
 from __future__ import annotations
 import calendar
+import http.client
 import json
 import re
 import os
@@ -97,6 +98,58 @@ def test_the_server_never_listens_on_anything_but_loopback(running):
         s.settimeout(2)
         with pytest.raises((ConnectionRefusedError, socket.timeout, OSError)):
             s.connect((host, server.server_address[1]))
+
+
+def _as_host(port, path, host):
+    """A GET from loopback whose `Host` header is exactly `host`, or absent when `host` is None."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
+        if host is not None:
+            conn.putheader("Host", host)
+        conn.endheaders()
+        answer = conn.getresponse()
+        return answer.status, answer.read().decode("utf-8", "replace"), dict(answer.getheaders())
+    finally:
+        conn.close()
+
+
+def test_a_request_whose_host_is_not_the_loopback_address_is_refused_before_any_route(running):
+    """DNS rebinding (#551): a hostile name that re-resolves to 127.0.0.1 reaches the socket from a
+    loopback peer, so the peer check passes; only `Host` still carries the hostile name."""
+    base, token, server = running
+    port = server.server_address[1]
+    for host in (f"evil.example:{port}", "evil.example", None, "127.0.0.1", f"127.0.0.1:{port + 1}",
+                 f"127.0.0.2:{port}", f"::1:{port}", f"localhost.evil.example:{port}"):
+        for path in ("/", f"/?t={token}", "/open", "/open?w=vscode", "/api/ping",
+                     f"/api/fleet?t={token}"):
+            code, body, _ = _as_host(port, path, host)
+            assert code == 403, (host, path, code)
+            assert json.loads(body)["error"] == "not authorized", (host, path)
+    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"LOCALHOST:{port}"):
+        code, body, headers = _as_host(port, "/open?w=vscode", host)
+        assert code == 302, host
+        assert headers["Location"] == f"/?t={token}&w=vscode", host
+        code, body, _ = _as_host(port, "/api/ping", host)
+        assert code == 200 and json.loads(body)["service"] == "ad-fleet", host
+        code, body, _ = _as_host(port, f"/?t={token}", host)
+        assert code == 200 and "<title>fleet</title>" in body, host
+        code, _, _ = _as_host(port, "/", host)
+        assert code == 403, host
+    for host in (f"evil.example:{port}", None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.putrequest("POST", f"/api/settings?t={token}", skip_host=True)
+            if host is not None:
+                conn.putheader("Host", host)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", "2")
+            conn.endheaders(b"{}")
+            answer = conn.getresponse()
+            assert answer.status == 403, host
+            assert json.loads(answer.read())["error"] == "not authorized", host
+        finally:
+            conn.close()
 
 
 def test_every_response_carries_the_headers_that_keep_the_page_local(running):
@@ -849,3 +902,26 @@ def test_a_file_is_text_whatever_this_machine_calls_it(monkeypatch):
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+def test_a_snapshot_reads_the_registry_once(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """#586: a repo registered while a snapshot is being built is in it whole or not at all. The
+    snapshot read `registry.json` twice -- once for the states, once in `supervisor.status()` -- so
+    one registered between the two was listed with no `state.json` behind it: the pane said
+    "a clean session on no ticket" over a session mid-ticket, for one poll."""
+    from agentdata.fleet import supervisor
+
+    path = make_project(tmp_path / "gamma", phase="querying", ticket="RDSD-1")
+    status = supervisor.status
+
+    def registered_between(registry=None):
+        if "gamma" not in Registry().repos:
+            Registry().add(path, name="gamma")
+            E.append("gamma", [E.event("gamma", "session_id", {"session": "s-gamma"}, ticket="RDSD-1")])
+        return status(registry)
+
+    monkeypatch.setattr(supervisor, "status", registered_between)
+    rows = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
+    assert rows == [] or rows[0]["fresh"]["starts"]["ticket"] == "RDSD-1", rows[0]["fresh"]
+    again = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
+    assert again and again[0]["fresh"]["starts"]["ticket"] == "RDSD-1", again

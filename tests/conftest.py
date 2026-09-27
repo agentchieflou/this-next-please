@@ -25,8 +25,9 @@ import traceback
 
 import pytest
 
-# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317).
-pytest_plugins = ["orphans"]
+# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317);
+# tests/shard.py adds `--shard=K/N`, whole files balanced by tests/durations.json (#310).
+pytest_plugins = ["orphans", "shard"]
 
 from subproc import agentdata_env  # noqa: E402 - after pytest_plugins, which #317 puts right after pytest
 
@@ -193,6 +194,15 @@ def pytest_runtest_makereport(item, call):  # pragma: no cover - report hook
         reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
         report.outcome = "failed"
         report.longrepr = f"a browser test may not skip in a job that installed a browser: {reason}"
+    if report.failed:
+        # #435: on Windows, a failure with the socket signature carries a snapshot of Winsock taken
+        # now, while the test's own browser and server are still alive (tests/winsock_capture.py).
+        import winsock_capture
+
+        text = str(report.longrepr) + "".join(content for _, content in report.sections)
+        snapshot = winsock_capture.section(text)
+        if snapshot:
+            report.sections.append((winsock_capture.TITLE, snapshot))
 
 
 @pytest.fixture()

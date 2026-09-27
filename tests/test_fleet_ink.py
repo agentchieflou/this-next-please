@@ -299,6 +299,16 @@ def test_the_gate_is_the_probe_rule_and_nothing_else(fleet_home):
     assert PR.ink_gate("browser") == {"shell": "browser", "class": "unmeasured", "works": False}
     # Not a shell name: nothing measured it, and nothing of it reaches the page.
     assert PR.ink_gate("<b>x</b>") == {"shell": "", "class": "unmeasured", "works": False}
+    # The page's one rule of its own beside the probe (#580, MOB-D19): a coarse pointer under
+    # 900 px is `narrow` and off whatever the probe said, after `?ink=off` and `?ink=on` and before
+    # `hardware`, so the override still forces ink on and a phone is never `hardware`.
+    gate = _served("ink.js").decode("utf-8")
+    order = [gate.find(n) for n in ('asked === "off"', 'asked === "on"',
+                                    'matchMedia("(pointer: coarse) and (max-width: 900px)")',
+                                    'facts.probe === "hardware"')]
+    assert -1 not in order and order == sorted(order), order
+    narrow = gate[order[2]:order[3]]
+    assert 'verdict.source = "narrow"' in narrow and "verdict.on" not in narrow, narrow
 
 
 def test_the_server_writes_the_probe_class_on_the_desk_and_nowhere_else(fleet_home):
@@ -1050,7 +1060,8 @@ def catch_up_frames(marks, speed=1.0, hz=60):
 def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home, tmp_path):
     """The rule of the epic: only a shell whose probe says `hardware` gets ink. Software, no WebGL,
     an unnamed renderer, a probe that did not finish and a shell nobody measured all arrive at
-    `body.ink-off` -- and so does a hardware shell opened with `?ink=off`. The hardware one draws."""
+    `body.ink-off` -- and so does a hardware shell opened with `?ink=off`. The hardware one draws,
+    except on a phone: a coarse pointer at 390 px is `narrow` and off, unless `?ink=on` (#580)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     shells = {"pycharm": _facts(), "vscode": _facts(renderer=SWIFTSHADER),
@@ -1076,6 +1087,27 @@ def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home,
                 seen[w] = got
                 assert not errors, (w, errors)
                 page.close()
+            phone = {}
+            for name, extra in (("plain", ""), ("on", "&ink=on")):
+                context = browser.new_context(viewport={"width": 390, "height": 844},
+                                              is_mobile=True, has_touch=True)
+                page = context.new_page()
+                errors, asked = [], []
+                page.on("pageerror", lambda e: errors.append(str(e)))
+                page.on("request", lambda r: asked.append(r.url))
+                page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm{extra}",
+                          wait_until="domcontentloaded")
+                page.wait_for_function("() => !!window.Ink && !!document.querySelector('.tile .repo')",
+                                       timeout=15000)
+                got = page.evaluate("""async () => ({ verdict: Ink.verdict, enabled: Ink.enabled,
+                  off: document.body.classList.contains('ink-off'),
+                  drawn: (await Ink.setSkin({ name: 'gate', marks: [
+                           { selector: '.tile .repo', tool: 'pen', shape: 'underline' }] })).drawn,
+                  canvas: !!document.getElementById('ink') })""")
+                got["three"] = any("vendor/three" in u for u in asked)
+                phone[name] = got
+                assert not errors, (name, errors)
+                context.close()
             browser.close()
     finally:
         _stop(server)
@@ -1089,6 +1121,15 @@ def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home,
         assert not got["canvas"] and not got["three"], (w, got)
         assert got["verdict"]["probe"] == want[w], (w, got)
     assert seen["pycharm&ink=off"]["verdict"]["source"] == "param"
+    # A phone (#580, MOB-D19): the hardware shell's record, opened on a coarse pointer at 390 px,
+    # is `narrow` and draws no canvas; `?ink=on` still forces it on there.
+    assert phone["plain"]["verdict"]["source"] == "narrow", phone
+    assert phone["plain"]["verdict"]["probe"] == "hardware", phone
+    assert not phone["plain"]["enabled"] and phone["plain"]["off"], phone
+    assert phone["plain"]["drawn"] == "plain" and not phone["plain"]["canvas"], phone
+    assert not phone["plain"]["three"], phone
+    assert phone["on"]["verdict"]["source"] == "override" and phone["on"]["enabled"], phone
+    assert phone["on"]["drawn"] == "ink" and phone["on"]["canvas"], phone
 
 
 def _no_skin_css(page):
