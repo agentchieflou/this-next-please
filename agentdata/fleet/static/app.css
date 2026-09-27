@@ -1061,6 +1061,30 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .day-actions { display: flex; gap: 8px; }
 #daymenu { min-width: 200px; }
 
+@media (pointer: coarse) {
+  button, .segment, .spill, .side-tabs .segment, .ask-choice, .overturn, body .mpick .pill, .pill, .mc-close,
+  .dispatch-close, .scope-close, #tickets li, #notes li, .smitem, .ss-open, #inspectordetails .rail a,
+  .linkbtn, .hiddencount, .undo {
+    min-height: 44px;
+  }
+  button, .segment, .ask-choice, .overturn, .pill, body .mpick .pill, .linkbtn, .hiddencount, .undo { min-width: 44px; }
+  .head :is(.pintoggle, .hidetoggle, .refreshtoggle, .modeltoggle, .maxtoggle, .freshtoggle) {
+    min-width: 44px; min-height: 44px;
+  }
+  input, textarea, select { font-size: 16px !important; min-height: 44px; }
+  .gutter { width: 20px; right: 0; }
+  .approval .row, .asks .row {
+    position: sticky; bottom: 0; background: var(--panel);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  button, .segment, .pill, [role="tab"] { touch-action: manipulation; }
+}
+
+@media (max-width: 640px) {
+  .approval .row { flex-wrap: wrap; }
+  .approval .row > * { flex: 1 1 100%; }
+}
+
 .mpick { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .mpick .mp-models { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mpick .mp-group, .mpick .mp-effort, .mpick[data-variant="compact"] .mp-models {
