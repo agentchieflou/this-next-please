@@ -229,6 +229,8 @@ The rule for what a press means: **a press on a control inside the handle belong
 control, unless the handle *is* the control.** A pane's head is a plain `div`, so every button in
 it is somebody else's. A rail's face is one button, so a press anywhere on it is the rail's.
 
+A finger scrolls on heads and rails (`touch-action: pan-y`, #573): the drag needs a sideways start.
+
 Four pixels of travel before anything moves: a click on the head still selects the project, and a
 click on a rail still swaps it in. Then the host is translated under the cursor, and whatever is
 under the pointer is lit `drop-before` or `drop-after`, measured across the row. `Esc` cancels and
