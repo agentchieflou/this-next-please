@@ -18,6 +18,9 @@ from collections import Counter, defaultdict
 
 import psutil
 
+#: Decided once, at import: tests patch `os.name` and `sys.platform`.
+WIN = sys.platform == "win32"
+
 OUT = os.environ.get("PROBE603_OUT", "probe603.jsonl")
 ME = psutil.Process()
 START = time.time()
@@ -27,7 +30,7 @@ OURS: set[int] = set()
 
 
 def _nonpaged():
-    if os.name != "nt":
+    if not WIN:
         return None
 
     class PI(ctypes.Structure):
@@ -64,7 +67,7 @@ def snapshot(nodeid: str, phase: str, outcome: str) -> dict:
         g = by[names[pid]]
         g["n"] += 1
         try:
-            g["handles"] += p.num_handles() if os.name == "nt" else p.num_fds()
+            g["handles"] += p.num_handles() if WIN else p.num_fds()
             g["rss_mib"] += p.memory_info().rss / 2**20
         except psutil.Error:
             pass
@@ -111,10 +114,16 @@ def _write(rec: dict) -> None:
 def pytest_runtest_logreport(report):
     global _n
     if report.when == "call":
-        _write(snapshot(report.nodeid, "call-failed" if report.failed else "during", report.outcome))
+        try:
+            _write(snapshot(report.nodeid, "call-failed" if report.failed else "during", report.outcome))
+        except Exception as e:                      # noqa: BLE001 - a probe never fails the run
+            _write({"i": _n, "id": report.nodeid, "phase": "probe-error", "error": repr(e)})
     if report.when == "teardown":
         _n += 1
-        _write(snapshot(report.nodeid, "after", report.outcome))
+        try:
+            _write(snapshot(report.nodeid, "after", report.outcome))
+        except Exception as e:                      # noqa: BLE001 - a probe never fails the run
+            _write({"i": _n, "id": report.nodeid, "phase": "probe-error", "error": repr(e)})
 
 
 def pytest_sessionfinish(session):
@@ -125,6 +134,8 @@ def pytest_sessionfinish(session):
         return
     sys.stderr.write("\n#603 probe: per-test socket counts (every 25th row, and failures)\n")
     for r in rows:
+        if "groups" not in r:
+            continue
         if r["phase"] == "during" and not r["groups"].get("chrome", r["groups"].get("chrome-headless-shell", {})).get("tcp"):
             continue
         if r["phase"] == "after" and r["i"] % 25:
