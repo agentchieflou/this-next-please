@@ -19,6 +19,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet_ink import _serve  # noqa: F401 - over the harness's serve_desk; re-exported
 from test_fleet_ink_glass import MODULE, READY
 
@@ -96,7 +97,7 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 800}))
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on", wait_until="domcontentloaded")
@@ -106,7 +107,7 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
         # across it: a rect measured before the redraw and a screenshot taken after it would
         # put a sample on the ground between two tiles.
         page.wait_for_selector(".tile .cells .cell", timeout=15000)
-        page.wait_for_timeout(400)
+        settle(page)                              # that redraw done, and the desk still
 
         for variant, spec in K.SKINS["glass"]["variants"].items():
             page.evaluate("(name) => post('theme', { skin: name })", f"glass:{variant}")

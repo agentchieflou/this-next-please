@@ -21,6 +21,7 @@ import pytest
 from agentdata.fleet import serve as S
 
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet_window import RAILS, _repos, _serve, fleet_home  # noqa: F401 - fixtures
 
 
@@ -32,7 +33,7 @@ def test_a_drag_put_down_with_escape_opens_nothing(fleet_home, tmp_path, desk_br
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 1000}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -58,7 +59,9 @@ def test_a_drag_put_down_with_escape_opens_nothing(fleet_home, tmp_path, desk_br
             page.wait_for_function(
                 """() => getComputedStyle(document.querySelector('.tile[data-repo="delta"]'))
                            .transform === 'none'""", timeout=5000)
-            page.wait_for_timeout(100)
+            # And whatever the release set going -- the swap a stray click would make -- has
+            # run out and been drawn.
+            settle(page)
             assert page.evaluate(RAILS) == ["beta", "gamma", "delta"], \
                 f"attempt {attempt + 1}: the drag was put down and the rail opened anyway"
             assert page.evaluate(

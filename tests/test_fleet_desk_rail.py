@@ -30,6 +30,7 @@ from agentdata.fleet import (approval, board as B, events as E, models as M, pre
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet import make_project
 
 
@@ -107,7 +108,7 @@ def _board_window(browser, port, token):
     """The board, open beside `sol`: the checkouts a ticket can go to are rails, with no room on the
     glass for the card (#233; they were bands in the column, off the glass altogether). The address
     is the roles layout's board window, as a bookmark from before #232 still has it."""
-    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=roles&view=board", wait_until="domcontentloaded")
@@ -294,7 +295,7 @@ def test_a_drop_on_a_non_candidate_reads_cross_project_and_declining_the_overrid
         note = page.locator("#dispatch .dispatch-note").inner_text()
         assert "RDSD-118 is a RDSD ticket and mars declares jira_project DATAENG" in note, note
         assert len(asked) == 1 and "Start it anyway?" in asked[0], asked
-        page.wait_for_timeout(300)
+        settle(page)                              # what the declined press set going has run out
         assert not errors, errors
         close_pages(browser)
     finally:

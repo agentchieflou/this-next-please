@@ -678,7 +678,7 @@ def test_the_trace_never_costs_the_head_a_second_line(fleet_home, tmp_path, desk
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1600, "height": 950})
+        page = counted(browser.new_page(viewport={"width": 1600, "height": 950}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
@@ -688,7 +688,7 @@ def test_the_trace_never_costs_the_head_a_second_line(fleet_home, tmp_path, desk
         seen = []
         for width in (1100, 1440, 1600, 2000, 2560):
             page.set_viewport_size({"width": width, "height": 950})
-            page.wait_for_timeout(200)
+            settle(page)                          # the resize laid out and drawn
             seen.append(page.evaluate("""() => {
               const tile = document.querySelector('.tile');
               const head = tile.querySelector('.head');

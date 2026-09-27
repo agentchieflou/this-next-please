@@ -12,7 +12,6 @@ import json
 import os
 import re
 import socket
-import time
 import urllib.request
 
 import pytest
@@ -21,7 +20,7 @@ from agentdata.fleet import serve as S, registry
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages, launch_chromium, serve_desk  # noqa: F401 - launch_chromium is re-exported
-from desk_waits import WATCH
+from desk_waits import WATCH, counted, settle
 from test_fleet import make_project
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
 
@@ -101,7 +100,7 @@ def test_desk_browser_layouts_and_sync(running_desk, desk_browser, new_desk_page
     browser = desk_browser
     context = browser.new_context()
 
-    page1 = context.new_page()
+    page1 = counted(context.new_page())
     page2 = context.new_page()
 
     errors1 = []
@@ -127,7 +126,10 @@ def test_desk_browser_layouts_and_sync(running_desk, desk_browser, new_desk_page
     tiles1 = page1.query_selector_all(".tile")
     if tiles1:
         tiles1[0].click()
-        time.sleep(0.5)
+        # The click's own work run out and drawn. Page 2 opened last and is the tab in front; a tab
+        # behind draws about a frame a second, so page 1 comes forward to be counted in frames.
+        page1.bring_to_front()
+        settle(page1)
 
     # The harness: a fresh context per page, and reduced motion on request.
     first, record = new_desk_page(url)
@@ -174,7 +176,7 @@ def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(
         if (now) window.__said.push(now);
       });
     """)
-    page = context.new_page()
+    page = counted(context.new_page())
 
     errors = []
     page.on("pageerror", lambda exc: errors.append(str(exc)))
@@ -192,7 +194,7 @@ def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(
 
     # The stream and the fifteen-second clock redraw the page; the sentence is not said again.
     page.evaluate("() => { for (let i = 0; i < 20; i++) redrawAll(); refresh(); }")
-    page.wait_for_timeout(800)
+    settle(page)                                  # the refresh answered and drawn, the page still
     said = [line for line in page.evaluate("() => window.__said") if "ignored" in line]
     assert len(said) == 1, said
     assert page.evaluate("() => location.search").count("layout") == 0
@@ -206,7 +208,7 @@ def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(
 
     page.reload()
     page.wait_for_selector(".tile.is-solo", timeout=15000)
-    page.wait_for_timeout(500)
+    settle(page)                                  # the reload's own work done
     assert "ignored" not in (page.inner_text("#notice") or ""), "a reload said it a second time"
     assert not errors, f"Page JS errors: {errors}"
     close_pages(browser)

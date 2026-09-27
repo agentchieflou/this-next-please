@@ -24,6 +24,7 @@ import pytest
 from agentdata.fleet import serve as S
 
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet
 from test_fleet_column import (_open, _rail, _repos, _serve, _until,  # noqa: F401
                                fleet_home)
 
@@ -45,7 +46,7 @@ def test_a_click_on_another_agent_stays_where_it_was_put(fleet_home, tmp_path, d
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         _open(page, port, token)
@@ -53,7 +54,13 @@ def test_a_click_on_another_agent_stays_where_it_was_put(fleet_home, tmp_path, d
 
         page.click(_rail("beta"))                # the band this was, the rail it is (#233)
         page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
-        page.wait_for_timeout(1500)               # three ticks and more: the frames that snapped it back
+        # The frames that snapped it back: the click's own write held by the server, the page on
+        # the server's version with nothing left to write, then three passes of refresh, place and
+        # redraw over that record -- each one a desk frame the bug re-opened alpha on.
+        _until(lambda: S.desk_state()["windows"]["main"]["open"] == "beta")
+        page.wait_for_function("(v) => desk.desk.version >= v && windowWrites === 0",
+                               arg=S.desk_state()["version"], timeout=10000)
+        observe_quiet(page, passes=3)
         assert page.evaluate(SOLO) == "beta", "the click was undone by the next desk frame"
         _until(lambda: S.desk_state()["windows"]["main"]["open"] == "beta")
         assert not errors, errors
