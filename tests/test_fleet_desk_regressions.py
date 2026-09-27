@@ -677,6 +677,16 @@ def test_the_page_is_laid_out_for_a_phone_viewport_and_unchanged_on_a_desktop():
                    for p, v in ds), "a .tile .head rule still says touch-action: none"
     assert dict(decls(".gutter")).get("touch-action") == "none", decls(".gutter")
 
+    # #575: at 640 px and under the row wraps into a stack, the open pane first.
+    stack = [(s, dict(ds)) for body in narrow for s, ds in _css_rules(body)]
+    assert any(s == "#grid" and d.get("flex-wrap") == "wrap" for s, d in stack), stack
+    assert any(s == ".tile.is-solo" and d.get("order") == "-1" for s, d in stack), stack
+    wide = raw
+    for body in narrow:
+        wide = wide.replace(body, "")
+    assert all(d.get("flex-wrap", "nowrap") == "nowrap" for s, d in
+               ((s, dict(ds)) for s, ds in _css_rules(wide)) if s == "#grid"), "the row wraps outside the stack"
+
     for page in ("index.html", "settings.html", "map.html", "probe.html"):
         with open(os.path.join(STATIC, page), encoding="utf-8") as f:
             meta = re.search(r'<meta name="viewport" content="([^"]*)"', f.read())

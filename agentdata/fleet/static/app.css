@@ -754,6 +754,26 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
 }
 
+@media (max-width: 640px) {
+  #grid { flex-wrap: wrap; align-content: flex-start; overflow: hidden auto; }
+  .tile.is-solo {
+    flex: 1 1 100%; order: -1; min-width: 0; height: calc(100% - 62px); overflow-y: auto;
+  }
+  .tile:not(.is-solo) { flex: 1 1 var(--rail); max-width: calc(var(--compact-from) - 1px); height: 56px; order: 1; }
+  .pane-rail { flex-direction: row; justify-content: center; padding: 0 8px; }
+  .pr-name { writing-mode: horizontal-tb; }
+  .gutter, .grip { display: none; }
+  .toolbar { column-gap: 6px; }
+  .toolbar h1 { display: none; }
+  .toolbar .group-view { order: 3; flex: 1 1 100%; }
+  #chime { display: none; }
+  #find { flex: 1 1 auto; }
+}
+
+@media (pointer: coarse) and (max-height: 480px) {
+  .tile.is-solo { overflow-y: auto; }
+}
+
 .head [aria-busy="true"] { opacity: .5; }
 .wordbtn { font: 11px var(--mono); letter-spacing: .02em; white-space: nowrap;
            max-width: 100%; padding: 0 2px; overflow: hidden; }

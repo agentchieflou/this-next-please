@@ -3297,10 +3297,16 @@ Above `function groupRails(shown, open) {`:
 /** @param {string[]} shown  @param {string[]} open */
 ```
 
-Above `var need = ROW_PAD_PX + open.length * TIER_COMPACT_FROM + rails.length * RAIL_PX +`:
+Above `var need = STACKED && STACKED.matches`:
 
 Measured against every rail, never the grouped count, so grouping cannot talk itself out of
 being needed on the next pass and flicker.
+
+At 640 px and under (`STACKED`, #575) the rails are not beside the panes: they are the stack's
+bottom bar, one line under the open pane. So what has to fit is the rails alone, at 48 px each,
+across the bar's width, and folding starts only when the bar itself would overflow. The
+`MediaQueryList` is made once and only read here; nothing listens to it, because the grid's own
+`ResizeObserver` already places again when the window crosses the width.
 
 ### `function groupedAway`
 
