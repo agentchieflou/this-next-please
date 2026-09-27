@@ -567,6 +567,7 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
     assert state["arrangement"]["pinned"] == ["beta"], state
 
 
+@pytest.mark.browser
 def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monkeypatch):
     """When a start returns 409 with code: 'cross_project', the override prompt appears
     even when the refusal error string does not contain 'jira_project'."""
@@ -596,6 +597,7 @@ def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monk
         browser.close()
 
 
+@pytest.mark.browser
 def test_successful_attach_reads_attached_arrow(desk):
     """A successful attach renders 'attached → ...', and not 'already there'."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright

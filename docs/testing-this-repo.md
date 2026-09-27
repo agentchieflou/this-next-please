@@ -101,6 +101,14 @@ could never have seen it. It is a backstop for the common shape and it says so: 
 its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
 any pattern to find, and carries the marker because its author put it there.
 
+**A clock read inline counts, and so does a browser nobody marked** (#602). The scan sees
+`time.monotonic() - t0 < 0.2` and `time.time() - start < 5`, the shape the wrap-up sweep's 0.2 s
+bound had when a Windows runner took 0.735 s (#590), and it opens `regressions/` and `laptop/` as
+well as `tests/`. The same file fails a module that imports Playwright or the desk harness
+(`test_fleet_desk_browser`) with no `browser` marker in it, and each of its tests that starts
+Chromium, itself or through the module's own fixtures, without one: an unmarked Chromium test runs
+in the default tier, gets none of the page diagnostics and escapes the browser shards.
+
 **A `measured` result means something only when the test ran serially** (#473, operator ruling
 (a)). `test_a_gesture_keeps_its_budget_while_the_ink_draws` went over its 50 ms budget under
 `-n auto` on two branches, and a diagnostic ran its six gestures with the ink drawing, at rest and
