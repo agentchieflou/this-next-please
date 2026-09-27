@@ -191,6 +191,24 @@ def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path):
                 "fleet": ["every agent", "every agent", "CLI default", "pass no --model; the CLI chooses", "true"],
                 "typed": 0, "list": "shipped list — copilot could not be asked", "status": "status"}, block
 
+            # A phone (#578): at 390 px the rows wrap and nothing scrolls sideways; at 1280 px they
+            # are what they were, every label on its 190 px column.
+            WIDE = """() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
+                labels: [...document.querySelectorAll('.setrow > label')].filter(l => l.offsetParent)
+                    .map(l => Math.round(l.getBoundingClientRect().width)),
+                heads: [...document.querySelectorAll('h2')].filter(h => h.getBoundingClientRect().height > 0).length })"""
+            desk = page.evaluate(WIDE)
+            page.set_viewport_size({"width": 390, "height": 844})
+            phone = page.wait_for_function(f"() => {{ const r = ({WIDE})(); return r.cw <= 390 && r; }}",
+                                           timeout=5000).json_value()
+            page.set_viewport_size({"width": 1280, "height": 900})
+            again = page.wait_for_function(f"() => {{ const r = ({WIDE})(); return r.cw > 1200 && r; }}",
+                                           timeout=5000).json_value()
+            assert desk["sw"] == desk["cw"] and desk["labels"] and set(desk["labels"]) == {190}, desk
+            assert phone["sw"] == phone["cw"], f"/settings scrolls sideways at 390 px: {phone}"
+            assert phone["heads"] == 4, phone
+            assert again == desk, (desk, again)
+
             # `refresh the list` asks the server to ask copilot, and says so. Answered here, so no
             # CLI is started on the machine running the suite.
             asked = []

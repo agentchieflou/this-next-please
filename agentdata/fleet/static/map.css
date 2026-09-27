@@ -34,3 +34,7 @@ body.map-scene #mapstage { display: block; flex: 1 1 auto; min-width: 0; }
   body.map-scene #map > nav { flex: 0 0 auto; border-right: 0; border-bottom: 1px solid var(--line); }
   body.map-scene #mapstage { flex: 0 0 auto; height: min(55vh, 480px); }
 }
+
+@media (pointer: coarse) {
+  #maptree .say { min-height: 44px; padding: 10px 8px; font-size: 16px; box-sizing: border-box; }
+}

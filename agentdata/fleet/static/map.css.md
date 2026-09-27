@@ -34,3 +34,10 @@ With a scene (#409 sets `map-scene`): the tree is a 320px column and the stage t
 Above `@media (max-width: 900px) {`:
 
 PyCharm's tool window and VS Code's view (app.css's 900px breakpoint): the tree above the stage.
+
+### `@media (pointer: coarse)`
+
+Above `@media (pointer: coarse) {`:
+
+A finger (#578): every row 44 px tall, its words 16 px. A mouse keeps the 21 px rows, so the
+tree still reads at a glance on a desktop.

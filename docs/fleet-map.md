@@ -150,7 +150,9 @@ agent); `main`, `worktree`, `dirty` (a checkout); `unmerged`, `is-current` (a no
 
 **Expansion.** `aria-expanded` is written only when an item is created: projects, checkouts and `n:network` open,
 `bs:` closed. A redraw never undoes what the operator opened or closed; the choice is held in the DOM, in memory,
-and not persisted. `#maptree [aria-expanded="false"] > ul` is not shown. Clicking an item's words toggles it.
+and not persisted. `#maptree [aria-expanded="false"] > ul` is not shown. Clicking an item's words toggles it,
+except a checkout's or an agent's: a tap or a click on those opens it on the desk, as Enter does (#578), and a
+checkout's twisty still folds it. Under a coarse pointer every row is 44 px and its words 16 px.
 
 **Keys** (the WAI-ARIA tree pattern): ↓ ↑ move through the visible items; → opens a closed item, else moves to its
 first child; ← closes an open item, else moves to its parent; Home and End. One item is in the tab order (roving
