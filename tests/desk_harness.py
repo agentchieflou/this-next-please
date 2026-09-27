@@ -76,6 +76,10 @@ def launch_chromium(p, args=()):
     The only launcher in the suite: the harness's shared browser comes from here too (#299).
     `tests/test_fleet_desk_browser.py` re-exports it for the tests that still import it from there.
     """
+    netlog = os.environ.get("PROBE603_NETLOG")
+    if netlog and not args:                     # throwaway (#603): the shared browser's net log
+        import time as _t
+        args = (f"--log-net-log={os.path.join(netlog, f'netlog-{os.getpid()}-{_t.time():.0f}.json')}",)
     try:
         return p.chromium.launch(headless=True, args=list(args))
     except Exception as first:                                  # noqa: BLE001 - any launch failure
