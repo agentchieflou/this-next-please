@@ -209,6 +209,24 @@ def test_python_install_hive_is_recorded_for_the_ticket():
     assert rows["registry.python.hklm"]["value"] == "(no PythonCore key)"
 
 
+def test_the_version_row_refuses_anything_below_the_3_14_floor():
+    """#591 (decision 23): 3.14 is the floor, and Q1 says so for a 3.13."""
+    assert PB._version_row((3, 13, 9, "final", 0))["reason"] == "agentdata needs Python >= 3.14"
+    assert PB._version_row((3, 10, 4))["reason"] == "agentdata needs Python >= 3.14"
+    assert PB._version_row((3, 14, 0))["reason"] == ""
+    assert PB._version_row((3, 14, 0))["value"] == "3.14.0"
+    assert by_name(PB.report(run=fake_runner()))["python.version"]["reason"] == "", "this suite runs on 3.14"
+
+
+def test_the_probe_floor_is_pyprojects_requires_python():
+    import tomllib
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "pyproject.toml"), "rb") as f:
+        requires = tomllib.load(f)["project"]["requires-python"]
+    assert requires == ">=%d.%d" % PB.PYTHON_FLOOR == ">=3.14", requires
+
+
 def test_the_interpreter_running_the_probe_is_reported_truthfully():
     rows = by_name(PB.report(run=fake_runner()))
     assert rows["python.executable"]["value"].endswith(os.path.basename(sys.executable))

@@ -74,7 +74,7 @@ def test_a_long_output_is_trimmed_to_the_tail():
 @pytest.mark.parametrize("fixture,needles", [
     ("2026-09-03-all-users-access-denied.json", ("all users", "elevated")),
     ("2026-09-03-locked-launcher.json", ("launcher is locked", "python -m agentdata update")),
-    ("2026-09-04-requires-different-python.json", ("3.12", "interpreter")),
+    ("2026-09-04-requires-different-python.json", ("needs 3.14 or newer", "interpreter")),
     ("2026-09-04-user-install-shadow.json", ("--user install", "shadows")),
 ])
 def test_each_known_signature_gets_its_own_hint(fixture, needles):
@@ -251,9 +251,48 @@ def test_pythons_on_path_never_launches_an_interpreter(monkeypatch):
 
 
 def test_an_older_python_on_the_path_is_flagged():
-    assert update._version_from_path("C:/Python311/python.exe") == ("3.11", "from the path")
+    assert update._version_from_path("C:/Python310/python.exe") == ("3.10", "from the path")
     assert update._version_from_path("/usr/bin/python3.9") == ("3.9", "from the path")
     assert update._version_from_path("/opt/weird/py") == ("", "unknown")
+
+
+# ------------------------------------------------------------ the 3.14 floor (#591, decision 23)
+
+
+def test_the_floor_is_pyprojects_requires_python():
+    import tomllib
+
+    with open(os.path.join(REPO_ROOT, "pyproject.toml"), "rb") as f:
+        requires = tomllib.load(f)["project"]["requires-python"]
+    assert requires == ">=3.14" == f">={update.FLOOR_TEXT}", requires
+    assert update.PYTHON_FLOOR == (3, 14)
+
+
+def test_a_python_below_3_14_is_too_old_and_3_14_is_not():
+    assert update.too_old("3.13") and update.too_old("3.13.9") and update.too_old("3.10")
+    assert not update.too_old("3.14") and not update.too_old("3.14.0") and not update.too_old("3.15")
+    assert not update.too_old("") and not update.too_old("x.y"), "an unreadable version is not a verdict"
+
+
+def test_the_doctor_row_flags_a_3_13_on_the_path_against_the_3_14_floor(monkeypatch, capsys):
+    """`python_too_old` is the doctor's version row (`ad-update --check`, `ad-doctor --report`)."""
+    import shutil
+
+    real = shutil.which
+    monkeypatch.setattr(proc, "run", lambda *a, **k: pytest.fail("--check is a dry run"))
+    monkeypatch.setattr(update.shutil, "which", lambda name, *a, **k: (
+        "/usr/bin/python3.13" if name in ("python3", "python", "python.exe", "python3.exe") else real(name, *a, **k)))
+    rows = [r for r in update.pythons_on_path() if r["path"].endswith("python3.13")]
+    assert rows and rows[0]["version"] == "3.13" and rows[0]["too_old"], rows
+    update.main(["--check"])
+    out = capsys.readouterr().out
+    assert "python_too_old" in out
+    assert "below the 3.14 floor" in out and "a 3.14+ interpreter" in out
+
+
+def test_the_refusal_transcript_is_the_one_pip_gives_on_3_13():
+    t = transcript(PIP_FAKES, "2026-09-04-requires-different-python.json")
+    assert "requires a different Python: 3.13." in t["stderr"] and "not in '>=3.14'" in t["stderr"], t["stderr"]
 
 
 def test_two_installs_are_reported_as_shadowed(monkeypatch, capsys):

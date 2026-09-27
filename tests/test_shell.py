@@ -206,7 +206,8 @@ def test_the_workflow_runs_all_three_shells_and_swallows_nothing():
     assert {"pwsh", "bash", "cmd", "powershell"} <= shells, f"missing a shell: {shells}"
     rows = win["strategy"]["matrix"]["include"]
     # #311: several shard jobs per Python now; tests/test_hygiene_windows_shards.py pins the rows
-    assert {r["python"] for r in rows} == {"3.12", "3.14"}, "the floor and the laptop"
+    # #591 (decision 23): 3.14 is the floor and the laptop's Python, and the only one tested
+    assert {r["python"] for r in rows} == {"3.14"}, "3.14 only: the floor is the laptop"
     # a Windows checkout's line endings depend on core.autocrlf, and fixture bytes are the point of
     # several tests, so the matrix runs it both ways rather than pinning one
     assert {r["autocrlf"] for r in rows} == {"true", "false"}
