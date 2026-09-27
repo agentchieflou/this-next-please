@@ -1303,6 +1303,12 @@ var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
 var themeEvents = 0;
+var wornStrips = "";
+
+/** @param {{theme?: string, skin?: string, accents?: Object<string, string>}} ts */
+function stripsKey(ts) {
+  return JSON.stringify([ts.theme, ts.skin, ts.accents || {}]);
+}
 
 /**
  * @param {DeskRecord | null} fallback
@@ -1425,6 +1431,7 @@ function refresh() {
     if (data.theme) {
       applyThemeState(data.theme);
       applyTiers(data.theme.tiers);
+      wornStrips = stripsKey(data.theme);
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     toggle(document.body, "is-stale", false);
@@ -1476,6 +1483,8 @@ function connect() {
       var d = JSON.parse(m.data);
       applyThemeState(d);
       applyTiers(d.tiers);
+      if (stripsKey(d) === wornStrips) return;
+      wornStrips = stripsKey(d);
       var a = d.accents || {};
       tiles.forEach(function (entry, name) {
         var row = entry.row || {};
