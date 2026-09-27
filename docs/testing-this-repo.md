@@ -150,6 +150,23 @@ root** (#298): the desk's process state now has one owner that resets all of it 
 (§Isolation), and a test that leaves a desk server thread running fails where it did it. Windows
 stays serial until #313 moves it to shards; the leg costs nothing against what it did before.
 
+**Shards** (#310). `--shard=K/N` (1-based; `tests/shard.py`, listed in conftest's `pytest_plugins`) keeps
+the K-th of N shards of whatever the rest of the command line selected, and prints
+`shard K/N: <files> files, <tests> tests, ~<s> s estimated`. A shard is made of **whole files**, never single
+tests, so a module still runs contiguously in one process, as the serial Windows run relies on. Its hook runs
+last, after the `--shuffle-seed` shuffle and after `-m`/`-k`, so it sees only selected tests and keeps their
+order: a shuffled shard stays shuffled. Files are packed greedily, longest first, ties by path, by their time
+in `tests/durations.json` (#309, `{os: {file: {tier: seconds}}}`), counting only the **tiers of the file's
+selected tests**: a file whose browser tests `-m "not browser"` dropped weighs only its `default` seconds. The
+current OS's entry is used first (`windows` on nt, else `linux`), then the other OS's, then the median of the
+known files; with no table every file weighs the same and the shards split by count. Every process that
+collects the same selection computes the same shards, so `-n` works too (each xdist worker keeps the same
+files; the estimate line is printed only by a serial run). **The union guarantee**: the N shards' node ids are
+pairwise disjoint and add up to exactly the selection. `tests/test_hygiene_shards.py` checks the packing, the
+weighting and the plugin in a throwaway project serially and under `-n 2`; the `scale` test
+`test_the_expensive_tiers_are_a_small_part_of_the_suite` checks the real suite's `--shard=K/3`, with and without
+`-m`, under `--shuffle-seed`. Wiring shards into CI is #311 (Windows) and #312 (Linux).
+
 The coverage job stays serial on purpose: `coverage run -m pytest -n auto` measures the controller
 process and none of the workers, which would quietly report a fraction of the truth.
 
