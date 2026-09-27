@@ -66,6 +66,21 @@ Above `const PANE = "#grid > .tile[data-repo]";`:
 
 What `animate` may move: a pane of the grid, and at most `MOVING` of them at once.
 
+### `const GLYPHS, GLYPHS_CAP`
+
+Above `const GLYPHS = 128, GLYPHS_CAP = 256;`:
+
+`api.fx.glyphs(el, max)` (#375): `max` defaults to `GLYPHS` and is clamped to `GLYPHS_CAP`.
+A letter's box is a Range read of its own: measured in CI's Chromium, 2,456 glyphs of a pane
+took about 6.5 ms, so a skin reads a name or a line, never a pane or a transcript, and the cap
+holds one read under a millisecond.
+
+### `const BLANK`
+
+Above `const BLANK = /\s/;`:
+
+Whitespace has no letter to follow, so `glyphs` skips it: a space, a tab, a line break.
+
 ### `export const KINDS`
 
 Above `export const KINDS = Object.freeze({`:
@@ -89,6 +104,25 @@ the canvas (docs/desk-motion.md): 1.5 s at 60 Hz. No shipped skin relies on it.
 Above `const OBSERVED = ["class", "id", "hidden", "data-tier", "data-skin", "data-skin-variant" …`:
 
 What the layer observes for any table (layer.js `setTable`), besides what its mark rows name.
+
+### `function linesIn`
+
+Above `function linesIn(el) {`:
+
+`api.fx.lines(el)` uncached (#375): one Range over the element's contents, its client rects
+merged per line exactly as the layer's `linesOf` does for the `lines` shape (layer.js), a rect
+under 2 px either way dropped, a rect joining a line when its middle is within
+`max(4, 0.45 x its height)` of the line's. The boxes are in viewport CSS px, top to bottom,
+not relative to the element: a cue's `box` is in the same space.
+
+### `function glyphsIn`
+
+Above `function glyphsIn(el, max) {`:
+
+`api.fx.glyphs(el, max)` uncached (#375): a `TreeWalker` over the element's text nodes and
+one Range, moved over each character in turn (a code point, so a surrogate pair is one
+letter), up to `max` of them that are not whitespace. Each box is that one character's
+`getBoundingClientRect()`, in viewport CSS px, with the character as `ch`.
 
 ### `function refusal`
 
@@ -141,9 +175,25 @@ said once in the console and not counted. Calling `layer.onMove()` on start make
 follow the pane for `FOLLOW_MS`: a WAAPI animation fires none of the transition or animation
 events it listens for.
 
-In `attach`, above `api: Object.freeze({ animate }),`:
+In `attach`, above `const read = new WeakMap();`:
 
-The helpers a skin's hooks reach as `api.fx` (#375, #376 add to it).
+What `lines` and `glyphs` last read, per element (#375): its key, `textContent.length` and the
+element's own `width x height`, and each answer made under that key (`lines`, and `glyphs` per
+cap). A new length or a new size drops them all, so an identical second call reads no Range at
+all, and a changed name or a resized pane reads again. A `WeakMap`, so an element the page
+drops takes its entry with it; nothing is scheduled and nothing is kept at rest. An element
+that has left the page answers `[]`. Each call gets its own copy of the array; the boxes in it
+are frozen.
+
+In `attach`, above `const text = !!(spec && spec.use && spec.use.text === true);`:
+
+`options.fx.text` (the table's `fx.use`, ink.js's `fromModule`): only a skin that asks for
+the text helpers gets them, so an `api.fx` without them says the skin never asked.
+
+In `attach`, above `api: Object.freeze(text ? { animate, lines, glyphs } : { animate }),`:
+
+The helpers a skin's hooks reach as `api.fx`: `animate` (#374) always, `lines` and `glyphs`
+(#375) under `options.fx.text`; #376 adds to it.
 
 In `attach`, above `match() {`:
 
