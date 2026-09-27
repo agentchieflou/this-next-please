@@ -104,6 +104,25 @@ Beside `var themeNow = null;`:
 
 the last word on what this page is wearing, from either path
 
+### `var themeSeq`
+
+Above `var themeSeq = 0;`:
+
+The number of the last theme pick this page made or heard the server answer with (#483). Two
+quick picks travel on two connections, and the server can take them in either order: the page
+guard (`pendingTheme !== write`) kept the page on the later pick, but the server could still write
+the earlier one last, so the desk, every other window and the terminal ended on it. Each pick is
+numbered above the last, and the server does not write one numbered at or below the highest it
+has written (`serve._write_theme`), so the last pick wins whatever order the writes arrive in.
+
+The number is the wall clock in milliseconds, or one more than the last if that is not above it:
+every tab on the machine reads the same clock, so a slow write from one tab cannot overwrite a
+later pick made in another. The theme state carries the server's highest number (`seq`) in every
+form the page hears it -- `/api/themes`'s `current`, the stream's `theme` frame and each answer --
+and the page numbers above the highest it has heard. So a number stored by a clock that was ahead
+(an NTP step back, a VM resumed, a hand edit) never makes a fresh page's picks stale: without the
+seed, every pick was refused until the clock caught up, hours in the worst case.
+
 ### `function paletteCss`
 
 Beside `var themeData = null;`:
@@ -152,6 +171,15 @@ Above `var auto = autoFor(full), home = skinBase(full.split(":")[0]);`:
 An Auto pick paints the side the system is on; the palette picker shows the default variant's
 palette, the one the server saves for the terminal.
 
+Above `body.seq = themeSeq = Math.max(Date.now(), themeSeq + 1);`:
+
+Numbered in the task that posts it, so the order of the numbers is the order of the picks (#483,
+`var themeSeq`).
+
+Above `if (res && res.seq > themeSeq) themeSeq = res.seq;`:
+
+Before the guard below: a superseded answer's number is still the server's word.
+
 Beside `if (pendingTheme !== write) return;`:
 
 a later pick is in flight; its answer decides
@@ -162,6 +190,11 @@ Above `function reflectTheme(cur) {`:
 
 One place that puts the server's answer into the two controls, so a change made in the terminal
 or in another window shows up here rather than leaving the picker saying something else.
+
+Above `if (cur.seq > themeSeq) themeSeq = cur.seq;`:
+
+Every server state reaches the page through here, so this is where the page learns the number to
+pick above (#483, `var themeSeq`). A state the page made itself has no `seq` and changes nothing.
 
 Above `[themeSel, skinSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selec …`:
 

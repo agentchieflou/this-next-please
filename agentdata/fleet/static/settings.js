@@ -91,6 +91,7 @@ function loadThemes() {
 
 var themeNow = null;
 var themeData = null;
+var themeSeq = 0;
 
 function paletteCss(name) {
   var found = null;
@@ -180,7 +181,9 @@ function choose(select, body) {
   settle(mark);
   problem(select, "");
   heardDuringWrite = null;
+  body.seq = themeSeq = Math.max(Date.now(), themeSeq + 1);
   var write = pendingTheme = post("theme", body).then(function (res) {
+    if (res && res.seq > themeSeq) themeSeq = res.seq;
     if (pendingTheme !== write) return;
     var heard = heardDuringWrite;
     heardDuringWrite = null;
@@ -213,6 +216,7 @@ function putBack(was) {
 function reflectTheme(cur) {
   if (!cur) return;
   themeNow = cur;
+  if (cur.seq > themeSeq) themeSeq = cur.seq;
   var themeSel = document.getElementById("theme");
   var skinSel = document.getElementById("skin");
   if (themeSel && cur.theme) themeSel.value = cur.theme;

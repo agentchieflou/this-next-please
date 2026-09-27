@@ -81,12 +81,14 @@ def _looks_on(palette):
 
 
 def _answered(page, body):
-    """Around a pick: wait for the page's `POST /api/theme` with exactly `body` to be answered. Two
-    picks' writes in flight at once may be applied in either order, so a test that reads what was
-    saved serializes its picks on their answers."""
+    """Around a pick: wait for the page's `POST /api/theme` with exactly `body` to be answered. A test
+    that reads what was saved waits on each pick's answer. Every pick also carries its number
+    (`seq`, #483), which the server orders the picks by and which is not part of what was picked."""
     def match(r):
-        return (r.request.method == "POST" and r.url.split("?")[0].endswith("/api/theme")
-                and json.loads(r.request.post_data or "{}") == body)
+        if not (r.request.method == "POST" and r.url.split("?")[0].endswith("/api/theme")):
+            return False
+        sent = json.loads(r.request.post_data or "{}")
+        return isinstance(sent.pop("seq", None), int) and sent == body
     return page.expect_response(match, timeout=10000)
 
 
