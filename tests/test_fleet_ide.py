@@ -111,6 +111,23 @@ def test_everything_else_still_needs_the_token(running):
         with pytest.raises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10)
         assert e.value.code == 403, path
+    # The Host allow-list (#551) narrows who reaches the two; it does not add a third.
+    for path in ("/open", "/api/ping"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}{path}",
+                                                          headers={"Host": f"evil.example:{port}"}),
+                                   timeout=10)
+        assert e.value.code == 403, path
+    tokenless = []
+    for path in ("/", "/open", "/api/ping", "/api/fleet", "/api/board", "/api/notifications",
+                 "/static/app.js"):
+        try:
+            urllib.request.build_opener(NoRedirect).open(f"http://127.0.0.1:{port}{path}", timeout=10)
+            tokenless.append(path)
+        except urllib.error.HTTPError as e:
+            if e.code != 403:
+                tokenless.append(path)
+    assert tokenless == ["/open", "/api/ping"]
 
 
 # ----------------------------------------------------------- what lets Simple Browser show it
