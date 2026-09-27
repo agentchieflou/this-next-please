@@ -1,0 +1,48 @@
+body { height: auto; min-height: 100dvh; overflow-x: hidden; }
+header { position: sticky; top: 0; z-index: 2; padding-top: max(6px, env(safe-area-inset-top)); }
+#mneed { font-size: 14px; }
+
+#m {
+  flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+}
+#m button, #m input, .mfoot a { min-height: 44px; font-size: 16px; }
+#m input { width: 100%; }
+
+#agents { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+body.is-open #agents { display: none; }
+#agents .pick {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%;
+  padding: 8px 10px; text-align: left; background: var(--panel);
+}
+#agents .name { font-weight: 600; overflow-wrap: anywhere; }
+#agents .chip { justify-self: end; align-self: start; }
+#agents .age { font-size: 13px; }
+#agents .says { grid-column: 1 / -1; overflow-wrap: anywhere; }
+#agents .needs-human .pick { border-color: var(--human); border-left-width: 4px; }
+#agents .needs-human .name { text-decoration: underline; }
+
+#open { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#open .ohead { display: flex; align-items: center; gap: 8px; }
+#oname { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
+#open .says, #open .lastsaid { margin: 0; overflow-wrap: anywhere; }
+#open .lastsaid { font-size: 13px; }
+#open .card { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 8px; }
+#open .summary { margin: 0 0 6px; font-weight: 600; }
+#open .payload {
+  margin: 0 0 8px; max-height: 40dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 13px var(--mono); background: var(--bg); padding: 6px; border-radius: 4px;
+}
+#open .decide {
+  display: flex; flex-wrap: wrap; gap: 6px; position: sticky; bottom: 0;
+  padding: 6px 0 max(6px, env(safe-area-inset-bottom)); background: var(--panel);
+}
+#open .decide > * { flex: 1 1 8rem; }
+#open .reply { background: var(--bg); }
+#asklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#asklist .q { margin: 0 0 4px; overflow-wrap: anywhere; }
+#asklist .ask-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+
+#said { margin: 0; min-height: 1.45em; overflow-wrap: anywhere; }
+.mfoot { justify-content: space-between; border-top: 1px solid var(--line); border-bottom: 0; }
+.mfoot a { display: inline-flex; align-items: center; }

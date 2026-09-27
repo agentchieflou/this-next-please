@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>fleet · phone</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/m.css">
+</head>
+<body class="ink-off">
+<header class="toolbar">
+  <span id="mlive" class="dot">connecting</span>
+  <h1 id="mneed">fleet</h1>
+</header>
+
+<main id="m">
+  <ol id="agents" aria-label="agents"></ol>
+  <section id="open" aria-labelledby="oname" hidden>
+    <div class="ohead"><button id="back" class="linkbtn" type="button">&larr; all</button><h2 id="oname"></h2></div>
+    <p class="says"></p>
+    <p class="lastsaid"></p>
+    <div id="approval" class="card" hidden>
+      <p class="summary"></p>
+      <pre class="payload"></pre>
+      <div class="decide">
+        <input id="reason" type="text" autocomplete="off" placeholder="reason" aria-label="reason">
+        <button id="approve" type="button">Approve</button>
+        <button id="deny" type="button">Deny</button>
+      </div>
+    </div>
+    <div id="asks" class="card" hidden>
+      <ol id="asklist"></ol>
+      <div class="decide"><button id="answer" type="button">Answer</button></div>
+    </div>
+    <div class="decide reply">
+      <input id="message" type="text" autocomplete="off" placeholder="reply" aria-label="reply">
+      <button id="send" type="button">Send</button>
+    </div>
+  </section>
+  <p id="said" role="status" aria-live="polite"></p>
+</main>
+
+<footer class="mfoot"><a id="tosettings" class="linkbtn">settings</a><a id="todesk" class="linkbtn">desk</a></footer>
+
+<template id="magent"><li><button class="pick" type="button"><span class="name"></span><span class="chip"></span><span class="age"></span><span class="says"></span></button></li></template>
+<template id="mask"><li><p class="q"></p><div class="ask-choices"></div><input class="ask-answer" type="text" autocomplete="off" aria-label="answer"></li></template>
+
+<script src="/static/common.js"></script>
+<script src="/static/m/m.js"></script>
+</body>
+</html>

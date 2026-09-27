@@ -66,7 +66,7 @@ def test_every_draw_function_is_named_in_the_inventory():
     came to paint the same tile's accent on two different edges."""
     doc = open(INVENTORY, encoding="utf-8").read()
     missing = []
-    for page in ("app.js", "settings.js", "map/map.js", "picker.js"):
+    for page in ("app.js", "settings.js", "map/map.js", "picker.js", "m/m.js"):
         js = open(os.path.join(STATIC, page), encoding="utf-8").read()
         for name in sorted(set(re.findall(r"(?m)^function (draw[A-Za-z]*)\(", js))):
             if name not in doc:
@@ -78,9 +78,9 @@ def test_every_component_class_the_inventory_names_really_exists():
     """The other direction: a row for a component that is not on the page is a row that will rot."""
     doc = open(INVENTORY, encoding="utf-8").read()
     html = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                   for n in ("index.html", "map.html"))
+                   for n in ("index.html", "map.html", "m.html"))
     css = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                  for n in ("app.css", "map.css"))
+                  for n in ("app.css", "map.css", "m.css"))
     # Only the `Styled in` column, which is the one that names classes and ids.
     named = set()
     for row in doc.splitlines():
@@ -94,6 +94,19 @@ def test_every_component_class_the_inventory_names_really_exists():
     assert named, "the inventory names no styled component at all"
     missing = [n for n in sorted(named) if n not in css and n.lstrip(".#") not in html]
     assert missing == [], f"named in the inventory and styled nowhere: {missing}"
+
+
+def test_the_phone_page_draws_the_desks_state_glyphs():
+    """/m (#581) has no chip grammar of its own: its glyph per state is the desk rail's table, entry for
+    entry, and its chip is the desk's `.chip <state>` rule."""
+    def table(name, rel):
+        js = open(os.path.join(STATIC, rel), encoding="utf-8").read()
+        body = js[js.index(f"var {name} = {{"):]
+        return dict(re.findall(r'(\w+): "([^"]+)"', body[:body.index("};")]))
+
+    rail = table("RAIL_GLYPHS", "app.js")
+    assert rail and table("M_GLYPHS", "m/m.js") == rail, rail
+    assert 'setClass(chip, "chip " + state)' in open(os.path.join(STATIC, "m", "m.js"), encoding="utf-8").read()
 
 
 def test_the_contract_names_one_reconciler_and_the_page_uses_it():
