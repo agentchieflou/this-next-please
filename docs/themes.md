@@ -71,6 +71,33 @@ against, and names both colours. Rule 9, **pressed ground**, refuses a palette w
 names the text, the select and the accent the select moved toward. A skin reads the ten `--on-*` and `-text` tokens
 and never sets them.
 
+### Focus, selection, pressed and "which project" (#339)
+
+None of the four is ever a state colour. `--focus` is the palette's cursor when that reads at 3:1 on `--panel` and on
+every panel the palette is drawn on, and is achromatic (HSV saturation up to 0.25) or at least 30 degrees of hue from
+every chromatic state colour. Otherwise it is `--text` made neutral: the same value, saturation capped at 0.12.
+Plain `--text` is not enough, because matrix's text is 4 degrees from its done green and sand's is 2 from its waiting
+ochre. Of the built-ins only vanta-black keeps its cursor. The terminal's cursor is unchanged: this is the page's
+token, and `theme.escapes` still paints `t.cursor`.
+
+- **Keyboard focus** is a 2px `--focus` outline at offset 2 with a `--bg` halo out to 6px, a two-colour indicator. The
+  ring then reads against its own halo whatever a skin draws beyond it: on farmstead daytime the wood is 1.5:1
+  against sand's ring.
+- **The selected pane** under ink wears three rings, `--bg`, `--focus` and `--bg`. The plain page keeps its 2px
+  `--focus` ring.
+- **A pressed control** (an open sidebar tab, the pressed pin and maximise) writes `--text` on `--select`, which rule
+  9 holds at 4.5:1, with a 2px inset `--focus` ring. It is never an accent-coloured word. Under ink, notebook clears
+  the fill, and the ring carries "pressed".
+- **Which project.** A project's own accent (`theme.projects`) is used as chosen. With none, a pane is sent the
+  palette's accent when it passes the `--focus` test on the palette the page is served on (a skin's variant base
+  wins). Otherwise it gets the palette's `--muted` made neutral: matrix under voxel overworld #98AD9F, reds under
+  Nether #B7A1A1, sand under farmstead daytime #605B54. On the plain page (`none`) no accent is sent at all. The
+  tile's own left border paints the strip in `--focus`, `app.css :root` carries a `--focus` for light and one for
+  dark, and no pane wears the done green `#3FB950` any more.
+
+`theme.check` rule 10 refuses a palette whose `--focus` falls under 3:1 on the panel it is checked against, or sits
+within 30 degrees of a chromatic state colour, and names the ring, the panel or the state.
+
 ## The Host Matrix
 
 Every mechanism is gated by `color.enabled()`, so a pipe gets zero escape bytes and reports `mechanism: none`.

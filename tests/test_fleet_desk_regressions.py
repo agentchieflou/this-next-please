@@ -364,7 +364,9 @@ def test_an_unknown_palette_name_does_not_take_the_page_down(fleet_home, tmp_pat
     state = S.theme_state()
     assert state["theme"] in ("none", "no-such-palette"), state
     rows = S.fleet_snapshot()["repos"]
-    assert rows and rows[0]["accent"], "a tile still gets an accent it can paint"
+    # Both names fall back to the plain palette, where no accent is sent (#339): the tile's own
+    # `border-left` paints the strip in `--focus`, so the tile is still painted, never in a state colour.
+    assert rows and rows[0]["accent"] == "", "a tile on the plain palette is sent no accent; its border paints it"
 
 
 def test_a_skin_is_drawn_against_the_palette_it_declares(fleet_home, tmp_path):  # noqa: F811

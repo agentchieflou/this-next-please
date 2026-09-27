@@ -25,6 +25,13 @@ The word on each state colour (#327): a chip's, a badge's, a rail glyph's. The f
 every palette. White on --done is 3.57:1 here, so no word is white by default. The dark block
 below needs none: the state colours are shared.
 
+Above `--focus: #1f2123;`:
+
+The ring for focus, the selection and a pressed control (#339): never a state colour. It is
+this block's `--text` made neutral (saturation capped at 0.12), the rule `theme.to_css` uses
+where a palette's cursor is a state hue; the plain accent #1668b8 is 1.3 degrees from
+`--running`. The dark block below carries its own, from its own `--text`.
+
 Above `--running-text: #2a68aa;`:
 
 A word written IN a state colour (#328): the why line, "exit 2", "it asked you:". A state
@@ -187,7 +194,9 @@ than crushing a rail under its 48px.
 
 Above `:root { --rail: 48px; --compact-from: 160px; }`:
 
-The left edge is the PROJECT's accent; the chip is the state. One stripe with two meanings is
+The left edge is the PROJECT's accent; the chip is the state. With no project's accent the strip
+is `--focus` (#339): the server sends the palette's accent only where it reads as no state, a
+neutral grey where it would, and nothing on the plain page, where this border paints it. One stripe with two meanings is
 how a four-monitor desk starts lying: the same red would say "this project" on one screen and
 "this needs you" on the next. #150 fixed the roles, and the accent is the hex that project's
 terminal is painted in.
@@ -322,6 +331,26 @@ Above `.readonly {`:
 The read-only pane. The reply box is not disabled, it is *gone*: a box you can type in that
 cannot send is a worse answer than no box.
 
+### `button:focus-visible, select:focus-visible, input:focus-visible, .segment:focus …`
+
+Above `outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 6px var(--bg);`:
+
+A two-colour focus indicator (#339; WCAG technique C40): the ring in `--focus`, and a halo of
+`--bg` out to 6px, so the ring reads against the halo whatever is drawn beyond it. Farmstead
+daytime is why: its ring, sand's neutral, is 1.5:1 on the wood the skin draws around a header
+button and 2.0:1 on a pane's frame. A pressed control keeps its inset ring under the halo, and a
+selected pane its three rings.
+
+### `.segment.active` and the pressed pin
+
+Above `.segment.active {`, `.head .pintoggle.active {` and `.tile.is-pinned .head .pintoggle {`:
+
+Pressed is drawn the way the model picker draws its pressed pill (#362, #339): `--text` on
+`--select`, which rule 9 holds at 4.5:1 on every palette, and a 2px inset ring in `--focus`.
+Never an accent-coloured word: the accent is a state hue in most palettes, and in sand the word
+read 3.26:1. Under ink, notebook clears the fill, so the word is `--text` on paper and the ring
+carries "pressed".
+
 ### `.chipage`
 
 Above `.chipage { font-weight: 400; }`:
@@ -399,7 +428,9 @@ Above `body:has(> #ink[data-skin]) :is(header, footer, .tile, .approval, .asks, 
 #257: where a skin draws with ink, the page stands aside for it -- once, here, for every skin.
 The canvas is behind the page, so the skin's paper, frames and marks show only where nothing
 opaque is over them: the panes, the header, the footer and the cards on a pane are clear, and
-the pane keeps only its accent on the left (which project, #150) and the selection ring. Keyed on
+the pane keeps only its accent on the left (which project, #150) and the selection ring: there
+three rings (#339), `--bg`, `--focus`, `--bg`, so the focus colour separates from any frame the
+skin draws on both sides. Keyed on
 the canvas being there with a table on it, not on `:not(.ink-off)`: between the gate saying on
 and the layer arriving, a clear pane would have nothing behind it. Everywhere else -- every shell
 the gate turned off, and every CSS skin -- is the one plain look above.
