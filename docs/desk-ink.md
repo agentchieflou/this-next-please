@@ -825,6 +825,11 @@ nothing. **Cues stay disarmed until the stream's first pass has been drawn**, wh
 cue test calls `_armed(page)` after opening and after every reload: it waits on `ARMED`, `l.fx.armed` and no
 `body.is-replaying`.
 
+`tests/test_fleet_ink_cues.py` holds every skin module that ships `cues` to the cue contract (#373), with no
+browser: `cue` and `tick` exported, each cue named in a table row of its `docs/skin-<name>.md`, only classes the
+page sets and ids `index.html` has, `hidden` the one attribute, no leave row on an element the page rebuilds or
+trims, and arrive rows on transcript lines only for `li.denied`, `li.friction` and `li.error`.
+
 `tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
 words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).
 

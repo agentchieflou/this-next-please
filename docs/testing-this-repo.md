@@ -12,6 +12,7 @@ point of everything below is that the next one is found by CI.
 |---|---|
 | `tests/` | the ordinary suite: units, seams, and the static guards |
 | `tests/test_props_*.py` | the generated inputs; hypothesis, from the `dev` extra |
+| `tests/test_fleet_ink_cues.py` | the cue contract for every ink skin that ships cues (#373): read from the sources, no browser, under 2 s |
 | `tests/test_lifecycle.py` | install, update, shadow, uninstall, in real venvs (`slow`) |
 | `tests/conftest.py` | isolation and the shared fixtures |
 | `tests/fixtures/` | inputs, byte-exact (`-text` in `.gitattributes`) |
