@@ -39,6 +39,24 @@ env:
   HYPOTHESIS_PROFILE: ci
 
 jobs:
+  churn:
+    name: churn · loopback connects on this runner · ${{ matrix.n }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: listeners on new dynamic ports, bursts of connects, three ways of closing
+        shell: pwsh
+        env:
+          CHURN_ITER: "3000"
+        run: python .github/scripts/probe603_churn.py
   # THROWAWAY (#603): the Windows shards, three times each, with a socket probe at every test boundary.
   probe:
     name: probe · shard ${{ matrix.shard }} · rep ${{ matrix.rep }}
@@ -48,7 +66,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/3", "2/3", "3/3"]
-        rep: [1, 2, 3, 4]
+        rep: [1, 2]
     steps:
       - name: set core.autocrlf for this checkout
         shell: pwsh
