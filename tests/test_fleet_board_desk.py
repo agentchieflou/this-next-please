@@ -710,6 +710,9 @@ def test_the_stream_reads_the_registry_once_a_tick_and_not_once_a_tile(desk, tmp
     for i in range(8):
         a_project(tmp_path, f"more{i}", project="DATA")
     reads.clear()
+    # Both passes sweep, like for like: the sweep is process-wide (#549), so a second stream inside one interval
+    # would otherwise not sweep and read the registry once less.
+    monkeypatch.setattr(S, "_last_sweep_at", {})
     S.stream_events({}, threading.Event(), lambda _f: None, once=True, polls=False)
     assert len(reads) == small, f"{small} registry reads for 2 repos, {len(reads)} for 10"
 
