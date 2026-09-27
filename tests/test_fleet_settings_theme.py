@@ -110,6 +110,25 @@ LATE_FRAME = """
 })();
 """
 
+# The first `POST /api/theme` goes to the server at once, but the page is handed its answer only at
+# `window.__release()`; every later one is answered as it comes (#483, the #437 regression's hold).
+# `window.__firstRead` turns true once the page has read the held answer's body.
+HOLD_FIRST_ANSWER = """() => {
+  const real = window.fetch;
+  window.__held = false;
+  window.fetch = function (u, o) {
+    const theme = o && o.method === 'POST' && new URL(String(u), location.href).pathname === '/api/theme';
+    if (!theme || window.__held) return real.apply(this, arguments);
+    window.__held = true;
+    const answer = real.apply(this, arguments).then(r => {
+      const json = r.json.bind(r);
+      r.json = () => json().then(v => { window.__firstRead = true; return v; });
+      return r;
+    });
+    return new Promise(go => { window.__release = () => { window.__held = 'released'; go(answer); }; });
+  };
+}"""
+
 FILLED = "() => document.querySelectorAll('#skin option').length > 3"
 BG = "() => document.documentElement.style.getPropertyValue('--bg')"
 
@@ -373,7 +392,10 @@ def test_leaving_settings_waits_for_the_write(browser, fleet_home, tmp_path, ans
 
 @pytest.mark.browser
 def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp_path):
+    """Folded in (#483, decision 13): two picks made back to back, with the first one's answer held
+    until the second has been answered, leave the page on the second pick."""
     _desk_of(tmp_path, ("alpha",))
+    last = _state_of(fleet_home, skin="voxel:overworld")
     _config(fleet_home, skin="voxel:nether")
     server, token, port = _serve()
     try:
@@ -395,6 +417,22 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
         assert read, frames
         assert all(r[1] >= 4.5 for r in read), read
         assert all(f["inkOff"] for f in frames if f["inkOff"] is not None), "ink-off stays on /settings"
+
+        # #483: two quick picks; the first answer lands after the second has been applied.
+        page.evaluate("() => { document.getElementById('saved').hidden = true; }")
+        page.evaluate(HOLD_FIRST_ANSWER)
+        page.select_option("#skin", "glass:smoke")
+        page.wait_for_function("() => window.__held === true", timeout=15000)
+        page.select_option("#skin", "voxel:overworld")
+        page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
+        assert S.theme_state()["skin"] == "voxel:overworld", "the server wrote the picks in order"
+        page.evaluate("() => window.__release()")
+        page.wait_for_function("() => window.__firstRead === true", timeout=15000)
+        page.wait_for_function("() => pendingTheme === null", timeout=15000)
+        got = page.evaluate("""() => [document.body.dataset.skin || '', document.body.dataset.skinVariant || '',
+            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('skin').value]""")
+        print(f"\n  two quick picks, the first answer last: {got}")
+        assert tuple(got) == ("voxel", "overworld", last["css"]["--bg"], "voxel:overworld"), got
         assert not errors, errors
         page.close()
     finally:
