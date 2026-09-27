@@ -137,14 +137,15 @@ def render_stream(name: str, source: str, columns: list[str], path: str, n_rows:
     return out
 
 
-def render_nested(records: list, name: str, source: str, raw_payload) -> str:
-    """Rules 7-8 for JSON payloads that are not obviously tabular."""
+def render_nested(records: list, name: str, source: str, raw_payload, extra: dict | None = None) -> str:
+    """Rules 7-8 for JSON payloads that are not obviously tabular. `extra` is merged into meta, as in `render`."""
     if AgentTable.flatten_ok(records):
-        return render(AgentTable.from_records(records, name=name, source=source, raw=raw_payload))
+        return render(AgentTable.from_records(records, name=name, source=source, raw=raw_payload), extra=extra)
     t = AgentTable(name=name, columns=[], rows=[], source=source, raw=raw_payload)
     path = t.write_json()
     sample = records[0] if records else {}
-    summary = {"meta": {"ok": True, "rule": 8, "source": source, "records": len(records), "path": path},
+    summary = {"meta": {"ok": True, "rule": 8, "source": source, "records": len(records), "path": path,
+                        **(extra or {})},
                "top_keys": list(sample.keys()) if isinstance(sample, dict) else [],
                "sample": sample}
     out = toon.encode(summary)
