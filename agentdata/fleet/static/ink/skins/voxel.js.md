@@ -407,3 +407,106 @@ next turn is one timer, and a request for a frame when it comes -- never a loop.
 
 What is on the paper, as the renderer and this module see it. The layer's `Ink.inspect()` shows
 the marks; this shows the materials.
+
+## the effect pool (#377)
+
+A pane put away bursts and its blocks fly to where it went; a card closed drops a few chips; a pane
+brought back is set in by a few pieces from the hidden count. `docs/skin-voxel.md` §Effects is the
+table. Everything here is drawn by the meshes the skin already has: the pieces are instances written
+after the stacks, on slot 0 (page coordinates; `uPane[0]` stays (0, 0, 1, 0)), and the ground flash
+rewrites the ground's own colours. Nothing goes in the effects group, so it is still three draw calls.
+
+### `const FX_CAP`
+
+Beside `const FX_CAP = 192;`:
+
+the stacks mesh's extra room: at most this many pieces live, the oldest popped first
+
+Beside `const FRAME = 1 / 60;`:
+
+a piece moves on `dt`, never less than one 60 Hz frame's worth, so an effect ends within its frames
+
+Beside `const FX_LIFE = 0.8;`, `BREAK_LIFE`, `PLACE_FLY`, `PLACE_GAP`:
+
+the durations, in seconds, under the canvas's 1.2 s ceiling: a blast and its flash by 0.8 s, a break
+by 0.5 s, a place by 0.35 s (8 pieces 10 ms apart, each 0.24 s in flight, then a 2-frame pop)
+
+Beside `const SWELL_FRAMES = 2;` to `const CHUNKS = 140;`:
+
+the blast's shape: it swells 2 frames (x1.04); from 0.18 s each chunk shrinks to 6px over 3 frames
+and homes with a critically damped spring (ω 14); within 8px it pops over 2 frames; gravity is
+1800 px/s². `LANDED` (12px) is how near a popped piece must be to count in `ends.near`. At most two
+blasts at once; a box is cut into at most `CHUNKS` pieces. The flash is x1.25 for 2 frames, then x0.6.
+
+### `function fxState`
+
+Above `function fxState() {`:
+
+The pool: live pieces, flashing ground cells, the blasts in flight (each with its `dest`, read again
+every frame), and what `inspect().fx` counts.
+
+### `export const cues`
+
+Above `export const cues = [`:
+
+The page says when: a pane leaving `#grid > .tile:not(.is-hidden)` (hidden, or gone from the
+registry) is a blast; one arriving (brought back) is a place; a card or panel losing
+`:not([hidden])` is a break. `.smenu` has no row: it closes on every pick.
+
+### `export function cue`
+
+Above `export function cue(ctx, name, el, box, how) {`:
+
+A pane folded into its project's rail is `is-grouped`, `display: none` and still `:not(.is-hidden)`:
+it plays nothing. A third blast while two fly plays as a break. Under reduced motion the layer
+queues no cue, and this plays nothing if one comes.
+
+### `function stacks`
+
+Above `for (const q of S.fx.pieces) {`:
+
+The pieces, after every stack, by the same writer: bevel 0 (a face square to the camera is exactly
+its colour), turned about z only.
+
+### `function colourOf`
+
+Above `function colourOf(c, i, j, ring) {`:
+
+A piece wears the edge or the panel at x0.84-1.0, never the ground: on the ground the page's muted
+and human words fall under 3:1 (the test holds every word colour against every piece colour).
+
+### `function destOf`
+
+Above `function destOf(how, repo) {`:
+
+Where a pane went: the hidden count for a hide, its gone rail for a removal; null when that is not on
+the page, and then the pieces fall off the bottom.
+
+### `function pieces`
+
+Above `function pieces(dt) {`:
+
+Every piece moved on by `dt`. A popping piece shrinks to nothing over two frames; a blast's popped
+piece is counted near or far from its dest. A piece that falls off the bottom with nowhere to go is
+dropped. True while any piece lives.
+
+### `function blastStep`
+
+Above `function blastStep(q, dt) {`:
+
+Swell, then burst from the centre, then home. The spring is the exact critically damped step, so a
+long frame (the layer's `dt` is capped at 0.1 s) never overshoots.
+
+### `function lit`
+
+Above `function lit(box) {`:
+
+The ground under the pane's box, outside the header and the footer, flashes. `ring` is a cell's
+distance in cells from the box's edge: the outside heals first.
+
+### `function flash`
+
+Above `function flash(dt) {`:
+
+The flashed cells' colours: x1.25 for 2 frames, then x0.6 until their ring heals, then their own
+shade again. True while a flash lives.

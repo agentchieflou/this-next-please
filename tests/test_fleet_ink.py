@@ -1714,7 +1714,11 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     is refused there.
 
     And the pointer (#376): the same gestures, on a table that asks for `api.fx.pointer`, taken while
-    a `pointermove` loop drives the layer a frame a move, stay inside the budget too."""
+    a `pointermove` loop drives the layer a frame a move, stay inside the budget too.
+
+    And a blast (#377): the same gestures on the voxel skin, taken while a hidden pane's pieces are
+    in flight (`fx.live > 0` before and after them), stay inside the budget too -- the pool is
+    written in the skin's `tick`, never inside a gesture."""
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
@@ -1743,6 +1747,15 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
         page.wait_for_function("() => { const l = Ink.inspect().layer; return !!(l && l.fx && l.fx.pointer); }",
                                timeout=10000)
         pointed = page.evaluate(GESTURES_WHILE_POINTING)
+        assert not errors, errors
+        # #377: the voxel skin, and the gestures again while a blast plays.
+        from test_fleet_ink_fx import _armed
+        page.evaluate("() => post('theme', { skin: 'voxel' })")
+        page.wait_for_function("() => (Ink.inspect().table || '').startsWith('voxel')", timeout=10000)
+        page.evaluate("async () => { window.__voxel = await import(q('/static/ink/skins/voxel.js')); }")
+        settle(page, also="window.__voxel.inspect().panes.length === 4")
+        _armed(page)
+        blasting = page.evaluate(GESTURES_WHILE_A_BLAST_PLAYS)
         assert not errors, errors
         # #307, after the gestures, so their marks are taken as they always were: a page at rate 1
         # and one at rate 4, timed in turn seven times, first on the desk and then on a page of
@@ -1780,6 +1793,13 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     assert pointed["moves"] >= 3 and pointed["renders"] >= 1, pointed
     assert len(moving) >= 4, moving
     assert [m for m in moving if m["ms"] > LOCAL_BUDGET_MS] == [], moving
+    blasted = blasting["measures"]
+    worst = max(m["ms"] for m in blasted) if blasted else 0
+    print(f"  gestures while a blast plays: {len(blasted)} marked, worst {worst:.1f}ms, "
+          f"{blasting['live']} pieces live before and after")
+    assert all(n > 0 for n in blasting["live"]), f"the blast had ended before the gestures: {blasting}"
+    assert len(blasted) >= 4 and any(m["name"] == "arrange:hide" for m in blasted), blasted
+    assert [m for m in blasted if m["ms"] > LOCAL_BUDGET_MS] == [], blasted
     own = min(loop[1] for loop in loops)
     cpu = cpu_name()
     for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
@@ -1839,6 +1859,29 @@ GESTURES_WHILE_POINTING = """async () => {
   on = false;
   await frame();
   return { moves: fx().moves - m0, renders: Ink.inspect().layer.renders - r0, measures };
+}"""
+
+
+#: The gesture set on the voxel skin, taken while a blast plays (#377): delta is hidden, its pieces
+#: are in flight (`fx.live > 0`, read before and after the gestures), and it is shown again.
+GESTURES_WHILE_A_BLAST_PLAYS = """async () => {
+  const frame = () => new Promise(requestAnimationFrame), live = () => window.__voxel.inspect().fx.live;
+  setHidden('delta', true);
+  for (let i = 0; i < 300 && !live(); i++) await frame();
+  const before = live();
+  performance.clearMeasures();
+  setHidden('beta', true);
+  setHidden('beta', false);
+  moveTile('gamma', 1);
+  moveTile('gamma', -1);
+  const alpha = document.querySelector('.tile[data-repo="alpha"]');
+  stepGutter(alpha, -1);
+  evenGutter(alpha);
+  const measures = performance.getEntriesByType('measure')
+    .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration }));
+  const after = live();
+  setHidden('delta', false);
+  return { live: [before, after], measures };
 }"""
 
 

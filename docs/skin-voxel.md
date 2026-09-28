@@ -32,7 +32,7 @@ There are three materials, and so three draw calls, whether one agent is on the 
 | --- | --- | --- |
 | ground | one `InstancedMesh` in the layer's ground group | one per 32px of the viewport |
 | slabs | one `InstancedMesh` in the paper group | per pane: shadow, panel, three sockets, one cube per 10px of the strip |
-| stacks | one `InstancedMesh` in the paper group, over the slabs | six per pane: three blocks, a crack's second half, a pebble, an ore fleck |
+| stacks | one `InstancedMesh` in the paper group, over the slabs | six per pane: three blocks, a crack's second half, a pebble, an ore fleck; then the effect pool's pieces (§Effects), up to 192 |
 
 All three share one shader. A voxel is a box with a chamfered face, sized per instance in the shader,
 so a bevel is the same number of pixels on a 10px cube and on a 900px panel. It is lit by **one
@@ -47,6 +47,11 @@ the same frame. So a gutter drag rewrites a few uniforms inside the frame the br
 only a pane that changes size rebuilds its instances. The layer calls `frame` for that pane, and the
 skin draws nothing into the pane's own group, because that would cost a draw call per pane. A desk
 frames up to 63 panes this way. Past that, the rest keep their CSS frame.
+
+The effect pool (#377) lives in the stacks mesh: its room grows by `FX_CAP` (192) instances, and a
+piece is written after the stacks by the same writer, on slot 0 (page coordinates). The ground flash
+rewrites the ground mesh's own colours. Nothing an effect draws goes in the effects group, so a blast
+is still three draw calls.
 
 `inspect()`, exported by the module, reports the renderer's own count of the back pass
 (`renderer.info.render.calls`, read after the last voxel is drawn) as `drawCalls`. The tests assert
@@ -88,6 +93,41 @@ turns.
 `api.request()`. There is no animation loop, so a desk with no agent running asks for no frame at all.
 A finding stays for as long as its line is in the transcript.
 
+## Effects
+
+A pane put away bursts into blocks that fly to where it went, as a minimised window goes to the Dock
+(#377, epic #293). The cues are the module's `cues` table, matched by the layer from the page
+([desk-ink.md](desk-ink.md) §Effects); `cue` plays them into the pool and `tick` moves them.
+
+| Cue | Selector, on | What plays | Duration | Reduced motion | Where it draws | Colours a piece may wear |
+| --- | --- | --- | --- | --- | --- | --- |
+| blast | `#grid > .tile:not(.is-hidden)`, leave: `h`, the hide button, or gone from the registry | the pane's last box cut into chunks of side `max(12, ceil(sqrt(w*h/140)))`, at most 140; they swell 2 frames (x1.04), burst out from the centre at 260-620 px/s (200 px/s more upward), spin about z, fall at 1800 px/s², and from 0.18 s shrink to 6px over 3 frames and home on `dest` with a critically damped spring (ω 14). A piece within 8px of `dest` pops (2 frames). `dest` is the centre of `#hiddencount` for a hide, or of the pane's `#gone .gone-rail` for a removal, read every frame; with none, the pieces fall off the bottom. The ground under the box flashes (below) | ends by 0.8 s | nothing: the slab goes at once | the stacks mesh (paper + 1), and the ground mesh | the ring in `--voxel-edge`, the rest `--voxel-panel` x0.84, x0.92 or x1.0 |
+| place | `#grid > .tile:not(.is-hidden)`, arrive: brought back from the hidden count | 8 six-pixel pieces fly from `#hiddencount` (from the pane's centre if the count is hidden) into the pane's three sockets and pop on arrival | ends by 0.35 s | nothing | the stacks mesh | `--voxel-edge` |
+| break | `#modelcard`, `#dispatch`, `#keymap`, `#side` or a pane's `.scope`, each `:not([hidden])`, leave: a card or panel closed | 12-24 flat chips, 6-10px, fall from the lower half of the box, spin, and pop | ends by 0.5 s | nothing | the stacks mesh | `--voxel-edge`, or `--voxel-panel` x0.84..1.0 |
+
+* **A grouped pane plays nothing.** A pane folded into its project's rail is `.is-grouped`,
+  `display: none`, and still matches `:not(.is-hidden)`; a `blast` or `place` cue for it is dropped.
+  `.smenu` has no row: it closes on every pick.
+* **At most two blasts at once.** A third plays as a `break`. The pool holds 192 pieces; an exhausted
+  pool pops its oldest.
+* **The ground flash.** Ground voxels whose centre is inside the box, and outside the header and the
+  footer, go to `--voxel-ground` x1.25 for 2 frames, then x0.6, and heal ring by ring from the outside
+  back to their own shade by 0.8 s. x1.25 keeps Overworld's `--text` at 5.01:1 (x1.35 would leave
+  4.51:1).
+* **Why the pieces wear only the panel and the edge.** They fly under the page's words (the canvas is
+  behind the page). On the ground Overworld's `--muted` falls to 1.97:1 and `--human` to 2.56:1, so no
+  piece is ever the ground's colour. Every colour a piece may wear keeps each word colour at 4.5:1, or
+  at the panel's own figure where that is lower.
+* **Flat and drawn, never faded.** Every piece has bevel 0, so a face square to the camera is exactly its
+  colour; it spins about z only; it ends by moving, shrinking or popping, never by alpha.
+* **Frames.** A piece moves on the layer's `dt`, never less than a 60 Hz frame's worth, so each effect
+  ends within `ceil(0.8 * 60) + 4` layer frames of its cue. `tick` answers true while a piece or a
+  flashed voxel lives; the durations are constants in `voxel.js`, never in `skin.css`.
+
+`inspect().fx` is `{live, played: {blast, break, place}, ends: {near, far}, flashes, dest, pieces}`:
+`ends` counts a blast's pieces that popped within 12px of their `dest` and elsewhere, and `pieces` is
+up to 64 `{kind, x, y, s, c, bevel, spin}`.
+
 ## Colours
 
 No colour is written in the module. The palette's tokens colour the stack and the inks. The skin's own
@@ -124,3 +164,11 @@ what each agent is, so the page draws them the way it would draw a real agent, a
 * An idle voxel desk makes zero DOM mutations and zero WebGL frames.
 * The voxels settle within a bounded number of frames, and in one under reduced motion.
 * `dispose` frees the geometry when the skin changes.
+* Every colour an effect piece may wear, and the ground's flash, keeps every word readable (plain).
+* Folded into the grammar test (#377): a hide plays one blast whose pieces all end within 12px of the
+  hidden count; a grouped pane plays nothing; a removal flies to its gone rail; Escape on the model
+  card plays one break; "show all" one place per pane. Each ends within `ceil(0.8 * 60) + 4` frames,
+  in three draw calls, with flat pieces in the allowed colours and the geometry count unchanged; then
+  the desk is idle. Reduced motion bursts nothing; `?ink=off` hides with no page error.
+* Folded into `tests/test_fleet_ink.py`'s gesture-budget test (`measured`): the gestures, taken while a
+  blast's pieces are in flight, stay inside `LOCAL_BUDGET_MS`.
