@@ -81,13 +81,13 @@ that ran ahead never locks the picker (#483).
 - **Flakes fixed at their cause:** the `/m` fold waits for the read each answer starts before its next tap, and
   the stream's heartbeat is read when a stream opens (#581); farmstead's state check settles on the pressed
   choice's row (#334).
-- **The agent relay:** merge trains 18, 19a, 19b, 20, 21 and 22 (#608 to #614).
+- **The agent relay:** merge trains 18, 19a, 19b, 20, 21, 22 and 23 (#608 onwards).
 
-<!-- train-23-cars: the conductor finalises this block after train 23's run. -->
 **Train 23.**
 - **The fixed-wait ratchet** (#306): the last flat waits become condition waits, and
   `tests/test_hygiene_ratchet.py` holds a baseline in which flat waits stay at 0, and skips and fall-through
-  loops may only go down.
+  loops may only go down. The gutter tests' settled read now waits a frame at a time, so it never reads a row
+  that is still moving.
 - **Needs-you is louder than error** (#335): the open question card gets a marker loop, and error's loop moves
   from the whole pane to its `.why`; the bang stays.
 - **Every variant in its pane** (#340): the ink bounds test sweeps all 17 variants at two widths, ink on and off,
@@ -97,8 +97,6 @@ that ran ahead never locks the picker (#483).
 - **Farmstead's harvest, shower and hen** (#381): produce sinks into the top board, a cloud rains down the left
   board, and a hen runs along the footer to the hidden count. Each plays once, never on a reload or under
   reduced motion.
-- **The Windows socket fix** (#603), if it boards.
-<!-- /train-23-cars -->
 
 ## 0.17.0
 
