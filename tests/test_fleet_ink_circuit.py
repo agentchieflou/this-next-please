@@ -248,9 +248,15 @@ def test_the_board_draws_the_grammar_rings_pin_one_crosses_a_blocked_pane_and_in
         assert not errors, errors
 
         plain, perrors, asked = _open(browser, port, token, "&ink=off", reduced=True)
+        # The plain page's own layout first: its panes open from the rail (`data-tier="rail"`, which
+        # the ring's selector leaves out) with their flex and box-shadow transitions running, so the
+        # ring is read once beta is off the rail and nothing is animating (train 25: read mid-layout,
+        # beta was still `rail` and the ring `none`).
         plain.wait_for_function("""() => document.body.classList.contains('ink-off') && Ink.inspect().plain
             && Ink.inspect().table === 'circuit:solder'
-            && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-error')""", timeout=20000)
+            && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-error')
+            && document.querySelector('.tile[data-repo="beta"]').dataset.tier !== 'rail'
+            && !document.getAnimations().some(a => a.playState === 'running')""", timeout=20000)
         got = plain.evaluate("""() => {
           const cs = s => getComputedStyle(document.querySelector(s));
           return { why: cs('.tile[data-repo="alpha"] .why').outlineStyle,
