@@ -61,15 +61,23 @@ needs you: the name and the question highlighted, the choices looped in pencil. 
 highlight is erased when it is no longer needed: a name struck through reads as an agent
 that has gone.
 
+In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },`:
+
+needs you, the loudest pane on the desk (#335): a marker loop round the open question card,
+on the card's own border (pad -3, so shapes.js draws it at the edge and the stroke stays in the
+card's 8px padding, off its words). With it the pane waiting on the operator's answer carries more
+ink than an errored one.
+
 In `marks`, above `{ selector: ".tile .ask:not([hidden]) .ask-choice[aria-pressed=\"true\"]", tool: "pen", …`:
 
 answered: the chosen answer circled in pen. Its pencil loop is erased as the choice is made,
 and the question's highlight is struck through in pen when the question goes -- which is
 how the layer takes back any ink. The question is struck, never the agent's name.
 
-In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+In `marks`, above `{ selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },`:
 
-error: the felt tip's box round the pane, and a bang in the margin.
+error: a marker loop round the error's own words, `.why` (#335; it was round the whole pane).
+Pad 0: shapes.js draws it 3px out, so the stroke clears the words and stays in the pane's padding. The felt tip bleeds along it (`frame`). A bang in the margin, below.
 
 In `marks`, above `{ selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },`:
 
@@ -107,9 +115,16 @@ that `stale`). Both are classes the page already sets.
 
 ### `const ERROR_ROW`
 
-Above `const ERROR_ROW = ".tile.state-error";`:
+Above `const ERROR_ROW = ".tile.state-error .why";`:
 
-The felt tip's box and the running pen's line, as the mark table has them.
+The felt tip's loop and the running pen's line, as the mark table has them.
+
+### `const LOOP_O`
+
+Above `const LOOP_O = 3;`:
+
+How far out shapes.js draws the error row's loop: 3 plus its pad (0). The bleed is measured
+from that line.
 
 ### `const SOAK_PX`
 
@@ -218,9 +233,11 @@ In `frame`, above `const R = rail ? Math.max(12, box.w * 0.36) : Math.min(46, Ma
 Where a cup was put down: on the open paper below the transcript's first lines and clear of
 the reply row at the foot, a little further in on each pane so no two rings line up.
 
-In `frame`, above `const o = 3 - 7, loop = loopLength(box.w, box.h, o, 7);`:
+In `frame`, above `const reach = LOOP_O + 18;`:
 
-The error row's loop: pad -7, so shapes.js draws it 4px in with a 7px corner (#332).
+The bleed's quad covers the pane and 21px round it: the loop is round the `.why`, inside the
+pane's padding, and the ink reaches at most ~15px from it. Where the loop is, and its length,
+`show` sets from the loop mark's own box (`uAt`, `uSize`), since the why's words can change.
 
 ### `function markOf`
 

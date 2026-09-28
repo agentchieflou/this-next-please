@@ -35,6 +35,8 @@ from desk_waits import counted, observe_quiet, record_mutations, settle
 from test_fleet_ink import _serve, _stop  # noqa: F401 - over the harness's serve_desk; re-exported
 from test_fleet_gutters import _gutter_point
 from test_fleet_ink import catch_up_frames
+from test_fleet_ink_cues import mark_selectors
+from test_fleet_ink_fx import _armed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -201,8 +203,9 @@ def test_the_voxel_module_carries_no_colour_no_import_and_no_markup():
 
 
 def _selectors():
-    found = re.findall(r'selector: "((?:[^"\\]|\\.)*)"', open(MODULE, encoding="utf-8").read())
-    return [sel.replace('\\"', '"') for sel in found]
+    """The mark table's selectors: every `selector:` literal outside the module's `cues` (#373's
+    `mark_selectors`; the cue rows are held to their own contract in test_fleet_ink_cues.py)."""
+    return mark_selectors(MODULE)
 
 
 def test_every_class_the_voxel_reads_is_one_the_page_already_sets():
@@ -217,7 +220,7 @@ def test_every_class_the_voxel_reads_is_one_the_page_already_sets():
     selectors = _selectors() + [a or b for a, b in read]
     shown = js[js.index("var SHOWN = {"):]
     shown = shown[:shown.index("};")]
-    assert len(_selectors()) == 9, "one row per state the grammar marks"
+    assert len(_selectors()) == 10, "one row per state the grammar marks"
     for sel in selectors:
         for cls in re.findall(r"\.([A-Za-z][\w-]*)", sel):
             if cls.startswith("state-"):
@@ -273,6 +276,45 @@ def test_theme_check_holds_every_ink_the_voxel_draws_on_its_slab():
             want = said.get(tool, css[token[tool]])
             assert colour.upper() == want.upper(), (variant, tool, colour, want)
         theme.check(palette, composited_panel=spec["composited_panel"], skin=f"voxel:{variant}", inks=inks)
+
+
+def _shade(colour, k):
+    """The module's `shade`: each sRGB channel times `k`, capped at 1."""
+    return theme.rgb_to_hex(tuple(min(1.0, c * k) for c in theme.hex_to_rgb(colour)))
+
+
+#: What an effect piece may wear (#377): the edge, or the panel at the ground's darker shades
+#: (`jitter` capped at 1). Never the ground.
+PIECE_SHADES = (0.84, 0.92, 1.0)
+#: The ground flash's peak (#377): x1.35 would leave Overworld's text at 4.51:1, x1.25 keeps 5.01.
+FLASH = 1.25
+
+
+def test_every_colour_a_voxel_effect_draws_keeps_every_word_readable():
+    """#377: a blast's pieces and a break's chips fly under the page's words -- the canvas is behind
+    the page -- so every colour a piece may wear keeps each word colour as readable as the slab face
+    does (4.5:1, or the panel's own figure where that is lower), in every world. And the ground's
+    flash, where the pane was, keeps the text 4.5:1."""
+    code = _code(MODULE)
+    assert "shade(c.panel, Math.min(1, jitter(" in code and "c.edge" in code, "pieces wear panel and edge"
+    assert f"FLASH_UP = {FLASH}" in code
+    css_text = open(SKIN_CSS, encoding="utf-8").read()
+    blocks = dict(re.findall(r'body\[data-skin="voxel"\](?:\[data-skin-variant="(\w+)"\])?\s*\{([^}]*)\}', css_text))
+    low = []
+    for variant, spec in SK.SKINS["voxel"]["variants"].items():
+        block = blocks["" if variant == SK.SKINS["voxel"]["default"] else variant]
+        own = dict(re.findall(r"(--voxel-\w+):\s*(#[0-9A-Fa-f]{6})", block))
+        panel, edge, ground = own["--voxel-panel"], own["--voxel-edge"], own["--voxel-ground"]
+        css = theme.to_css(theme.get(spec["base"]))
+        pieces = [edge] + [_shade(panel, k) for k in PIECE_SHADES]
+        for word in ("--text", "--muted", "--human", "--waiting", "--done", "--idle", "--accent"):
+            need = min(4.5, theme.contrast_ratio(css[word], panel))
+            low += [(variant, word, piece, round(theme.contrast_ratio(css[word], piece), 2))
+                    for piece in pieces if theme.contrast_ratio(css[word], piece) < need - 1e-9]
+        flash = theme.contrast_ratio(css["--text"], _shade(ground, FLASH))
+        if flash < 4.5:
+            low.append((variant, "--text", "flash", round(flash, 2)))
+    assert low == [], low
 
 
 def test_the_grammar_is_documented_for_every_state():
@@ -366,12 +408,95 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
     assert twenty["instances"]["slabs"] > 10 * one["instances"]["slabs"] / 2, (one["instances"], twenty["instances"])
 
 
+#: #377's effects, played out: `start(act)` records every layer frame from now until an effect the
+#: skin played has ended -- no piece live and no ground voxel flashed -- with the voxel skin's `fx`
+#: and draw calls each frame; `act` (a script, or '' when the test acts from Python) runs first.
+#: `window.__play` is the promise the test reads once, afterwards.
+PLAY = """(act) => { window.__play = (async () => {
+  const v = window.__voxel, frame = () => new Promise(done => requestAnimationFrame(() => done()));
+  const sum = p => p.blast + p.break + p.place, first = v.inspect();
+  const before = first.fx.played, memory = first.memory.geometries;
+  if (act) (new Function(act))();
+  const samples = [];
+  let cuedAt = null, endAt = null;
+  for (let i = 0; i < 900 && endAt === null; i++) {
+    await frame();
+    const x = v.inspect(), f = x.fx, frames = Ink.inspect().layer.frames;
+    if (cuedAt === null && sum(f.played) > sum(before)) cuedAt = frames;
+    if (cuedAt !== null) samples.push({ frames, live: f.live, flashes: f.flashes, dest: f.dest,
+                                        drawCalls: x.drawCalls, pieces: f.pieces });
+    if (cuedAt !== null && !f.live && !f.flashes) endAt = frames;
+  }
+  const x = v.inspect();
+  return { before, played: x.fx.played, ends: x.fx.ends, cuedAt, endAt, samples,
+           memory: [memory, x.memory.geometries] };
+})(); }"""
+#: A pane hidden while it is `is-grouped` (folded into its project's rail: `display: none`, and still
+#: `:not(.is-hidden)`): the class and the hide in one task, and the arrange write held until the cue
+#: has been delivered -- its answer runs `place()`, which takes a class the arrangement does not
+#: call for back off, and on a quick server that could land before the layer's next frame.
+GROUPED = """async () => {
+  const frame = () => new Promise(done => requestAnimationFrame(() => done()));
+  const fx = () => Ink.inspect().layer.fx, before = window.__voxel.inspect().fx.played, d0 = fx().delivered;
+  let release;
+  const hold = new Promise(done => { release = done; });
+  arrangeChain = arrangeChain.then(() => hold);
+  setHidden('delta', true);
+  toggle(tiles.get('delta').el, 'is-grouped', true);
+  for (let i = 0; i < 300 && fx().delivered === d0; i++) await frame();
+  const grouped = tiles.get('delta').el.classList.contains('is-grouped');
+  release();
+  return { before, grouped, delivered: fx().delivered - d0 };
+}"""
+#: The centre of the first element a selector matches, in viewport px.
+CENTRE = """(sel) => { const r = document.querySelector(sel).getBoundingClientRect();
+  return [r.left + r.width / 2, r.top + r.height / 2]; }"""
+#: The ceiling a voxel effect ends within, in layer frames of its cue (#377: 0.8 s at 60 Hz, and 4).
+FX_FRAMES = math.ceil(0.8 * 60) + 4
+
+
+def _play(page, act=""):
+    page.evaluate(PLAY, act)
+
+
+def _played(page):
+    return page.evaluate("() => window.__play")
+
+
+def _worn(page, variant="overworld"):
+    """The colours a piece may wear in this world: the edge, or the panel x0.84..1.0 (#377)."""
+    css_text = open(SKIN_CSS, encoding="utf-8").read()
+    blocks = dict(re.findall(r'body\[data-skin="voxel"\](?:\[data-skin-variant="(\w+)"\])?\s*\{([^}]*)\}',
+                             css_text))
+    block = blocks["" if variant == SK.SKINS["voxel"]["default"] else variant]
+    edge = [c / 255 for c in _hex_rgb(re.search(r"--voxel-edge:\s*(#[0-9A-Fa-f]{6})", block).group(1))]
+    panel = _voxel(page)["panel"]
+    return [edge] + [[min(1.0, c * k) for c in panel] for k in PIECE_SHADES]
+
+
+def _pieces_problems(run, worn):
+    """Every piece seen mid-effect: flat (bevel 0), spinning about z, in a colour it may wear; and
+    the effect drawn in the skin's three draw calls."""
+    wrong = []
+    for s in run["samples"]:
+        if s["live"] and s["drawCalls"] != 3:
+            wrong.append(("drawCalls", s["frames"], s["drawCalls"]))
+        for q in s["pieces"]:
+            if q["bevel"] != 0 or q["spin"] != "z":
+                wrong.append(("shape", q))
+            if not any(all(abs(a - b) < 1e-6 for a, b in zip(q["c"], w)) for w in worn):
+                wrong.append(("colour", q))
+    return wrong[:5]
+
+
 #: Each state and what the grammar (docs/skin-voxel.md) says the voxel and the ink do.
 MARK = {
     "needs": ".tile.needs-human .head .repo",
     "question": ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q",
+    "card": ".tile.needs-human .asks:not([hidden])",
     "running": ".tile.state-running .head .repo",
     "error": ".tile.state-error",
+    "why": ".tile.state-error .why",
     "done": ".tile:is(.state-done, .is-done)",
     "stale": ".tile .oldsession:not([hidden])",
     "answered": '.tile .ask-choice[aria-pressed="true"]',
@@ -407,6 +532,7 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     try:
         browser = desk_browser
         page, errors = _open(browser, port, token, panes=4)
+        _armed(page)
         quiet = {n: _stack(page, n) for n in names}
 
         world.states.update({"alpha": "needs_human", "beta": "error", "gamma": "done", "delta": "running"})
@@ -449,6 +575,65 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
         off = {n: _stack(page, n) for n in names}
         left = {k: [(m["lane"], m["state"], bool(m["strikeOf"]), m["erased"]) for m in _marks(page, sel)]
                 for k, sel in MARK.items()}
+
+        # #377: a pane put away bursts, and its pieces fly to where it went. Hide gamma with its button.
+        worn = _worn(page)
+        box = page.evaluate("""() => { const r = tiles.get('gamma').el.getBoundingClientRect();
+          return { w: r.width, h: r.height }; }""")
+        _play(page, "tiles.get('gamma').el.querySelector('[data-tool=\"hide\"]').click();")
+        hid = _played(page)
+        hid["count"] = page.evaluate(CENTRE, "#hiddencount")
+        _rest(page)
+        # A pane folded into its project's rail (`is-grouped`, `display: none`) when its cue arrives
+        # plays nothing.
+        grouped = page.evaluate(GROUPED)
+        _rest(page, "document.querySelector('.tile[data-repo=\"delta\"]').classList.contains('is-hidden')")
+        grouped_after = _voxel(page)["fx"]["played"]
+        # Gone from the registry: to its gone rail.
+        Registry().remove("beta")
+        _play(page, "refresh();")
+        removed = _played(page)
+        removed["rail"] = page.evaluate(CENTRE, '#gone .gone-rail[data-repo="beta"]')
+        _rest(page)
+        # A card closed: the model card, by Escape.
+        page.evaluate("() => openModelCard('alpha', null)")
+        page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
+        _rest(page)
+        _play(page)
+        page.keyboard.press("Escape")
+        broke = _played(page)
+        _rest(page)
+        # The hidden count's "show all": one place per pane brought back.
+        _play(page)
+        page.click("#hiddencount")
+        shown = _played(page)
+        _rest(page, "document.querySelectorAll('#grid > .tile.is-hidden').length === 0")
+        idle_played = _voxel(page)["fx"]["played"]
+        idle = observe_quiet(page, passes=3)
+        idle["played"] = _voxel(page)["fx"]["played"]
+        assert not errors, errors
+        page.close()
+
+        # Reduced motion: the slab goes at once, and nothing bursts.
+        page, errors = _open(browser, port, token, panes=3, reduced=True)
+        _armed(page)
+        page.evaluate("() => tiles.get('gamma').el.querySelector('[data-tool=\"hide\"]').click()")
+        _rest(page, f"""document.querySelector('.tile[data-repo="gamma"]').classList.contains('is-hidden')
+                        && ({VOXEL})().panes.find(p => p.repo === 'gamma').at[2] === 0""")
+        still = _voxel(page)["fx"]
+        page.evaluate("() => setHidden('gamma', false)")
+        _rest(page, "document.querySelectorAll('#grid > .tile.is-hidden').length === 0")
+        assert not errors, errors
+        page.close()
+
+        # Without the layer: the hide works, and nothing throws.
+        page, errors = _open(browser, port, token, "&ink=off", panes=3)
+        page.evaluate("() => tiles.get('gamma').el.querySelector('[data-tool=\"hide\"]').click()")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"gamma\"]').classList.contains('is-hidden')",
+                               timeout=10000)
+        settle(page)
+        page.evaluate("() => setHidden('gamma', false)")
+        settle(page, also="document.querySelectorAll('#grid > .tile.is-hidden').length === 0")
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -462,8 +647,12 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     assert on["delta"]["state"] == "running" and timer, "a running block turns on a timer"
     # the marks, per state, each on its own pane
     assert marks_on["needs"]["alpha"] == 1 and marks_on["needs"]["gamma"] == 0, marks_on["needs"]
-    assert marks_on["error"] == {"alpha": 0, "beta": 2, "gamma": 0, "delta": 0}, marks_on["error"]
-    assert sorted(m["shape"] for m in on_error) == ["bang", "loop"], on_error
+    # #335: the pane waiting on the operator is the loudest -- its question card looped in marker --
+    # and the error's marker loop is round its why, the bang on the pane.
+    assert marks_on["card"] == {"alpha": 1, "beta": 0, "gamma": 0, "delta": 0}, marks_on["card"]
+    assert marks_on["error"] == {"alpha": 0, "beta": 1, "gamma": 0, "delta": 0}, marks_on["error"]
+    assert marks_on["why"] == {"alpha": 0, "beta": 1, "gamma": 0, "delta": 0}, marks_on["why"]
+    assert [m["shape"] for m in on_error] == ["bang"], on_error
     assert marks_on["question"]["alpha"] == 1 and marks_on["question"]["beta"] == 0, marks_on["question"]
     assert marks_on["running"] == {"alpha": 0, "beta": 0, "gamma": 0, "delta": 1}, marks_on["running"]
     assert marks_on["done"] == {"alpha": 0, "beta": 0, "gamma": 1, "delta": 0}, marks_on["done"]
@@ -473,13 +662,52 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     # and they leave with the state
     assert all(s["level"] == 1 and s["lift"] == 0 and s["state"] == "idle" for s in off.values()), off
     assert not off["alpha"]["stale"] and off["beta"]["finding"], "a finding stays while its line does"
-    for key, lane in (("needs", "pane:alpha"), ("question", "pane:alpha"), ("error", "pane:beta"),
+    for key, lane in (("needs", "pane:alpha"), ("question", "pane:alpha"), ("card", "pane:alpha"),
+                      ("error", "pane:beta"), ("why", "pane:beta"),
                       ("done", "pane:gamma"), ("running", "pane:delta")):
         assert (lane, "struck") in [m[:2] for m in left[key]], f"{key}: ink leaves by a strike ({left[key]})"
         assert (lane, "drawn") not in [m[:2] for m in left[key]], f"{key}: still drawn ({left[key]})"
     assert not [m for m in left["stale"] if m[1] == "drawn" and not m[3]], f"pencil is erased: {left['stale']}"
     states = [m[1] for m in left["answered"] if m[0] == "pane:alpha"]
     assert "struck" in states and "drawn" in states, f"the first answer struck, the second looped: {left['answered']}"
+
+    # #377, the effects. The hide: exactly one blast, its chunks the pane's box cut into at most
+    # 140, each ending within 12px of the hidden count's centre before it pops.
+    side = max(12, math.ceil(math.sqrt(box["w"] * box["h"] / 140)))
+    chunks = max(1, math.floor(box["w"] / side)) * max(1, math.floor(box["h"] / side))
+    print(f"\n  a {box['w']:.0f}x{box['h']:.0f} pane burst into {chunks} pieces; the blast took "
+          f"{hid['endAt'] - hid['cuedAt']} frames, the break {broke['endAt'] - broke['cuedAt']}, "
+          f"the place {shown['endAt'] - shown['cuedAt']} (ceiling {FX_FRAMES})")
+    assert {k: hid["played"][k] - hid["before"][k] for k in hid["played"]} == {"blast": 1, "break": 0, "place": 0}, hid
+    assert chunks <= 140 and hid["samples"][0]["live"] == chunks, (chunks, hid["samples"][0]["live"])
+    assert hid["ends"]["far"] == 0 and hid["ends"]["near"] == chunks, hid["ends"]
+    dest = next(s["dest"] for s in hid["samples"] if s["live"])
+    assert max(abs(a - b) for a, b in zip(dest, hid["count"])) <= 1, (dest, hid["count"])
+    # A grouped pane plays nothing.
+    assert grouped["delivered"] == 1 and grouped["grouped"], grouped
+    assert grouped_after == grouped["before"], (grouped, grouped_after)
+    # Removed from the registry: to its gone rail.
+    assert removed["played"]["blast"] - removed["before"]["blast"] == 1, removed
+    dest = next(s["dest"] for s in removed["samples"] if s["live"])
+    assert dest and max(abs(a - b) for a, b in zip(dest, removed["rail"])) <= 1, (dest, removed["rail"])
+    assert removed["ends"]["far"] == hid["ends"]["far"] == 0, removed["ends"]
+    # Escape on the model card: one break. Show all: one place per pane brought back (gamma, delta).
+    assert {k: broke["played"][k] - broke["before"][k] for k in broke["played"]} == {"blast": 0, "break": 1, "place": 0}, broke
+    assert {k: shown["played"][k] - shown["before"][k] for k in shown["played"]} == {"blast": 0, "break": 0, "place": 2}, shown
+    for name, run in (("hide", hid), ("remove", removed), ("break", broke), ("place", shown)):
+        # Each ends within the ceiling, in the skin's three draw calls, leaves the GPU's geometry
+        # count where it found it, and every piece is flat, spins about z and wears the edge or the panel.
+        assert run["endAt"] is not None and run["endAt"] - run["cuedAt"] <= FX_FRAMES, (name, run["cuedAt"], run["endAt"])
+        # (A pane removed frees its own frame's geometry as well, so there it may only go down.)
+        assert run["memory"][1] == run["memory"][0] or (name == "remove" and run["memory"][1] < run["memory"][0]), \
+            (name, run["memory"])
+        assert any(s["live"] for s in run["samples"]), name
+        assert _pieces_problems(run, worn) == [], (name, _pieces_problems(run, worn))
+    # Then the desk is idle again: nothing written, nothing drawn, nothing played.
+    assert idle["mutations"] == 0 and idle["renders"] == 0, idle
+    assert idle["played"] == idle_played, (idle_played, idle["played"])
+    # Reduced motion: the slab went at once, and nothing burst.
+    assert still["played"]["blast"] == 0 and still["live"] == 0, still
 
 
 @pytest.fixture()

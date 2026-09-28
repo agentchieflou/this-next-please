@@ -19,6 +19,7 @@ plan-panes §Resizing:
 * and every one of those gestures again from the keyboard.
 """
 from __future__ import annotations
+import itertools
 import json
 import os
 import re
@@ -122,13 +123,19 @@ def _read(page):
     return {p["repo"]: p for p in page.evaluate(READ)}
 
 
-# The row's widths, twice, two frames apart.
-_STILL = """() => new Promise(done => {
-  const widths = () => [...document.querySelectorAll('#grid .tile')]
-    .map(t => t.getBoundingClientRect().width.toFixed(1)).join();
-  const first = widths();
-  requestAnimationFrame(() => requestAnimationFrame(() => done(first === widths())));
-})"""
+# The row's widths, the same on three frames running (two frames apart), with nothing moving. Its
+# own readings are kept on the page under the call's `key`, one per frame: `wait_for_function` polls
+# a plain predicate every frame, and it does not await a Promise, which is always truthy to it.
+_STILL = """key => {
+  const seen = (window.__stillRows = window.__stillRows || {});
+  if (!(SETTLED)()) { seen[key] = []; return false; }
+  const rows = (seen[key] = (seen[key] || []).concat([[...document.querySelectorAll('#grid .tile')]
+    .map(t => t.getBoundingClientRect().width.toFixed(1)).join()]).slice(-3));
+  return rows.length === 3 && rows.every(r => r === rows[0]);
+}"""
+
+#: A fresh key for each read, so no read starts from another's frames.
+_READS = itertools.count()
 
 
 def _read_settled(page, timeout=10.0):
@@ -136,13 +143,15 @@ def _read_settled(page, timeout=10.0):
     same widths two frames apart. Read the moment a write is answered, a slower runner was still
     drawing the step before -- 45.8px of a 50px drag on Windows 3.14 (#270), and one of five even
     shares 20px wide -- so it is waited for, not assumed. A width that is wrong at rest still fails."""
-    import time
-    deadline = time.monotonic() + timeout
-    while True:
-        if page.evaluate(SETTLED) and page.evaluate(_STILL):
-            return _read(page)
-        assert time.monotonic() < deadline, "the row never came to rest"
-        page.wait_for_timeout(50)
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    # Looked at every frame (#306), not every 50 ms.
+    try:
+        page.wait_for_function(_STILL.replace("(SETTLED)", f"({SETTLED})"),
+                               arg=f"read-{next(_READS)}", timeout=timeout * 1000)
+    except PlaywrightTimeout:
+        raise AssertionError("the row never came to rest") from None
+    return _read(page)
 
 
 def _window_posts(posts):
@@ -378,7 +387,7 @@ def test_escape_in_the_middle_of_a_drag_puts_the_widths_back_and_writes_nothing(
         after = _read_settled(page)
         # Nothing is waited for to arrive, so give anything that was going to be sent the time.
         page.wait_for_function("() => windowWrites === 0", timeout=8000)
-        page.wait_for_timeout(300)
+        settle(page)                              # anything the release set going has run out
         state = page.evaluate("() => ({ open: openName(), hash: location.hash })")
         sent = list(posts)
         assert not errors, errors
@@ -546,7 +555,7 @@ def test_needs_me_with_nobody_needing_you_says_so_and_writes_nothing(fleet_home,
         page.wait_for_function(
             "() => document.getElementById('notice').textContent.indexOf('nothing needs you') >= 0",
             timeout=8000)
-        page.wait_for_timeout(300)
+        settle(page)                              # anything the preset set going has run out
         wide = page.evaluate("() => document.querySelectorAll('#grid .tile.is-solo').length")
         sent = list(posts)
         assert not errors, errors
@@ -755,7 +764,7 @@ def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home,
                                       .getBoundingClientRect().width;
                        return Math.abs(w('alpha') - w('beta')) < 1; }""", timeout=8000)
         page.wait_for_function("() => windowWrites === 0", timeout=8000)
-        page.wait_for_timeout(300)
+        settle(page)                              # anything the double click set going has run out
         after = _read_settled(page)
         sent = list(posts)
         assert not errors, errors

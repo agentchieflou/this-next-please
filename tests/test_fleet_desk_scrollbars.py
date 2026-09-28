@@ -17,6 +17,8 @@ from agentdata.fleet import events as E, registry, serve as S, skins as K
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, settle
+from test_fleet_demo_ownership import SKIN_ON
 from test_fleet import make_project
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -98,7 +100,7 @@ def test_the_transcript_scrollbar_computes_to_the_palette_in_every_look(fleet_ho
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 800}))
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
@@ -107,7 +109,8 @@ def test_the_transcript_scrollbar_computes_to_the_palette_in_every_look(fleet_ho
         seen = {}
         for look in looks:
             page.evaluate("(name) => post('theme', { skin: name })", look)
-            page.wait_for_timeout(450)
+            page.wait_for_function(SKIN_ON, arg=look, timeout=DESK_WAIT_MS)   # worn, its sheet loaded
+            settle(page, allow_ground=True)
             got = page.evaluate("""() => {
                 const probe = document.createElement('i');
                 probe.style.color = 'var(--scroll-thumb)';

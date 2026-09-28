@@ -307,13 +307,17 @@ skin ships switched on only for shells A measured as hardware WebGL. Until then 
 |---|---|
 | idle | pencil outline, pencil underline under the name |
 | running | pen underline that grows with the turn, and the pen-tip dot at its end |
-| needs you | highlighter on the name and on the question, pencil loops around the choices |
+| needs you | highlighter on the name and on the question, pencil loops around the choices, and a marker loop round the question card: the loudest pane on the desk (#335) |
 | answered | the question and its highlight struck through in pen, and the chosen answer circled |
-| error | red marker box around the pane, and a bang in the margin |
+| error | red marker loop around the error's own words (`.why`; #335, it was the whole pane), and a bang in the margin |
 | done | green check in the margin |
 | stale (#240) | a pencil margin note, *stale — renew?*, with an arrow to the version line |
 | a finding | red ellipse around the line, highlight on the token, and the finding's own text as a margin note |
 | the header count | handwritten. When it changes, the old number is struck and the new one written beside it |
+
+A pane blocked on the operator's answer carries more ink than a pane in error (#335, HIG *Layout*): the eye goes
+first to what only the operator can unblock. An error pane also carries `needs-human`, so it has the name's
+highlight as well. Nothing blinks or pulses for attention; the marks are drawn once.
 
 ## Ground rules
 

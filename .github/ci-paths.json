@@ -141,7 +141,8 @@
         "tests/subproc.py",
         "tests/test_fleet.py",
         "tests/conftest.py",
-        "tests/winsock_capture.py"
+        "tests/winsock_capture.py",
+        "tests/hig_audit.py"
       ]
     },
     "static-only": {

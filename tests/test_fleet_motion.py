@@ -24,6 +24,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import counted, settle
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -222,8 +223,11 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
                                    .getBoundingClientRect().height === 0""",
                     polling=25, timeout=8000)
             else:
-                # Still there a frame's worth later, which is the whole claim.
-                page.wait_for_timeout(60)
+                # Still there a frame's worth later, which is the whole claim: the frame the
+                # hide lands in drawn, and the one after it begun (#306: counted in frames, not
+                # in 60 ms of a clock).
+                page.evaluate(
+                    "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())))")
                 left = page.evaluate("""() => {
                       const menu = document.querySelector('.tile.is-solo .smenu');
                       return { box: menu.getBoundingClientRect().height,
@@ -384,13 +388,13 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1920, "height": 1080})
+        page = counted(browser.new_page(viewport={"width": 1920, "height": 1080}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
                   wait_until="domcontentloaded")
         page.wait_for_selector(".tile.is-solo", timeout=15000)
-        page.wait_for_timeout(300)               # past the first fold's own work
+        settle(page)                             # past the first fold's own work
 
         browser.start_tracing(page=page, categories=["devtools.timeline",
                                                  "disabled-by-default-devtools.timeline"])

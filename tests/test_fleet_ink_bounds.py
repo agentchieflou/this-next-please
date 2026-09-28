@@ -7,10 +7,14 @@ round `.oldsession` over the chip and its age, voxel's needs-you underline throu
 farmstead's error loop round `.head` across the chip row, and the legal pad's running tail -- drawn
 by the skin itself, so the layer never placed it -- through the chip and the age.
 
-What is asserted, on one look per changed or affected module (the full sweep is #340's), at 1400px
-and 700px, ink on, under reduced motion, with four agents put in their states by real events (a
-blocking question, a supervised running turn, an error, and a supervised done whose session began
-on no recorded install, so its stale note shows):
+What is asserted, on every variant of every skin (#340: the HIG guard's full sweep; #332 took one
+look per module), at 1400px and 700px, ink on and ink off, under reduced motion, with four agents
+put in their states by real events (a blocking question, a supervised running turn, an error, and
+a supervised done whose session began on no recorded install, so its stale note shows). One page
+per param, the looks switched in it (`POST /api/theme`), and one assertion at the end listing every
+failure: the skin and variant, the row, the word and its element, the area.
+
+Ink on:
 
 * every stroke's bound (`Ink.inspect().layer.marks[].bounds`, inflated by half its tool's width)
   is at most 2px outside its pane and inside the viewport, and no stroke of a mark on a pane is cut
@@ -20,7 +24,22 @@ on no recorded install, so its stale note shows):
   element's text by 6 px² or more -- loops and ellipses measured on their ring, arrows on their
   curve -- and an `underline` or `strike` overlaps no word but its own (under 1 px²);
 * legalpad:canary: each running pane's `inspect().panes[].tailBox`, inflated by 1px, overlaps no
-  text rect by 6 px² or more.
+  text rect by 6 px² or more;
+* the finished agent is marked: a `check` on its pane (#340);
+* the pane waiting on the operator's answer is the loudest (#335): its ink area, each drawn
+  mark's `len` times its tool's width, is at least the errored pane's.
+
+Ink off, the same looks drawn plain:
+
+* every ring the plain sheet draws (a row whose `PLAIN` rule is an outline: `outline`, `loop`,
+  `ellipse`), `outline-offset` out from its anchor and `outline-width` thick, is on no visible
+  word by 6 px² or more (#340, `hig_audit`);
+* the open question card has a 2px solid outline in the marker's colour, and the errored pane has
+  no outline of its own (its why has it) (#335).
+
+The guard checks itself at 1400px (#340): a test table whose `outline` is padded 20px out of the
+pane and whose `check` is on the name is reported, and, ink off, a `loop` round the chip whose ring
+lands on the chip's age beside it is reported.
 """
 from __future__ import annotations
 
@@ -36,10 +55,25 @@ from test_fleet import make_project
 from desk_harness import close_pages
 from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401 - fixtures are used by name
+from hig_audit import PLAIN_AT_REST, PLAIN_RINGS, TEXT_RUNS, every_look, ring_collisions
 
-#: One variant per changed or affected module.
-LOOKS = ("glass:smoke", "voxel:overworld", "napkin:diner", "farmstead:daytime", "legalpad:canary",
-         "notebook:light", "graph:engineering")
+#: Every variant of every skin (#340). #332 took one per module.
+LOOKS = tuple(every_look())
+
+#: The guard's own check (#340): rows it must report. A pane's outline padded 20px out of it (cut
+#: away by the pane's clip, or outside it), and a check anchored on the name, whose margin mark
+#: lands on the number the head wraps under it at 1400px. (Anchored on the head itself, the head's
+#: words are the anchor's own, which a mark may cover.)
+SELF_TEST = {"name": "hig-self-test", "marks": [
+    {"selector": ".tile.state-error", "tool": "marker", "shape": "outline", "pad": 20},
+    {"selector": ".tile .head .repo", "tool": "red", "shape": "check"},
+]}
+#: Ink off: a loop round the chip's word, whose plain ring (3px out, 2px thick) lands on the chip's
+#: age beside it. (Round the whole chip, as #340 first put it, the ring stops just short of the
+#: number and the next button on today's head.)
+SELF_TEST_OFF = {"name": "hig-self-test", "marks": [
+    {"selector": ".tile .chip .chipword", "tool": "marker", "shape": "loop"},
+]}
 
 WIDTHS = (1400, 700)
 
@@ -143,7 +177,7 @@ MEASURE = """(tw) => {
                                  stroke: [b.x, b.y, b.r, b.b].map(v => Math.round(v * 10) / 10) });
       }
     });
-    out.push({ repo, shape: m.shape, tool: m.tool, selector: m.selector, strokes: m.strokes, hw: h,
+    out.push({ repo, shape: m.shape, tool: m.tool, selector: m.selector, strokes: m.strokes, hw: h, len: m.len,
                anchored: !!anchor, onPane: anchor === pane,
                pane: { x: p.left, y: p.top, r: p.right, b: p.bottom },
                view: { r: innerWidth, b: innerHeight },
@@ -315,6 +349,77 @@ def problems(look, width, marks):
     return out
 
 
+def finished_problems(look, width, marks):
+    """#340: the finished agent is marked, a `check` on its pane. The sweep's own claim, apart from
+    `problems`, which callers also hand a single pane's marks."""
+    if any(m["repo"] == FIN and m["shape"] == "check" for m in marks):
+        return []
+    return [(f"{look} @ {width}px", f"the finished agent ({FIN}) has no check")]
+
+
+def ink_area(marks, repo):
+    """A pane's ink: each drawn mark's length times its tool's width (`pen.js` TOOLS)."""
+    return round(sum(m["len"] * TOOL_W.get(m["tool"], 2) for m in marks if m["repo"] == repo))
+
+
+def loudness_problems(look, width, marks):
+    """#335: the pane blocked on the operator's answer carries at least the errored pane's ink."""
+    asks, broke = ink_area(marks, ASKS), ink_area(marks, BROKE)
+    if asks >= broke:
+        return []
+    return [(f"{look} @ {width}px", "the pane waiting on an answer is quieter than the error",
+             {"needs you": asks, "error": broke})]
+
+
+#: Ink off (#335): the question card's outline, the errored pane's, and the marker's colour as the
+#: plain sheet writes it (`var(--ink-marker, var(--human))`), resolved on the card.
+PLAIN_LOOK = f"""() => {{
+  const card = document.querySelector('.tile[data-repo="{ASKS}"] .asks:not([hidden])');
+  const broke = document.querySelector('.tile[data-repo="{BROKE}"]');
+  const why = broke.querySelector('.why');
+  const probe = document.createElement('i');
+  probe.style.color = 'var(--ink-marker, var(--human))';
+  (card || broke).append(probe);
+  const marker = getComputedStyle(probe).color;
+  probe.remove();
+  const o = el => {{ const cs = el && getComputedStyle(el);
+    return cs ? [cs.outlineStyle, cs.outlineWidth, cs.outlineColor].join(' ') : null; }};
+  return {{ card: o(card), pane: o(broke), why: o(why), marker }};
+}}"""
+
+
+def choose_plain(page, look):
+    """Ink off: the look's table in force as the plain sheet, its stylesheet in, and every pane in
+    its state."""
+    skin = look.split(":")[0]
+    _choose(page, look)
+    try:
+        page.wait_for_function(f"""() => {{
+      if (Ink.inspect().table !== '{look}') {{ refresh(); return false; }}
+      return Ink.inspect().plain && ({_sheet(skin)}) && ({PLAIN_AT_REST})();
+    }}""", timeout=30000, polling=250)
+    except Exception as e:
+        raise AssertionError((look, page.evaluate(SEEN))) from e
+
+
+def ring_problems(look, width, rings, runs):
+    """Ink off (#340): every plain ring on another element's words. Every skin rings the question
+    card (#335), so a look with no ring at all is the guard reading nothing."""
+    if not rings or not runs:
+        return [(f"{look} @ {width}px, ink off", "no plain rings or no words read", len(rings), len(runs))]
+    return [(f"{look} @ {width}px, ink off: the ring of {r['selector']} on {r['repo'] or 'the page'}",
+             "covers", t["text"], t["label"], area) for r, t, area in ring_collisions(rings, runs)]
+
+
+def plain_problems(look, width, got):
+    where, out = f"{look} @ {width}px, ink off", []
+    if got["card"] != f"solid 2px {got['marker']}":
+        out.append((where, "the question card has no 2px outline in the marker's colour", got))
+    if not got["pane"].startswith("none "):
+        out.append((where, "the errored pane has an outline of its own", got))
+    return out
+
+
 def tail_problems(width, tails):
     where = f"legalpad:canary @ {width}px"
     if not tails:
@@ -330,27 +435,66 @@ def tail_problems(width, tails):
 
 
 @pytest.mark.browser
+@pytest.mark.parametrize("ink", ("on", "off"))
 @pytest.mark.parametrize("width", WIDTHS)
 def test_skin_marks_keep_inside_their_pane_and_off_other_words(fleet_home, tmp_path, monkeypatch, alive,
-                                                               finished, width, desk_browser):
+                                                               finished, width, ink, desk_browser):
     alive.update({RUNS, FIN})
     finished.add(FIN)
     bounds_desk(tmp_path, fleet_home, monkeypatch)
     server, token, port = _serve()
-    seen, tails = {}, None
+    seen, rings, tails, caught = {}, {}, None, None
     try:
         browser = desk_browser
-        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), width=width, reduced=True)
+        page, errors, _ = _open(browser, port, token, "&ink=" + ink, panes=len(NAMES), width=width, reduced=True)
         desk_states(page)
         for look in LOOKS:
+            if ink == "off":
+                choose_plain(page, look)
+                seen[look] = page.evaluate(PLAIN_LOOK)
+                rings[look] = (page.evaluate(PLAIN_RINGS), page.evaluate(TEXT_RUNS))
+                continue
             choose(page, look)
             seen[look] = page.evaluate(MEASURE, TOOL_W)
             if look.startswith("legalpad"):
                 tails = page.evaluate(TAILS)
+        if width == WIDTHS[0]:
+            caught = self_test(page, ink)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    found = [x for look, marks in seen.items() for x in problems(look, width, marks)]
-    found += tail_problems(width, tails)
+    if ink == "off":
+        found = [x for look, got in seen.items() for x in plain_problems(look, width, got)]
+        found += [x for look, (r, t) in rings.items() for x in ring_problems(look, width, r, t)]
+    else:
+        found = [x for look, marks in seen.items() for x in problems(look, width, marks)]
+        found += [x for look, marks in seen.items() for x in finished_problems(look, width, marks)]
+        found += [x for look, marks in seen.items() for x in loudness_problems(look, width, marks)]
+        found += tail_problems(width, tails)
+    if caught is not None:
+        found += caught
     assert not found, "\n".join(map(str, found))
+
+
+def self_test(page, ink):
+    """The guard reports what it is for (#340): each self-test row it misses is a failure."""
+    if ink == "off":
+        page.evaluate("t => Ink.setSkin(t)", SELF_TEST_OFF)
+        page.wait_for_function(f"() => Ink.inspect().table === 'hig-self-test' && Ink.inspect().plain"
+                               f" && ({PLAIN_AT_REST})()", timeout=10000)
+        hits = ring_problems("self-test", WIDTHS[0], page.evaluate(PLAIN_RINGS), page.evaluate(TEXT_RUNS))
+        caught = [h for h in hits if ".chipword" in h[0]]
+        return [] if caught else [("self-test, ink off: a loop round the chip's word on its age went unreported", hits)]
+    page.evaluate("t => Ink.setSkin(t)", SELF_TEST)
+    page.wait_for_function(f"""() => Ink.inspect().table === 'hig-self-test' && ({AT_REST})()
+      && Ink.inspect().layer.marks.some(m => m.selector === '.tile .head .repo' && m.shape === 'check' && m.state === 'drawn')""",
+                           timeout=15000)
+    found = problems("self-test", WIDTHS[0], page.evaluate(MEASURE, TOOL_W))
+    out = []
+    if not [f for f in found if "outline marker (.tile.state-error)" in f[0]
+            and ("outside" in f[1] or "cut away" in f[1])]:
+        out.append(("self-test: an outline padded 20px out of its pane went unreported", found))
+    if not [f for f in found if "check red (.tile .head .repo)" in f[0] and f[1] == "covers"]:
+        out.append(("self-test: a check on another element's words went unreported", found))
+    return out

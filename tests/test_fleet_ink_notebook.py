@@ -336,7 +336,8 @@ def test_the_notebook_draws_the_state_grammar_and_each_mark_leaves_by_erase_or_s
         grown = _of(_marks(page), A, "state-running", "pen", "underline")[0]
         assert grown["drawn"] == 1 and grown["strokes"] == 2, grown
 
-        # error: the pen line is struck (its tip lifted first), a red marker box and a bang.
+        # error: the pen line is struck (its tip lifted first), a red marker loop round the why
+        # (#335: never round the whole pane) and a bang.
         alive.discard("alpha")
         _emit(page, "alpha", ("turn_ended", {"turn": "1"}), ("error", {"exit_code": 2}))
         _until_class(page, "alpha", "state-error")
@@ -346,7 +347,8 @@ def test_the_notebook_draws_the_state_grammar_and_each_mark_leaves_by_erase_or_s
         assert len(gone) == 1 and gone[0]["state"] == "struck" and gone[0]["strokes"] == 1, \
             "the running line is struck, and its tip lifted"
         assert _struck(marks, {gone[0]["id"]}) == {gone[0]["id"]}
-        assert _of(marks, A, "state-error", "marker", "loop")
+        assert _of(marks, A, "state-error .why", "marker", "loop")
+        assert not [m for m in _of(marks, A, "state-error", "marker", "loop") if m["selector"] == ".tile.state-error"]
         assert _of(marks, A, "state-error", "marker", "bang")
 
         # done: a green check in the margin, on the other pane.
@@ -375,7 +377,8 @@ ANSWER = """([repo]) => new Promise(done => {
 
 @pytest.mark.browser
 def test_needing_you_is_highlighted_and_answering_strikes_the_question_never_the_name(fleet_home, tmp_path, desk_browser):
-    """needs you: the name and the question highlighted, pencil loops round the choices. Answered:
+    """needs you: the name and the question highlighted, pencil loops round the choices, and the
+    question card looped in marker (#335: the loudest pane). Answered:
     the question and its highlight struck through in pen, the chosen answer circled, the loops
     erased -- and nothing struck on the agent's name, the flaw both prototypes had."""
     _desk(tmp_path, fleet_home)
@@ -394,12 +397,13 @@ def test_needing_you_is_highlighted_and_answering_strikes_the_question_never_the
                                                   "choices": ["left", "right"]}))
         _until_class(page, "alpha", "needs-human")
         _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('needs-human')"
-                    " && m.state === 'drawn' && m.visible).length === 4")
+                    " && m.state === 'drawn' && m.visible).length === 5")
         marks = _marks(page)
         name = _of(marks, A, "needs-human .head .repo", "highlighter", "lines")
         question = _of(marks, A, ".ask-q", "highlighter", "lines")
         loops = _of(marks, A, ".ask-choice", "pencil", "loop")
-        assert len(name) == 1 and len(question) == 1 and len(loops) == 2, marks
+        card = _of(marks, A, "needs-human .asks:not([hidden])", "marker", "loop")
+        assert len(name) == 1 and len(question) == 1 and len(loops) == 2 and len(card) == 1, marks
 
         assert page.evaluate(ANSWER, ["alpha"])
         _rest(page, "Ink.inspect().layer.marks.some(m => m.selector.includes('is-answered .ask-q') && m.state === 'drawn')"

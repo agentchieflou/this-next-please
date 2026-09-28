@@ -26,6 +26,7 @@ from agentdata.fleet import serve as S
 from agentdata.fleet.registry import Registry, fleet_dir
 
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet import make_project
 from test_fleet_desk_regressions import _drain_and_age
 from test_fleet_events import fleet_home  # noqa: F401
@@ -340,7 +341,7 @@ def test_sessions_b_offline_contract():
 
 
 def _page(browser, url):
-    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page = counted(browser.new_page(viewport={"width": 1440, "height": 900}))
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
@@ -349,7 +350,7 @@ def _page(browser, url):
     # the column only the open agent was on the glass; every agent is a pane since #233, but a
     # hidden one still is not.)
     page.wait_for_selector(".tile:visible", timeout=15000)
-    page.wait_for_timeout(500)
+    settle(page)                                  # the load's own work done, and drawn
     return browser, page, errors
 
 
@@ -527,7 +528,7 @@ def test_since_you_were_away_strip(fleet_home, tmp_path, desk_browser):  # noqa:
         # animation. Wait for the attribute the script sets rather than for a clock.
         page.locator("#dismiss-away").click()
         page.wait_for_selector("#away-strip[hidden]", state="attached", timeout=5000)
-        page.wait_for_timeout(400)
+        settle(page)                              # the leave animation run out
         assert strip.is_hidden()
         close_pages(b)
     finally:

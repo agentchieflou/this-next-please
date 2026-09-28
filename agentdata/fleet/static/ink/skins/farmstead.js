@@ -11,7 +11,24 @@ const SCALE = { soil: 2, band: 2, board: 1, crop: 2 };
 const CROP_ART = [2, 14];
 const CROP_BOX = 24;
 const SHADOW = 3;
-const ORDER = { shadow: -13, paper: -12, board: -11, crop: -10 };
+const ORDER = { shadow: -13, paper: -12, board: -11, crop: -10, produce: -11.5, shower: -10.5 };
+const FRAME = 1 / 60;
+const PRODUCE = 3;
+const PRODUCE_GAP = 0.12;
+const PRODUCE_RISE = 0.25;
+const PRODUCE_DRIFT = 2;
+const SINK_ROWS = 2;
+const HARVEST_WAIT = 40;
+const STREAKS = 12;
+const STREAK_GAP = 0.05;
+const RAIN = 700;
+const RAIN_END = 1.15;
+const CLOUD_GOES = 0.9;
+const SHOWER = 1.2;
+const HEN_RUN = 1.1;
+const HEN_STEP = 0.08;
+const HEN_GOES = 4;
+const HEN_GLYPHS = 256;
 
 export function marks() {
   return [
@@ -19,8 +36,9 @@ export function marks() {
     { selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "highlighter", shape: "lines" },
     { selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-choice:not([aria-pressed=\"true\"])",
       tool: "pencil", shape: "loop" },
+    { selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
-    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
+    { selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },
     { selector: ".tile.state-error", tool: "red", shape: "bang" },
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 0, dash: true },
@@ -29,7 +47,13 @@ export function marks() {
   ];
 }
 
-export const options = { hand: true, speed: 1 };
+export const options = { hand: true, speed: 1, fx: { text: true } };
+
+export const cues = [
+  { selector: "#grid > .tile:is(.state-done, .is-done)", on: "arrive", cue: "harvest" },
+  { selector: "#grid > .tile.state-error", on: "arrive", cue: "shower" },
+  { selector: "#grid > .tile:not(.is-hidden)", on: "leave", cue: "hen" },
+];
 
 export const sampleGround = false;
 
@@ -41,6 +65,10 @@ let look = "";
 let bands = [];
 const recs = new Map();
 const waited = new WeakSet();
+let hens = [];
+const played = { harvest: 0, shower: 0, hen: 0 };
+let skipped = 0;
+let gmade = 0, gfreed = 0;
 
 function commonest(px) {
   const n = new Map();
@@ -181,6 +209,17 @@ const CROP_FRAG = `
     gl_FragColor = vec4(c.rgb, 1.0);
   }`;
 
+const SPRITE_FRAG = `
+  uniform sampler2D uMap; uniform vec2 uGrid; uniform vec2 uKeep;
+  varying vec2 vArt;
+  void main() {
+    vec2 t = floor(vArt);
+    if (t.x >= uKeep.x || t.y >= uKeep.y) discard;
+    vec4 c = texture2D(uMap, (t + 0.5) / uGrid);
+    if (c.a < 0.5) discard;
+    gl_FragColor = vec4(c.rgb, 1.0);
+  }`;
+
 const FILL_FRAG = `
   uniform vec3 uColor; uniform float uAlpha;
   void main() { gl_FragColor = vec4(uColor, uAlpha); }`;
@@ -212,12 +251,19 @@ function rgbOf(THREE, text) {
   return [o.r, o.g, o.b];
 }
 
+let rainCss = "";
+
+function rainOf() {
+  return rainCss;
+}
+
 function readLook(THREE, tokens) {
   const u = uniforms(THREE);
   const css = name => (tokens && typeof tokens.css === "function" ? tokens.css(name) : "");
   const sig = ["--farm-paper", "--farm-soil", "--farm-wood", "--farm-sun", "--farm-band-light",
                "--farm-ambient", "--farm-diffuse"].map(css).join("|") +
               "|" + String(tokens && tokens.human) + "|" + String(tokens && tokens.panel);
+  rainCss = css("--farm-rain");
   if (sig === look) return false;
   look = sig;
   const paper = rgbOf(THREE, css("--farm-paper")) || (tokens && tokens.panel) || [1, 1, 1];
@@ -371,6 +417,8 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   const rec = recs.get(el) || { el, repo: el.dataset.repo || "", shown: cropOf(el), queue: [], rows: 16,
                                  grows: 0, stage: GROWS.indexOf(cropOf(el)) };
   rec.repo = el.dataset.repo || rec.repo;
+  rec.group = scene;
+  forgetFx(rec);
   const cu = unitOf(api, SCALE.crop);
   const crop = new THREE.ShaderMaterial({
     uniforms: { uOld: { value: s.textures[rec.shown] }, uNew: { value: s.textures[rec.shown] }, uRows: { value: 16 } },
@@ -474,8 +522,205 @@ export function tick({ THREE, tokens, api }, dt) {
     if (place(rec, api)) changed = true;
     paint(rec);
   }
-  if (changed) api.request();
-  return more;
+  const step = Math.max(dt, FRAME);
+  let live = false;
+  for (const rec of recs.values()) {
+    if (rec.harvest && harvest(THREE, api, rec, step)) live = true;
+    if (rec.shower && shower(rec, step)) live = true;
+  }
+  hens = hens.filter(h => run(h, step, api));
+  if (hens.length) live = true;
+  if (changed || live) api.request();
+  return more || live;
+}
+
+function sprite(THREE, name, w, h, flip) {
+  const [gw, gh] = sheet.sizes[name];
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uMap: { value: sheet.textures[name] }, uGrid: { value: new THREE.Vector2(gw, gh) },
+                uKeep: { value: new THREE.Vector2(gw, gh) } },
+    vertexShader: VERT, fragmentShader: SPRITE_FRAG, transparent: true, depthTest: false, depthWrite: false,
+  });
+  gmade += 1;
+  return mesh(THREE, quadsGeometry(THREE, [[0, 0, w, h, flip ? gw : 0, 0, flip ? 0 : gw, gh, 0]]), mat, 0);
+}
+
+function drop(m) {
+  if (!m) return;
+  m.removeFromParent();
+  m.geometry.dispose();
+  m.material.dispose();
+  gfreed += 1;
+}
+
+function forgetFx(rec) {
+  if (rec.harvest) gfreed += rec.harvest.pieces.filter(q => q.mesh).length;
+  if (rec.shower) gfreed += 1 + (rec.shower.cloud ? 1 : 0);
+  rec.harvest = rec.shower = null;
+}
+
+function at(m, x, y) {
+  m.position.set(x, -y, 0);
+}
+
+export function cue({ THREE, scene, api }, name, el, box, how) {
+  lastApi = api;
+  if (api.reduced || !sheet || !sheet.loaded || !U) return;
+  const rec = recs.get(el);
+  if (name === "harvest" && rec && rec.group) {
+    endHarvest(rec);
+    rec.harvest = { waited: 0, t: -1, pieces: [] };
+    played.harvest += 1;
+  } else if (name === "shower" && rec && rec.group) {
+    showerOn(THREE, api, rec);
+  } else if (name === "hen" && !el.classList.contains("is-grouped")) {
+    henOn(THREE, scene, api, box, how);
+  }
+  api.request();
+}
+
+function endHarvest(rec) {
+  if (rec.harvest) for (const q of rec.harvest.pieces) drop(q.mesh);
+  rec.harvest = null;
+}
+
+function harvest(THREE, api, rec, dt) {
+  const h = rec.harvest;
+  if (h.t < 0) {
+    if (rec.shown !== "crop-bloom" || rec.queue.length || !rec.crop) {
+      h.waited += 1;
+      if (h.waited > HARVEST_WAIT) endHarvest(rec);
+      return !!rec.harvest;
+    }
+    const u = unitOf(api, 1), size = SIZE.produce[0] * u, c = rec.crop.position;
+    const cx = c.x + rec.cropSize / 2, cy = -c.y + rec.cropSize / 2;
+    const land = rec.frame.y + rec.frame.thick;
+    for (let i = 0; i < PRODUCE; i++) {
+      const m = sprite(THREE, "produce", size, size, false);
+      m.renderOrder = ORDER.produce;
+      m.visible = false;
+      rec.group.add(m);
+      h.pieces.push({ mesh: m, start: i * PRODUCE_GAP, x0: cx - size / 2, y0: cy - size / 2, y1: land,
+                      size, row: size / SIZE.produce[1], sunk: 0 });
+    }
+    h.t = 0;
+  }
+  h.t += dt;
+  for (const q of h.pieces) {
+    if (!q.mesh || h.t < q.start) continue;
+    const k = Math.min(1, (h.t - q.start) / PRODUCE_RISE), e = 1 - (1 - k) * (1 - k);
+    q.x = q.x0 - PRODUCE_DRIFT * e;
+    q.y = q.y0 + (q.y1 - q.y0) * e;
+    if (k >= 1) {
+      q.sunk += 1;
+      q.y = q.y1 - SINK_ROWS * q.row * q.sunk;
+      if (q.y + q.size <= q.y1) { drop(q.mesh); q.mesh = null; continue; }
+    }
+    q.mesh.visible = true;
+    at(q.mesh, q.x, q.y);
+  }
+  h.pieces = h.pieces.filter(q => q.mesh);
+  if (!h.pieces.length) rec.harvest = null;
+  return !!rec.harvest;
+}
+
+function endShower(rec) {
+  if (!rec.shower) return;
+  drop(rec.shower.cloud);
+  for (const q of rec.shower.streaks) q.mesh.removeFromParent();
+  rec.shower.geometry.dispose();
+  rec.shower.material.dispose();
+  gfreed += 1;
+  rec.shower = null;
+}
+
+function showerOn(THREE, api, rec) {
+  endShower(rec);
+  const u = unitOf(api, 1), f = rec.frame, T = f.thick;
+  const [cw, ch] = SIZE.cloud;
+  const cloud = sprite(THREE, "cloud", cw * u, ch * u, false);
+  cloud.renderOrder = ORDER.shower;
+  const cx = f.x + T / 2 - cw * u / 2, cy = f.y + T / 2 - ch * u / 2;
+  at(cloud, cx, cy);
+  rec.group.add(cloud);
+  const colour = new THREE.Vector3().fromArray(rgbOf(THREE, rainOf()) || U.uPaper.value.toArray());
+  const material = shader(THREE, FILL_FRAG, { uColor: { value: colour }, uAlpha: { value: 1 } });
+  const w = u, h = 3 * u, geometry = quadsGeometry(THREE, [[0, 0, w, h, 0, 0, 1, 1, 0]]);
+  gmade += 1;
+  const top = cy + ch * u, bottom = f.y + f.h - T;
+  const streaks = [];
+  for (let i = 0; i < STREAKS; i++) {
+    const m = mesh(THREE, geometry, material, ORDER.shower);
+    m.visible = false;
+    rec.group.add(m);
+    const start = i * STREAK_GAP;
+    streaks.push({ mesh: m, start, x: f.x + ((i % 4) + 0.5) * T / 4 - w / 2,
+                   y0: Math.max(top, bottom - h - RAIN * (RAIN_END - start)), h, bottom });
+  }
+  rec.shower = { t: 0, cloud, cloudRows: ch, streaks, geometry, material, colour };
+  played.shower += 1;
+}
+
+function shower(rec, dt) {
+  const sh = rec.shower;
+  sh.t += dt;
+  if (sh.cloud) {
+    const rows = sh.t < CLOUD_GOES ? sh.cloudRows : Math.ceil(sh.cloudRows * (1 - (sh.t - CLOUD_GOES) / (SHOWER - CLOUD_GOES)));
+    if (rows <= 0) { drop(sh.cloud); sh.cloud = null; } else sh.cloud.material.uniforms.uKeep.value.y = rows;
+  }
+  for (const q of sh.streaks) {
+    if (q.done || sh.t < q.start) continue;
+    q.y = q.y0 + RAIN * (sh.t - q.start);
+    if (q.y + q.h >= q.bottom) { q.done = true; q.mesh.removeFromParent(); continue; }
+    q.mesh.visible = true;
+    at(q.mesh, q.x, q.y);
+  }
+  if (sh.cloud || sh.streaks.some(q => !q.done)) return true;
+  endShower(rec);
+  return false;
+}
+
+function henOn(THREE, scene, api, box, how) {
+  const footer = document.querySelector("body > footer"), f = footer && footer.getBoundingClientRect();
+  if (!f || !f.height || !api.fx || !api.fx.glyphs) { skipped += 1; return; }
+  const glyphs = api.fx.glyphs(footer, HEN_GLYPHS).filter(b => b.w > 0 && b.h > 0);
+  const first = glyphs.length ? Math.min(...glyphs.map(b => b.y)) : f.bottom;
+  const u = unitOf(api, 1), [gw, gh] = SIZE["hen-a"], w = gw * u, h = gh * u;
+  if (first - f.top < h) { skipped += 1; return; }
+  const vw = api.viewport.w;
+  const count = document.getElementById("hiddencount"), c = count && !count.hidden ? count.getBoundingClientRect() : null;
+  const home = how === "unmatched" && c && c.width ? c.left - w : null;
+  const x0 = Math.max(0, Math.min(vw - w, box.x));
+  const to = home !== null ? home : (x0 + w / 2 < vw / 2 ? -w : vw);
+  const flip = to < x0;
+  const hen = { x: x0, y: Math.max(f.top, first - h - 1), w, h, x0, to, flip, t: 0, gone: -1, home: home !== null, frames: [] };
+  for (const name of ["hen-a", "hen-b"]) {
+    const m = sprite(THREE, name, w, h, flip);
+    m.renderOrder = api.order.fx;
+    m.visible = false;
+    scene.add(m);
+    hen.frames.push(m);
+  }
+  hens.push(hen);
+  played.hen += 1;
+}
+
+function run(hen, dt, api) {
+  if (hen.gone >= 0) {
+    hen.gone += 1;
+    for (const m of hen.frames) m.material.uniforms.uKeep.value.x = SIZE["hen-a"][0] * (1 - hen.gone / HEN_GOES);
+    if (hen.gone >= HEN_GOES) { hen.frames.forEach(drop); return false; }
+    return true;
+  }
+  hen.t += dt;
+  const k = Math.min(1, hen.t / HEN_RUN);
+  hen.x = hen.x0 + (hen.to - hen.x0) * k;
+  const shown = Math.floor(hen.t / HEN_STEP) % 2;
+  hen.frames.forEach((m, i) => { m.visible = i === shown; at(m, hen.x, hen.y); });
+  if (k < 1) return true;
+  if (!hen.home) { hen.frames.forEach(drop); return false; }
+  hen.gone = 0;
+  return true;
 }
 
 export function dispose() {
@@ -487,6 +732,8 @@ export function dispose() {
   look = "";
   bands = [];
   recs.clear();
+  hens = [];
+  gmade = gfreed = 0;
 }
 
 export function inspect() {
@@ -511,5 +758,34 @@ export function inspect() {
                        crop: unitOf(lastApi, SCALE.crop), dpr: lastApi.viewport.dpr } : null,
     bands: bands.map(b => ({ sel: b.sel, sig: b.sig })),
     panes,
+    fx: fxOf(),
   };
+}
+
+function fxOf() {
+  const pieces = [];
+  const put = (name, m, x, y, w, h, el) => {
+    if (!m || !m.visible || !m.parent) return;
+    const p = el ? el.getBoundingClientRect() : { left: 0, top: 0 };
+    pieces.push({ sprite: name, x: p.left + x, y: p.top + y, w, h });
+  };
+  let live = hens.length;
+  for (const rec of recs.values()) {
+    const g = rec.group && rec.group.visible ? rec.el : null;
+    if (rec.harvest) {
+      live += 1;
+      for (const q of rec.harvest.pieces) if (g) put("produce", q.mesh, q.x, q.y, q.size, q.size, g);
+    }
+    if (rec.shower) {
+      live += 1;
+      const sh = rec.shower, c = sh.cloud;
+      const u = unitOf(lastApi, 1);
+      if (c && g) put("cloud", c, c.position.x, -c.position.y, SIZE.cloud[0] * u, c.material.uniforms.uKeep.value.y * u, g);
+      for (const q of sh.streaks) if (!q.done && g) put("rain", q.mesh, q.x, q.y, u, q.h, g);
+    }
+  }
+  for (const hen of hens) {
+    hen.frames.forEach((m, i) => put(i ? "hen-b" : "hen-a", m, hen.x, hen.y, hen.w, hen.h, null));
+  }
+  return { live, played: Object.assign({}, played), skipped, geometries: gmade - gfreed, pieces };
 }

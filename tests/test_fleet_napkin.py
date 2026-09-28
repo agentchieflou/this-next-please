@@ -261,10 +261,12 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     assert (".tile.needs-human .head .repo", "highlighter", "lines") in _kinds(ask)
     assert [m["tool"] for m in ask if m["selector"].endswith(".ask-q")] == ["highlighter"]
     assert [m["shape"] for m in ask if m["tool"] == "pencil"] == ["loop", "loop"], "one loop per choice"
+    assert [m["selector"] for m in ask if m["tool"] == "marker"] == [".tile.needs-human .asks:not([hidden])"], \
+        "the question card looped in the felt tip (#335)"
     # An agent in error needs you (the page sets `needs-human` on it too), so its name is lit.
     assert _kinds(_in("err", marks)) == [(".tile.needs-human .head .repo", "highlighter", "lines"),
-                                         (".tile.state-error", "marker", "loop"),
-                                         (".tile.state-error", "red", "bang")]
+                                         (".tile.state-error", "red", "bang"),
+                                         (".tile.state-error .why", "marker", "loop")]
     old = _kinds(_in("old", marks))
     assert (".tile .oldsession:not([hidden])", "pencil", "write") in old
     assert (".tile .oldsession:not([hidden])", "pencil", "arrow") in old
@@ -287,7 +289,7 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     # The pen's tip rests at the end of the running line: 8px past the name, just under it.
     assert napkin["run"]["pentip"] and not any(v["pentip"] for k, v in napkin.items() if k != "run")
     assert abs(napkin["run"]["tip"]["x"] - (tip["x"] + 8)) < 2 and abs(napkin["run"]["tip"]["y"] - (tip["y"] + 2.2)) < 2
-    # The felt tip's bleed is along the error box, drawn to its end and soaked in.
+    # The felt tip's bleed is along the error's loop round its why (#335), drawn to its end and soaked in.
     assert napkin["err"]["bleed"] and napkin["err"]["tail"] == 1, napkin["err"]
     assert not any(v["bleed"] for k, v in napkin.items() if k != "err"), napkin
 
@@ -299,7 +301,7 @@ def test_a_state_that_goes_is_erased_or_struck_and_the_name_is_never_struck(flee
     answer arriving strikes the question's highlight through in pen and ERASES the name's -- a
     name struck through reads as an agent that has gone, the flaw both prototypes had (the row
     says `leaves: "erased"`, #252). An idle pane that starts running has its pencil erased, and a
-    pane that leaves error has its felt tip's box and its bang struck, with the ink it soaked
+    pane that leaves error has its felt tip's loop (round its why, #335) and its bang struck, with the ink it soaked
     staying where it soaked."""
     q = {"question": "which window should ask land in?", "id": "q1", "blocking": True,
          "choices": ["left", "right"]}
@@ -313,7 +315,7 @@ def test_a_state_that_goes_is_erased_or_struck_and_the_name_is_never_struck(flee
         page, errors, _ = _napkin_page(browser, port, token, fleet_home, 3)
         page.wait_for_selector(_tile("ask") + ".needs-human .ask-choice", timeout=15000)
         page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
-        _settle(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:ask').length === 4"
+        _settle(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:ask').length === 5"
                       " && Ink.inspect().layer.marks.some(m => m.tool === 'marker')")
         before = _marks(page)
 
@@ -360,7 +362,7 @@ def test_a_state_that_goes_is_erased_or_struck_and_the_name_is_never_struck(flee
     assert [m["selector"] for m in _in("idle", after)] == [".tile.state-running .head .repo"]
     # Ink is struck, and what the felt tip soaked stays with its struck box.
     err = {(m["selector"], m["shape"]): m for m in after if m["lane"] == "pane:err" and not m["strikeOf"]}
-    assert err[(".tile.state-error", "loop")]["state"] == "struck" and err[(".tile.state-error", "bang")]["state"] == "struck"
+    assert err[(".tile.state-error .why", "loop")]["state"] == "struck" and err[(".tile.state-error", "bang")]["state"] == "struck"
     assert napkin["err"]["bleed"] and napkin["err"]["tail"] == 1, napkin["err"]
 
 
@@ -443,7 +445,7 @@ def test_a_coffee_ring_is_under_a_pane_idle_a_long_time_and_no_other(fleet_home,
 
 @pytest.mark.browser
 def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch, desk_browser):
-    """The felt tip's ink runs down the quilting: just outside its stroke round an error pane,
+    """The felt tip's ink runs down the quilting: just outside its stroke round an error's why (#335),
     the paper is inked where a seam is pressed in, and hardly at all on the pillows between. The
     seams are the paper shader's lattice (`toSeam` in napkin.js), recomputed here per pixel."""
     _desk(tmp_path, monkeypatch, {"err": {"more": [("error", {"exit_code": 2})]}, "idle": {}})
@@ -453,11 +455,10 @@ def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch,
         page, errors, _ = _napkin_page(browser, port, token, fleet_home, 2)
         page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
         _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker' && m.drawn === 1)")
-        r = page.evaluate(f"() => document.querySelector('{_tile('err')}').getBoundingClientRect().toJSON()")
-        # A band 6-11px inside the loop (which runs 4px inside the pane, #332) down its left
-        # side, in the pane's margin: below the bang written there and clear of the corners.
-        # The stroke and its wobble end ~4px from the line.
-        band = {"x": r["x"] + 4 + 6, "y": r["y"] + 80, "w": 5, "h": r["height"] - 120}
+        r = page.evaluate(f"() => document.querySelector('{_tile('err')} .why').getBoundingClientRect().toJSON()")
+        # A band 6-11px below the loop (which runs 3px outside the why, napkin.js `LOOP_O`) along
+        # its bottom side, clear of the corners. The stroke and its wobble end ~4px from the line.
+        band = {"x": r["x"] + 20, "y": r["y"] + r["height"] + 3 + 6, "w": r["width"] - 40, "h": 5}
         pixels = page.evaluate(PIXELS, band)
         assert not errors, errors
         close_pages(browser)
@@ -512,7 +513,7 @@ def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tm
     """Where the gate is off (every shell but a measured hardware one), the napkin is the one plain
     look every skin shares since #257 -- the palette's page and panes, no quilt and no ring, which
     are the module's to draw -- and the same mark table drawn plain by the layer's fallback: the
-    error pane boxed, the name that needs you tinted. No layer, no three.js. Both variants."""
+    error's why and the question card boxed (#335), the name that needs you tinted. No layer, no three.js. Both variants."""
     q = {"question": "which window?", "id": "q1", "blocking": True, "choices": ["left", "right"]}
     _desk(tmp_path, monkeypatch, {
         "old": {"ts": LONG_AGO}, "err": {"more": [("error", {"exit_code": 2})]},
@@ -541,6 +542,8 @@ def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tm
                 panel: cs(t('err')).backgroundColor,
                 want: cs(document.body).getPropertyValue('--panel').trim(),
                 box: cs(t('err')).outlineStyle + ' ' + cs(t('err')).outlineWidth,
+                why: cs(t('err').querySelector('.why')).outlineStyle + ' ' + cs(t('err').querySelector('.why')).outlineWidth,
+                card: cs(t('ask').querySelector('.asks')).outlineStyle + ' ' + cs(t('ask').querySelector('.asks')).outlineWidth,
                 name: cs(t('ask').querySelector('.head .repo')).backgroundColor,
                 bare: cs(t('old').querySelector('.head .repo')).backgroundColor,
                 under: cs(t('old').querySelector('.head .repo')).textDecorationLine,
@@ -559,7 +562,8 @@ def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tm
         assert look["page"] == "none" and look["old"] == "none" and look["err"] == "none", look
         want = tuple(round(c * 255) for c in theme.hex_to_rgb(look["want"]))
         assert look["panel"] == "rgb(%d, %d, %d)" % want, look
-        assert look["box"].startswith("solid 2px"), look
+        # #335: the error's box is round its why, never the pane; the question card is boxed too.
+        assert look["box"].startswith("none") and look["why"] == "solid 2px" and look["card"] == "solid 2px", look
         assert look["name"] != look["bare"] and look["under"] == "underline", look
 
 

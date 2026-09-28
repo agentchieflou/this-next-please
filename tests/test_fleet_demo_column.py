@@ -24,6 +24,8 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, settle
+from test_fleet_demo_ownership import SKIN_ON
 
 SKINS = ["none", "glass:smoke", "farmstead:daytime", "voxel:overworld"]
 
@@ -89,7 +91,7 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path, desk_brows
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        page = counted(browser.new_page(viewport={"width": 1600, "height": 1000}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -156,7 +158,9 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path, desk_brows
 
         for skin in SKINS:
             S.act("theme", {"skin": skin})
-            page.wait_for_timeout(350)
+            # The skin on the page with its sheet loaded, and the desk still (#306).
+            page.wait_for_function(SKIN_ON, arg=skin, timeout=DESK_WAIT_MS)
+            settle(page, allow_ground=True)
             page.screenshot(path=os.path.join(
                 shots, "row-" + skin.replace(":", "-") + ".png"))
         assert not errors, errors

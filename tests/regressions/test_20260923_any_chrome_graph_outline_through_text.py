@@ -19,6 +19,11 @@ padding band, or down the band's middle where it is narrower than a square; and 
 2px under the tallest box on its name's line, ruled only onto a grid line that fits between that
 and the next row.
 
+Since #335 graph marks an error with a marker loop round the pane's `.why`, not a ruled outline
+round the pane, so the error mark checked here is that loop, held to the bars
+`test_fleet_ink_bounds.problems` gives a loop: at most 2px outside its pane, inside the viewport,
+and under 6 px² on any word that is not its own, measured on its ring.
+
 Issue: https://github.com/agentchieflou/this-next-please/issues/331
 """
 from __future__ import annotations
@@ -28,6 +33,10 @@ import pytest
 from desk_harness import close_pages
 from test_fleet_ink_graph import (_desk, _open, _rest, _run, _serve,  # noqa: F401 - fixtures
                                   _stop, _tile_has, fleet_home)
+from test_fleet_ink_bounds import MEASURE as MARKS, TOOL_W, problems
+
+#: graph's error mark (#335): a marker loop round the errored pane's why.
+WHY = ".tile.state-error .why"
 
 #: Every drawn outline and underline's strokes, as drawn (the tool's width included), against its
 #: pane, the viewport, and the words it may not cross: an outline, the pane's transcript; an
@@ -82,18 +91,25 @@ def test_graph_outlines_stay_in_their_panes_and_off_the_words(fleet_home, tmp_pa
         page.wait_for_selector('.tile[data-repo="beta"] .oldsession:not([hidden])', timeout=20000)
         _run("beta")
         _tile_has(page, "beta", "state-running")
-        _rest(page, "['pane:alpha', 'pane:beta'].every(l => Ink.inspect().layer.marks.some(m => m.lane === l"
-                    " && m.shape === 'outline' && m.state === 'drawn'))"
+        _rest(page, f"Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.shape === 'loop'"
+                    f" && m.selector === '{WHY}' && m.state === 'drawn')"
+                    " && Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.shape === 'outline'"
+                    " && m.state === 'drawn')"
                     " && Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.shape === 'underline'"
                     " && m.tool === 'pen' && m.state === 'drawn')")
         got = page.evaluate(MEASURE)
+        marks = page.evaluate(MARKS, TOOL_W)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
     outlines = [s for s in got if s["shape"] == "outline"]
     running = [s for s in got if s["shape"] == "underline" and s["tool"] == "pen"]
-    assert {s["lane"] for s in outlines} == {"pane:alpha", "pane:beta"} and running, got
+    loops = [m for m in marks if m["repo"] == "alpha" and m["shape"] == "loop" and m["selector"] == WHY]
+    assert {s["lane"] for s in outlines} == {"pane:beta"} and running, got
+    assert loops and all(m["anchored"] and m["bounds"] for m in loops), marks
+    found = problems("graph:engineering, the error loop", width, loops)
+    assert not found, "\n".join(map(str, found))
     for s in outlines:
         assert s["out"] <= 2 and s["off"] <= 2, ("an outline stroke left its pane or the viewport", s)
         assert s["hit"] < 6, ("an outline stroke crossed the transcript", s)
