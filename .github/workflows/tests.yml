@@ -116,7 +116,7 @@ jobs:
           tests/test_entrypoints.py tests/test_refusals.py tests/test_agent_onramp.py tests/test_agent_pr_check.py
           tests/test_hygiene_checkout.py tests/test_hygiene_ci_budgets.py tests/test_hygiene_ci_cache.py tests/test_hygiene_ci_ok.py
           tests/test_hygiene_ci_paths.py tests/test_hygiene_flake_policy.py tests/test_hygiene_harness.py tests/test_hygiene_linux_shards.py
-          tests/test_hygiene_orphans.py tests/test_hygiene_process_state.py tests/test_hygiene_shards.py
+          tests/test_hygiene_orphans.py tests/test_hygiene_process_state.py tests/test_hygiene_ratchet.py tests/test_hygiene_shards.py
           tests/test_hygiene_tier_matrix.py tests/test_hygiene_windows_shards.py
       - name: durations · the per-step table
         if: always()

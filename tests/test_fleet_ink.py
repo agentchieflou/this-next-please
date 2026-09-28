@@ -1559,7 +1559,8 @@ def _the_waits_on_an_idle_desk(page, monkeypatch):
       window.__slow = __deskWaits.settle({ quiet: 6, ms: 20000 })
         .then(r => Object.assign(r, { waited: performance.now() - window.__t0 })); }""")
     page.wait_for_function("() => window.__inflight > 0", timeout=10000)
-    page.wait_for_timeout(1500)
+    # Held 1.5 s by the page's own clock, from the moment the fetch went (#306).
+    page.wait_for_function("() => performance.now() - window.__t0 >= 1500", timeout=10000)
     held[0].fulfill(status=200, body="ok")
     out["slow"] = page.evaluate("async () => Object.assign(await window.__slow, { answered: window.__answered })")
     page.unroute("**/desk-waits-slow")

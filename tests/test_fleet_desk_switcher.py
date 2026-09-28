@@ -22,6 +22,7 @@ from agentdata.fleet import adopt as A, events as E, fingerprint as FP, registry
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet import make_project
 
 
@@ -637,7 +638,7 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
         S.update_window(w="oldrecord", open="alpha", section="tickets")
         for w, first in (("phone544", "rail tap"), ("frommap", "none"), ("oldrecord", "none")):
             phone = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
-            tab = phone.new_page()
+            tab = counted(phone.new_page())
             tab.on("pageerror", lambda e: errors.append(str(e)))
             tab.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&w={w}", wait_until="domcontentloaded")
             tab.wait_for_selector(".tile:visible", timeout=15000)
@@ -670,7 +671,7 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
                 sheet = tab.locator("#side").bounding_box()
                 assert sheet["x"] == 0 and sheet["width"] == 390 and sheet["y"] > 0, sheet
                 tab.locator("#board .drawer-head strong").tap()
-                tab.wait_for_timeout(300)
+                settle(tab)                               # what the tap set going has run out
                 assert tab.evaluate("() => !document.getElementById('side').hidden"), \
                     "a tap inside the sheet closed it"
                 y = sheet["y"] / 2

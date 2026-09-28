@@ -30,7 +30,7 @@ from agentdata.fleet import approval, events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
-from desk_waits import counted, observe_quiet
+from desk_waits import counted, observe_quiet, settle
 from test_fleet import make_project
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -164,7 +164,7 @@ def test_the_fixture_desk_fits_the_glass_in_every_tier(fleet_home, tmp_path, age
         page.wait_for_function(
             f"() => document.querySelectorAll('#grid .tile[data-tier]').length === {agents}",
             timeout=15000)
-        page.wait_for_timeout(300)                  # a settled frame, not the first one
+        settle(page)                  # a settled frame, not the first one
         out = page.evaluate(READ_ROW)
         page.screenshot(path=os.path.join(shots, f"panes-{agents}-{width}.png"))
         assert not errors, errors
@@ -238,7 +238,7 @@ def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path, desk_browse
         page.wait_for_function(
             "() => document.getElementById('hiddencount').textContent === '1 hidden'",
             timeout=15000)
-        page.wait_for_timeout(400)
+        settle(page)
         count = observe_quiet(page, passes=8)
         assert not errors, errors
         assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
@@ -392,7 +392,7 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
         browser = desk_browser
         page, errors = _page(browser, port, token, 900)
         page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=15000)
-        page.wait_for_timeout(300)
+        settle(page)
         before = page.evaluate("""() => {
           const t = document.querySelector('.tile[data-repo="r00"]');
           return { cells: t.querySelectorAll('.cells .cell').length,
@@ -425,7 +425,7 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
             "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "pid": os.getpid()})
         phone = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3,
                                     is_mobile=True, has_touch=True)
-        m = phone.new_page()
+        m = counted(phone.new_page())
         m.on("pageerror", lambda e: errors.append(str(e)))
         m.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
         m.wait_for_selector('.tile.is-solo[data-repo="r01"] .approval:not([hidden])', timeout=15000)
@@ -444,11 +444,11 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
         m.set_viewport_size({"width": 844, "height": 390})
         m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'nowrap'",
                             timeout=5000)
-        m.wait_for_timeout(300)
+        settle(m)
         sideways = m.evaluate(SIDEWAYS)
         m.set_viewport_size({"width": 820, "height": 1180})
         m.wait_for_selector('#grid .tile.is-solo[data-tier="full"]', timeout=5000)
-        m.wait_for_timeout(300)
+        settle(m)
         tablet = m.evaluate(STACK)
         # #577: `all` on the tablet widens only the panes that fit, rails the rest and says
         # so, in one write that `u` takes back in one press. The pane you are in stays wide
@@ -474,7 +474,7 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
         m.locator("#preset-all").tap()
         m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 6",
                             timeout=10000)
-        m.wait_for_timeout(300)
+        settle(m)
         spread = m.evaluate(STACK)
         assert not errors, errors
         close_pages(browser)
@@ -594,7 +594,7 @@ def test_when_the_rails_do_not_fit_a_projects_checkouts_share_one(fleet_home, tm
         page.wait_for_function(
             "() => document.querySelectorAll('#grid .tile.is-grouped').length > 0",
             timeout=15000)
-        page.wait_for_timeout(300)
+        settle(page)
         out = page.evaluate(READ_ROW)
         red = page.evaluate("""() => {
           const face = document.querySelector('#grid .pane-rail.needs-human');

@@ -23,6 +23,8 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, settle
+from test_fleet_demo_ownership import SKIN_ON
 
 SKINS = ["none", "glass:smoke"]
 
@@ -125,7 +127,7 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1800, "height": 1000})
+        page = counted(browser.new_page(viewport={"width": 1800, "height": 1000}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -175,7 +177,9 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
 
         for skin in SKINS:
             S.act("theme", {"skin": skin})
-            page.wait_for_timeout(350)
+            # The skin on the page with its sheet loaded, and the desk still (#306).
+            page.wait_for_function(SKIN_ON, arg=skin, timeout=DESK_WAIT_MS)
+            settle(page, allow_ground=True)
             page.screenshot(path=os.path.join(
                 shots, "meter-" + skin.replace(":", "-") + ".png"))
         close_pages(browser)

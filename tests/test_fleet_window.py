@@ -23,6 +23,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, settle
 from test_fleet import make_project
 from test_fleet_column import _until
 
@@ -223,7 +224,7 @@ def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 1000}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -234,14 +235,14 @@ def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_
         # Cancelled mid-flight: the order is exactly what it was.
         _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]',
               cancel=True)
-        page.wait_for_timeout(500)
+        settle(page)                              # the put-down's glide and whatever it set going run out
         assert page.evaluate(RAILS) == ["beta", "gamma", "delta"], "Esc did not cancel the drag"
         assert page.evaluate("() => document.querySelectorAll('.is-dragging').length") == 0
 
         # And carried through: delta lands before beta, and the server agrees.
         _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]')
         page.wait_for_function(f"() => ({RAILS})()[0] === 'delta'", timeout=15000)
-        page.wait_for_timeout(400)
+        settle(page)                              # the drop's glide and write run out
         assert page.evaluate(RAILS) == ["delta", "beta", "gamma"]
         assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
             == "alpha", "a drag is not a press: the open pane is still the open pane"

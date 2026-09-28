@@ -20,6 +20,8 @@ from agentdata.fleet import events as E, registry, serve as S, skins as K
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, settle
+from test_fleet_demo_ownership import SKIN_ON
 from test_fleet import make_project
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +56,7 @@ def _looks():
 
 
 def _page(browser, port, token, width=1280, height=800):
-    page = browser.new_page(viewport={"width": width, "height": height})
+    page = counted(browser.new_page(viewport={"width": width, "height": height}))
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
@@ -64,7 +66,8 @@ def _page(browser, port, token, width=1280, height=800):
 
 def _wear(page, look):
     page.evaluate("(name) => post('theme', { skin: name })", look)
-    page.wait_for_timeout(450)
+    page.wait_for_function(SKIN_ON, arg=look, timeout=DESK_WAIT_MS)       # worn, its sheet loaded
+    settle(page, allow_ground=True)
 
 
 # ------------------------------------------------------------------------------- the one row

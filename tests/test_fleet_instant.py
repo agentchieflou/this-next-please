@@ -23,7 +23,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from desk_waits import install
+from desk_waits import DESK_WAIT_MS, counted, install, settle
 from desk_harness import close_pages
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -300,23 +300,22 @@ def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_pa
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                   wait_until="domcontentloaded")
         page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
-        page.wait_for_timeout(400)
+        settle(page)
 
-        # Only the fetches this gesture caused. The stream's own tick refreshes on its own
-        # clock, and counting those would be counting the server's heartbeat.
+        # Only the fetches this gesture caused. The stream refreshes on its own clock -- and
+        # `refreshSoon` arms a timer 400ms out -- so with either still live this would be counting
+        # the server's heartbeat rather than what the gesture decided. Closed, then every armed
+        # short timer run out (`COUNT_TIMERS`) and the refresh it started answered.
+        page.evaluate("() => { if (source) { source.close(); source = null; } }")
+        page.wait_for_function("() => (window.__timers || 0) === 0 && !(window.__inflight > 0)",
+                               timeout=DESK_WAIT_MS)
         out = page.evaluate("""async () => {
-              /* The stream refreshes on its own clock -- and `refreshSoon` arms a timer 400ms
-                 out -- so with either still live this would be counting the server's heartbeat
-                 rather than what the gesture decided. Closed, then given long enough for any
-                 armed timer to have fired. */
-              if (source) { source.close(); source = null; }
-              await new Promise(go => setTimeout(go, 700));
               const seen = [];
               const real = window.fetch;
               window.fetch = function (url) {
@@ -358,13 +357,13 @@ def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path, desk_bro
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        page = counted(browser.new_page(viewport={"width": 1600, "height": 1000}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                   wait_until="domcontentloaded")
         page.wait_for_selector('.tile[data-repo="epsilon"]', state="attached", timeout=15000)
-        page.wait_for_timeout(400)
+        settle(page)
 
         marks = page.evaluate("""() => {
               performance.clearMeasures();
