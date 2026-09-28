@@ -171,8 +171,8 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_sti
                                                                                     finished, desk_browser):
     """idle, running, error and done, each drawn when the fold puts it on the pane: pencil erased as
     the state goes, ink struck through. The glass under the transcripts, read back from the canvas,
-    stays between its near-black and its scanline (plus or minus 1). Then an idle desk writes nothing
-    and draws nothing, and the glass is not built again."""
+    stays between its near-black and its scanline (plus or minus 1). At rest, before anything
+    happens, the idle desk writes nothing and draws nothing, and the glass is not built again."""
     from test_fleet_ink_glass import GRID, READ, TRANSCRIPTS   # here: that module holds glass's tests
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
@@ -202,6 +202,21 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_sti
         out = [px for px in seen if any(not (lo[i] - 1 <= px[i] <= hi[i] + 1) for i in range(3))]
         assert not out, ("off the glass", lo, hi, out[:5])
         assert len({tuple(px[:3]) for px in seen}) > 1, "the glass is one flat colour: no scanlines"
+
+        # At rest, before anything happens: an idle screen writes nothing and draws nothing, and the
+        # glass is not built again.
+        built = page.evaluate("() => Ink.inspect().layer.skin.paper")
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle phosphor desk wrote to the page: {count}"
+        assert count["renders"] == 0, f"an idle phosphor desk was redrawn {count['renders']} times"
+        assert page.evaluate("() => Ink.inspect().layer.skin.paper") == built
+        assert not errors, errors
+        page.close()
+
+        # A page of its own for the states: the idle check above replays the page's last answer.
+        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        _phosphor(page)
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4")
 
         # running: the pencil goes (erased), the pen underline comes, with the beam's spot at its end.
         alive.add("alpha")
@@ -241,16 +256,10 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_sti
         marks = _marks(page)
         assert _of(marks, "pane:beta", "is-done", "green", "check")
         assert not [m for m in marks if m["lane"] == "pane:beta" and "state-idle" in m["selector"]]
-
-        built = page.evaluate("() => Ink.inspect().layer.skin.paper")
-        count = observe_quiet(page, passes=8)
-        assert page.evaluate("() => Ink.inspect().layer.skin.paper") == built
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["mutations"] == 0, f"an idle phosphor desk wrote to the page: {count}"
-    assert count["renders"] == 0, f"an idle phosphor desk was redrawn {count['renders']} times"
 
 
 @pytest.mark.browser
