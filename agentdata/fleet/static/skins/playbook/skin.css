@@ -14,6 +14,22 @@ body[data-skin="playbook"] {
   color-scheme: dark;
 }
 
+body[data-skin="playbook"][data-skin-variant="playsheet"] {
+  --paper: #F7F1E3;
+  --board-max: #F7F1E3;
+  --yard: #E9DFC9;
+  --ink-pencil: #57524A;
+  --ink-pen: #9A4F12;
+  --ink-red: #A01A4F;
+  --ink-marker: #A01A4F;
+  --ink-green: #2A6A3F;
+  --ink-highlighter: #F5D94A;
+  --hand: "Ink Free", "Chalkboard SE", "Segoe Print", "Bradley Hand", "Comic Neue", cursive;
+  --pitch: 28px;
+  --gutter: 36px;
+  color-scheme: light;
+}
+
 body[data-skin="playbook"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
 body[data-skin="playbook"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
 body[data-skin="playbook"]:not(.ink-off) main { background: transparent; }

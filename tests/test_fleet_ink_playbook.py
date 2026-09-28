@@ -61,23 +61,32 @@ def _css_block(css: str, variant: str) -> dict:
 
 def test_the_playbook_is_a_skin_the_settings_page_offers():
     assert skins.split("playbook") == ("playbook", "chalkboard")
+    assert skins.split("playbook:playsheet") == ("playbook", "playsheet")
+    assert skins.get_skin("playbook:playsheet")["base"] == "sand" and theme.get("sand").light
     assert "playbook" in S.ink_skins()
     offered = {s["name"]: s for s in skins.list_skins()}
-    assert "playbook" in offered and offered["playbook"]["variants"][0]["name"] == "chalkboard"
+    assert [v["name"] for v in offered["playbook"]["variants"]] == ["chalkboard", "playsheet"]
     assert skins.get_skin("playbook")["base"] == "nfl-browns"
     assert "nfl-browns" not in skins.PALETTE_ONLY
 
 
 def test_the_stylesheet_paints_the_numbers_skins_py_declares():
     """The board's two ends and every ink, declared once in skins.py (where `theme.check` reads
-    them) and named by skin.css (where the page and the module read them)."""
+    them) and named by skin.css (where the page and the module read them). A dark board (#389) is
+    `--paper` at its darker end and `--board-max` at its lighter; a light sheet (#392, on a light
+    palette) is `--paper` = `--board-max` at its lighter end and `--yard` at its darker."""
     css = open(CSS, encoding="utf-8").read()
     for variant, spec in skins.SKINS["playbook"]["variants"].items():
         props = _css_block(css, variant)
         panel = spec["composited_panel"]
-        assert props["paper"].upper() == panel["darkest"].upper(), variant
-        assert props["board-max"].upper() == panel["lightest"].upper(), variant
-        assert "yard" in props, variant
+        if theme.get(spec["base"]).light:
+            assert props["paper"].upper() == panel["lightest"].upper(), variant
+            assert props["board-max"].upper() == panel["lightest"].upper(), variant
+            assert props["yard"].upper() == panel["darkest"].upper(), variant
+        else:
+            assert props["paper"].upper() == panel["darkest"].upper(), variant
+            assert props["board-max"].upper() == panel["lightest"].upper(), variant
+            assert "yard" in props, variant
         for tool in TOOLS:
             assert props[f"ink-{tool}"].upper() == spec["inks"][tool].upper(), (variant, tool)
         for token in ("text", "muted", "bg", "panel"):
@@ -661,6 +670,52 @@ def test_the_flag_the_touchdown_and_the_fumble(fleet_home, tmp_path, alive, desk
         beta = _pane(page, "beta")
         assert (beta["flag"], beta["posts"], beta["hatch"], beta["ball"]) == ("none", 0, 0, "none"), beta
         assert (beta["flagBox"], beta["postsBox"], beta["ballBox"], beta["hatchBoxes"]) == (None, None, None, []), beta
+        assert not errors, errors
+        close_pages(desk_browser)
+    finally:
+        _stop(server)
+
+
+# ================================================================ the play sheet (#392)
+
+
+@pytest.mark.browser
+def test_the_play_sheet_is_printed_stock_under_the_default_pencil(fleet_home, tmp_path, desk_browser):
+    """#392: `playbook:playsheet`, on sand. The layer reads light paper, so the highlighter
+    multiplies (`mode` 1); every pixel of the sheet but the marks lies within [#E9DFC9, #F7F1E3]
+    per channel (plus or minus 1); the hand is the pencil's, not the chalk. As for the chalkboard:
+    an idle sheet is 0 frames and 0 mutations, reduced motion draws with no hand, and `?ink=off` is
+    the plain page with no canvas and no three.js."""
+    _desk(tmp_path, fleet_home, skin="playbook:playsheet")
+    server, token, port = _serve()
+    try:
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on", width=1000, height=620)
+        _playbook(page, "playsheet")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
+        layer = _layer(page)
+        assert layer["mode"] == 1 and not layer["dark"], "light stock: the highlighter multiplies"
+        assert layer["handModel"] and layer["handModel"] != "chalk", layer["handModel"]
+        spec = skins.SKINS["playbook"]["variants"]["playsheet"]
+        lo, hi = _rgb(spec["composited_panel"]["darkest"]), _rgb(spec["composited_panel"]["lightest"])
+        got = page.evaluate(BOARD, [])
+        assert got["n"] > 300000, got["n"]
+        for ch in range(3):
+            assert lo[ch] - 1 <= got["lo"][ch] and got["hi"][ch] <= hi[ch] + 1, (got["lo"], got["hi"], lo, hi)
+        assert_idle(page)
+        assert not errors, errors
+        close_pages(desk_browser)
+
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on", reduced=True)
+        _playbook(page, "playsheet")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
+        assert _layer(page)["hands"] is False
+        assert not errors, errors
+        close_pages(desk_browser)
+
+        page, errors, asked = _open(desk_browser, port, token, "")
+        page.wait_for_function("() => Ink.inspect().table === 'playbook:playsheet' && Ink.inspect().plain", timeout=15000)
+        assert page.evaluate("() => document.body.classList.contains('ink-off') && !document.getElementById('ink')")
+        assert not [u for u in asked if "three.module" in u or "/ink/layer.js" in u], "no layer without ink"
         assert not errors, errors
         close_pages(desk_browser)
     finally:

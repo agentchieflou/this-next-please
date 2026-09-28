@@ -39,11 +39,13 @@ order a hand works down a pane:
 - **An audible, the film, the scoreboard** (stale, a finding, the header's count): the notebook's
   rows, the count written in the pen's ink with the pencil's chalk.
 
-### `export const options`
+### `export function options`
 
-`paper: "--paper"` tells the layer the board is dark, so the highlighter screens. `hand: "chalk"`
-puts a stick of chalk in every hand (#387). The pencil's tuning is the chalk the research probe
-drew on this ground: a wider, grainier, less even stroke with short tapers.
+A function of the variant (#392). The chalkboard: `paper: "--paper"` tells the layer the board is
+dark, so the highlighter screens; `hand: "chalk"` puts a stick of chalk in every hand (#387); and
+the pencil's tuning (`CHALK`) is the chalk the research probe drew on this ground, a wider, grainier,
+less even stroke with short tapers. The play sheet: the default pencil and hand on light stock,
+where the highlighter multiplies.
 
 ### `const PAPER_FS`
 
@@ -54,6 +56,10 @@ and hash marks at one and two thirds of the width. The last line clamps every ch
 may be painted lighter.
 
 ### `export function paper`
+
+On a light board (`tokens.dark` false: the play sheet, #392) the stock is print-paper fibre, with
+no eraser ghosts, clamped per channel to [`--yard`, `--paper`]; the yard lines and hash marks are
+the same.
 
 Built when the skin arrives, on a resize and on a palette change (layer.js `prepare`), never per
 frame: the board is static. The ghosts are seeded from the viewport's size, so a rebuild at the same
@@ -71,6 +77,11 @@ docs/skin-playbook.md §The moments is the full account. A record per pane (`rec
 pane, dropped once it leaves the page) holds what is shown for `needs-human`, done and
 `state-error`, and each material's progress; `frame` rebuilds the materials at that progress,
 since a resize or a palette change empties the group and kills the old strokes.
+
+### `function chalk`
+
+The hatch and the moments' strokes take the chalk's tuning on the dark board and the default
+pencil on the play sheet.
 
 ### `function settle`
 

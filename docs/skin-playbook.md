@@ -13,9 +13,34 @@ palette as a chalkboard: every agent an O, its turn a route in orange chalk, and
 
 ## Variants
 
-| Variant | Palette | Board (`--paper` … `--board-max`) | Why |
+| Variant | Palette | Board (darkest … lightest) | Why |
 | --- | --- | --- | --- |
 | `playbook:chalkboard` *(default)* | `nfl-browns` | `#2B1B08` … `#40301D` | brown slate, cream and orange chalk |
+| `playbook:playsheet` | `sand` | `#E9DFC9` (`--yard`) … `#F7F1E3` (`--paper` = `--board-max`) | a printed play sheet: graphite and a burnt-orange pen |
+
+**The play sheet (#392).** A bright-room playbook: a printed play sheet on cream stock, graphite and a burnt-orange pen,
+chosen as "Playbook · Play sheet". Skins drive palettes, so a light playbook names a light palette: `sand` is the
+closest warm light ground, and the Browns orange does not hold on a light one. No new palette is added. The stylesheet
+maps a light variant the other way round: `--paper` and `--board-max` are the lighter end and `--yard` the darker
+(the test reads the mapping off `theme.get(base).light`). `options` is a function of the variant: the sheet is drawn
+with the default pencil and hand (no chalk), and `paper` branches on `tokens.dark`: print-paper fibre instead of
+slate, the same yard lines and hash marks, no eraser ghosts, clamped per channel to [`--yard`, `--paper`]. The
+highlighter multiplies, the layer's own choice on a light paper. The moments keep their tokens; the goalposts and the
+hatch are drawn with the default pencil.
+
+| Pair (play sheet) | at `#E9DFC9` | at `#F7F1E3` |
+| --- | --- | --- |
+| text `#3A3126` | 9.63:1 | 11.32:1 |
+| `--muted` `#60574A` (#325) | 5.36:1 | 6.30:1 |
+| pencil `#57524A` | 5.85:1 | 6.88:1 |
+| pen `#9A4F12` | 4.53:1 | 5.33:1 |
+| red and marker `#A01A4F` | 5.76:1 | 6.77:1 |
+| green `#2A6A3F` | 4.91:1 | 5.77:1 |
+| text through the highlighter `#F5D94A` (multiplied) | 7.73:1 | 9.04:1 |
+
+The kraft napkin's red `#A3271C` and marker `#9E2A1E` are only 22.0° and 21.3° in hue from this pen, so an error would
+read like a route; `#A01A4F` is 50.6° away. `#bellcount` and the finding's note stay in the pencil (5.85:1 at the
+darker end).
 
 ## The grammar
 

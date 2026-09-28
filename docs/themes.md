@@ -265,6 +265,7 @@ means the default variant, as an unknown variant does, and is saved as that vari
 | `notebook:light` | Notebook *(default)* | `eye-relief-day` | `#F2ECDC` | `#FBFBF6` | 11.0:1 | white stock, blue rules, a red margin |
 | `notebook:dark` | Night notebook | `dark` | `#14171A` | `#1B1E25` | 13.4:1 | charcoal stock and gel inks, the highlighter screened |
 | `playbook:chalkboard` | Chalkboard *(default)* | `nfl-browns` | `#311D00` | `#2B1B08` … `#40301D` | 10.4:1 at the worse end | brown slate, cream and orange chalk |
+| `playbook:playsheet` | Play sheet | `sand` | `#EFE6D2` | `#E9DFC9` … `#F7F1E3` | 9.6:1 at the worse end | a printed play sheet: graphite and a burnt-orange pen |
 
 ### Every palette's look
 
@@ -282,7 +283,7 @@ every `PALETTE_ONLY` palette is.
 | `matrix` | Voxel · Overworld | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `planned` |
 | `greens` | `palette only` | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `planned` |
 | `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
-| `sand` | Farmstead · Daytime, Napkin notes · Kraft | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
+| `sand` | Farmstead · Daytime, Napkin notes · Kraft, Playbook · Play sheet | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
 | `vanta-black` | Glass · Noir, Voxel · The End | an observatory: a star field, a meteor per line, a constellation when done, at least 97% true-black pixels | `parked` |
 | `reds` | Voxel · Nether | a darkroom: a safelight, prints in the tray, a print hung when done | `parked` |
 | `blues` | Glass · Azure, Farmstead · Rainy day, Graph paper · Blueprint | sonar: one ping ring per line | `parked` |
