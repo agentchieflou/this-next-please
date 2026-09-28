@@ -4,6 +4,33 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.17.6
+
+**On update:**
+- **The two standard commands.** There is no new dependency, no `ad-setup --patch`, no config to migrate and no
+  changed skill, so a Copilot chat needs no restart for this one. The IDE extensions are unchanged. The next
+  `ad-fleet open` replaces a desk still running the old code.
+
+Developing this repo: nothing new to install. A card may now add browser tests within the browser tier's time
+budget, in place of decision 13's cap (below).
+
+**Skins and ink.**
+- **Voxel's hits and rewards** (#378): an agent that errors knocks its strip, which blinks `--human` twice at
+  most, and its pane shakes through `api.fx.animate(el, "hit")`; a refused, stopped or failed line grazes the
+  strip once, at most once per pane every 5 s; a finished agent's strip fills with orbs and hearts, in `--done`
+  only. Every piece stays in the strip column or within 14px above the pane, each cue is gone by 0.8 s, and the
+  crack, the ore fleck and the full stack stay still as the end states. Nothing plays on a reload or under
+  reduced motion.
+
+**For developers of this repo.**
+- **The browser tier's time budget** (#587): decision 13's cap on new browser tests becomes a time budget
+  (decision 20, P-2), held by `test_the_expensive_tiers_are_a_small_part_of_the_suite` from
+  `tests/durations.json` and `tests/browser_counts.json`, at the measured tier plus 5%. It is enforced on
+  Windows only (1,447 s); Linux's time varies more than the headroom between green runs, so it is printed
+  against its would-be 1,615 s and fails nothing (decision 24). The tenth-of-the-suite cap on the slow tiers is
+  unchanged. `durations.py counts` writes the per-file browser counts (`docs/testing-this-repo.md`).
+- **The agent relay:** merge train 24.
+
 ## 0.17.5
 
 **On update:**
