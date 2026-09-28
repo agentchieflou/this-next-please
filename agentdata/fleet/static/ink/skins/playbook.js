@@ -32,10 +32,12 @@ export function marks() {
   ];
 }
 
-export const options = {
-  paper: "--paper", hand: "chalk", speed: 1,
-  tools: { pencil: { w: 2.8, press: 0.8, pvar: 0.4, wob: 0.7, lam: 60, tin: 3, tout: 5 } },
-};
+const CHALK = { w: 2.8, press: 0.8, pvar: 0.4, wob: 0.7, lam: 60, tin: 3, tout: 5 };
+
+export function options(variant) {
+  if (variant === "playsheet") return { paper: "--paper", hand: true, speed: 1 };
+  return { paper: "--paper", hand: "chalk", speed: 1, tools: { pencil: CHALK } };
+}
 
 export const sampleGround = false;
 
@@ -70,15 +72,16 @@ function rng(seed) {
 
 const PAPER_FS = `
 uniform vec3 uPaper; uniform vec3 uYard; uniform vec3 uMax; uniform float uDpr; uniform vec2 uView;
-uniform float uTop; uniform vec3 uGhost[5]; uniform float uGhosts;
+uniform float uTop; uniform vec3 uGhost[5]; uniform float uGhosts; uniform float uDark; uniform vec3 uLo;
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), u.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), u.x), u.y); }
 void main(){
   vec2 p = vec2(gl_FragCoord.x, uView.y * uDpr - gl_FragCoord.y) / uDpr;
   float grain = (h21(floor(p * 1.5)) - 0.5) * 0.05;
-  float haze = (vn(p / 240.0) - 0.5) * 0.04;
-  vec3 c = uPaper * (1.03 + grain + haze);
+  vec3 c;
+  if (uDark > 0.5) c = uPaper * (1.03 + grain + (vn(p / 240.0) - 0.5) * 0.04);
+  else c = uPaper * (1.0 - (vn(vec2(p.x * 0.05, p.y * 0.9)) * 0.6 + vn(p * 0.7) * 0.4) * 0.03);
   for (int i = 0; i < 5; i++) {
     if (float(i) >= uGhosts) break;
     vec3 g = uGhost[i];
@@ -93,7 +96,7 @@ void main(){
   float hash = tick * max(1.0 - step(${HASH / 2}.0, abs(p.x - uView.x / 3.0)),
                           1.0 - step(${HASH / 2}.0, abs(p.x - uView.x * 2.0 / 3.0)));
   c = mix(c, uYard, max(yard, hash));
-  gl_FragColor = vec4(clamp(c, uPaper, uMax), 1.0);
+  gl_FragColor = vec4(clamp(c, uLo, uMax), 1.0);
 }`;
 
 let builds = 0;
@@ -104,7 +107,7 @@ export function paper({ THREE, scene, tokens, api }) {
   const { w, h, dpr } = api.viewport;
   const head = document.querySelector("header");
   const top = Math.ceil(((head ? head.getBoundingClientRect().bottom : 0) + 4) / PITCH) * PITCH;
-  const r = rng(Math.round(w) * 7919 + Math.round(h)), n = 3 + Math.floor(r() * 3), ghosts = [];
+  const r = rng(Math.round(w) * 7919 + Math.round(h)), n = tokens.dark ? 3 + Math.floor(r() * 3) : 0, ghosts = [];
   for (let i = 0; i < 5; i++) {
     const g = { x: w * (0.1 + 0.8 * r()), y: top + (h - top) * (0.1 + 0.8 * r()), r: 90 + r() * 90 };
     if (i < n) ghosts.push(g);
@@ -117,6 +120,8 @@ export function paper({ THREE, scene, tokens, api }) {
       uPaper: { value: new THREE.Vector3(...rgbOf(tokens, "--paper", tokens.bg)) },
       uYard: { value: new THREE.Vector3(...rgbOf(tokens, "--yard", tokens.line)) },
       uMax: { value: new THREE.Vector3(...rgbOf(tokens, "--board-max", tokens.panel)) },
+      uLo: { value: new THREE.Vector3(...rgbOf(tokens, tokens.dark ? "--paper" : "--yard", tokens.bg)) },
+      uDark: { value: tokens.dark ? 1 : 0 },
       uDpr: { value: dpr },
       uView: { value: new THREE.Vector2(w, h) },
       uTop: { value: top },
@@ -150,8 +155,8 @@ function doneOf(el) { return el.matches(".is-done, .state-done"); }
 function errorOf(el) { return el.matches(".state-error"); }
 function stale() { return document.body.matches(".is-stale"); }
 
-function chalk() {
-  return options.tools.pencil;
+function chalk(tokens) {
+  return tokens.dark ? CHALK : undefined;
 }
 
 function hatchPaths(h) {
@@ -229,7 +234,7 @@ function build(THREE, tokens, api, rec) {
   flag.visible = false;
   g.add(flag);
   rec.flag.mesh = flag;
-  const tune = chalk();
+  const tune = chalk(tokens);
   rec.done.posts = POSTS.map((path, i) => api.stroke(g, { pts: path, nobow: true }, "pencil", { ink: "green", seed: 7 + i, tune }));
   rec.done.hatch = hatchPaths(rec.box.h).map((path, i) => api.stroke(g, path, "pencil", { seed: 31 + i, tune }));
   const ball = new THREE.Group();

@@ -234,6 +234,13 @@ SKINS = {
                            "inks": {"pencil": "#D9CBB3", "pen": "#FF3C00", "red": "#FF5A8A",
                                     "green": "#56D364", "marker": "#FF5A8A", "highlighter": "#BF9637"},
                            "why": "brown slate, cream and orange chalk"},
+            # #392: the bright-room playbook, on sand (a light skin names a light palette). Here
+            # the board's darker end is its yard lines' stock and `--paper` is the lighter one.
+            "playsheet": {"title": "Play sheet", "base": "sand",
+                          "composited_panel": {"darkest": "#E9DFC9", "lightest": "#F7F1E3"},
+                          "inks": {"pencil": "#57524A", "pen": "#9A4F12", "red": "#A01A4F",
+                                   "green": "#2A6A3F", "marker": "#A01A4F", "highlighter": "#F5D94A"},
+                          "why": "a printed play sheet: graphite and a burnt-orange pen"},
         },
     },
     # #394: drawn by the ink layer (`static/ink/skins/phosphor.js`). The pane is the glass itself,
