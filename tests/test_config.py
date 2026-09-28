@@ -89,7 +89,7 @@ def test_load_waits_out_a_replace_under_way(tmp_path, monkeypatch):
 
     p = tmp_path / "cfg.json"
     C.save({"fleet": {"theme": "a"}}, str(p))
-    real, tries = textio.read_text, []
+    real, tries = textio._open_sharing_delete, []
 
     def pending_once(path):
         tries.append(path)
@@ -97,15 +97,32 @@ def test_load_waits_out_a_replace_under_way(tmp_path, monkeypatch):
             raise PermissionError(13, "Access is denied", path)
         return real(path)
 
-    monkeypatch.setattr(textio, "read_text", pending_once)
+    monkeypatch.setattr(textio, "_open_sharing_delete", pending_once)
     assert C.load(str(p))["fleet"]["theme"] == "a"
     assert len(tries) == 2, tries
 
 
+def test_a_file_a_load_holds_open_is_still_replaced_atomically(tmp_path):
+    """#603: a load opens config.json sharing delete access, so a save's replace goes through while the
+    file is held -- on Windows a plain `open` made it fail with WinError 5, and the retries then wrote
+    the file in place, where a reader could find it empty. The reader keeps the bytes it opened."""
+    from agentdata import textio
+
+    p = str(tmp_path / "cfg.json")
+    C.save({"n": 1}, p)
+    with textio._open_sharing_delete(p) as held:
+        report: dict = {}
+        textio.write_text(p, json.dumps({"n": 2}) + "\n", report=report)
+        assert report["how"] == "atomic", report
+        assert json.loads(held.read())["n"] == 1
+    assert C.load(p)["n"] == 2
+
+
 def test_saves_and_loads_on_two_threads_never_raise(tmp_path):
     """#603, as the desk does it: one thread loading config.json in a loop while another saves it. On
-    the Windows runner the bare replace failed 119-279 times in 500 saves, and 131-238 loads failed.
-    Here every save lands and every load reads a whole file."""
+    the Windows runner the bare replace failed 119-279 times in 500 saves, and 131-238 loads failed;
+    with the replace only retried, a reader could still find the file empty after the in-place
+    fallback. Here every save lands and every load reads a whole file."""
     import threading
 
     p = str(tmp_path / "cfg.json")

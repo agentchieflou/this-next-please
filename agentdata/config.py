@@ -87,7 +87,8 @@ def save(cfg: dict, p: str | None = None) -> str:
     another thread has open for reading fails with WinError 5, and the desk reads config.json from
     every request thread and its stream while `act("theme")` and `act("settings")` write it: on the
     Windows runner a save raced by one reading thread failed on 119 to 279 of 500 tries, which the
-    desk answered with a 500 and the tests saw as a write that never landed."""
+    desk answered with a 500 and the tests saw as a write that never landed. `load` now opens the
+    file sharing delete access (`textio.read_text_settled`), so a reader no longer blocks the replace."""
     p = p or path()
     assert_no_secrets(cfg)
     cfg["version"] = VERSION
