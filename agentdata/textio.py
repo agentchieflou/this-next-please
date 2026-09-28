@@ -23,7 +23,6 @@ import json
 import locale
 import os
 import re
-import sys
 import threading
 import time
 
@@ -164,55 +163,16 @@ def read_text(path: str) -> str:
         return decode(f.read())
 
 
-#: Decided once, at import: several tests patch `os.name` to walk the other platform's paths, and the
-#: reader below calls into kernel32, which only a real Windows has.
-_WINDOWS = sys.platform == "win32"
-
-
-def _open_sharing_delete(path: str):
-    """The file open for reading, on Windows with FILE_SHARE_DELETE as well as read and write sharing.
-
-    Python's `open` does not share delete access, and a replace (`os.replace`, MoveFileEx) onto a file
-    that is open without it fails with WinError 5 for as long as the file stays open. A reader that
-    shares it lets the writer's replace go through: this reader keeps the old file's bytes, the next
-    open gets the new file. Elsewhere this is `open(path, "rb")`."""
-    if not _WINDOWS:
-        return open(longpath(path), "rb")
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    create = kernel32.CreateFileW
-    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-    create.restype = wintypes.HANDLE
-    generic_read, share_all, open_existing, normal = 0x80000000, 0x7, 3, 0x80
-    handle = create(longpath(path), generic_read, share_all, None, open_existing, normal, None)
-    if handle is None or handle == wintypes.HANDLE(-1).value:
-        raise ctypes.WinError(ctypes.get_last_error())      # PermissionError, FileNotFoundError, ...
-    try:
-        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | getattr(os, "O_BINARY", 0))
-    except OSError:
-        kernel32.CloseHandle(wintypes.HANDLE(handle))
-        raise
-    return os.fdopen(fd, "rb")
-
-
 def read_text_settled(path: str) -> str:
-    """`read_text` for a file that is rewritten in place of itself while it is read (#603).
+    """`read_text`, retried briefly while another process replaces the file (#603).
 
-    config.json is served and written by the same process: the desk loads it on every request thread
-    and its stream while a theme or settings POST saves it. On Windows a plain `open` there did two
-    kinds of harm: it made the writer's replace fail (WinError 5; `_replace_with_retry` then fell back
-    to writing in place, and a reader could see the file empty), and an open while a replace was under
-    way failed with a `PermissionError` of its own. So the file is opened sharing delete access
-    (`_open_sharing_delete`), which lets the replace through, and a `PermissionError` is retried
-    briefly. Any other error, and one that outlasts the retries, is raised as it was."""
+    On Windows, opening a file that is being replaced (`_replace_with_retry`'s `os.replace`) fails
+    with a `PermissionError` for the moment the rename takes. A reader of a file that is rewritten in
+    place of itself waits that moment out rather than failing. Any other error, and a
+    `PermissionError` that outlasts the retries, is raised as it was."""
     for attempt in range(REPLACE_ATTEMPTS):
         try:
-            with _open_sharing_delete(path) as f:
-                return decode(f.read())
+            return read_text(path)
         except PermissionError:
             if attempt == REPLACE_ATTEMPTS - 1:
                 raise

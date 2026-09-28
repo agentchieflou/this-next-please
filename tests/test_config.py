@@ -89,7 +89,7 @@ def test_load_waits_out_a_replace_under_way(tmp_path, monkeypatch):
 
     p = tmp_path / "cfg.json"
     C.save({"fleet": {"theme": "a"}}, str(p))
-    real, tries = textio._open_sharing_delete, []
+    real, tries = textio.read_text, []
 
     def pending_once(path):
         tries.append(path)
@@ -97,32 +97,36 @@ def test_load_waits_out_a_replace_under_way(tmp_path, monkeypatch):
             raise PermissionError(13, "Access is denied", path)
         return real(path)
 
-    monkeypatch.setattr(textio, "_open_sharing_delete", pending_once)
+    monkeypatch.setattr(textio, "read_text", pending_once)
     assert C.load(str(p))["fleet"]["theme"] == "a"
     assert len(tries) == 2, tries
 
 
-def test_a_file_a_load_holds_open_is_still_replaced_atomically(tmp_path):
-    """#603: a load opens config.json sharing delete access, so a save's replace goes through while the
-    file is held -- on Windows a plain `open` made it fail with WinError 5, and the retries then wrote
-    the file in place, where a reader could find it empty. The reader keeps the bytes it opened."""
+def test_a_load_that_stays_refused_says_so(tmp_path, monkeypatch):
+    """#603: the wait is brief and bounded. A file another program keeps refusing is the
+    `PermissionError` it always was, after `textio.REPLACE_ATTEMPTS` tries."""
     from agentdata import textio
 
-    p = str(tmp_path / "cfg.json")
-    C.save({"n": 1}, p)
-    with textio._open_sharing_delete(p) as held:
-        report: dict = {}
-        textio.write_text(p, json.dumps({"n": 2}) + "\n", report=report)
-        assert report["how"] == "atomic", report
-        assert json.loads(held.read())["n"] == 1
-    assert C.load(p)["n"] == 2
+    p = tmp_path / "cfg.json"
+    C.save({"fleet": {"theme": "a"}}, str(p))
+    tries = []
+
+    def refused(path):
+        tries.append(path)
+        raise PermissionError(13, "Access is denied", path)
+
+    monkeypatch.setattr(textio, "read_text", refused)
+    monkeypatch.setattr(textio, "REPLACE_BACKOFF", 0)
+    with pytest.raises(PermissionError):
+        C.load(str(p))
+    assert len(tries) == textio.REPLACE_ATTEMPTS
 
 
 def test_saves_and_loads_on_two_threads_never_raise(tmp_path):
     """#603, as the desk does it: one thread loading config.json in a loop while another saves it. On
     the Windows runner the bare replace failed 119-279 times in 500 saves, and 131-238 loads failed;
-    with the replace only retried, a reader could still find the file empty after the in-place
-    fallback. Here every save lands and every load reads a whole file."""
+    with the replace only retried, a reader in a tight loop outlasted the retries and then found the
+    file empty after the in-place fallback. Here every save lands and every load reads a whole file."""
     import threading
 
     p = str(tmp_path / "cfg.json")

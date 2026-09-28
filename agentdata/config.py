@@ -19,6 +19,13 @@ from . import textio
 #: poller can take it without importing the server. Never hold it across a network call.
 LOCK = threading.Lock()
 
+#: Held for the read in `load` and the write in `save`, so that in one process no read of config.json
+#: overlaps its replace (#603). On Windows a replace onto a file another thread has open fails
+#: (WinError 5), and an open while the replace is under way fails too; the desk loads config.json on
+#: every request thread and its stream while a theme or settings POST saves it. Only the file I/O is
+#: under it, never a network call, and it is reentrant so a caller of both may nest them.
+_IO_LOCK = threading.RLock()
+
 CONFIG_ENV = "AGENTDATA_CONFIG"
 DEFAULT_PATH = "~/.agentdata/config.json"
 VERSION = 1
@@ -69,7 +76,9 @@ def load(p: str | None = None) -> dict:
     if not os.path.exists(p):
         return {"version": VERSION}
     try:
-        data = json.loads(textio.read_text_settled(p))
+        with _IO_LOCK:
+            raw = textio.read_text_settled(p)
+        data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ConfigError(f"config is not valid JSON: {display_path(p)} ({e.msg}, line {e.lineno})",
                           hint="fix or delete the file, then run ad-setup") from None
@@ -87,12 +96,13 @@ def save(cfg: dict, p: str | None = None) -> str:
     another thread has open for reading fails with WinError 5, and the desk reads config.json from
     every request thread and its stream while `act("theme")` and `act("settings")` write it: on the
     Windows runner a save raced by one reading thread failed on 119 to 279 of 500 tries, which the
-    desk answered with a 500 and the tests saw as a write that never landed. `load` now opens the
-    file sharing delete access (`textio.read_text_settled`), so a reader no longer blocks the replace."""
+    desk answered with a 500 and the tests saw as a write that never landed. In one process a load
+    and a save no longer overlap (`_IO_LOCK`); another process that holds the file is waited out."""
     p = p or path()
     assert_no_secrets(cfg)
     cfg["version"] = VERSION
-    textio.write_text(p, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
+    with _IO_LOCK:
+        textio.write_text(p, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
     return display_path(p)
 
 
