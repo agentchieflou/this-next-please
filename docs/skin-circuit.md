@@ -73,6 +73,29 @@ models (`highlight_under`), `#D29922` leaves the text at 4.15:1 on the solder's 
 4.5:1 at both ends of both boards. Red is not one: it is 3.72:1 on the solder's light end, so it marks and never
 colours a word.
 
+## Signals (#397)
+
+The trace carries the agent's pace, and nothing loops. All of it is the module's `tick`, `dispose` and `inspect()`.
+
+* **A pulse per line.** Each pane keeps the transcript lines it has seen (a `WeakSet`, seeded when the pane is first
+  seen). A line that arrives in a `state-running` pane sends one pulse: a dot in the palette's `--accent` that runs
+  along the pane's trace from its far end to its pad in 320 ms of elapsed time (`docs/desk-motion.md`'s ceiling), then
+  is freed. At most 3 are in flight per pane; more arrivals are counted, not queued. While `body.is-stale` or
+  `body.is-replaying` (#371) is set, arrivals are counted and no pulse runs, so a reload's replayed backlog sends none.
+  Frames are asked for only while a pulse travels.
+* **LEDs** in the margin, 6px across, lit steady with a static halo: amber (`--waiting`) while the pane
+  `needs-human`, green (`--done`) while it is done. On and off at once, never blinking: a lit LED asks for no frame.
+* **A scorch** when `state-error` arrives: two soot strokes under the error's marker loop, drawn with `api.stroke`
+  (the marker, at low pressure) at the pen's speed, and erased the same way when the error goes. A resize or a
+  palette change empties the pane's group; the next `frame` call draws the scorch again at rest while the error holds.
+* **A rail** (under 90px) has no LED, no pulse and no scorch.
+* **Reduced motion:** no pulse travels (each is counted as skipped); LEDs and the scorch appear and go at once.
+* **`inspect()`** returns `{builds, pulses: {delivered, inFlight, arrived, skipped}, panes: {<repo>: {led, scorch,
+  pulses, at?, pad?, trace?}}}`: `led` is `none`, `amber` or `green`, `scorch` 0 to 1, `pulses` the pane's delivered
+  count, and an open pane's board in page coordinates.
+
+No colour literal, no page write and no fading: the halo's alpha is fixed, and `body.ink-off` has none of it.
+
 ## Plain
 
 Under `body.ink-off` the board is the one plain look every skin shares (#257): the palette's own page, with the same

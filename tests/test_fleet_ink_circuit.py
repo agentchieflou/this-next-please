@@ -28,7 +28,7 @@ from agentdata.fleet import agentstate, events as E, serve as S, skins, supervis
 
 from desk_waits import assert_idle, record_mutations
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
-    SKIN_BUDGET, _layer, _marks, _open, _repos, _rest, _serve, _stop, fleet_home)
+    PROBE, SKIN_BUDGET, _layer, _marks, _open, _repos, _rest, _serve, _stop, fleet_home)
 from test_fleet_gutters import _gutter_point
 from desk_harness import close_pages
 
@@ -189,29 +189,45 @@ def _of(marks, lane, sel_part, tool=None, shape=None):
 
 
 @pytest.mark.browser
-def test_the_board_draws_the_grammar_rings_pin_one_crosses_a_blocked_pane_and_ink_off_is_plain(
+def test_the_board_draws_the_grammar_and_its_signals_and_ink_off_is_plain(
         fleet_home, tmp_path, alive, finished, desk_browser):
-    """idle, running, error, blocked and done, each drawn when the fold puts it on the pane and
-    leaving by erase (pencil) or strike (ink); pin 1 ringed on every open pane. Then the same desk
-    with `?ink=off`: the plain look, the same table as CSS, and no canvas."""
-    _desk(tmp_path, fleet_home)
+    """One desk through the board's life: alpha and beta open, gamma a rail that is running.
+
+    #396: idle, running, error, blocked and done, each drawn when the fold puts it on the pane and
+    leaving by erase (pencil) or strike (ink); pin 1 ringed on every open pane.
+    #397: two lines on the running alpha deliver two pulses; the rail's lines deliver none and it
+    has no LED; beta needing you lights amber and done lights green; alpha's error leaves a scorch
+    that is erased when the error goes; replacing the skin returns the GPU's geometries to their
+    count; then, with every pulse delivered, the LED lit and the scorch gone, the desk is idle (zero
+    frames, zero mutations). A reload with a 30-line backlog delivers no pulse and the rail that now
+    needs you still has no LED, and under reduced motion a new line's pulse is skipped.
+    The marks are asserted under reduced motion; motion is on only while a pulse must travel.
+    Last, the same desk with `?ink=off`: the plain look, the same table as CSS, and no canvas."""
+    _desk(tmp_path, fleet_home, ("alpha", "beta", "gamma"))
+    S.update_window("main", open="alpha", widths={"alpha": 1, "beta": 1})
+    alive.add("gamma")
+    E.append("gamma", [E.event("gamma", "turn_started", {}, ticket="RDSD-1")])
     server, token, port = _serve()
     try:
         browser = desk_browser
         page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
         _board(page)
-        A, B = "pane:alpha", "pane:beta"
+        A, B, P = "pane:alpha", "pane:beta", "window.__circuit.inspect().panes"
+        _until_class(page, "gamma", "state-running")
         _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4"
-                    " && Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
+                    " && Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2"
+                    f" && Object.keys({P}).length === 3")
         marks = _marks(page)
         for lane in (A, B):
             assert _of(marks, lane, ".tile.state-idle", "pencil", "outline")
             assert _of(marks, lane, "state-idle .head .repo", "pencil", "underline")
             assert _of(marks, lane, ".head .n", "pencil", "ring")
         layer = _layer(page)
-        assert layer["skin"]["hooks"] == ["paper", "frame", "dispose"] and layer["skin"]["paper"] == 1
+        assert layer["skin"]["hooks"] == ["paper", "frame", "tick", "dispose"] and layer["skin"]["paper"] == 1
         assert layer["skin"]["frames"] == 2 and layer["skin"]["errors"] == [] and layer["dark"], layer["skin"]
+        leds = [_signals(page)["panes"]["beta"]["led"]]
 
+        # running: the pencil erased, the pen line and its via; each new line a pulse.
         alive.add("alpha")
         _emit(page, "alpha", ("turn_started", {}))
         _until_class(page, "alpha", "state-running")
@@ -220,31 +236,119 @@ def test_the_board_draws_the_grammar_rings_pin_one_crosses_a_blocked_pane_and_in
         assert not [m for m in marks if m["lane"] == A and "state-idle" in m["selector"]], "the idle pencil is erased"
         run = _of(marks, A, "state-running", "pen", "underline")
         assert len(run) == 1 and run[0]["strokes"] == 2, "the pen line and its via"
+        _motion(page, True)
+        was = _count(page, "alpha")
+        start = _signals(page)["pulses"]
+        _emit(page, "alpha", ("assistant_text", {"text": "reading the board"}),
+              ("assistant_text", {"text": "and its traces"}))
+        _lines(page, "alpha", was + 2)
+        _rest(page, f"window.__circuit.inspect().pulses.delivered === {start['delivered']} + 2"
+                    " && window.__circuit.inspect().pulses.inFlight === 0")
+        pulsed = _signals(page)
+        _motion(page, False)
 
+        # The rail's lines while it runs: no pulse.
+        was = _count(page, "gamma")
+        _emit(page, "gamma", ("assistant_text", {"text": "on the rail"}), ("assistant_text", {"text": "still"}))
+        _lines(page, "gamma", was + 2)
+        _rest(page)
+        rail = _signals(page)
+
+        # beta needs you: amber.
+        _emit(page, "beta", ("question_opened", {"question": "which trace?", "id": "q1", "blocking": True,
+                                                 "choices": ["left", "right"]}))
+        _until_class(page, "beta", "needs-human")
+        _rest(page, f"{P}.beta.led === 'amber'")
+        leds.append(_signals(page)["panes"]["beta"]["led"])
+
+        # error: the pen line struck, the marker loop and bang, and a scorch.
         alive.discard("alpha")
         _emit(page, "alpha", ("turn_ended", {"turn": "1"}), ("error", {"exit_code": 2}))
         _until_class(page, "alpha", "state-error")
-        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-error') && m.state === 'drawn').length === 2")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-error') && m.state === 'drawn').length === 2"
+                    f" && {P}.alpha.scorch === 1")
         marks = _marks(page)
         gone = [m for m in marks if m["lane"] == A and "state-running" in m["selector"] and not m["strikeOf"]]
         assert len(gone) == 1 and gone[0]["state"] == "struck", "the running line is struck"
         assert _of(marks, A, "state-error .why", "marker", "loop") and _of(marks, A, "state-error", "marker", "bang")
+        scorched = _signals(page)["panes"]["alpha"]["scorch"]
 
-        _emit(page, "beta", ("phase_changed", {"from": "build", "to": "blocked"}))
+        # blocked: a red cross; then done: a green check, the cross struck, and a green LED.
+        _emit(page, "beta", ("question_cleared", {"id": "q1"}), ("phase_changed", {"from": "build", "to": "blocked"}))
         _until_class(page, "beta", "state-blocked")
         _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'cross' && m.lane === 'pane:beta' && m.state === 'drawn')")
         cross = _of(_marks(page), B, "state-blocked", "red", "cross")
         assert len(cross) == 1, _marks(page)
-
         alive.add("beta")
         finished.add("beta")
         _emit(page, "beta", ("phase_changed", {"from": "blocked", "to": "done"}))
         _until_class(page, "beta", "state-done")
-        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.lane === 'pane:beta' && m.state === 'drawn')")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.lane === 'pane:beta' && m.state === 'drawn')"
+                    f" && {P}.beta.led === 'green'")
         marks = _marks(page)
         assert _of(marks, B, "is-done", "green", "check")
         assert [m for m in marks if m["lane"] == B and m["shape"] == "cross" and not m["strikeOf"]
                 and m["state"] == "struck"], "the cross is struck when the pane is no longer blocked"
+        leds.append(_signals(page)["panes"]["beta"]["led"])
+
+        # The error goes: the scorch is erased.
+        alive.add("alpha")
+        _emit(page, "alpha", ("turn_started", {}))
+        _until_class(page, "alpha", "state-error", on=False)
+        _rest(page, f"{P}.alpha.scorch === 0")
+        wiped = _signals(page)["panes"]["alpha"]["scorch"]
+
+        # The GPU's geometries under a table with no skin, then the board (matte, then solder) with
+        # its frames, beta's LED and a pulse on alpha, then no skin again. The first board with motion
+        # on may leave the layer's own hand models behind (a tool's hand is made once, the first time
+        # it travels), so the count the board must return to is the one before the second.
+        geometries = []
+        for variant in ("matte", "solder"):
+            assert page.evaluate(PROBE) == "ink"
+            _rest(page, "Ink.inspect().table === 'probe'")
+            geometries.append(page.evaluate("() => window.__r.info.memory.geometries"))
+            page.evaluate("s => post('theme', { skin: s })", f"circuit:{variant}")
+            _board(page, variant)
+            _rest(page, f"Object.keys({P}).length === 3 && {P}.beta.led === 'green'")
+            _motion(page, True)
+            n, was = _signals(page)["pulses"]["delivered"], _count(page, "alpha")
+            _emit(page, "alpha", ("assistant_text", {"text": f"on the {variant} board"}))
+            _lines(page, "alpha", was + 1)
+            _rest(page, f"window.__circuit.inspect().pulses.delivered === {n} + 1"
+                        " && window.__circuit.inspect().pulses.inFlight === 0")
+            _motion(page, False)
+        assert page.evaluate(PROBE) == "ink"
+        _rest(page, "Ink.inspect().table === 'probe'")
+        geometries.append(page.evaluate("() => window.__r.info.memory.geometries"))
+        page.evaluate("s => post('theme', { skin: s })", "circuit:matte")
+        _board(page, "matte")
+        _rest(page, f"Object.keys({P}).length === 3 && {P}.beta.led === 'green'")
+
+        # Last on this page: a driven idle check answers `/api/fleet` with one body from here on.
+        idle = assert_idle(page)
+        lit = _signals(page)["panes"]["beta"]["led"]
+
+        # The rail stops and asks, and alpha has a backlog: both read fresh by the reload.
+        alive.discard("gamma")
+        _emit(page, "gamma", ("turn_ended", {"turn": "1"}),
+              ("question_opened", {"question": "and here?", "id": "q2", "blocking": True, "choices": ["yes", "no"]}))
+        _emit(page, "alpha", *[("assistant_text", {"text": f"backlog line {i}"}) for i in range(30)])
+        _motion(page, True)
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function("""() => !!window.Ink && Ink.inspect().table === 'circuit:matte'
+            && !document.body.classList.contains('is-replaying') && !document.body.classList.contains('is-stale')""",
+                               timeout=20000)
+        page.evaluate("async () => { window.__circuit = await import(q('/static/ink/skins/circuit.js')); }")
+        _last(page, "alpha", "backlog line 29")
+        _until_class(page, "gamma", "needs-human")
+        _rest(page, "Ink.inspect().layer.skin.frames === 2")
+        replayed = _signals(page)
+
+        _motion(page, False)
+        _emit(page, "alpha", ("assistant_text", {"text": "one more"}))
+        _last(page, "alpha", "one more")
+        _rest(page, f"window.__circuit.inspect().pulses.skipped === {replayed['pulses']['skipped']} + 1")
+        reduced = _signals(page)
         assert not errors, errors
 
         plain, perrors, asked = _open(browser, port, token, "&ink=off", reduced=True)
@@ -253,13 +357,14 @@ def test_the_board_draws_the_grammar_rings_pin_one_crosses_a_blocked_pane_and_in
         # ring is read once beta is off the rail and nothing is animating (train 25: read mid-layout,
         # beta was still `rail` and the ring `none`).
         plain.wait_for_function("""() => document.body.classList.contains('ink-off') && Ink.inspect().plain
-            && Ink.inspect().table === 'circuit:solder'
-            && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-error')
+            && Ink.inspect().table === 'circuit:matte'
+            && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-running')
+            && getComputedStyle(document.querySelector('.tile[data-repo="beta"] .head .n')).boxShadow !== 'none'
             && document.querySelector('.tile[data-repo="beta"]').dataset.tier !== 'rail'
             && !document.getAnimations().some(a => a.playState === 'running')""", timeout=20000)
         got = plain.evaluate("""() => {
           const cs = s => getComputedStyle(document.querySelector(s));
-          return { why: cs('.tile[data-repo="alpha"] .why').outlineStyle,
+          return { running: cs('.tile[data-repo="alpha"] .head .repo').textDecorationLine,
                    ring: cs('.tile[data-repo="beta"] .head .n').boxShadow,
                    canvas: !!document.getElementById('ink'), tile: cs('.tile[data-repo="alpha"]').backgroundColor,
                    panel: getComputedStyle(document.documentElement).getPropertyValue('--panel').trim() }; }""")
@@ -267,10 +372,48 @@ def test_the_board_draws_the_grammar_rings_pin_one_crosses_a_blocked_pane_and_in
         close_pages(browser)
     finally:
         _stop(server)
-    assert got["why"] == "solid" and got["ring"] != "none" and not got["canvas"], got
+    assert pulsed["pulses"]["delivered"] == start["delivered"] + 2 and pulsed["panes"]["alpha"]["pulses"] == 2, pulsed
+    assert rail["panes"]["gamma"] == {"led": "none", "scorch": 0, "pulses": 0}, ("lines while running", rail["panes"]["gamma"])
+    assert leds == ["none", "amber", "green"], leds
+    assert scorched == 1 and wiped == 0, (scorched, wiped)
+    assert geometries[2] == geometries[1], ("the skin left geometries on the GPU", geometries)
+    assert idle["mutations"] == 0 and idle["renders"] == 0, ("delivered, lit and wiped: the desk is still", idle)
+    assert lit == "green", ("the LED stays lit through the idle window", lit)
+    assert replayed["pulses"]["delivered"] == 0 and replayed["pulses"]["inFlight"] == 0, replayed["pulses"]
+    assert replayed["panes"]["gamma"] == {"led": "none", "scorch": 0, "pulses": 0}, ("needs you", replayed["panes"]["gamma"])
+    assert reduced["pulses"]["delivered"] == 0 and reduced["pulses"]["inFlight"] == 0, reduced["pulses"]
+    assert got["running"] == "underline" and got["ring"] != "none" and not got["canvas"], got
     r, g, b = _rgb(got["panel"])
     assert got["tile"] == f"rgb({r}, {g}, {b})", ("the plain pane is the palette's panel", got)
     assert not [u for u in asked if "/static/ink/layer.js" in u or "three.module" in u], "ink off fetched the layer"
+
+
+def _motion(page, on):
+    """Motion on or off from here (`prefers-reduced-motion`), once the layer has taken it. The
+    marks are asserted under reduced motion, which draws at once; a pulse needs motion to run."""
+    page.emulate_media(reduced_motion="no-preference" if on else "reduce")
+    page.wait_for_function("on => Ink.inspect().layer.reduced === !on", arg=on, timeout=10000)
+
+
+def _signals(page):
+    return page.evaluate("() => window.__circuit.inspect()")
+
+
+def _count(page, repo):
+    return page.evaluate("r => document.querySelectorAll(`.tile[data-repo=\"${r}\"] .transcript > li`).length", repo)
+
+
+def _lines(page, repo, n):
+    page.wait_for_function(
+        "([r, n]) => { if (document.querySelectorAll(`.tile[data-repo=\"${r}\"] .transcript > li`).length >= n) return true;"
+        " refresh(); return false; }", arg=[repo, n], timeout=15000, polling=250)
+
+
+def _last(page, repo, text):
+    page.wait_for_function(
+        "([r, t]) => { const li = document.querySelector(`.tile[data-repo=\"${r}\"] .transcript > li:last-child`);"
+        " if (li && li.textContent.includes(t)) return true; refresh(); return false; }",
+        arg=[repo, text], timeout=15000, polling=250)
 
 
 #: The board's pixels behind each pane's transcript, and every pixel inside every word of a pane
@@ -309,7 +452,7 @@ READ_BOARD = """([copper, tol]) => {
       }
     }
   }
-  const pads = Object.values(window.__circuit.inspect().panes).map(p => {
+  const pads = Object.values(window.__circuit.inspect().panes).filter(p => p.pad).map(p => {
     const px = read(p.pad.x + p.pad.w / 2, p.pad.y + p.pad.h / 2, 1, 1);
     return near(px, 0);
   });
@@ -317,7 +460,7 @@ READ_BOARD = """([copper, tol]) => {
 }"""
 
 #: How far each pane's board (its frame group, and its trace's far end) is from where the pane is.
-BOARD_DRIFT = """() => Object.entries(window.__circuit.inspect().panes).map(([repo, p]) => {
+BOARD_DRIFT = """() => Object.entries(window.__circuit.inspect().panes).filter(([, p]) => p.trace).map(([repo, p]) => {
   const r = document.querySelector(`.tile[data-repo="${repo}"]`).getBoundingClientRect();
   return Math.max(Math.abs(r.left - p.at.x), Math.abs(r.top - p.at.y),
                   Math.abs(r.right - 10 - (p.trace.x + p.trace.w)), Math.abs(r.top + 4.25 - p.trace.y));
@@ -376,7 +519,29 @@ def test_the_board_reads_inside_its_panel_keeps_copper_off_the_words_follows_a_d
     assert board["ground"] and not off, ("the board reads outside [--paper, --board-max]", lo, hi, off)
     assert board["pads"] == [True] * 3, board["pads"]
     assert board["words"]["rects"] >= 6 and board["words"]["hits"] == [], board["words"]
-    assert idle["mutations"] == 0 and idle["renders"] == 0, idle
+    assert idle["mutations"] == 0 and idle["renders"] == 0, ("delivered, lit and wiped: the desk is still", idle)
     assert max(before) < 0.5 and max(held) < 0.5 and max(after) < 0.5, (before, held, after)
     assert follow["frames"] >= 3 and follow["worst"] < 0.5, follow
     assert follow["writes"] == [], f"the layer wrote to the page during the drag: {follow['writes']}"
+
+
+# ======================================================================== the signals (#397)
+
+
+def test_the_signals_are_the_modules_tick_dispose_and_inspect():
+    """#397: a pulse per line, the LEDs and the scorch are the module's `tick`, freed in `dispose`,
+    and reported by `inspect()`; nothing in it loops on a timer of its own or fades."""
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", open(MODULE, encoding="utf-8").read(), flags=re.S)
+    for hook in ("tick", "dispose", "inspect"):
+        assert re.search(r"^export function %s\(" % hook, code, re.M), hook
+    for banned in ("setInterval", "setTimeout", "requestAnimationFrame", "performance.now", "Date.now"):
+        assert banned not in code, banned
+    assert "api.stroke(" in code and '"marker"' in code, "the scorch is drawn with the marker's stroke"
+    # The static numbers: a pulse within docs/desk-motion.md's 320 ms ceiling, at most 3 in flight
+    # per pane, a 6px LED (radius 3), a rail under 90px, and the halo's alpha fixed, never animated.
+    consts = dict(re.findall(r"^const ([A-Z_]+) = ([\d.]+);", code, re.M))
+    assert float(consts["PULSE_S"]) <= 0.32 and int(consts["IN_FLIGHT"]) == 3, consts
+    assert float(consts["LED"]) * 2 == 6 and int(consts["RAIL_BELOW"]) == 90, consts
+    assert len(re.findall(r"opacity:\s*[\d.]+", code)) == 1 and not re.search(r"\.opacity\s*=", code), \
+        "the halo's alpha is set once, as a literal, and never changed"
+    assert 'matches(".is-stale, .is-replaying")' in code, "arrivals during a replay or a stale page send no pulse"

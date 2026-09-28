@@ -149,7 +149,7 @@
   "tests/test_fleet_ink.py": {"tests": 32},
   "tests/test_fleet_ink_band.py": {"tests": 1},
   "tests/test_fleet_ink_bounds.py": {"tests": 2},
-  "tests/test_fleet_ink_circuit.py": {"tests": 7},
+  "tests/test_fleet_ink_circuit.py": {"tests": 8},
   "tests/test_fleet_ink_clear.py": {"tests": 1},
   "tests/test_fleet_ink_cues.py": {"tests": 14},
   "tests/test_fleet_ink_farmstead.py": {"tests": 19},
