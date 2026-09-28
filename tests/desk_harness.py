@@ -23,6 +23,14 @@ test's contexts are closed when it ends, so nothing one test stored reaches the 
 * `desk_chromium_with` -- `launch(args)`: a Chromium of the test's own on the worker's driver, with
   extra command-line switches (#384's Blink flag), closed at teardown.
 
+`--desk-cpu-throttle=RATE` (or `AGENTDATA_DESK_THROTTLE`; default 1) slows every desk page's main
+thread RATE times, to reproduce a slow CI runner on a laptop (#307): `desk_page`, and so
+`new_desk_page` and every helper built on it, sends CDP `Emulation.setCPUThrottlingRate` to the
+page it opens and sends it again each time the page's main frame navigates. `desk_page(throttle=)`
+picks a rate for one page whatever the option says. Where CDP throttling has no effect (Windows on
+AMD EPYC 9V45 hosts, #307), `desk_browser` fails every test that asks for the option rather than
+run them unthrottled: `check_throttle` times a fixed loop at rate 4 once per process.
+
 Every browser test is here (#303): nothing else under `tests/` starts a driver or launches Chromium,
 and `tests/test_hygiene_harness.py` keeps it so. A sync Playwright started in a thread and a second
 `with sync_playwright()` in the same thread cannot both be alive (Playwright raises "using
@@ -32,6 +40,9 @@ that needs `asyncio.run`.
 from __future__ import annotations
 
 import os
+import platform
+import statistics
+import subprocess
 import sys
 import threading
 
@@ -56,6 +67,131 @@ COUNT_FETCHES = """;(() => {
   };
 })();
 """
+
+
+#: The variable `--desk-cpu-throttle` falls back to (#307).
+THROTTLE_ENV = "AGENTDATA_DESK_THROTTLE"
+#: The rate every desk page is opened at, set once per process by `pytest_configure`.
+THROTTLE = {"rate": 1.0}
+
+
+def pytest_addoption(parser):  # pragma: no cover - CLI plumbing
+    parser.addoption("--desk-cpu-throttle", action="store", type=float, default=None, metavar="RATE",
+                     help="slow every desk page's main thread RATE times with CDP "
+                          "Emulation.setCPUThrottlingRate, to reproduce a slow runner (default 1, "
+                          f"or ${THROTTLE_ENV})")
+
+
+def throttle_rate(option, environ) -> float:
+    """The throttle rate: the option when given, else `AGENTDATA_DESK_THROTTLE`, else 1. A rate under
+    1 (or one that is not a number) is a usage error, not a quietly unthrottled run."""
+    if option is None:
+        raw = (environ.get(THROTTLE_ENV) or "").strip()
+        if not raw:
+            return 1.0
+        try:
+            option = float(raw)
+        except ValueError:
+            raise pytest.UsageError(f"{THROTTLE_ENV}={raw!r} is not a number") from None
+    rate = float(option)
+    if not rate >= 1:
+        raise pytest.UsageError(f"--desk-cpu-throttle must be 1 or more (1 is no throttle), not {option}")
+    return rate
+
+
+def pytest_configure(config):  # pragma: no cover - CLI plumbing
+    THROTTLE["rate"] = throttle_rate(config.getoption("--desk-cpu-throttle", None), os.environ)
+
+
+def throttle_page(page, rate: float):
+    """Slow `page`'s main thread `rate` times (CDP `Emulation.setCPUThrottlingRate`), and keep it
+    slowed: a navigation can move the page to a new renderer process, which starts unthrottled, so
+    the rate is sent again whenever the main frame navigates. Returns `release()`, which sets the
+    page back to 1, stops re-sending and detaches (#304's settle check throttles for a while)."""
+    cdp = page.context.new_cdp_session(page)
+
+    def again(frame):
+        if frame.parent_frame is None:
+            cdp.send("Emulation.setCPUThrottlingRate", {"rate": rate})
+
+    def release():
+        page.remove_listener("framenavigated", again)
+        cdp.send("Emulation.setCPUThrottlingRate", {"rate": 1})
+        cdp.detach()
+
+    cdp.send("Emulation.setCPUThrottlingRate", {"rate": rate})
+    page.on("framenavigated", again)
+    return release
+
+
+#: A fixed piece of main-thread work, timed on the page in ms: 15-35 ms unthrottled on a CI runner,
+#: and 4-5 times that at rate 4 wherever the throttle takes effect (#307).
+THROTTLE_LOOP = """() => { const t0 = performance.now(); let x = 0;
+  for (let i = 0; i < 2e7; i++) x += i % 7;
+  return x > 0 ? performance.now() - t0 : -1; }"""
+
+#: The slowdown at rate 4 under which the throttle is taken to have no effect. On 18 of 20 Windows
+#: runners (#307, run 36349924909) and on every Linux one it was 3.5x or more; on the two AMD EPYC
+#: 9V45 hosts it was 1.2x or less at rates 2, 4 and 8 alike, whatever the loop's length.
+THROTTLE_TAKES_EFFECT = 2.0
+
+
+def cpu_name() -> str:
+    """The processor's name as the OS reports it, for a verdict that depends on the machine."""
+    try:
+        if sys.platform == "win32":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+            return str(winreg.QueryValueEx(key, "ProcessorNameString")[0]).strip()
+        if sys.platform == "darwin":
+            return subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True,
+                                  text=True, timeout=10).stdout.strip()
+        with open("/proc/cpuinfo", encoding="utf-8") as info:
+            return next(line.split(":", 1)[1].strip() for line in info if line.startswith("model name"))
+    except (OSError, StopIteration, subprocess.SubprocessError):
+        return platform.processor() or "unknown"
+
+
+def throttle_ratio(runs: dict) -> float:
+    """`{1: [ms...], rate: [ms...]}` -> the median throttled run over the quickest unthrottled one: a
+    busy machine only adds to the loop's own cost, and no single throttled run decides it."""
+    (rate,) = (r for r in runs if r != 1)
+    return statistics.median(runs[rate]) / min(runs[1])
+
+
+def throttle_effect(browser, runs: int = 5) -> float:
+    """How many times slower `THROTTLE_LOOP` runs on a page throttled at 4 than on one that is not,
+    the two timed in turn `runs` times (`throttle_ratio`)."""
+    pages = {rate: desk_page(browser, width=400, height=300, throttle=rate) for rate in (1, 4)}
+    timed: dict = {1: [], 4: []}
+    try:
+        for _ in range(runs):
+            for rate, page in pages.items():
+                timed[rate].append(page.evaluate(THROTTLE_LOOP))
+    finally:
+        for page in pages.values():
+            page.context.close()
+    return throttle_ratio(timed)
+
+
+def throttle_refusal(effect: float, rate: float) -> str | None:
+    """None when a throttle at 4 slowed the loop `effect` times, enough to take effect; otherwise why
+    `--desk-cpu-throttle=rate` is refused on this machine."""
+    if effect >= THROTTLE_TAKES_EFFECT:
+        return None
+    return (f"--desk-cpu-throttle={rate:g} would slow nothing here: CDP Emulation.setCPUThrottlingRate at 4 "
+            f"made a fixed loop only {effect:.2f}x slower in this Chromium on {platform.system()} "
+            f"({cpu_name()}), so the tests would run unthrottled (#307; see docs/testing-this-repo.md). "
+            "Use .github/scripts/stress_one.py, which slows the whole machine, or another machine.")
+
+
+def check_throttle(held: dict, browser, rate: float) -> None:
+    """Fail, rather than run the tests unthrottled, when `--desk-cpu-throttle` asks for a throttle
+    that has no effect on this machine. Measured once per process and kept in `held`."""
+    if "throttle_refusal" not in held:
+        held["throttle_refusal"] = throttle_refusal(throttle_effect(browser), rate)
+    if held["throttle_refusal"]:
+        pytest.fail(held["throttle_refusal"], pytrace=False)
 
 
 def launch_chromium(p, args=()):
@@ -227,6 +363,8 @@ def desk_browser(_desk_driver):
     """The worker's Chromium. The contexts this test creates are closed when it ends."""
     start_driver(_desk_driver)
     browser = ensure_browser(_desk_driver)
+    if THROTTLE["rate"] > 1:
+        check_throttle(_desk_driver, browser, THROTTLE["rate"])
     before = set(browser.contexts)
     yield browser
     close_new_contexts(_desk_driver.get("browser"), before)
@@ -260,14 +398,18 @@ def desk_chromium_with(desk_browser, _desk_driver):
 # ------------------------------------------------------------------------------------ the pages
 
 
-def desk_page(browser, *, width=1400, height=900, reduced=False, init_scripts=()):
+def desk_page(browser, *, width=1400, height=900, reduced=False, init_scripts=(), throttle=None):
     """A page in a fresh context of its own: `browser.new_page()` as the tests always had it, with
     the viewport, reduced motion or not, and `init_scripts` added before anything loads -- after
     `COUNT_FETCHES` and `desk_waits.COUNT_TIMERS`, which every desk page has, so `desk_waits.settle`
-    can tell when it is still (#304)."""
+    can tell when it is still (#304). Its CPU is throttled at `--desk-cpu-throttle` (`throttle_page`),
+    or at `throttle` when one is given; a rate of 1 sends nothing (#307)."""
     context = browser.new_context(viewport={"width": width, "height": height},
                                   reduced_motion="reduce" if reduced else "no-preference")
     page = context.new_page()
+    rate = THROTTLE["rate"] if throttle is None else float(throttle)
+    if rate > 1:
+        throttle_page(page, rate)
     for script in (COUNT_FETCHES, COUNT_TIMERS) + tuple(init_scripts):
         page.add_init_script(script)
     return page
