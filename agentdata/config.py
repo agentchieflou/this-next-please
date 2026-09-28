@@ -69,7 +69,7 @@ def load(p: str | None = None) -> dict:
     if not os.path.exists(p):
         return {"version": VERSION}
     try:
-        data = json.loads(textio.read_text(p))
+        data = json.loads(textio.read_text_settled(p))
     except json.JSONDecodeError as e:
         raise ConfigError(f"config is not valid JSON: {display_path(p)} ({e.msg}, line {e.lineno})",
                           hint="fix or delete the file, then run ad-setup") from None
@@ -80,18 +80,18 @@ def load(p: str | None = None) -> dict:
 
 
 def save(cfg: dict, p: str | None = None) -> str:
-    """Atomic write (tmp + os.replace). Refuses credential-looking keys."""
+    """Atomic write (`textio.write_text`: a per-writer tmp, then a replace retried while the file is
+    held). Refuses credential-looking keys.
+
+    #603: this used a shared `<path>.tmp` and a bare `os.replace`. On Windows a replace onto a file
+    another thread has open for reading fails with WinError 5, and the desk reads config.json from
+    every request thread and its stream while `act("theme")` and `act("settings")` write it: on the
+    Windows runner a save raced by one reading thread failed on 119 to 279 of 500 tries, which the
+    desk answered with a 500 and the tests saw as a write that never landed."""
     p = p or path()
     assert_no_secrets(cfg)
     cfg["version"] = VERSION
-    d = os.path.dirname(p)
-    if d:
-        os.makedirs(d, exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, sort_keys=True)
-        f.write("\n")
-    os.replace(tmp, p)
+    textio.write_text(p, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
     return display_path(p)
 
 

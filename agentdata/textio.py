@@ -163,6 +163,24 @@ def read_text(path: str) -> str:
         return decode(f.read())
 
 
+def read_text_settled(path: str) -> str:
+    """`read_text`, retried briefly while a replace of the file is under way (#603).
+
+    On Windows, opening a file that another thread is replacing (`_replace_with_retry`'s
+    `os.replace`) fails with a `PermissionError` -- the old file is pending delete -- for the moment
+    the rename takes. A reader of a file that is rewritten in place of itself (config.json, which
+    the desk both serves and writes) waits that moment out rather than failing its request. Any
+    other error, and a `PermissionError` that outlasts the retries, is raised as it was."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            return read_text(path)
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_BACKOFF * (attempt + 1))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 def read_json(path: str, what: str = "file"):
     """JSON from any encoding another tool produced. Raises ValueError with the path on bad JSON."""
     try:

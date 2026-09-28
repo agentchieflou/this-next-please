@@ -60,6 +60,80 @@ def test_save_atomic_and_refuses_secrets(tmp_path, monkeypatch):
     C.save({"sources": {"teradata": {"envs": {"prod": {"password": ""}}}}})  # empty is fine
 
 
+def test_save_waits_out_a_reader_that_holds_the_file(tmp_path, monkeypatch):
+    """#603: on Windows `os.replace` onto a file another thread has open for reading raises WinError 5.
+    The desk reads config.json on every request thread while a theme or settings POST saves it, and a
+    save that raised was a 500 and a write that never landed. The replace is retried, and no tmp is
+    left behind."""
+    p = tmp_path / "cfg.json"
+    C.save({"fleet": {"theme": "a"}}, str(p))
+    real, tries = os.replace, []
+
+    def held_once(src, dst):
+        tries.append(dst)
+        if len(tries) == 1:
+            raise PermissionError(13, "Access is denied", dst)
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", held_once)
+    C.save({"fleet": {"theme": "b"}}, str(p))
+    assert len(tries) == 2, tries
+    assert json.loads(p.read_text(encoding="utf-8"))["fleet"]["theme"] == "b"
+    assert [n for n in os.listdir(tmp_path) if n.endswith(".tmp")] == []
+
+
+def test_load_waits_out_a_replace_under_way(tmp_path, monkeypatch):
+    """#603: the other side of the same race -- opening config.json while a save is replacing it raises
+    a PermissionError on Windows for the moment the rename takes. A load waits that moment out."""
+    from agentdata import textio
+
+    p = tmp_path / "cfg.json"
+    C.save({"fleet": {"theme": "a"}}, str(p))
+    real, tries = textio.read_text, []
+
+    def pending_once(path):
+        tries.append(path)
+        if len(tries) == 1:
+            raise PermissionError(13, "Access is denied", path)
+        return real(path)
+
+    monkeypatch.setattr(textio, "read_text", pending_once)
+    assert C.load(str(p))["fleet"]["theme"] == "a"
+    assert len(tries) == 2, tries
+
+
+def test_saves_and_loads_on_two_threads_never_raise(tmp_path):
+    """#603, as the desk does it: one thread loading config.json in a loop while another saves it. On
+    the Windows runner the bare replace failed 119-279 times in 500 saves, and 131-238 loads failed.
+    Here every save lands and every load reads a whole file."""
+    import threading
+
+    p = str(tmp_path / "cfg.json")
+    C.save({"n": -1}, p)
+    stop, failures, seen = threading.Event(), [], []
+
+    def reader():
+        while not stop.is_set():
+            try:
+                seen.append(C.load(p)["n"])
+            except Exception as e:                      # noqa: BLE001 - what failed is the finding
+                failures.append(f"load: {e!r}")
+
+    t = threading.Thread(target=reader)
+    t.start()
+    try:
+        for n in range(300):
+            try:
+                C.save({"n": n}, p)
+            except Exception as e:                      # noqa: BLE001
+                failures.append(f"save: {e!r}")
+    finally:
+        stop.set()
+        t.join()
+    assert failures == [], failures[:5]
+    assert C.load(p)["n"] == 299 and seen
+
+
 def test_project_facts(tmp_path):
     md = tmp_path / "AGENTS.md"
     md.write_text("# P\n- env: prod              # ad-td --env\n- te2_exe: C:/Tools/TE/TabularEditor.exe\n"
