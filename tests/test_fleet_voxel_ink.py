@@ -294,7 +294,7 @@ def test_every_colour_a_voxel_effect_draws_keeps_every_word_readable():
     """#377: a blast's pieces and a break's chips fly under the page's words -- the canvas is behind
     the page -- so every colour a piece may wear keeps each word colour as readable as the slab face
     does (4.5:1, or the panel's own figure where that is lower), in every world. And the ground's
-    flash, where the pane was, keeps the text 4.5:1."""
+    flash, where the pane was, keeps the text 4.5:1; a hit's `--human` blink is 5.3:1 on the edge (#378)."""
     code = _code(MODULE)
     assert "shade(c.panel, Math.min(1, jitter(" in code and "c.edge" in code, "pieces wear panel and edge"
     assert f"FLASH_UP = {FLASH}" in code
@@ -311,6 +311,10 @@ def test_every_colour_a_voxel_effect_draws_keeps_every_word_readable():
             need = min(4.5, theme.contrast_ratio(css[word], panel))
             low += [(variant, word, piece, round(theme.contrast_ratio(css[word], piece), 2))
                     for piece in pieces if theme.contrast_ratio(css[word], piece) < need - 1e-9]
+        # #378: a hit blinks the strip in --human, drawn over the slab's edge.
+        hurt = theme.contrast_ratio(css["--human"], edge)
+        if hurt < 5.3:
+            low.append((variant, "--human", "edge", round(hurt, 2)))
         flash = theme.contrast_ratio(css["--text"], _shade(ground, FLASH))
         if flash < 4.5:
             low.append((variant, "--text", "flash", round(flash, 2)))
@@ -489,6 +493,88 @@ def _pieces_problems(run, worn):
     return wrong[:5]
 
 
+#: #378's hits and rewards, recorded in the page: from now until `expect` hit cues (hurt, graze,
+#: reward) have played and every piece, blink and knock is over, each frame's hit pieces, the
+#: panes' blink and knock, the draw calls and every pane's box. `window.__hits` is the promise the
+#: test reads once, afterwards.
+HITS = """(expect) => { window.__hits = (async () => {
+  const v = window.__voxel, frame = () => new Promise(done => requestAnimationFrame(() => done()));
+  const sum = p => p.hurt + p.graze + p.reward, first = v.inspect(), before = first.fx.played;
+  const samples = [];
+  let cuedAt = null, endAt = null;
+  for (let i = 0; i < 1200 && endAt === null; i++) {
+    await frame();
+    const x = v.inspect(), f = x.fx, frames = Ink.inspect().layer.frames;
+    if (cuedAt === null && sum(f.played) > sum(before)) cuedAt = frames;
+    if (cuedAt === null) continue;
+    const boxes = {};
+    for (const t of document.querySelectorAll('#grid > .tile[data-repo]')) {
+      const r = t.getBoundingClientRect();
+      boxes[t.dataset.repo] = [r.left, r.top, r.width, r.height];
+    }
+    samples.push({ frames, live: f.live, drawCalls: x.drawCalls, boxes,
+                   pieces: f.pieces.filter(q => ['graze', 'orb', 'heart'].includes(q.kind)),
+                   blink: Object.fromEntries(x.panes.map(p => [p.repo, p.blink])),
+                   knock: Object.fromEntries(x.panes.map(p => [p.repo, p.knock])) });
+    if (sum(f.played) >= sum(before) + expect && !f.live && x.panes.every(p => !p.blink && !p.knock)) endAt = frames;
+  }
+  const x = v.inspect();
+  return { before, played: x.fx.played, shook: [first.fx.shook, x.fx.shook], cuedAt, endAt, samples,
+           tones: x.tones };
+})(); }"""
+#: The voxel strip and its sockets, the region a hit blinks (#378).
+STRIP = 10
+
+
+def _hits(page, expect):
+    page.evaluate(HITS, expect)
+
+
+def _hit(page):
+    return page.evaluate("() => window.__hits")
+
+
+def _hit_problems(run):
+    """Every hit piece on every recorded frame: in its pane's strip column ([x, x + 14]) and no
+    more than 14px above the pane's top; a reward piece wears `--done`, never `--human`,
+    `--waiting` or `--idle`; the effect drawn in the skin's three draw calls."""
+    rgb = {"--" + k: c for k, c in run["tones"].items()}
+    same = lambda a, b: all(abs(x - y) < 1e-6 for x, y in zip(a, b))  # noqa: E731
+    wrong = []
+    for smp in run["samples"]:
+        if smp["drawCalls"] != 3:
+            wrong.append(("drawCalls", smp["frames"], smp["drawCalls"]))
+        for q in smp["pieces"]:
+            x, y, _w, _h = smp["boxes"][q["repo"]]
+            if not (x - 1e-6 <= q["x"] <= x + STRIP + 4 + 1e-6) or q["y"] < y - 14 - 1e-6:
+                wrong.append(("placement", q, smp["boxes"][q["repo"]]))
+            if q["kind"] in ("orb", "heart") and (not same(q["c"], rgb["--done"]) or any(
+                    same(q["c"], rgb[k]) for k in ("--human", "--waiting", "--idle"))):
+                wrong.append(("colour", q))
+    return wrong[:5]
+
+
+def _strip_px(page, repo):
+    """The strip and its sockets of one pane, as drawn: device pixels, a `PIXELS` readback, with
+    the box read and the drawn ink's stroke bounds (the pen's, not the skin's: a hand-drawn mark
+    is not stroke-for-stroke the one a reduced-motion page draws at once)."""
+    from test_fleet_ink_farmstead import PIXELS
+    b = page.evaluate(f"""() => {{ const r = tiles.get({repo!r}).el.getBoundingClientRect();
+      return {{ x: r.left, y: r.top, w: {STRIP}, h: r.height }}; }}""")
+    ink = [q for m in page.evaluate("() => Ink.inspect().layer.marks") if m["visible"] is not False
+           for q in m["bounds"]]
+    return {"box": b, "px": page.evaluate(PIXELS, b), "ink": ink}
+
+
+def _reload(page, panes):
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function(f"""() => document.querySelectorAll('#grid .tile[data-repo]').length === {panes}
+        && !!window.Ink && document.body.dataset.skin === 'voxel'""", timeout=20000)
+    page.evaluate(IMPORT)
+    _armed(page)
+    _rest(page, f"({VOXEL})().panes.length === {panes}")
+
+
 #: Each state and what the grammar (docs/skin-voxel.md) says the voxel and the ink do.
 MARK = {
     "needs": ".tile.needs-human .head .repo",
@@ -517,7 +603,12 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     quarter at a time and underlines the name in pen (#334's grammar); a stale
     session leaves a pebble and a dashed pencil box; a finding puts ore in the stack and a red line
     under the line; an answer chosen is looped. When the state goes, so does its response: the
-    block drops, mends, empties; pencil is erased and ink is struck."""
+    block drops, mends, empties; pencil is erased and ink is struck.
+
+    #378: a live error knocks its pane (two blinks of the strip, the stack knocked back, the pane
+    shaken once), a live finish fills the stack with orbs and hearts, and a burst of refusals
+    grazes the strip once. Each ends within the ceiling, back to what a reduced-motion page draws;
+    nothing already so when the page loads, or after a reload, plays."""
     names = ("alpha", "beta", "gamma", "delta")
     extra = {
         "alpha": [E.event("alpha", "question_opened", {"question": "which window?", "id": "q1",
@@ -534,13 +625,17 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
         page, errors = _open(browser, port, token, panes=4)
         _armed(page)
         quiet = {n: _stack(page, n) for n in names}
+        loaded = _voxel(page)["fx"]
 
         world.states.update({"alpha": "needs_human", "beta": "error", "gamma": "done", "delta": "running"})
         world.stale.add("alpha")
+        _hits(page, 2)
         world.push(*names)
         page.wait_for_function("""() => ['alpha.state-needs_human.needs-human', 'beta.state-error',
             'gamma.state-done', 'delta.state-running'].every(s => { const [r, ...c] = s.split('.');
             return document.querySelector(`.tile[data-repo="${r}"].` + c.join('.')); })""", timeout=20000)
+        # #378: beta's error hurts it, gamma's finish rewards it -- once each.
+        hurt = _hit(page)
         page.click('.tile[data-repo="alpha"] .ask-choice')
         _rest(page, f"""(() => {{ const v = ({VOXEL})();
           const s = Object.fromEntries(v.panes.map(p => [p.repo, p.stack]));
@@ -550,6 +645,26 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
         # The next quarter is one timer, re-armed on the frame after it fires; a separate read
         # could land in that one-frame gap on a slow runner (#296). Wait for it to be armed.
         timer = page.wait_for_function(f"() => ({VOXEL})().timer", timeout=10000).json_value()
+        # Their strips, the effects over, are what a reduced-motion page in the same state draws;
+        # and a page loaded (and reloaded twice) on an errored agent, a refusal in its history and a
+        # finished one plays nothing.
+        after = {n: _strip_px(page, n) for n in ("beta", "gamma")}
+        plain, perrors = _open(browser, port, token, panes=4, reduced=True)
+        _armed(plain)
+        _rest(plain, f"""(() => {{ const s = Object.fromEntries(({VOXEL})().panes.map(p => [p.repo, p.stack]));
+          return s.beta.state === 'error' && s.gamma.level === 3; }})()""")
+        still_strip = {n: _strip_px(plain, n) for n in ("beta", "gamma")}
+        assert not perrors, perrors
+        plain.close()
+        again, aerrors = _open(browser, port, token, panes=4)
+        _armed(again)
+        _rest(again)
+        reloads = [_voxel(again)["fx"]["played"]]
+        for _ in range(2):
+            _reload(again, 4)
+            reloads.append(_voxel(again)["fx"]["played"])
+        assert not aerrors, aerrors
+        again.close()
         marks_on ={k: {n: len(_live(page, sel, "pane:" + n)) for n in names} for k, sel in MARK.items()}
         on_error = _live(page, MARK["error"], "pane:beta")
         # A running block turns: the next quarter comes from a timer, and is drawn.
@@ -575,6 +690,28 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
         off = {n: _stack(page, n) for n in names}
         left = {k: [(m["lane"], m["state"], bool(m["strikeOf"]), m["erased"]) for m in _marks(page, sel)]
                 for k, sel in MARK.items()}
+
+        # #378: ten refusals in one burst graze delta's strip once.
+        _hits(page, 1)
+        E.append("delta", [E.event("delta", "denied", {"message": f"refused {i}"}, ticket="RDSD-1")
+                           for i in range(10)])
+        page.wait_for_function("""() => document.querySelectorAll(
+            '.tile[data-repo="delta"] .transcript li.denied').length === 10""", timeout=20000)
+        graze = _hit(page)
+        _rest(page)
+        # A pane holding focus errors: it is hurt, but it does not shake.
+        page.evaluate("""() => [...tiles.get('delta').el.querySelectorAll('button')]
+            .find(b => b.offsetParent && !b.disabled).focus()""")
+        focused_before = page.evaluate("() => tiles.get('delta').el.matches(':focus-within')")
+        _hits(page, 1)
+        world.states["delta"] = "error"
+        world.push("delta")
+        focused = _hit(page)
+        focused["focus"] = page.evaluate("() => tiles.get('delta').el.matches(':focus-within')")
+        page.evaluate("() => document.activeElement.blur()")
+        world.states["delta"] = "idle"
+        world.push("delta")
+        _rest(page, "!tiles.get('delta').el.classList.contains('state-error')")
 
         # #377: a pane put away bursts, and its pieces fly to where it went. Hide gamma with its button.
         worn = _worn(page)
@@ -639,6 +776,40 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     finally:
         _stop(server)
     assert all(s["level"] == 1 and s["lift"] == 0 and not s["needs"] for s in quiet.values()), quiet
+    # #378: a refusal already on the page when it loaded played nothing, and neither did a reload.
+    assert loaded["played"] == {k: 0 for k in loaded["played"]} and loaded["shook"] == 0, loaded
+    assert all(p == {k: 0 for k in p} for p in reloads), reloads
+    ceiling = math.ceil(0.8 * 60) + 4
+    for name, run, want in (("hurt+reward", hurt, {"hurt": 1, "graze": 0, "reward": 1}),
+                            ("graze", graze, {"hurt": 0, "graze": 1, "reward": 0}),
+                            ("focused hurt", focused, {"hurt": 1, "graze": 0, "reward": 0})):
+        got = {k: run["played"][k] - run["before"][k] for k in want}
+        assert got == want, (name, got)
+        assert run["endAt"] is not None and run["endAt"] - run["cuedAt"] <= ceiling, (name, run["cuedAt"], run["endAt"])
+        assert _hit_problems(run) == [], (name, _hit_problems(run))
+    print(f"\n  hurt+reward took {hurt['endAt'] - hurt['cuedAt']} frames ({len(hurt['samples'])} recorded), "
+          f"the graze {graze['endAt'] - graze['cuedAt']} ({len(graze['samples'])}) (ceiling {ceiling})")
+    # The hurt: two blinks, the stack knocked 3px, the pane shaken once. The reward: 5 orbs, 3 hearts.
+    assert max(s["blink"]["beta"] for s in hurt["samples"]) == 2, "an error blinks the strip twice"
+    assert 2.5 <= max(s["knock"]["beta"] for s in hurt["samples"]) <= 3, "and knocks the stack 3px"
+    assert hurt["shook"][1] - hurt["shook"][0] == 1, hurt["shook"]
+    kinds = {q["kind"] for s in hurt["samples"] for q in s["pieces"] if q["repo"] == "gamma"}
+    assert kinds == {"orb", "heart"}, kinds
+    assert max(s["blink"]["delta"] for s in graze["samples"]) == 1, "a graze blinks once"
+    assert {q["kind"] for s in graze["samples"] for q in s["pieces"]} == {"graze"}
+    assert focused_before and focused["focus"] and focused["shook"][1] == focused["shook"][0], focused["shook"]
+    # Over, the strips are the reduced-motion page's, within 2 per channel.
+    for n in ("beta", "gamma"):
+        a, b = after[n]["px"], still_strip[n]["px"]
+        assert len(a) == len(b) and len(a[0]) == len(b[0]), (n, len(a), len(b))
+        sb, ink = after[n]["box"], after[n]["ink"] + still_strip[n]["ink"]
+        inked = lambda j, i: any(q["x"] - 4 <= sb["x"] + i <= q["r"] + 4 and q["y"] - 4 <= sb["y"] + j <= q["b"] + 4  # noqa: E731
+                                 for q in ink)
+        pairs = [(pa, pb) for j, (ra, rb) in enumerate(zip(a, b)) for i, (pa, pb) in enumerate(zip(ra, rb))
+                 if not inked(j, i)]
+        assert len(pairs) > len(a) * len(a[0]) // 2, (n, len(pairs))
+        worst = max(abs(x - y) for pa, pb in pairs for x, y in zip(pa, pb))
+        assert worst <= 2, (n, worst)
     # the voxel response, per state
     assert on["alpha"]["needs"] and on["alpha"]["lift"] == 5 and on["alpha"]["level"] == 2, on["alpha"]
     assert on["alpha"]["stale"] and not on["gamma"]["stale"], "a stale session wears a pebble"
@@ -678,7 +849,7 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     print(f"\n  a {box['w']:.0f}x{box['h']:.0f} pane burst into {chunks} pieces; the blast took "
           f"{hid['endAt'] - hid['cuedAt']} frames, the break {broke['endAt'] - broke['cuedAt']}, "
           f"the place {shown['endAt'] - shown['cuedAt']} (ceiling {FX_FRAMES})")
-    assert {k: hid["played"][k] - hid["before"][k] for k in hid["played"]} == {"blast": 1, "break": 0, "place": 0}, hid
+    assert {k: hid["played"][k] - hid["before"][k] for k in hid["played"]} == {"blast": 1, "break": 0, "place": 0, "hurt": 0, "graze": 0, "reward": 0}, hid
     assert chunks <= 140 and hid["samples"][0]["live"] == chunks, (chunks, hid["samples"][0]["live"])
     assert hid["ends"]["far"] == 0 and hid["ends"]["near"] == chunks, hid["ends"]
     dest = next(s["dest"] for s in hid["samples"] if s["live"])
@@ -692,8 +863,8 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     assert dest and max(abs(a - b) for a, b in zip(dest, removed["rail"])) <= 1, (dest, removed["rail"])
     assert removed["ends"]["far"] == hid["ends"]["far"] == 0, removed["ends"]
     # Escape on the model card: one break. Show all: one place per pane brought back (gamma, delta).
-    assert {k: broke["played"][k] - broke["before"][k] for k in broke["played"]} == {"blast": 0, "break": 1, "place": 0}, broke
-    assert {k: shown["played"][k] - shown["before"][k] for k in shown["played"]} == {"blast": 0, "break": 0, "place": 2}, shown
+    assert {k: broke["played"][k] - broke["before"][k] for k in broke["played"]} == {"blast": 0, "break": 1, "place": 0, "hurt": 0, "graze": 0, "reward": 0}, broke
+    assert {k: shown["played"][k] - shown["before"][k] for k in shown["played"]} == {"blast": 0, "break": 0, "place": 2, "hurt": 0, "graze": 0, "reward": 0}, shown
     for name, run in (("hide", hid), ("remove", removed), ("break", broke), ("place", shown)):
         # Each ends within the ceiling, in the skin's three draw calls, leaves the GPU's geometry
         # count where it found it, and every piece is flat, spins about z and wears the edge or the panel.

@@ -16,6 +16,11 @@ and this script reads them:
         `{os: {file: {tier: seconds}}}`. Within one junit file a file's testcases are summed per tier;
         across junit files the max is taken, never the sum (both Windows legs run the same files).
 
+    counts JUNIT... --out tests/browser_counts.json
+        `{file: n}`, the browser-tier testcases per file in the run `durations.json` was measured on,
+        counted the way `update` sums (per tier within one junit file, max across junit files). The
+        browser time budget costs a new browser test from these (decision 20, #587).
+
 A testcase is keyed by the `file` property `tests/conftest.py` records, never by `classname`: the
 default `junit_family` (xunit2) writes no `file` attribute, and a classname is a dotted guess.
 """
@@ -124,14 +129,34 @@ def durations(paths: list[str]) -> dict[str, dict[str, float]]:
     return {f: {t: round(s, 1) for t, s in sorted(tiers.items())} for f, tiers in sorted(best.items())}
 
 
+def browser_counts(paths: list[str]) -> dict[str, int]:
+    """Browser-tier testcases per file: counted per tier within one junit file, max across files."""
+    best: dict[tuple[str, str], int] = {}
+    for path in paths:
+        mine: dict[tuple[str, str], int] = defaultdict(int)
+        for c in read(path)[1]:
+            if "browser" in c["tier"].split("+"):
+                mine[(c["file"], c["tier"])] += 1
+        for key, n in mine.items():
+            best[key] = max(best.get(key, 0), n)
+    out: dict[str, int] = defaultdict(int)
+    for (file, _tier), n in best.items():
+        out[file] += n
+    return dict(sorted(out.items()))
+
+
+def write_json(data: dict, out: str) -> None:
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+
+
 def update(paths: list[str], os_key: str, out: str) -> None:
     data = {}
     if os.path.isfile(out):
         with open(out, encoding="utf-8") as f:
             data = json.load(f)
     data[os_key] = durations(paths)
-    with open(out, "w", encoding="utf-8", newline="\n") as f:
-        f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+    write_json(data, out)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,6 +174,9 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("junit", nargs="+")
     u.add_argument("--os", required=True, choices=["windows", "linux"])
     u.add_argument("--out", default=os.path.join("tests", "durations.json"))
+    c = sub.add_parser("counts", help="write tests/browser_counts.json")
+    c.add_argument("junit", nargs="+")
+    c.add_argument("--out", default=os.path.join("tests", "browser_counts.json"))
     a = ap.parse_args(argv)
 
     # The Windows runner's stdout is cp1252, and the job names carry a middle dot: write UTF-8, the
@@ -163,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(summarize(a.junit, a.step, a.cap_minutes))
     elif a.cmd == "job":
         sys.stdout.write(job_line(a.junit, a.job, a.cap_minutes))
+    elif a.cmd == "counts":
+        write_json(browser_counts(a.junit), a.out)
     else:
         update(a.junit, a.os, a.out)
     return 0

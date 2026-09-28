@@ -93,6 +93,10 @@ turns.
 `api.request()`. There is no animation loop, so a desk with no agent running asks for no frame at all.
 A finding stays for as long as its line is in the transcript.
 
+**The end states are still.** The crack, the ore fleck and the full stack are what an error, a finding
+and a finish leave. The hits and rewards in §Effects (#378) play on the way in and are gone by 0.8 s;
+an agent that stays errored has a static crack, never a "damaged" loop.
+
 ## Effects
 
 A pane put away bursts into blocks that fly to where it went, as a minimised window goes to the Dock
@@ -103,8 +107,19 @@ A pane put away bursts into blocks that fly to where it went, as a minimised win
 | --- | --- | --- | --- | --- | --- | --- |
 | blast | `#grid > .tile:not(.is-hidden)`, leave: `h`, the hide button, or gone from the registry | the pane's last box cut into chunks of side `max(12, ceil(sqrt(w*h/140)))`, at most 140; they swell 2 frames (x1.04), burst out from the centre at 260-620 px/s (200 px/s more upward), spin about z, fall at 1800 px/s², and from 0.18 s shrink to 6px over 3 frames and home on `dest` with a critically damped spring (ω 14). A piece within 8px of `dest` pops (2 frames). `dest` is the centre of `#hiddencount` for a hide, or of the pane's `#gone .gone-rail` for a removal, read every frame; with none, the pieces fall off the bottom. The ground under the box flashes (below) | ends by 0.8 s | nothing: the slab goes at once | the stacks mesh (paper + 1), and the ground mesh | the ring in `--voxel-edge`, the rest `--voxel-panel` x0.84, x0.92 or x1.0 |
 | place | `#grid > .tile:not(.is-hidden)`, arrive: brought back from the hidden count | 8 six-pixel pieces fly from `#hiddencount` (from the pane's centre if the count is hidden) into the pane's three sockets and pop on arrival | ends by 0.35 s | nothing | the stacks mesh | `--voxel-edge` |
+| hurt | `#grid > .tile.state-error`, arrive: the pane errors | the pane's strip cubes and sockets wear `--human` 0-90 ms and 180-270 ms (two flashes, never more: WCAG 2.3.1, on a 10px strip only); the stack knocks 3px left and eases back over 150 ms; the pane shakes 3px for 240 ms through `api.fx.animate(el, "hit")` (#374), which a pane holding focus or a selection declines, and then the blink plays alone. The crack is the end state | ends by 0.27 s | nothing: the crack at once | the slabs mesh (strip and sockets), the stacks mesh | `--human` |
+| graze | `.tile .transcript li.denied`, `li.friction`, `li.error`, or `.tile .err:not([hidden])`, arrive: a refused, stopped or failed line, or the operator's own refused action | the strip cubes within ±16px of the line's vertical centre (clamped to the pane) wear `--human` for 90 ms, once; 3 four-pixel chips pop off the strip there, fall 30px and pop | ends by 0.4 s | nothing | the slabs mesh, the stacks mesh | the chips `--voxel-edge`; the blink `--human` |
+| reward | `#grid > .tile:is(.state-done, .is-done)`, arrive: the agent finished | 5 orbs (4px, bevel 0) climb the strip from the pane's bottom quarter to the top socket, 60 ms apart, 0.25 s each, and pop on arrival; then 3 hearts (a 5x4 grid of 2px cubes each) rise 12px from the socket and pop by 0.75 s | ends by 0.75 s | nothing: the stack full at once | the stacks mesh | `--done` only: never `--human`, `--waiting` or `--idle` |
 | break | `#modelcard`, `#dispatch`, `#keymap`, `#side` or a pane's `.scope`, each `:not([hidden])`, leave: a card or panel closed | 12-24 flat chips, 6-10px, fall from the lower half of the box, spin, and pop | ends by 0.5 s | nothing | the stacks mesh | `--voxel-edge`, or `--voxel-panel` x0.84..1.0 |
 
+* **Hits and rewards stay in the strip.** Every hurt, graze and reward piece is in its pane's strip
+  column (`x` in `[pane.x, pane.x + 14]`) or at most 14px above the pane's top, so none is behind text.
+  A rail (`w < 90`) or a pane without a slot gets nothing. `--human` is at least 5.3:1 on
+  `--voxel-edge` in every world (Overworld 5.34, Nether 13.41, End 5.93).
+* **One graze per pane per 5 s.** An agent stuck retrying refused calls does not blink its strip
+  continuously: ten refusals in a burst graze once. A hurt plays only on the arrival of `state-error`.
+  Nothing already so when the page loads plays, nor after a reload: the layer arms its cues after its
+  first match.
 * **A grouped pane plays nothing.** A pane folded into its project's rail is `.is-grouped`,
   `display: none`, and still matches `:not(.is-hidden)`; a `blast` or `place` cue for it is dropped.
   `.smenu` has no row: it closes on every pick.
@@ -124,9 +139,12 @@ A pane put away bursts into blocks that fly to where it went, as a minimised win
   ends within `ceil(0.8 * 60) + 4` layer frames of its cue. `tick` answers true while a piece or a
   flashed voxel lives; the durations are constants in `voxel.js`, never in `skin.css`.
 
-`inspect().fx` is `{live, played: {blast, break, place}, ends: {near, far}, flashes, dest, pieces}`:
-`ends` counts a blast's pieces that popped within 12px of their `dest` and elsewhere, and `pieces` is
-up to 64 `{kind, x, y, s, c, bevel, spin}`.
+`inspect().fx` is `{live, played: {blast, break, place, hurt, graze, reward}, shook, ends: {near, far},
+flashes, dest, pieces}`: `shook` counts the hurts whose pane `api.fx.animate` shook, `ends` counts a
+blast's pieces that popped within 12px of their `dest` and elsewhere, and `pieces` is up to 64
+`{kind, repo, x, y, s, c, bevel, spin}`. Each of `inspect().panes` carries `blink` (0, or the 1 or 2
+flashes of the blink playing) and `knock` (px), and `inspect().tones` the four state colours the hits
+and rewards are held to.
 
 ## Colours
 
