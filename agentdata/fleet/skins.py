@@ -218,6 +218,24 @@ SKINS = {
                      "why": "charcoal stock and gel inks, the highlighter screened"},
         },
     },
+    # #394: drawn by the ink layer (`static/ink/skins/phosphor.js`). The pane is the glass itself,
+    # between its near-black and its scanline, so the panel is that pair, checked at both ends;
+    # `inks` are the ones skin.css writes as `--ink-<tool>`, and `tests/test_fleet_ink_phosphor.py`
+    # holds the two to one number. The highlighter is the palette's amber, a shade darker than its
+    # `--waiting`, so the text keeps 4.5:1 through it on the scanline.
+    "phosphor": {
+        "name": "phosphor",
+        "title": "Phosphor",
+        "why": "a green phosphor screen: scanlines and a beam that draws",
+        "default": "green",
+        "variants": {
+            "green": {"title": "Green", "base": "matrix",
+                      "composited_panel": {"darkest": "#010603", "lightest": "#0A1F10"},
+                      "inks": {"pencil": "#3FA866", "pen": "#00FF41", "red": "#FF3B3B",
+                               "green": "#A8FFC0", "marker": "#FF3B3B", "highlighter": "#CCA13B"},
+                      "why": "phosphor on glass"},
+        },
+    },
 }
 
 
