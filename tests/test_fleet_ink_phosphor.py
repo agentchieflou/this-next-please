@@ -13,9 +13,9 @@ properties. What is asserted:
 * the names are our own: no film's names in the module, the stylesheet, their notes or the titles;
 * with ink on, each state's mark is drawn when the fold puts the state on the pane and leaves by
   erase or strike; the glass read back from the canvas stays between its two colours; and an idle
-  desk makes zero DOM mutations and zero WebGL frames;
-* with `?ink=off` the page is the plain palette page with the same table drawn plain, no canvas
-  and no three.js.
+  desk makes zero DOM mutations and zero WebGL frames; with `?ink=off` the page is the plain palette
+  page with the same table drawn plain, no canvas and no three.js. One browser test (#587's time
+  budget is shared by the wave's three new skins).
 """
 from __future__ import annotations
 import gzip
@@ -41,6 +41,11 @@ CSS = os.path.join(STATIC, "skins", "phosphor", "skin.css")
 SKINS_PY = os.path.join(ROOT, "agentdata", "fleet", "skins.py")
 
 TOOLS = ("pencil", "pen", "red", "green", "marker", "highlighter")
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 #: Names that are not ours to use (#318): the film the look recalls, its people and its studio.
 NOT_OURS = re.compile(r"\bmatrix\b|\bneo\b|\bzion\b|\bmorpheus\b|\btrinity\b|nebuchadnezzar|wachowski|warner",
@@ -68,7 +73,7 @@ def test_phosphor_is_offered_by_name_with_its_default():
 def test_the_stylesheet_paints_the_numbers_skins_py_declares():
     """The glass (its near-black and its scanline, the panel's two ends) and every ink, declared once
     in skins.py and named by skin.css. The words are the palette's own: skin.css sets neither."""
-    css = open(CSS, encoding="utf-8").read()
+    css = _read(CSS)
     props = _props(css)
     spec = skins.SKINS["phosphor"]["variants"]["green"]
     panel = spec["composited_panel"]
@@ -96,7 +101,7 @@ def test_theme_check_holds_the_glass_at_both_ends_and_plain():
         assert theme.contrast_ratio(theme.to_css(palette)["--muted"], panel) >= 4.5, panel
     theme.check(palette, composited_panel=theme.to_css(palette)["--panel"], skin="phosphor:green (plain)",
                 inks=spec["inks"], plain=True)
-    css = open(CSS, encoding="utf-8").read()
+    css = _read(CSS)
     coloured = set(re.findall(r"(?<![\w-])color:\s*var\(--ink-(\w+)\)", css))
     assert coloured, "the stylesheet writes a word in an ink"
     for tool in coloured:
@@ -105,7 +110,7 @@ def test_theme_check_holds_the_glass_at_both_ends_and_plain():
 
 
 def test_the_module_carries_no_colour_no_markup_and_fits_its_budget():
-    body = open(MODULE, encoding="utf-8").read()
+    body = _read(MODULE)
     code = re.sub(r"/\*.*?\*/|//[^\n]*", "", body, flags=re.S)
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b", code), "a hex colour in the phosphor module"
     assert not re.search(r"^\s*import\s", code, re.M), "a static import"
@@ -117,7 +122,7 @@ def test_the_module_carries_no_colour_no_markup_and_fits_its_budget():
 
 def _phosphor_source_in_skins_py() -> str:
     """The `"phosphor"` entry of skins.py as written, with the comment above it."""
-    src = open(SKINS_PY, encoding="utf-8").read()
+    src = _read(SKINS_PY)
     start = src.index('    "phosphor": {')
     lines = src[:start].splitlines()
     i = len(lines)
@@ -137,7 +142,7 @@ def test_the_names_are_our_own():
     use names of our own. The palette's slug appears only as the variant's `base`."""
     files = [MODULE, CSS, MODULE + ".md", CSS + ".md"]
     for path in files:
-        text = open(path, encoding="utf-8").read()
+        text = _read(path)
         hits = NOT_OURS.findall(text)
         assert not hits, (os.path.relpath(path, ROOT), hits)
     ph = skins.SKINS["phosphor"]
@@ -167,22 +172,26 @@ def _hex_rgb(h):
 
 
 @pytest.mark.browser
-def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_still(fleet_home, tmp_path, alive,
-                                                                                    finished, desk_browser):
+def test_the_beam_draws_the_state_grammar_on_the_glass_and_without_ink_the_page_is_plain(fleet_home, tmp_path, alive,
+                                                                                        finished, desk_browser):
     """idle, running, error and done, each drawn when the fold puts it on the pane: pencil erased as
     the state goes, ink struck through. The glass under the transcripts, read back from the canvas,
     stays between its near-black and its scanline (plus or minus 1). At rest, before anything
-    happens, the idle desk writes nothing and draws nothing, and the glass is not built again."""
+    happens, the idle desk writes nothing and draws nothing, and the glass is not built again. And
+    with `?ink=off`: `body.ink-off`, the palette's own page (its ground, its panel), no canvas, no
+    three.js and no layer fetched -- and the same table drawn as the layer's plain CSS."""
     from test_fleet_ink_glass import GRID, READ, TRANSCRIPTS   # here: that module holds glass's tests
-    _desk(tmp_path, fleet_home)
+    names = ("alpha", "beta", "gamma")
+    _desk(tmp_path, fleet_home, names=names)
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=3, reduced=True)
         _phosphor(page)
         A = "pane:alpha"
+        IDLE = "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 6"
 
-        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4")
+        _rest(page, IDLE)
         marks = _marks(page)
         for lane in (A, "pane:beta"):
             assert _of(marks, lane, ".tile.state-idle", "pencil", "outline")
@@ -214,9 +223,9 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_sti
         page.close()
 
         # A page of its own for the states: the idle check above replays the page's last answer.
-        page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=3, reduced=True)
         _phosphor(page)
-        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4")
+        _rest(page, IDLE)
 
         # running: the pencil goes (erased), the pen underline comes, with the beam's spot at its end.
         alive.add("alpha")
@@ -234,6 +243,37 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_sti
         _until(page, '.tile[data-repo="alpha"] .transcript > li:nth-child(3)')
         _rest(page, f"Ink.inspect().layer.marks.some(m => m.selector.includes('state-running')"
                     f" && m.state === 'drawn' && m.len > {before} + 10)")
+
+        # Without ink, while alpha runs and gamma needs you: the plain palette page, the table plain.
+        _emit(page, "gamma", ("question_opened", {"question": "which one?", "id": "q1", "blocking": True,
+                                                  "choices": ["this", "that"]}))
+        plain, perrors, asked = _open(browser, port, token, "&ink=off", panes=3)
+        plain.wait_for_function("() => Ink.inspect().table === 'phosphor:green' && Ink.inspect().plain", timeout=15000)
+        _until_class(plain, "alpha", "state-running")
+        _until_class(plain, "gamma", "needs-human")
+        plain.wait_for_selector('.tile[data-repo="gamma"] .ask:not([hidden]) .ask-choice', timeout=15000)
+        look = plain.evaluate("""() => {
+          const cs = el => getComputedStyle(el);
+          const a = document.querySelector('.tile[data-repo="alpha"]'), g = document.querySelector('.tile[data-repo="gamma"]');
+          const root = cs(document.documentElement);
+          return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
+                   text: root.getPropertyValue('--text').trim().toUpperCase(),
+                   bodyBg: cs(document.body).backgroundColor, tileBg: cs(a).backgroundColor,
+                   running: cs(a.querySelector('.head .repo')).textDecorationLine,
+                   needs: cs(g.querySelector('.head .repo')).backgroundColor,
+                   question: cs(g.querySelector('.ask:not([hidden]) .ask-q')).backgroundColor,
+                   loop: cs(g.querySelector('.ask:not([hidden]) .ask-choice')).outlineStyle }; }""")
+        palette = theme.to_css(theme.get("matrix"))
+        rgb = lambda h: "rgb(%d, %d, %d)" % _hex_rgb(h)  # noqa: E731
+        assert look["off"] and not look["canvas"], look
+        assert look["text"] == palette["--text"].upper(), look
+        assert look["bodyBg"] == rgb(palette["--bg"]) and look["tileBg"] == rgb(palette["--panel"]), look
+        assert look["running"] == "underline", look
+        assert look["needs"] not in ("", "rgba(0, 0, 0, 0)") and look["question"] == look["needs"], look
+        assert look["loop"] == "solid", look
+        assert not [u for u in asked if "three.module" in u or "/ink/layer.js" in u], "no layer without ink"
+        assert not perrors, perrors
+        plain.close()
 
         # error: the pen line is struck, a marker loop round the why and a bang.
         alive.discard("alpha")
@@ -256,50 +296,6 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_an_idle_screen_is_sti
         marks = _marks(page)
         assert _of(marks, "pane:beta", "is-done", "green", "check")
         assert not [m for m in marks if m["lane"] == "pane:beta" and "state-idle" in m["selector"]]
-        assert not errors, errors
-        close_pages(browser)
-    finally:
-        _stop(server)
-
-
-@pytest.mark.browser
-def test_without_ink_phosphor_is_the_plain_palette_page_with_the_table_drawn_plain(fleet_home, tmp_path, alive,
-                                                                                  desk_browser):
-    """`?ink=off`: `body.ink-off`, the palette's own page (its ground, its panel), no canvas, no
-    three.js and no layer fetched -- and the same table drawn as the layer's plain CSS."""
-    _desk(tmp_path, fleet_home)
-    server, token, port = _serve()
-    try:
-        browser = desk_browser
-        page, errors, asked = _open(browser, port, token, "&ink=off")
-        page.wait_for_function("() => Ink.inspect().table === 'phosphor:green' && Ink.inspect().plain", timeout=15000)
-        alive.add("alpha")
-        _emit(page, "alpha", ("turn_started", {}))
-        _emit(page, "beta", ("question_opened", {"question": "which one?", "id": "q1", "blocking": True,
-                                                 "choices": ["this", "that"]}))
-        _until_class(page, "alpha", "state-running")
-        _until_class(page, "beta", "needs-human")
-        page.wait_for_selector('.tile[data-repo="beta"] .ask:not([hidden]) .ask-choice', timeout=15000)
-        look = page.evaluate("""() => {
-          const cs = el => getComputedStyle(el);
-          const a = document.querySelector('.tile[data-repo="alpha"]'), b = document.querySelector('.tile[data-repo="beta"]');
-          const root = cs(document.documentElement);
-          return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
-                   text: root.getPropertyValue('--text').trim().toUpperCase(),
-                   bodyBg: cs(document.body).backgroundColor, tileBg: cs(a).backgroundColor,
-                   running: cs(a.querySelector('.head .repo')).textDecorationLine,
-                   needs: cs(b.querySelector('.head .repo')).backgroundColor,
-                   question: cs(b.querySelector('.ask:not([hidden]) .ask-q')).backgroundColor,
-                   loop: cs(b.querySelector('.ask:not([hidden]) .ask-choice')).outlineStyle }; }""")
-        palette = theme.to_css(theme.get("matrix"))
-        rgb = lambda h: "rgb(%d, %d, %d)" % _hex_rgb(h)  # noqa: E731
-        assert look["off"] and not look["canvas"], look
-        assert look["text"] == palette["--text"].upper(), look
-        assert look["bodyBg"] == rgb(palette["--bg"]) and look["tileBg"] == rgb(palette["--panel"]), look
-        assert look["running"] == "underline", look
-        assert look["needs"] not in ("", "rgba(0, 0, 0, 0)") and look["question"] == look["needs"], look
-        assert look["loop"] == "solid", look
-        assert not [u for u in asked if "three.module" in u or "/ink/layer.js" in u], "no layer without ink"
         assert not errors, errors
         close_pages(browser)
     finally:
