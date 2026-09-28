@@ -302,6 +302,19 @@ def test_the_board_draws_the_grammar_and_its_signals_and_ink_off_is_plain(
         # its frames, beta's LED and a pulse on alpha, then no skin again. The first board with motion
         # on may leave the layer's own hand models behind (a tool's hand is made once, the first time
         # it travels), so the count the board must return to is the one before the second.
+        # The header's hand is made here, before either: the bell's count is the header's one mark
+        # (`#bellcount`, rewritten in pen), and a notification that lands while motion is on for a
+        # pulse rewrites it with the hand. Where that first happened in the second board, its hand
+        # model was counted as the skin's (train 26: [11, 11, 15]). The count is put back after.
+        _motion(page, True)
+        page.evaluate("""() => { window.__headerHand = false;
+          const look = () => { const h = Ink.inspect().layer.lanes.header;
+            if (h && h.hand) window.__headerHand = true; else requestAnimationFrame(look); };
+          look(); unread.set('~hand', 1); bell(); }""")
+        _rest(page, "window.__headerHand === true")
+        page.evaluate("() => { unread.delete('~hand'); bell(); }")
+        _rest(page)
+        _motion(page, False)
         geometries = []
         for variant in ("matte", "solder"):
             assert page.evaluate(PROBE) == "ink"
