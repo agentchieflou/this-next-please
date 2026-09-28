@@ -1024,7 +1024,36 @@ artifacts of a green run and run:
 gh run download <run-id> --pattern 'junit-*' --dir junit-run
 python .github/scripts/durations.py update junit-run/junit-ubuntu-latest-*/*.xml --os linux --out tests/durations.json
 python .github/scripts/durations.py update junit-run/junit-windows-*/*.xml --os windows --out tests/durations.json
+python .github/scripts/durations.py counts junit-run/junit-ubuntu-latest-*/*.xml --out tests/browser_counts.json
 ```
 
 Within one junit file a file's tests are summed per tier; across junit files the max is taken, not the sum, since
 both legs of an OS run the same files. The other OS's key is kept and the output is byte-stable.
+
+### The browser tier's time budget
+
+Decision 13 held the slow tiers under a tenth of the suite and let no card add a browser test. Decision 20 (P-2,
+#587) turned the second half into a **time budget**: a card may add browser tests while the browser tier, costed
+from `tests/durations.json`, stays inside it. The tenth stays as it was. Decision 24 enforces the budget **on
+Windows only**: Linux is reported against its would-be budget, never gated.
+
+- **The budget** is `BROWSER_BUDGET_S` in `tests/test_suite_hygiene.py`: per OS, the summed time of every tier that
+  carries `browser` in `tests/durations.json` on green run 36330617129 @ a8549e1, the 3.14-only job set (Linux
+  1,538.4 s, Windows 1,378.3 s), plus 5%, rounded down: **1,615 s and 1,447 s**. 5% is about 70 s of test time on
+  each OS, about 17 browser tests at the tier's mean, spread over the shards: on that run the slowest Windows shard's
+  `pytest` step took 12.1 minutes of its 20-minute job cap, and the Linux browser shards 6.3 and 6.8 of their 15.
+- **Windows is gated; Linux is reported** (decision 24). `BROWSER_GATED` in `tests/test_suite_hygiene.py` is
+  `{"windows"}`. Linux's browser time varies about 9% between green runs (two with the same 356 ids measured
+  1,410.6 s and 1,538.4 s), wider than the 5% headroom, while Windows moved 0.9%. So Linux keeps its would-be budget
+  of 1,615 s, and the check prints its projected time against it, but a Linux overrun fails nothing. Windows stays
+  at measured + 5%.
+- **The cost of a new test** is its file's measured time per browser test (`tests/browser_counts.json` holds the
+  counts of the measured run), or the tier's mean for a file the run did not measure. A removed test gives its time
+  back.
+- **The check** folds into `test_the_expensive_tiers_are_a_small_part_of_the_suite`, which already collects the
+  suite: it prints one line per OS (projected time, budget, gated or reported) and fails naming each gated OS over
+  budget and the files that grew. `test_the_browser_budget_is_the_measured_time_plus_a_small_headroom` fails a
+  refreshed `durations.json` whose Windows browser tier outgrew the budget, or whose counts came from another run,
+  and prints Linux's against its would-be budget.
+- **Refresh both files from the same run.** A refresh that lands over the budget is a finding for the operator.
+  Raising `BROWSER_BUDGET_S` is the operator's call, never a card's.
