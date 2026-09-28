@@ -429,6 +429,7 @@ export function tick({ api }, dt) {
 | voxel (#256) | `skins/voxel.js` | [skin-voxel.md](skin-voxel.md): voxel ground, lit slabs and a status stack per pane, one draw call per material |
 | notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
 | playbook (`chalkboard`, #389) | `skins/playbook.js` | [skin-playbook.md](skin-playbook.md): a coach's chalkboard, the grammar in X's and O's, each route in orange chalk |
+| phosphor (#394) | `skins/phosphor.js` | [skin-phosphor.md](skin-phosphor.md): near-black glass with faint scanlines, the notebook's marks traced by a thin, even beam (`tools`, no hand) |
 
 ## The legal pad (#251)
 
