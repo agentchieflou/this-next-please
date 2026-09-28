@@ -28,7 +28,7 @@ from agentdata.fleet import events as E, serve as S, skins, supervisor
 
 from desk_waits import assert_idle
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
-    RING, SKIN_BUDGET, _hugs, _layer, _marks, _open, _repos, _rest, _serve, _stop, fleet_home)
+    RING, SKIN_BUDGET, _hugs, _layer, _mark, _marks, _open, _repos, _rest, _serve, _stop, _union, fleet_home)
 from desk_harness import close_pages
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -459,6 +459,217 @@ def test_the_board_stays_under_its_ceiling_is_built_once_and_rests(fleet_home, t
         _rest(page, "innerWidth === 1300 && Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
         assert page.evaluate("() => window.__pb.inspect().builds") == before + 1
         assert _layer(page)["skin"]["paper"] == 1
+        assert not errors, errors
+        close_pages(desk_browser)
+    finally:
+        _stop(server)
+
+
+# ================================================================ the moments (#391)
+
+#: Each state the flag of pane `repo` shows, once per change, from now until `__pbStop` is set.
+RECORD_FLAG = """(repo) => { window.__flags = []; window.__pbStop = false;
+  const step = () => { const p = window.__pb.inspect().panes[repo], s = p ? p.flag : 'none';
+    if (__flags[__flags.length - 1] !== s) __flags.push(s);
+    if (!window.__pbStop) requestAnimationFrame(step); };
+  requestAnimationFrame(step); }"""
+
+#: Every rect of text in pane `repo` (a Range over each non-empty text node), in viewport px.
+TEXT_RECTS = """(repo) => { const t = document.querySelector(`.tile[data-repo="${repo}"]`), out = [];
+  const w = document.createTreeWalker(t, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    if (!n.textContent.trim()) continue;
+    const r = document.createRange(); r.selectNodeContents(n);
+    for (const b of r.getClientRects()) if (b.width > 0 && b.height > 0) out.push({ x: b.left, y: b.top, r: b.right, b: b.bottom });
+  }
+  const p = t.getBoundingClientRect();
+  return { text: out, pane: { x: p.left, y: p.top, r: p.right, b: p.bottom } }; }"""
+
+
+def _pane(page, repo):
+    return page.evaluate("r => window.__pb.inspect().panes[r] || null", repo)
+
+
+def _apart(a, b):
+    return a["r"] <= b["x"] or b["r"] <= a["x"] or a["b"] <= b["y"] or b["b"] <= a["y"]
+
+
+def _flag_on(page, repo, qid):
+    _emit(page, repo, ("question_opened", {"question": "which sprint is this in?", "id": qid, "blocking": True,
+                                           "choices": ["this", "next"]}))
+    _until_class(page, repo, "needs-human")
+
+
+def _flag_off(page, repo, qid):
+    _emit(page, repo, ("question_answered", {"id": qid, "question": "which sprint is this in?"}))
+    _until_class(page, repo, "needs-human", False)
+
+
+@pytest.mark.browser
+def test_the_penalty_flag_is_thrown_rests_in_the_margin_and_is_picked_up(fleet_home, tmp_path, desk_browser):
+    """#391. `needs-human` arriving throws the flag from the head's right end (`flying`), and it
+    lands flat in the pane's left margin (`resting`, inside the 36px gutter); the class going picks
+    it up (`leaving`, then `none`). A pane already needing you when the page loads shows its flag
+    at rest, never thrown. Under reduced motion it is `resting` and `none` at once."""
+    _desk(tmp_path, fleet_home)
+    E.append("beta", [E.event("beta", "question_opened", {"question": "already asked?", "id": "b1",
+                                                          "blocking": True, "choices": ["yes", "no"]}, ticket="RDSD-1")])
+    server, token, port = _serve()
+    try:
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on")
+        _playbook(page)
+        page.evaluate(LOAD_PLAYBOOK)
+        _until_class(page, "beta", "needs-human")
+        _rest(page, "!!window.__pb.inspect().panes.beta && window.__pb.inspect().panes.beta.flag === 'resting'")
+        beta = _pane(page, "beta")
+        assert beta["throws"] == 0, ("a flag already down at load is never thrown", beta)
+
+        page.evaluate(RECORD_FLAG, "alpha")
+        _flag_on(page, "alpha", "q1")
+        _rest(page, "window.__pb.inspect().panes.alpha.flag === 'resting'")
+        alpha, pane = _pane(page, "alpha"), page.evaluate(TEXT_RECTS, "alpha")["pane"]
+        box = alpha["flagBox"]
+        assert box["x"] >= pane["x"] and box["r"] <= pane["x"] + 36, (box, pane)
+        assert alpha["throws"] == 1
+        _flag_off(page, "alpha", "q1")
+        _rest(page, "window.__pb.inspect().panes.alpha.flag === 'none'")
+        page.evaluate("() => { window.__pbStop = true; }")
+        seen = page.evaluate("() => window.__flags")
+        assert seen == ["none", "flying", "resting", "leaving", "none"], seen
+        assert _pane(page, "alpha")["flagBox"] is None
+        assert not errors, errors
+        close_pages(desk_browser)
+
+        # Reduced motion: at rest at once, and gone at once.
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on", reduced=True)
+        _playbook(page)
+        page.evaluate(LOAD_PLAYBOOK)
+        _rest(page, "!!window.__pb.inspect().panes.alpha")
+        page.evaluate(RECORD_FLAG, "alpha")
+        _flag_on(page, "alpha", "q2")
+        _rest(page, "window.__pb.inspect().panes.alpha.flag === 'resting'")
+        _flag_off(page, "alpha", "q2")
+        _rest(page, "window.__pb.inspect().panes.alpha.flag === 'none'")
+        page.evaluate("() => { window.__pbStop = true; }")
+        seen = page.evaluate("() => window.__flags")
+        assert seen == ["none", "resting", "none"], seen
+        assert not errors, errors
+        close_pages(desk_browser)
+    finally:
+        _stop(server)
+
+
+#: A skin that draws nothing and hands the test the renderer from its hook (`test_fleet_ink.py`).
+PROBE = """() => Ink.setSkin({ name: 'probe', series: false, marks: [] },
+  { frame({ api }) { window.__r = api.renderer; } }).then(o => o.drawn)"""
+
+
+@pytest.mark.browser
+def test_the_touchdown_and_the_fumble_keep_to_the_margin_and_a_rail_has_neither(fleet_home, tmp_path, alive,
+                                                                               desk_browser):
+    """#391. Done: chalk goalposts and end-zone hatching drawn in the margin, every hatch stroke
+    inside [pane.left, pane.left + 36], 8px above the pane's bottom, clear of every word, and read
+    back as the pencil's chalk, lighter than the board's ceiling; erased when done goes. Error: a
+    ball drawn, two hops, resting just right of the bang and clear of it and of every word; erased
+    when the error goes. Then an idle board is 0 frames and 0 mutations, and replacing the skin
+    frees every geometry it made. A rail with all three classes shows none of them."""
+    _desk(tmp_path, fleet_home)
+    server, token, port = _serve()
+    try:
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on")
+        _playbook(page)
+        page.evaluate(LOAD_PLAYBOOK)
+        _rest(page, "!!window.__pb.inspect().panes.alpha && !!window.__pb.inspect().panes.beta")
+
+        # Touchdown on alpha.
+        _emit(page, "alpha", ("phase_changed", {"from": "build", "to": "done"}))
+        _until_class(page, "alpha", "is-done")
+        _rest(page, "window.__pb.inspect().panes.alpha.posts === 1 && window.__pb.inspect().panes.alpha.hatch === 1")
+        alpha, rects = _pane(page, "alpha"), page.evaluate(TEXT_RECTS, "alpha")
+        pane = rects["pane"]
+        assert len(alpha["hatchBoxes"]) >= 10, alpha
+        for b in alpha["hatchBoxes"] + [alpha["postsBox"]]:
+            assert pane["x"] <= b["x"] and b["r"] <= pane["x"] + 36, (b, pane)
+            assert b["b"] <= pane["b"] - 8, (b, pane)
+            for t in rects["text"]:
+                assert _apart(b, t), ("the chalk crosses a word", b, t)
+        # Three hatch strokes' centre lines, read back: chalk is grainy, so not every point of a
+        # line takes it, but the line finds the pencil's cream chalk, lighter than the board's
+        # ceiling in every channel.
+        ceiling = _rgb(skins.SKINS["playbook"]["variants"]["chalkboard"]["composited_panel"]["lightest"])
+        for h in alpha["hatchBoxes"][:3]:
+            pts = [[h["x"] + 2 + (h["r"] - h["x"] - 4) * k / 10, h["b"] - 2 - (h["b"] - h["y"] - 4) * k / 10]
+                   for k in range(1, 10)]
+            got = page.evaluate(BOARD, pts)["at"]
+            assert [p for p in got if all(c > m for c, m in zip(p, ceiling))], (h, got, ceiling)
+
+        # The fumble on beta.
+        _emit(page, "beta", ("error", {"exit_code": 2}))
+        _until_class(page, "beta", "state-error")
+        _rest(page, "window.__pb.inspect().panes.beta.ball === 'resting'"
+                    " && Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.shape === 'bang' && m.drawn === 1)")
+        beta, rects = _pane(page, "beta"), page.evaluate(TEXT_RECTS, "beta")
+        assert beta["hops"] == 1, beta
+        ball = beta["ballBox"]
+        bang = _union([b for m in _marks(page) if m["lane"] == "pane:beta" and m["shape"] == "bang" for b in m["bounds"]])
+        assert _apart(ball, bang), ("the ball sits on the bang", ball, bang)
+        assert bang["r"] <= ball["x"] <= bang["r"] + 12, ("just right of the bang", ball, bang)
+        for t in rects["text"]:
+            assert _apart(ball, t), ("the ball crosses a word", ball, t)
+
+        # Done goes (an error outranks it): the posts and the hatch are erased. The error goes on
+        # beta (a turn outranks it): the ball is erased.
+        _emit(page, "alpha", ("error", {"exit_code": 1}))
+        alive.add("beta")
+        _emit(page, "beta", ("turn_started", {}))
+        _until_class(page, "alpha", "is-done", False)
+        _until_class(page, "beta", "state-running")
+        _rest(page, "window.__pb.inspect().panes.alpha.posts === 0 && window.__pb.inspect().panes.alpha.hatch === 0"
+                    " && window.__pb.inspect().panes.beta.ball === 'none' && window.__pb.inspect().panes.alpha.ball === 'resting'")
+        assert_idle(page)
+        assert page.evaluate("() => window.__pb.inspect().strokes") > 0
+
+        assert not errors, errors
+        close_pages(desk_browser)
+
+        # Replacing the skin frees every geometry it made. Under reduced motion, so the layer makes
+        # no hand. The geometries on the GPU are read through `api.renderer` from a probe skin's
+        # hook: once the playbook has been on this page and replaced (the layer keeps what it
+        # keeps for its own marks), then with the playbook chosen again, as the settings page
+        # does, alpha's ball and flag down, and after the probe replaces it again.
+        (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "playbook"}}', encoding="utf-8")
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on", reduced=True)
+        _playbook(page)
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'bang')")
+        assert page.evaluate(PROBE) == "ink"
+        _rest(page, "!!window.__r && Ink.inspect().table === 'probe'")
+        before = page.evaluate("() => window.__r.info.memory.geometries")
+        for skin in ("none", "playbook"):
+            page.evaluate("s => post('theme', { skin: s })", skin)
+            page.wait_for_function("s => (document.body.dataset.skin || 'none') === s", arg=skin, timeout=15000)
+        _playbook(page)
+        page.evaluate(LOAD_PLAYBOOK)
+        _rest(page, "!!window.__pb.inspect().panes.alpha && window.__pb.inspect().panes.alpha.ball === 'resting'")
+        assert page.evaluate("() => window.__r.info.memory.geometries") > before
+        assert page.evaluate(PROBE) == "ink"
+        _rest(page, "Ink.inspect().table === 'probe'")
+        assert page.evaluate("() => window.__r.info.memory.geometries") == before
+        assert not errors, errors
+        close_pages(desk_browser)
+
+        # A rail: only alpha is open, and beta, 48px wide, is given all three classes.
+        S.update_window("main", open="alpha", widths={"alpha": 1})
+        (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "playbook"}}', encoding="utf-8")
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on", panes=1)
+        _playbook(page)
+        page.evaluate(LOAD_PLAYBOOK)
+        for cls in ("needs-human", "is-done", "state-error"):
+            _mark(page, "beta", cls)
+        _rest(page, "!!window.__pb.inspect().panes.beta")
+        beta = _pane(page, "beta")
+        assert beta["rail"], beta
+        assert (beta["flag"], beta["posts"], beta["hatch"], beta["ball"]) == ("none", 0, 0, "none"), beta
+        assert (beta["flagBox"], beta["postsBox"], beta["ballBox"], beta["hatchBoxes"]) == (None, None, None, []), beta
         assert not errors, errors
         close_pages(desk_browser)
     finally:
