@@ -374,7 +374,10 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
         assert idle == {"n": 0, "refreshes": 0}, f"an idle /m wrote to the page: {idle}"
 
         def said(action, go):
-            """Tap `go`, and wait for the live line to say what the server answered `action`."""
+            """Tap `go`, and wait for the live line to say what the server answered `action`, and for
+            the read that answer starts to land. The line is written before that read, and the read
+            redraws the sheet: after the second decision it hides the approval card and `#send` moves
+            up 222px, so a tap aimed before it lands on `main` and sends nothing (#614)."""
             with page.expect_response(lambda r: r.url.split("?")[0].endswith("/api/" + action)) as got:
                 page.tap(go)
             answer = got.value.json()
@@ -382,6 +385,7 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
                      if answer["ok"] else answer["error"] + (" — " + answer["hint"] if answer.get("hint") else ""))
             page.wait_for_function("w => document.getElementById('said').textContent === w", arg=words,
                                    timeout=10000)
+            page.wait_for_function("() => !FleetPhone.stream.busy", timeout=10000)
             return answer
 
         # The row's own order (`approval_id` is the first of `approvals`), which the sheet follows.
