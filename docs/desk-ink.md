@@ -428,7 +428,7 @@ export function tick({ api }, dt) {
 | napkin (#252) | `skins/napkin.js` | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
 | voxel (#256) | `skins/voxel.js` | [skin-voxel.md](skin-voxel.md): voxel ground, lit slabs and a status stack per pane, one draw call per material |
 | notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
-| phosphor (#394) | `skins/phosphor.js` | [skin-phosphor.md](skin-phosphor.md): near-black glass with faint scanlines, the notebook's marks traced by a thin, even beam (`tools`, no hand) |
+| phosphor (#394, #395) | `skins/phosphor.js` | [skin-phosphor.md](skin-phosphor.md): near-black glass with faint scanlines, the notebook's marks traced by a thin, even beam (`tools`, no hand), and a glyph of rain per transcript line settling in the margin, one draw call for every pane |
 
 ## The legal pad (#251)
 
