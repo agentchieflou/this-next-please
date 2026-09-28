@@ -1,8 +1,9 @@
 const MARKS = [
   { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines" },
   { selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "highlighter", shape: "lines" },
+  { selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },
   { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
-  { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
+  { selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },
   { selector: ".tile.state-error", tool: "red", shape: "bang" },
   { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
   { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 0 },

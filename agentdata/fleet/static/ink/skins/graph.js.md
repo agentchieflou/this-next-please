@@ -63,7 +63,7 @@ already sets. `app.js` owns every one of these classes; the skin only reads them
 | running        | `.tile.state-running`                                    |
 | needs you      | `.tile.needs-human`, and an open question in `.asks`      |
 | answered       | a choice pressed: `.ask-choice[aria-pressed="true"]`      |
-| error          | `.tile.state-error`                                      |
+| error          | `.tile.state-error`, round its `.why`                    |
 | done           | `.tile.is-done`: the fold's word (the chip says idle)    |
 | stale (#240)   | `.oldsession` shown                                      |
 | a finding      | a skill's STOP in the transcript: `li.friction`          |
@@ -85,14 +85,23 @@ needs you: the name highlighted, and the question, and pencil loops round its ch
 name's highlight is taken up when the agent no longer needs you: the grammar strikes the
 question, never the agent's name.
 
+In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },`:
+
+needs you, the loudest pane on the desk (#335): a marker loop round the open question card,
+on the card's own border (pad -3, so shapes.js draws it at the edge and the stroke stays in the
+card's 8px padding, off its words). With it the pane waiting on the operator's answer carries more
+ink than an errored one.
+
 In `marks`, above `` { selector: `.tile ${open} .ask-choice[aria-pressed="true"]`, tool: "pen", shape: "ellip … ``:
 
 answered: the question's highlight leaves the way ink does, struck through in pen along the
 question -- and the chosen answer is circled.
 
-In `marks`, above `Object.assign({ selector: ".tile.state-error", tool: "marker", shape: "outline" }, RULED),`:
+In `marks`, above `{ selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },`:
 
-error: a red marker box round the pane, ruled, and a bang in the margin.
+error: a marker loop round the error's own words, `.why` (#335; it was round the whole pane).
+Pad 0: shapes.js draws it 3px out, so the stroke clears the words and stays in the pane's padding. A loop, not the ruled box it was: a ruled outline snaps to the box's own
+edges (shapes.js `snap`), which on the why are the words' edges. A bang in the margin, below.
 
 In `marks`, above `{ selector: ".tile.is-done", tool: "green", shape: "check" },`:
 

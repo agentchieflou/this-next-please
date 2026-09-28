@@ -9,8 +9,9 @@ export function marks() {
     { selector: ".tile .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "highlighter", shape: "lines" },
     { selector: ".tile .asks:not([hidden]) .ask:not([hidden]) .ask-choice:not([aria-pressed=\"true\"])",
       tool: "pencil", shape: "loop" },
+    { selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },
     { selector: ".tile .ask:not([hidden]) .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "ellipse" },
-    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
+    { selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },
     { selector: ".tile.state-error", tool: "red", shape: "bang" },
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
@@ -30,7 +31,8 @@ export const sampleGround = false;
 const IDLE = ".tile.state-idle";
 const AGED = ".chip.stale";
 
-const ERROR_ROW = ".tile.state-error";
+const ERROR_ROW = ".tile.state-error .why";
+const LOOP_O = 3;
 const RUNNING_ROW = ".tile.state-running .head .repo";
 
 const SOAK_PX = 180;
@@ -124,7 +126,7 @@ void main() {
 }`;
 
 const BLEED_FS = `
-uniform vec3 uInk; uniform vec2 uSize; uniform float uO; uniform float uRad;
+uniform vec3 uInk; uniform vec2 uAt; uniform vec2 uSize; uniform float uO; uniform float uRad;
 uniform float uHead; uniform float uTail; uniform float uLen;
 varying vec2 vPage; varying vec2 vLocal;
 ${QUILT}
@@ -165,7 +167,7 @@ vec2 onLoop(vec2 p) {
   return best;
 }
 void main() {
-  vec2 hit = onLoop(vLocal);
+  vec2 hit = onLoop(vLocal - uAt);
   float drawn = step(hit.y, uHead);
   if (drawn < 0.5) discard;
   float soak = clamp((uHead - hit.y) / ${SOAK_PX.toFixed(1)} + uTail, 0.0, 1.0);
@@ -231,13 +233,13 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   }, true), api.order.frame);
   ring.name = "coffee";
 
-  const o = 3 - 7, loop = loopLength(box.w, box.h, o, 7);
   const ink = tokens.inks.marker || tokens.human;
-  const reach = o + 18;
+  const reach = LOOP_O + 18;
   const bleed = quad(THREE, -reach, -reach, box.w + reach, box.h + reach, shader(THREE, BLEED_FS, {
     uInk: { value: new THREE.Vector3(ink[0], ink[1], ink[2]) },
-    uSize: { value: new THREE.Vector2(box.w, box.h) }, uO: { value: o }, uRad: { value: loop.rad },
-    uHead: { value: 0 }, uTail: { value: 0 }, uLen: { value: loop.len },
+    uAt: { value: new THREE.Vector2(0, 0) }, uSize: { value: new THREE.Vector2(0, 0) },
+    uO: { value: LOOP_O }, uRad: { value: 1 },
+    uHead: { value: 0 }, uTail: { value: 0 }, uLen: { value: 0 },
   }, true), api.order.frame + 1);
   bleed.name = "bleed";
 
@@ -251,7 +253,7 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   dot.name = "pentip";
 
   for (const m of [ring, bleed, dot]) { m.visible = false; scene.add(m); }
-  const rec = { el, group: scene, ring, bleed, dot, len: loop.len, centre: c, radius: R };
+  const rec = { el, group: scene, ring, bleed, dot, len: 0, at: "", centre: c, radius: R };
   panes.set(el, rec);
   show(rec, api, markOf(), 0);
 }
@@ -281,6 +283,16 @@ function show(rec, api, marks, dt) {
   let soaking = false;
   const loop = at.loop;
   if (loop && loop.drawn > 0) {
+    const r = el.getBoundingClientRect();
+    const x = loop.box.x - r.left, y = loop.box.y - r.top, at = [x, y, loop.box.w, loop.box.h].map(Math.round).join(",");
+    if (at !== rec.at) {
+      const u = bleed.material.uniforms, l = loopLength(loop.box.w, loop.box.h, LOOP_O, 7);
+      u.uAt.value.set(x, y);
+      u.uSize.value.set(loop.box.w, loop.box.h);
+      u.uRad.value = l.rad;
+      rec.len = l.len;
+      rec.at = at;
+    }
     const s = soaks.get(el) || { tail: 0 };
     const head = loop.drawn * loop.len;
     if (loop.drawn >= 1) s.tail = api.reduced ? 1 : Math.min(1, s.tail + dt / SOAK_S);

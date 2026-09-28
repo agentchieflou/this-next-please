@@ -127,7 +127,7 @@ Ink.setSkin({
   speed: 1,               // optional: the pen's speed, 0.25x to 4x (default 1)
   marks: [
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
-    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: 3 },
+    { selector: ".tile.state-error .why", tool: "marker", shape: "loop" },
     { selector: ".tile.state-done", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".chip" },
   ],
@@ -181,11 +181,14 @@ from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px 
 its border box inset 1px (#331), so a row that pads outward is cut away rather than drawn in the gutter:
 
 * An `outline` or `loop` round the pane has a pad of 0 or less, so the stroke and half its width are on the pane:
-  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead, glass,
-  voxel), the
-  stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it.
-* A mark round something in the head is round that thing, never round the head: farmstead's error loop is round
-  the pane, and a stale outline round `.oldsession` is on the note's own box (pad 0).
+  an idle outline -5 (the napkin, the legal pad), the
+  stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it. (The error loop was
+  round the pane at -7 until #335 moved it to the error's `.why`.)
+* A mark round something in the head is round that thing, never round the head: a stale outline round
+  `.oldsession` is on the note's own box (pad 0).
+* A loop round an element inside the pane sits where the element leaves room (#335): round the question card on
+  its own border (pad -3: the stroke stays in the card's 8px padding), and round the error's `.why`, which has no
+  padding, 3px out (pad 0: the stroke clears the words and stays in the pane's 10px padding).
 * A compact pane's head wraps the name onto a line of its own, 2px over the number and the chip. A skin that
   underlines the name gives that head room in its sheet (`row-gap: 8px`, layout, keyed
   `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead, the legal pad
@@ -197,7 +200,9 @@ its border box inset 1px (#331), so a row that pads outward is cut away rather t
 turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
 whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
 element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word
-but its own. The full sweep, every variant, is #340's.
+but its own. The same desk holds #335's order: the pane waiting on the operator's answer carries at least the
+errored pane's ink (each drawn mark's `len` times its tool's width), and, ink off, the question card has the
+marker's 2px outline and the errored pane none of its own. The full sweep, every variant, is #340's.
 
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |
@@ -256,10 +261,11 @@ farmstead's crops) and extra marks, never instead of a required row. The test ho
 | --- | --- | --- | --- | --- |
 | `needs_name` | needs you: the name | `.tile.needs-human .head .repo` | `highlighter` | `lines` |
 | `needs_q` | needs you: the open question | `.tile.needs-human .ask:not([hidden]) .ask-q` | `highlighter` | `lines` |
+| `needs_card` | needs you: the question card | `.tile.needs-human .asks:not([hidden])` | `marker` | `loop` |
 | `answered` | the choice picked | `.ask-choice[aria-pressed=true]` | `pen` | `loop`, `ellipse` |
 | `running` | running: the name | `.tile.state-running .head .repo` | `pen` | `underline` |
 | `error_bang` | error: the margin | `.tile.state-error` | `red`, `marker` | `bang` |
-| `error_box` | error: the pane, or its why | `.tile.state-error`, `.tile.state-error .why` | `marker` | `loop`, `outline` |
+| `error_box` | error: its why | `.tile.state-error .why` | `marker` | `loop`, `outline` |
 | `done` | done | `.tile.is-done` | `green` | `check` |
 
 The element decides, not the selector string. `test_a_skin_is_a_module_the_page_loads_when_it_is_chosen` imports
@@ -269,16 +275,18 @@ template into detached panes, one per state, set the way `app.js` sets them (cla
 markup). An entry passes when some row with one of its tools and shapes matches the entry's element
 (`E.matches(row.selector)`). A module missing a row fails, naming the skin, the variant and the entry.
 
-Where the skins stand after #334:
+Where the skins stand after #334 and #335:
 
 | | notebook, legal pad, napkin, graph | glass | farmstead | voxel |
 | --- | --- | --- | --- | --- |
 | running | pen underline on the name | the same (it was the chip) | the same | the same (it had none) |
-| needs you | highlighter on the name and the question | the same | the same (it had the name only), and the choices looped in pencil | the same (it was a marker underline) |
-| error | marker (graph: ruled outline) round the pane, and a bang | a marker loop round the pane (#335 narrows it to `.why`), and a bang | a marker loop round the pane, and a red bang (it had no bang) | a marker loop round the pane (it had the bang only), and a red bang |
+| needs you | highlighter on the name and the question, and a marker loop round the question card (#335) | the same | the same (it had the name only), and the choices looped in pencil | the same (it was a marker underline) |
+| error | marker loop round the `.why` (#335; it was round the pane, graph's a ruled outline), and a bang | the same, a marker bang | the same, a red bang (it had no bang) | the same, a red bang (it had the bang only) |
 | answered | pen ellipse | pen loop | pen loop | pen loop (it was green, done's ink) |
 
-Which of these states is the loudest is #335's; a mark's geometry is #330-#332's. A colour is the world's: voxel
+The loudest is the pane waiting on the operator's answer (#335, HIG *Layout*: what only the operator can unblock
+comes first): its question card is looped in marker, and an error's marker loop is round its own words, not the
+whole pane, so the question carries more ink than the error in every skin. A mark's geometry is #330-#332's. A colour is the world's: voxel
 Nether's needs-you and error chips, and its error marks, are its palette's yellow `--human`, while its
 pane accent is red ([themes.md](themes.md); the accent is #339).
 
@@ -462,9 +470,9 @@ class or an attribute the page already sets; the skin decides no state.
 | --- | --- | --- |
 | idle | `.tile.state-idle` → pencil outline (inside the pane); `.tile.state-idle .head .repo` → pencil underline | `drawTile`'s `state-*` |
 | running | `.tile.state-running .head .repo` → pen underline; its tail and the pen-tip dot are the module's (below) | `drawTile` |
-| needs you | `.tile.needs-human .head .repo` → highlighter; the open question's `.ask-q` → highlighter; each `.ask-choice` → pencil loop | `needs-human` (#94's fold), the question card (#165) |
+| needs you | `.tile.needs-human .head .repo` → highlighter; the open question's `.ask-q` → highlighter; each `.ask-choice` → pencil loop; `.tile.needs-human .asks:not([hidden])` → marker loop round the card (#335) | `needs-human` (#94's fold), the question card (#165) |
 | answered | the chosen `.ask-choice[aria-pressed="true"]` → pen ellipse. The question's highlight and the choices' loops leave: the highlight is struck in pen along its swipe (the question struck, never the name, whose highlight stays), and the loops are erased | `aria-pressed`, which the page sets when a choice is pressed; the question rows carry `:not(:has(… [aria-pressed="true"]))` |
-| error | `.tile.state-error` → marker loop inside the pane, and a red bang in its margin | `drawTile` |
+| error | `.tile.state-error .why` → marker loop round the error's words (#335), and `.tile.state-error` → a red bang in the pane's margin | `drawTile` |
 | done | `.tile:is(.state-done, .is-done)` → green check in the margin | `drawTile`: `is-done` is the fold's own word (#253) |
 | stale (#240) | `.oldsession:not([hidden])` → pencil `write` (its own words, handwritten), a dashed pencil outline round it, and a pencil arrow to `.runline` | `drawOldSession` |
 | a finding | `.transcript li.denied` or `li.friction` → red ellipse; its `.k` → highlighter; its `.v` → pencil `write` | the transcript's own line classes (`appendTo`) |

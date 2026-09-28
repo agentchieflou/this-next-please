@@ -56,9 +56,10 @@ GRAMMAR = {
     "running": [(".tile.state-running .head .repo", "pen", "underline")],
     "needs you": [(".tile.needs-human .head .repo", "highlighter", "lines"),
                   (f".tile .ask:not([hidden]){OPEN} .ask-q", "highlighter", "lines"),
-                  (f".tile .ask:not([hidden]){OPEN} .ask-choice", "pencil", "loop")],
+                  (f".tile .ask:not([hidden]){OPEN} .ask-choice", "pencil", "loop"),
+                  (".tile.needs-human .asks:not([hidden])", "marker", "loop")],
     "answered": [('.tile .ask:not([hidden]) .ask-choice[aria-pressed="true"]', "pen", "ellipse")],
-    "error": [(".tile.state-error", "marker", "loop"), (".tile.state-error", "red", "bang")],
+    "error": [(".tile.state-error .why", "marker", "loop"), (".tile.state-error", "red", "bang")],
     "done": [(".tile:is(.state-done, .is-done)", "green", "check")],
     "stale": [(STALE, "pencil", "write"), (STALE, "pencil", "outline"), (STALE, "pencil", "arrow")],
     "a finding": [(FOUND, "red", "ellipse"), (FOUND + " .k", "highlighter", "lines"),
@@ -379,7 +380,8 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
 
 @pytest.mark.browser
 def test_answering_strikes_the_question_and_circles_the_choice(fleet_home, tmp_path, monkeypatch, desk_browser):
-    """*needs you* is the name and the question highlighted and each choice looped in pencil;
+    """*needs you* is the name and the question highlighted, each choice looped in pencil and the
+    question card in marker (#335);
     *answered* is the question and its highlight struck through in pen -- the question, never the
     agent's name -- and the chosen answer circled. Pressing a choice is the page's own answer
     (`aria-pressed`), so the grammar follows the operator's hand, not a guess."""
@@ -389,12 +391,12 @@ def test_answering_strikes_the_question_and_circles_the_choice(fleet_home, tmp_p
     try:
         browser = desk_browser
         page, errors, _ = _desk(browser, port, token)
-        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop' && m.tool === 'pencil').length === 2")
         before = _drawn(page, "pane:asks")
         question = next(m for m in _marks(page) if m["selector"].endswith(" .ask-q"))
         page.click('.tile[data-repo="asks"] .ask-choice:has-text("dev")')
         _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'ellipse' && m.state === 'drawn')"
-                    " && !Ink.inspect().layer.marks.some(m => m.shape === 'loop')"
+                    " && !Ink.inspect().layer.marks.some(m => m.shape === 'loop' && m.tool === 'pencil')"
                     " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
         after = _marks(page)
         circled = page.evaluate("""() => { const m = Ink.inspect().layer.marks.find(m => m.shape === 'ellipse');
@@ -408,6 +410,7 @@ def test_answering_strikes_the_question_and_circles_the_choice(fleet_home, tmp_p
     q = f".tile .ask:not([hidden]){OPEN} .ask-q"
     assert before[(q, "highlighter", "lines")] == ["drawn"]
     assert before[(f".tile .ask:not([hidden]){OPEN} .ask-choice", "pencil", "loop")] == ["drawn", "drawn"]
+    assert before[(".tile.needs-human .asks:not([hidden])", "marker", "loop")] == ["drawn"]
     by_id = {m["id"]: m for m in after}
     assert by_id[question["id"]]["state"] == "struck", "the question's highlight is struck, in pen"
     strike = next(m for m in after if m["strikeOf"] == question["id"])
@@ -491,7 +494,7 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
 
 @pytest.mark.browser
 def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, monkeypatch, desk_browser):
-    """*error* is a red marker box inside the pane and a bang in its margin; *done* a green check in
+    """*error* is a red marker loop round its why (#335) and a bang in the pane's margin; *done* a green check in
     the margin. Both are ink, so a state that goes is struck through and the strike stays. (The
     fleet's records carry the pane from one to the other: an error, then a new run that finishes.)"""
     _pad(tmp_path, monkeypatch, {"broke": [_said("broke", "trying"), _ev("broke", "error", {"exit_code": 2})]})
@@ -500,7 +503,7 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
     try:
         browser = desk_browser
         page, errors, _ = _desk(browser, port, token, reduced=True)
-        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector === '.tile.state-error').length === 2")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.startsWith('.tile.state-error')).length === 2")
         error = _drawn(page, "pane:broke")
         # The agent is run again and finishes: a new run leaves the old one's error behind, and
         # its own state.json says done. The page hears it as it hears any agent.
@@ -524,9 +527,10 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
         close_pages(browser)
     finally:
         _stop(server)
-    assert error[(".tile.state-error", "marker", "loop")] == ["drawn"], error
+    assert error[(".tile.state-error .why", "marker", "loop")] == ["drawn"], error
     assert error[(".tile.state-error", "red", "bang")] == ["drawn"], error
-    struck = [m for m in done if m["selector"] == ".tile.state-error"]
+    assert (".tile.state-error", "marker", "loop") not in error, "the whole pane is not boxed (#335)"
+    struck = [m for m in done if m["selector"].startswith(".tile.state-error")]
     assert sorted(m["state"] for m in struck) == ["struck", "struck"], struck
     assert all(any(s["strikeOf"] == m["id"] and s["tool"] == "pen" for s in done) for m in struck)
     name = [m for m in done if m["selector"] == ".tile.needs-human .head .repo"]
@@ -580,7 +584,7 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
     try:
         browser = desk_browser
         page, errors, _ = _desk(browser, port, token, panes=2, reduced=True)
-        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'loop' && m.tool === 'pencil').length === 2")
         # `idle` is done through a real event (#470), so the server's fold says done too and no
         # /api/fleet answer can take the check's class away. The choice and the bell go on the page
         # in the task that brings `is-done`; the layer's frames are counted from there to the frame
@@ -619,7 +623,9 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
     assert went["frames"] <= 2, went
     live = [m for m in went["marks"] if not m[4]]
     assert all(m[3] == 1 for m in live), live
-    assert not [m for m in live if m[1] == "loop"], "the pencil loops erased at once"
+    card = GRAMMAR["needs you"][3][0]
+    assert not [m for m in live if m[1] == "loop" and m[0] != card], "the pencil loops erased at once"
+    assert [m[2] for m in live if m[0] == card] == ["drawn"], "the question card stays looped until it is sent"
     assert [m[2] for m in live if m[1] == "ellipse"] == ["drawn"] and [m for m in live if m[1] == "check"], went
     assert "is-done" in went["idle"].split() and [m[2] for m in live if m[1] == "check"] == ["drawn"], went
     assert any(m[2] == "struck" for m in went["marks"]), went["marks"]
@@ -629,8 +635,8 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
 @pytest.mark.browser
 def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(fleet_home, tmp_path, monkeypatch, desk_browser):
     """Decision 3: no WebGL, the same page plain. The skin's table is the constructed stylesheet --
-    an outline for idle, a tint for the question, a loop for each choice, a margin bar for an error
-    -- in the skin's own inks. Since #257 there is no CSS pad under it: the plain look is the one
+    an outline for idle, a tint for the question, a loop for each choice and round the question card,
+    a loop round an error's why and a margin bar for it (#335) -- in the skin's own inks. Since #257 there is no CSS pad under it: the plain look is the one
     every skin shares, the palette's own page with no rules, margin or glue painted on it (those are
     the module's alone). The fallback writes nothing to the page to do it."""
     _pad(tmp_path, monkeypatch, {"asks": _asks("asks"), "idle": _idle("idle"),
@@ -655,7 +661,8 @@ def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(flee
             question: cs(t('asks').querySelector('.ask:not([hidden]) .ask-q')).backgroundColor,
             choice: cs(t('asks').querySelector('.ask-choice')).outlineStyle,
             hl: cs(t('asks').querySelector('.head .repo')).backgroundColor,
-            error: [cs(t('broke')).outlineStyle, cs(t('broke')).boxShadow],
+            error: [cs(t('broke')).outlineStyle, cs(t('broke')).boxShadow, cs(t('broke').querySelector('.why')).outlineStyle],
+            card: [cs(t('asks').querySelector('.asks')).outlineStyle, cs(t('asks').querySelector('.asks')).outlineWidth],
             rules: body.backgroundImage, paper: body.backgroundColor,
             glue: cs(document.querySelector('header')).borderTopColor,
             margin: cs(t('idle')).backgroundImage,
@@ -681,7 +688,8 @@ def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(flee
     assert look["question"] not in ("rgba(0, 0, 0, 0)", "transparent"), look
     assert look["hl"] == look["question"], "one highlighter"
     assert look["choice"] == "solid", look
-    assert look["error"][0] == "solid" and "inset" in look["error"][1], look
+    assert look["error"][0] == "none" and "inset" in look["error"][1] and look["error"][2] == "solid", look
+    assert look["card"] == ["solid", "2px"], look
     assert look["rules"] == "none" and look["margin"] == "none", f"the plain look paints the pad: {look}"
     assert not _near(_px(look["paper"]), props["--paper"], 2), "the plain page is the palette's, not canary"
     assert not _near(_px(look["glue"]), props["--glue"], 2), "the plain header has no glue"

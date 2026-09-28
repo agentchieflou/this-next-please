@@ -60,9 +60,9 @@ plan-ink §The state grammar, mapped onto what `app.js` already sets. The skin d
 | --- | --- | --- |
 | idle | `.tile.state-idle` | pencil outline, ruled; pencil underline under the name, ruled |
 | running | `.tile.state-running` | pen underline under the name, ruled |
-| needs you | `.tile.needs-human`; an open question in `.asks` | highlighter on the name and on the question, pencil loops round each choice |
+| needs you | `.tile.needs-human`; an open question in `.asks` | highlighter on the name and on the question, pencil loops round each choice, and a marker loop round the question card (`.tile.needs-human .asks:not([hidden])`, pad -3): the loudest pane (#335) |
 | answered | a choice pressed (`.ask-choice[aria-pressed="true"]`) | the question's highlight leaves as ink does, **struck through in pen along the question**; the chosen answer circled in pen (its pencil loop is erased). When the agent no longer needs you, the name's highlight is **taken up** (`leaves: "erased"`), never struck through the name |
-| error | `.tile.state-error` | red marker box round the pane, ruled; a bang in the margin |
+| error | `.tile.state-error` | a red marker loop round the error's own words, `.tile.state-error .why` (#335: it was a ruled box round the pane; a ruled box snaps to the why's own edges, which are its words'); a bang in the margin |
 | done | `.tile.is-done` | green check in the margin |
 | stale (#240) | `.oldsession` shown | the chip written in pencil as the margin note, a pencil arrow to the run line, a dashed pencil outline, ruled |
 | a finding | a skill's STOP in the transcript (`li.friction`) | red ellipse round the line, highlighter on its token, its own text written |

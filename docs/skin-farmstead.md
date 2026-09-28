@@ -119,9 +119,9 @@ never instead of a mark.
 
 | State | The page's signal | Mark (tool, shape) | Material | Plain (`body.ink-off`) |
 | --- | --- | --- | --- | --- |
-| needs you | `.tile.needs-human` | highlighter, `lines` on the name (`.head .repo`) and on the open question (`.asks:not([hidden]) .ask:not([hidden]) .ask-q`); pencil, `loop` round each choice not yet picked (#334) | the crop wilts | a tinted name and question, outlined choices, and the stylesheet's wilted chip glyph |
+| needs you | `.tile.needs-human` | highlighter, `lines` on the name (`.head .repo`) and on the open question (`.asks:not([hidden]) .ask:not([hidden]) .ask-q`); pencil, `loop` round each choice not yet picked (#334); marker, `loop` round the question card, `.tile.needs-human .asks:not([hidden])`, on its border (pad -3): the loudest pane (#335) | the crop wilts | a tinted name and question, outlined choices, the card outlined in the marker's colour, and the stylesheet's wilted chip glyph |
 | running | `.tile.state-running` | pen, `underline` under the name | a sprout grows | an underlined name, the sprout glyph |
-| error | `.tile.state-error` | marker, `loop` inside the pane (pad -7; round the head it crossed the chip row, #332); red, `bang` in the pane's margin (#334) | the crop wilts, and the frame is scorched (its boards darkened, with an ember of `--human`) | a 2px outline round the pane, and a bar in its margin |
+| error | `.tile.state-error` | marker, `loop` round the error's own words, `.tile.state-error .why` (pad 0, #335; it was round the pane at -7); red, `bang` in the pane's margin (#334) | the crop wilts, and the frame is scorched (its boards darkened, with an ember of `--human`) | a 2px outline round the why, and a bar in the pane's margin |
 | done | `.tile:is(.state-done, .is-done)` | green, `check` in the pane's margin (#330) | the crop grows into a bloom | a bar in the pane's margin (the chip's own glyph says what the chip says) |
 | stale (#240) | `.tile .oldsession:not([hidden])` | pencil, dashed `outline` round the *old skills* tag | — | a 1px outline |
 | answered | `.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]` | pen, `loop` round the chosen answer | — | a 2px outline |

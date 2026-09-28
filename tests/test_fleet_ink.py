@@ -1062,10 +1062,11 @@ def _choose(page, skin):
 GRAMMAR = {
     "needs_name": {"el": ".tile.needs-human .head .repo", "tools": ["highlighter"], "shapes": ["lines"]},
     "needs_q":    {"el": ".tile.needs-human .ask:not([hidden]) .ask-q", "tools": ["highlighter"], "shapes": ["lines"]},
+    "needs_card": {"el": ".tile.needs-human .asks:not([hidden])", "tools": ["marker"], "shapes": ["loop"]},
     "answered":   {"el": ".ask-choice[aria-pressed=true]", "tools": ["pen"], "shapes": ["loop", "ellipse"]},
     "running":    {"el": ".tile.state-running .head .repo", "tools": ["pen"], "shapes": ["underline"]},
     "error_bang": {"el": ".tile.state-error", "tools": ["red", "marker"], "shapes": ["bang"]},
-    "error_box":  {"el": [".tile.state-error", ".tile.state-error .why"], "tools": ["marker"], "shapes": ["loop", "outline"]},
+    "error_box":  {"el": ".tile.state-error .why", "tools": ["marker"], "shapes": ["loop", "outline"]},
     "done":       {"el": ".tile.is-done", "tools": ["green"], "shapes": ["check"]},
 }
 

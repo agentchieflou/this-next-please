@@ -115,14 +115,21 @@ In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden]) .ask:not([
 needs you: the open question highlighted too, and each choice not yet picked looped in pencil
 (#334, docs/desk-ink.md §The state grammar across skins).
 
+In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },`:
+
+needs you, the loudest pane on the desk (#335): a marker loop round the open question card,
+on the card's own border (pad -3, so shapes.js draws it at the edge and the stroke stays in the
+card's 8px padding, off its words). With it the pane waiting on the operator's answer carries more
+ink than an errored one.
+
 In `marks`, above `{ selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },`:
 
 running: a pen line under the name while the sprout grows.
 
-In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+In `marks`, above `{ selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },`:
 
-error: the pane boxed in marker, inside its frame (#332: round the head, the loop crossed the
-chip row and the words under it); the crop wilts and the frame is scorched.
+error: a marker loop round the error's own words, `.why` (#335; it was round the whole pane).
+Pad 0: shapes.js draws it 3px out, so the stroke clears the words and stays in the pane's padding. The crop wilts and the frame is scorched.
 
 In `marks`, above `{ selector: ".tile.state-error", tool: "red", shape: "bang" },`:
 

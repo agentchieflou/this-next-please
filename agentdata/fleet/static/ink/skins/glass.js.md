@@ -105,6 +105,13 @@ In `marks`, above `{ selector: ".tile.needs-human .repo", tool: "highlighter", s
 
 needs you: the name, and every open question, under the highlighter
 
+In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },`:
+
+needs you, the loudest pane on the desk (#335): a marker loop round the open question card,
+on the card's own border (pad -3, so shapes.js draws it at the edge and the stroke stays in the
+card's 8px padding, off its words). With it the pane waiting on the operator's answer carries more
+ink than an errored one.
+
 In `marks`, above `{ selector: ".tile .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "loop", pad: …`:
 
 answered: the choice picked, circled in pen (struck if another is picked)
@@ -114,10 +121,10 @@ In `marks`, above `{ selector: ".tile.state-running .head .repo", tool: "pen", s
 running: the name underlined in pen, as on every skin (#334, docs/desk-ink.md §The state grammar
 across skins; it was the chip)
 
-In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+In `marks`, above `{ selector: ".tile.state-error .why", tool: "marker", shape: "loop", pad: 0 },`:
 
-error: a marker loop round the pane, inside it (pad -7, #332), and a bang in the margin (#334).
-#335 narrows the loop to the pane's `.why`.
+error: a marker loop round the error's own words, `.why` (#335; it was round the whole pane).
+Pad 0: shapes.js draws it 3px out, so the stroke clears the words and stays in the pane's padding. A bang in the margin (#334), below.
 
 In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "bang" },`:
 

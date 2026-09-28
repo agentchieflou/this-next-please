@@ -286,7 +286,8 @@ def test_idle_running_error_and_done_draw_their_marks_and_leave_by_erase_or_stri
       agent starts a turn (pencil leaves by the eraser);
     * running -- a pen underline under the name; it is STRUCK when the turn fails (ink leaves by a
       pen line through it);
-    * error -- a red marker box round the pane and a bang in the margin;
+    * error -- a red marker loop round its why (#335: it was a ruled box round the pane) and a bang
+      in the margin;
     * done -- a green check in the margin.
 
     And the ruled ones -- outlines and underlines -- lie on the grid's lines."""
@@ -342,17 +343,17 @@ def test_idle_running_error_and_done_draw_their_marks_and_leave_by_erase_or_stri
     # Ink leaves by a strike: the running underline is still there, struck through in pen.
     [was] = _of(error, "alpha", ".tile.state-running .head .repo", live=False)
     assert was["state"] == "struck" and _strikes_of(error, was)[0]["tool"] == "pen", was
-    [box] = _of(error, "alpha", ".tile.state-error")[:1]
-    boxes = [m for m in _of(error, "alpha", ".tile.state-error") if m["shape"] == "outline"]
+    [loop] = _of(error, "alpha", ".tile.state-error .why")
     bangs = [m for m in _of(error, "alpha", ".tile.state-error") if m["shape"] == "bang"]
-    assert boxes and boxes[0]["tool"] == "marker" and all(_banded(boxes[0], seen["band"])), box
+    assert loop["tool"] == "marker" and loop["shape"] == "loop", loop
+    assert not [m for m in _of(error, "alpha", ".tile.state-error") if m["shape"] == "outline"], error
     assert bangs and bangs[0]["tool"] == "red"
 
 
 @pytest.mark.browser
 def test_needs_you_then_answered_strikes_the_question_and_never_the_name(fleet_home, tmp_path, desk_browser):
-    """needs you: the highlighter on the name and on the question, and pencil loops round the
-    choices. answered: pressing a choice strikes the question and its highlight through in pen and
+    """needs you: the highlighter on the name and on the question, pencil loops round the choices,
+    and a marker loop round the question card (#335). answered: pressing a choice strikes the question and its highlight through in pen and
     circles the chosen answer (its pencil loop is erased); when the agent no longer needs you the
     name's highlight is taken up, never struck through the agent's name."""
     _desk(tmp_path, fleet_home, {"beta": "needs", "alpha": "idle"})
@@ -364,7 +365,7 @@ def test_needs_you_then_answered_strikes_the_question_and_never_the_name(fleet_h
         _tile_has(page, "beta", "needs-human")
         page.wait_for_selector('.tile[data-repo="beta"] .ask:not([hidden]) .ask-choice', timeout=20000)
         _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:beta' && m.shape === 'loop'"
-                    " && m.state === 'drawn').length === 2")
+                    " && m.state === 'drawn').length === 3")
         seen["needs"] = _marks(page)
         page.click('.tile[data-repo="beta"] .ask:not([hidden]) .ask-choice >> nth=0')
         _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.shape === 'ellipse'"
@@ -388,6 +389,8 @@ def test_needs_you_then_answered_strikes_the_question_and_never_the_name(fleet_h
     assert name["tool"] == "highlighter" and name["shape"] == "lines"
     assert question["tool"] == "highlighter" and question["shape"] == "lines"
     assert len(loops) == 2 and {m["tool"] for m in loops} == {"pencil"} and {m["shape"] for m in loops} == {"loop"}
+    [card] = _of(needs, "beta", ".tile.needs-human .asks:not([hidden])")
+    assert card["tool"] == "marker" and card["shape"] == "loop", card
 
     answered = seen["answered"]
     [q] = [m for m in answered if m["id"] == question["id"]]
