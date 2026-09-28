@@ -150,3 +150,19 @@ def test_the_suite_records_the_file_and_the_markers_on_every_test(request):
     props = dict(request.node.user_properties)
     assert props["file"] == "tests/test_durations_script.py"
     assert "markers" in props
+
+
+def test_counts_are_the_browser_tests_per_file_the_way_update_sums_them(tmp_path, durations):
+    """The browser time budget (#587) costs a new test from these: per tier within one junit file,
+    max across junit files, so a file whose browser and browser+measured tests run in different
+    steps counts both, and a file both legs ran counts once."""
+    one = junit(tmp_path / "one.xml", [("tests/test_b.py", "test_page", "browser", 1.0),
+                                       ("tests/test_b.py", "test_other[x]", "browser", 1.0),
+                                       ("tests/test_a.py", "test_plain", "", 1.0)], wall=3.0)
+    two = junit(tmp_path / "two.xml", [("tests/test_b.py", "test_page", "browser", 1.0),
+                                       ("tests/test_b.py", "test_timed", "browser,measured", 1.0),
+                                       ("tests/test_c.py", "test_page", "browser", 1.0)], wall=3.0)
+    assert durations.browser_counts([one, two]) == {"tests/test_b.py": 3, "tests/test_c.py": 1}
+    out = tmp_path / "browser_counts.json"
+    subprocess.run([sys.executable, SCRIPT, "counts", one, two, "--out", str(out)], check=True)
+    assert json.loads(out.read_text(encoding="utf-8")) == {"tests/test_b.py": 3, "tests/test_c.py": 1}
