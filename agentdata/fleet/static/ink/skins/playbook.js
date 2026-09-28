@@ -83,8 +83,7 @@ void main(){
     if (float(i) >= uGhosts) break;
     vec3 g = uGhost[i];
     float d = length((p - g.xy) / vec2(g.z, g.z * 0.55));
-    float smear = 0.8 + 0.2 * vn(p / 18.0 + g.xy);
-    c = mix(c, uMax, 0.42 * smear * (1.0 - smoothstep(0.3, 1.0, d)));
+    c = mix(c, uMax, (0.34 + 0.08 * grain * 20.0) * (1.0 - smoothstep(0.3, 1.0, d)));
   }
   float below = step(uTop, p.y);
   float yd = mod(p.y - uTop, ${YARD}.0);
@@ -146,10 +145,10 @@ const BALL = { x: 19, y: 34, w: 10, h: 7, from: [4, -14], mid: [1.5, 0] };
 const recs = new Map();
 let lastApi = null;
 
-function flagOf(el) { return el.classList.contains("needs-human"); }
-function doneOf(el) { return el.classList.contains("is-done") || el.classList.contains("state-done"); }
-function errorOf(el) { return el.classList.contains("state-error"); }
-function stale() { return document.body.classList.contains("is-stale"); }
+function flagOf(el) { return el.matches(".needs-human"); }
+function doneOf(el) { return el.matches(".is-done, .state-done"); }
+function errorOf(el) { return el.matches(".state-error"); }
+function stale() { return document.body.matches(".is-stale"); }
 
 function chalk() {
   return options.tools.pencil;
