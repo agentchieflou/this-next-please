@@ -479,9 +479,15 @@ def test_the_browser_check_sees_a_module_and_a_fixture_without_the_marker():
 # (about 17 browser tests at the tier's mean), spread over the shards, which absorb it without
 # nearing a cap. Raising a number here is the operator's call, never a card's
 # (docs/testing-this-repo.md, *The browser tier's time budget*).
+#
+# Decision 24: the budget is enforced on Windows only. Two green Linux runs with the same 356 ids
+# measured 1,410.6 s and 1,538.4 s, 9% apart and wider than the 5% headroom, while Windows moved
+# 0.9%. Linux keeps its would-be budget, and its projected time is printed against it, but it
+# fails nothing.
 BROWSER_MEASURED_S = {"linux": 1538.4, "windows": 1378.3}
 BROWSER_HEADROOM = 0.05
 BROWSER_BUDGET_S = {"linux": 1615, "windows": 1447}
+BROWSER_GATED = frozenset({"windows"})
 DURATIONS = os.path.join(REPO_ROOT, "tests", "durations.json")
 BROWSER_COUNTS = os.path.join(REPO_ROOT, "tests", "browser_counts.json")
 
@@ -511,11 +517,27 @@ def projected_browser_seconds(files: dict, counts_then: dict, counts_now: dict) 
     return sum(per_file.values()), per_file
 
 
-def browser_budget_findings(durations: dict, counts_then: dict, counts_now: dict,
-                            budget: dict) -> list[str]:
-    """One line per OS whose projected browser time is over its budget, naming the files that grew."""
+def browser_budget_report(durations: dict, counts_then: dict, counts_now: dict, budget: dict,
+                          gated=BROWSER_GATED) -> list[str]:
+    """One line per OS: its projected browser time against its budget, and whether that is gated."""
     out = []
     for os_key, cap in sorted(budget.items()):
+        total, _ = projected_browser_seconds(durations[os_key], counts_then, counts_now)
+        how = "gated" if os_key in gated else "reported, not gated (decision 24)"
+        out.append(f"{os_key}: browser tier {total:.1f} s against a budget of {cap} s, "
+                   f"{'over' if total > cap else 'within'}; {how}")
+    return out
+
+
+def browser_budget_findings(durations: dict, counts_then: dict, counts_now: dict,
+                            budget: dict, gated=BROWSER_GATED) -> list[str]:
+    """One line per gated OS whose projected browser time is over its budget, naming the files that
+    grew. An OS outside `gated` (Linux, decision 24) is never a finding: `browser_budget_report`
+    prints it."""
+    out = []
+    for os_key, cap in sorted(budget.items()):
+        if os_key not in gated:
+            continue
         total, per_file = projected_browser_seconds(durations[os_key], counts_then, counts_now)
         if total > cap:
             grew = sorted(f for f, n in counts_now.items() if n > counts_then.get(f, 0))
@@ -534,12 +556,16 @@ def _collected_per_file(lines) -> dict[str, int]:
 
 
 def test_the_browser_budget_is_the_measured_time_plus_a_small_headroom():
-    """The budget is never looser than the measured tier plus 5%, and today's durations fit it."""
+    """The budget is never looser than the measured tier plus 5%, and today's durations fit it on
+    every gated OS. Linux's is printed against its would-be budget (decision 24)."""
     durations, counts = _load(DURATIONS), _load(BROWSER_COUNTS)
+    assert BROWSER_GATED == {"windows"}, BROWSER_GATED
     for os_key, measured in BROWSER_MEASURED_S.items():
         assert BROWSER_BUDGET_S[os_key] == int(measured * (1 + BROWSER_HEADROOM)), os_key
         now = round(sum(_browser_seconds(durations[os_key]).values()), 1)
-        assert now <= BROWSER_BUDGET_S[os_key], (
+        print(f"{os_key}: tests/durations.json has the browser tier at {now} s against a budget of "
+              f"{BROWSER_BUDGET_S[os_key]} s; {'gated' if os_key in BROWSER_GATED else 'reported, not gated'}")
+        assert os_key not in BROWSER_GATED or now <= BROWSER_BUDGET_S[os_key], (
             f"{os_key}: tests/durations.json has the browser tier at {now} s, over its budget of "
             f"{BROWSER_BUDGET_S[os_key]} s. A refresh that grows past the budget is a finding for the "
             "operator, not a number to raise")
@@ -552,32 +578,50 @@ def test_the_browser_budget_is_the_measured_time_plus_a_small_headroom():
 
 def test_a_new_browser_function_within_the_budget_passes_and_one_over_it_fails():
     # the rule, on a two-file suite: a.py measured 10 s for 2 tests, b.py 2 s for 1 test (mean 4 s)
-    durations = {"linux": {"tests/a.py": {"browser": 8.0, "browser+measured": 2.0},
-                           "tests/b.py": {"browser": 2.0}, "tests/c.py": {"default": 50.0}}}
+    durations = {"windows": {"tests/a.py": {"browser": 8.0, "browser+measured": 2.0},
+                             "tests/b.py": {"browser": 2.0}, "tests/c.py": {"default": 50.0}}}
     then = {"tests/a.py": 2, "tests/b.py": 1}
-    assert browser_budget_findings(durations, then, then, {"linux": 12}) == []
-    assert browser_budget_findings(durations, then, {**then, "tests/a.py": 3}, {"linux": 17}) == []
-    over = browser_budget_findings(durations, then, {**then, "tests/a.py": 3}, {"linux": 16})
-    assert over == ["linux: the browser tier would take 17.0 s against its budget of 16 s; "
+    assert browser_budget_findings(durations, then, then, {"windows": 12}) == []
+    assert browser_budget_findings(durations, then, {**then, "tests/a.py": 3}, {"windows": 17}) == []
+    over = browser_budget_findings(durations, then, {**then, "tests/a.py": 3}, {"windows": 16})
+    assert over == ["windows: the browser tier would take 17.0 s against its budget of 16 s; "
                     "grown since the measured run: tests/a.py"], over
-    assert browser_budget_findings(durations, then, {**then, "tests/new.py": 1}, {"linux": 16}) == []
-    assert browser_budget_findings(durations, then, {**then, "tests/new.py": 2}, {"linux": 19})[0] \
+    assert browser_budget_findings(durations, then, {**then, "tests/new.py": 1}, {"windows": 16}) == []
+    assert browser_budget_findings(durations, then, {**then, "tests/new.py": 2}, {"windows": 19})[0] \
         .endswith("tests/new.py")
     # removing a browser test gives its time back
     assert browser_budget_findings(durations, then, {"tests/a.py": 1, "tests/b.py": 1, "tests/new.py": 1},
-                                   {"linux": 11}) == []
+                                   {"windows": 11}) == []
+
+    # decision 24: the same overrun on both OSes fails Windows and is only reported on Linux
+    both = {"windows": durations["windows"], "linux": durations["windows"]}
+    grown = {**then, "tests/a.py": 3}
+    over = browser_budget_findings(both, then, grown, {"linux": 16, "windows": 16})
+    assert over == ["windows: the browser tier would take 17.0 s against its budget of 16 s; "
+                    "grown since the measured run: tests/a.py"], over
+    assert browser_budget_findings(both, then, grown, {"linux": 16}) == []
+    assert browser_budget_report(both, then, grown, {"linux": 16, "windows": 16}) == [
+        "linux: browser tier 17.0 s against a budget of 16 s, over; reported, not gated (decision 24)",
+        "windows: browser tier 17.0 s against a budget of 16 s, over; gated"]
 
     # the same on the real suite: a new file of browser tests at the tier's mean, one test past the
-    # room left, fails on that OS; one test fewer fits
+    # room left, fails on Windows; one test fewer fits. On Linux the same overrun is only reported
+    # (decision 24), and it fails nothing even when the tier is already past its would-be budget.
     real, counts = _load(DURATIONS), _load(BROWSER_COUNTS)
     for os_key, cap in BROWSER_BUDGET_S.items():
         total, _ = projected_browser_seconds(real[os_key], counts, counts)
         mean = total / sum(counts.values())
         fits = int((cap - total) // mean)
+        past = {**counts, "tests/test_new.py": max(fits, 0) + 1}
+        over = browser_budget_findings(real, counts, past, {os_key: cap})
+        if os_key not in BROWSER_GATED:
+            assert over == [], over
+            report = browser_budget_report(real, counts, past, {os_key: cap})
+            assert report[0].startswith(f"{os_key}: ") and "over; reported, not gated" in report[0], report
+            continue
         assert fits >= 1, f"{os_key}: the budget leaves no room for one browser test at the mean"
         ok = browser_budget_findings(real, counts, {**counts, "tests/test_new.py": fits}, {os_key: cap})
         assert ok == [], ok
-        over = browser_budget_findings(real, counts, {**counts, "tests/test_new.py": fits + 1}, {os_key: cap})
         assert len(over) == 1 and over[0].startswith(f"{os_key}: ") and "tests/test_new.py" in over[0], over
 
 
@@ -597,7 +641,7 @@ def test_the_expensive_tiers_are_a_small_part_of_the_suite():
     disjoint, add up to exactly the selection and keep its shuffled order. And every combination of
     tier markers the suite holds is one tests/tier_matrix.py renders (#315): its plugin rides the
     slow-tiers collection, which holds every test that carries a tier marker. And the collected browser tier
-    fits its time budget (decision 20, #587)."""
+    fits its time budget on Windows (decision 20, #587; Linux is printed, not gated: decision 24)."""
     tests_dir = os.path.join(REPO_ROOT, "tests")
 
     def collect(*args):
@@ -656,6 +700,8 @@ def test_the_expensive_tiers_are_a_small_part_of_the_suite():
     # Folded in here, not a test of its own: its collection runs beside the others, and a new `scale`
     # id would grow the tier this test caps.
     browser = _collected_per_file(ids[("browser", 0)])
+    for line in browser_budget_report(_load(DURATIONS), _load(BROWSER_COUNTS), browser, BROWSER_BUDGET_S):
+        print(line)
     over = browser_budget_findings(_load(DURATIONS), _load(BROWSER_COUNTS), browser, BROWSER_BUDGET_S)
     assert over == [], over
 
