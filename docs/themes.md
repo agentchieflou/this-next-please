@@ -285,7 +285,7 @@ every `PALETTE_ONLY` palette is.
 | Palette | Skins drawn on it | Signature concept | Status |
 |---|---|---|---|
 | `nfl-browns` | Playbook · Chalkboard | a coach's chalkboard: O's, routes, a flag (Playbook, #389-#392) | `built` |
-| `matrix` | Voxel · Overworld, Phosphor · Green | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `planned` |
+| `matrix` | Voxel · Overworld, Phosphor · Green | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `built` |
 | `greens` | Circuit board · Solder | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `planned` |
 | `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
 | `sand` | Farmstead · Daytime, Napkin notes · Kraft, Playbook · Play sheet | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
