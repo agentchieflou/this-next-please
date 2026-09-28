@@ -327,8 +327,6 @@ def problems(look, width, marks):
     where, out = f"{look} @ {width}px", []
     if not marks:
         return [(where, "no marks drawn")]
-    if not any(m["repo"] == FIN and m["shape"] == "check" for m in marks):
-        out.append((where, f"the finished agent ({FIN}) has no check"))
     for m in marks:
         row = f"{where}: {m['shape']} {m['tool']} ({m['selector']}) on {m['repo']}"
         p, v = m["pane"], m["view"]
@@ -349,6 +347,14 @@ def problems(look, width, marks):
             if h["area"] >= limit:
                 out.append((row, "covers", h["word"], h["el"], h["area"]))
     return out
+
+
+def finished_problems(look, width, marks):
+    """#340: the finished agent is marked, a `check` on its pane. The sweep's own claim, apart from
+    `problems`, which callers also hand a single pane's marks."""
+    if any(m["repo"] == FIN and m["shape"] == "check" for m in marks):
+        return []
+    return [(f"{look} @ {width}px", f"the finished agent ({FIN}) has no check")]
 
 
 def ink_area(marks, repo):
@@ -463,6 +469,7 @@ def test_skin_marks_keep_inside_their_pane_and_off_other_words(fleet_home, tmp_p
         found += [x for look, (r, t) in rings.items() for x in ring_problems(look, width, r, t)]
     else:
         found = [x for look, marks in seen.items() for x in problems(look, width, marks)]
+        found += [x for look, marks in seen.items() for x in finished_problems(look, width, marks)]
         found += [x for look, marks in seen.items() for x in loudness_problems(look, width, marks)]
         found += tail_problems(width, tails)
     if caught is not None:
