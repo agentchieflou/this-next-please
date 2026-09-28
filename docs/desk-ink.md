@@ -428,6 +428,7 @@ export function tick({ api }, dt) {
 | napkin (#252) | `skins/napkin.js` | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
 | voxel (#256) | `skins/voxel.js` | [skin-voxel.md](skin-voxel.md): voxel ground, lit slabs and a status stack per pane, one draw call per material |
 | notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
+| playbook (`chalkboard`, #389) | `skins/playbook.js` | [skin-playbook.md](skin-playbook.md): a coach's chalkboard, the grammar in X's and O's, each route in orange chalk |
 
 ## The legal pad (#251)
 

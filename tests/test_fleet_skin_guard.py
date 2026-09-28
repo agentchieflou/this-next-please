@@ -185,7 +185,9 @@ def _inks(spec, palette, skin_name=None):
     if skin_name:
         module_path = os.path.join(INK_SKINS, skin_name + ".js")
         if os.path.exists(module_path):
-            drawn = set(re.findall(r"""tool:\s*["'](\w+)["']""", open(module_path, encoding="utf-8").read()))
+            # A row draws in its `ink` when it names one (#389: the playbook's chalk in the pen's
+            # orange), so an `ink:` is drawn as surely as a `tool:`.
+            drawn = set(re.findall(r"""(?:tool|ink):\s*["'](\w+)["']""", open(module_path, encoding="utf-8").read()))
             out = {k: v for k, v in out.items() if k in drawn}
     return out
 
