@@ -15,7 +15,12 @@ properties. What is asserted:
   erase or strike; the glass read back from the canvas stays between its two colours; and an idle
   desk makes zero DOM mutations and zero WebGL frames; with `?ink=off` the page is the plain palette
   page with the same table drawn plain, no canvas and no three.js. One browser test (#587's time
-  budget is shared by the wave's three new skins).
+  budget is shared by the wave's three new skins);
+* the rain (#395), in one browser test more: one glyph per transcript line that arrives in a running
+  pane, falling into a stack in the pane's margin within 320 ms, in one draw call for any number of
+  panes, and draining within 320 ms of elapsed time when the turn ends; settled at once while the
+  stream replays or the page is stale; none on a rail; and under reduced motion it settles and
+  drains at once, with no tear.
 """
 from __future__ import annotations
 import gzip
@@ -25,7 +30,7 @@ import re
 import pytest
 
 from agentdata import theme
-from agentdata.fleet import serve as S, skins
+from agentdata.fleet import events as E, serve as S, skins
 
 from desk_waits import observe_quiet
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
@@ -114,7 +119,8 @@ def test_the_module_carries_no_colour_no_markup_and_fits_its_budget():
     code = re.sub(r"/\*.*?\*/|//[^\n]*", "", body, flags=re.S)
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b", code), "a hex colour in the phosphor module"
     assert not re.search(r"^\s*import\s", code, re.M), "a static import"
-    for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "classList"):
+    for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "classList.add",
+                   "classList.remove", "classList.toggle", ".className ="):
         assert banned not in code, banned
     size = len(gzip.compress(body.encode("utf-8"), 6, mtime=0))
     assert size < SKIN_BUDGET, size
@@ -197,7 +203,9 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_without_ink_the_page_
             assert _of(marks, lane, ".tile.state-idle", "pencil", "outline")
             assert _of(marks, lane, "state-idle .head .repo", "pencil", "underline")
         layer = _layer(page)
-        assert layer["skin"]["hooks"] == ["paper"] and layer["skin"]["paper"] == 1, layer["skin"]
+        # The glass and the rain (#395), both made in `paper`, once; the pane groups stay empty.
+        assert layer["skin"]["hooks"] == ["paper", "frame", "tick", "dispose"], layer["skin"]
+        assert layer["skin"]["paper"] == 2 and layer["skin"]["frames"] == 0, layer["skin"]
         assert layer["skin"]["errors"] == [] and layer["hands"] is False, layer
         assert layer["dark"] and layer["mode"] == 2, "near-black glass: the highlighter screens"
         spec = skins.SKINS["phosphor"]["variants"]["green"]
@@ -296,6 +304,227 @@ def test_the_beam_draws_the_state_grammar_on_the_glass_and_without_ink_the_page_
         marks = _marks(page)
         assert _of(marks, "pane:beta", "is-done", "green", "check")
         assert not [m for m in marks if m["lane"] == "pane:beta" and "state-idle" in m["selector"]]
+        assert not errors, errors
+        close_pages(browser)
+    finally:
+        _stop(server)
+
+
+# ================================================================================ the rain (#395)
+
+#: The skin's module, the same instance the layer imported (`q` puts the same token on the URL).
+IMPORT = "async () => { window.__ph = await import(q('/static/ink/skins/phosphor.js')); return true; }"
+
+#: Append `n` transcript lines to pane `repo`, then record, a frame at a time, the skin's count of
+#: settled and falling glyphs there until `want` are settled and none falls.
+FALL = """async ([repo, n, want]) => {
+  const list = document.querySelector(`.tile[data-repo="${repo}"] .transcript`);
+  for (let i = 0; i < n; i++) {
+    const li = document.createElement('li'); li.className = 'assistant_text';
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = 'assistant text';
+    const v = document.createElement('span'); v.className = 'v'; v.textContent = 'line ' + i;
+    li.append(k, v); list.appendChild(li);
+  }
+  const out = [];
+  return await new Promise(done => {
+    const step = () => {
+      const p = window.__ph.inspect().panes[repo];
+      out.push([p.settled, p.falling]);
+      if ((p.settled === want && !p.falling) || out.length > 600) return done(out);
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}"""
+
+#: Append `n` transcript lines to each pane of `repos`, in one task.
+APPEND = """([repos, n]) => { for (const repo of repos) {
+  const list = document.querySelector(`.tile[data-repo="${repo}"] .transcript`);
+  for (let i = 0; i < n; i++) { const li = document.createElement('li'); li.className = 'assistant_text';
+    li.textContent = 'line ' + i; list.appendChild(li); } } }"""
+
+#: The `RECORD` pattern (tests/test_fleet_ink.py) for a drain: ask the page to look, then a frame at
+#: a time, from the first frame pane `repo` is no longer running, its settled count, until it is 0.
+DRAIN = """async ([repo]) => {
+  const t = document.querySelector(`.tile[data-repo="${repo}"]`), out = [];
+  let from = -1;
+  refresh();
+  return await new Promise(done => {
+    const step = () => {
+      const p = window.__ph.inspect().panes[repo];
+      if (from < 0 && !t.classList.contains('state-running')) from = out.length;
+      out.push([p.settled, p.falling, p.draining]);
+      if (from >= 0 && p.settled === 0) return done({ frames: out.length - from, out: out.slice(Math.max(0, from - 1)) });
+      if (out.length > 1200) return done({ frames: -1, out: out.slice(-5) });
+      if (from < 0 && out.length % 20 === 0) refresh();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}"""
+
+#: From the page's first script on: every frame, the most glyphs seen falling while the stream
+#: replays or the page is stale (`window.__hushFalls`), and how many frames were that.
+HUSH = """(() => {
+  window.__hushFalls = { most: 0, frames: 0, settled: 0 };
+  const step = () => {
+    const b = document.body && document.body.classList;
+    const ink = window.Ink && typeof Ink.inspect === 'function' ? Ink.inspect() : null;
+    if (!window.__ph && window.q && ink && ink.table === 'phosphor:green') {
+      window.__ph = {};
+      import(q('/static/ink/skins/phosphor.js')).then(m => { window.__ph = m; });
+    }
+    if (b && window.__ph && window.__ph.inspect && (b.contains('is-replaying') || b.contains('is-stale'))) {
+      const panes = window.__ph.inspect().panes;
+      const falling = Object.values(panes).reduce((n, p) => n + p.falling, 0);
+      window.__hushFalls.most = Math.max(window.__hushFalls.most, falling);
+      window.__hushFalls.frames += 1;
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+})()"""
+
+#: The frames a 320 ms fall needs at 60 Hz (19.2), plus 4; and a drain's, plus 2.
+FALL_FRAMES = 23
+DRAIN_FRAMES = 22
+
+
+def _rain(page, repo):
+    return page.evaluate("r => window.__ph.inspect().panes[r]", repo)
+
+
+def _running(page, alive, *repos):
+    for repo in repos:
+        alive.add(repo)
+        _emit(page, repo, ("turn_started", {}))
+    for repo in repos:
+        _until_class(page, repo, "state-running")
+
+
+#: The window the rain is watched in: eight panes of at least 90px, and less to shade in software.
+SMALL = {"width": 1000, "height": 620}
+
+NAMES = ("alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta")
+
+#: A pane's cap: its height less 60px, in 10px cells.
+CAP = "r => Math.floor((document.querySelector(`.tile[data-repo=\"${r}\"]`).getBoundingClientRect().height - 60) / 10)"
+
+
+@pytest.mark.browser
+def test_the_rain_is_one_glyph_per_line_in_one_draw_call_drains_in_320_ms_and_never_falls_unasked(
+        fleet_home, tmp_path, alive, desk_browser):
+    """#395, one test for the wave's shared time budget.
+    1. Three lines appended to a running pane settle three glyphs within the frames a 320 ms fall
+       needs, plus 4; the rain is one draw call with one pane raining and with eight; a stack filled
+       past its cap keeps the cap; when the turn ends it drains to nothing within 22 frames; and
+       once settled the screen writes nothing and draws nothing.
+    2. A reload with a 30-line backlog: nothing falls while the stream replays or the page is stale,
+       and lines that arrive then are settled.
+       A rail that receives lines while running keeps no rain.
+    3. Under reduced motion lines settle at once, an error tears nothing (its band is drawn), and
+       the stack drains at once."""
+    _desk(tmp_path, fleet_home, names=NAMES)
+    server, token, port = _serve()
+    try:
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), **SMALL)
+        _phosphor(page)
+        _rest(page, "Ink.inspect().layer.skin.paper === 2")
+        assert page.evaluate(IMPORT)
+        _running(page, alive, "alpha")
+        _rest(page)
+
+        seen = page.evaluate(FALL, ["alpha", 3, 3])
+        assert seen[-1] == [3, 0] and len(seen) <= FALL_FRAMES, (len(seen), seen)
+        assert max(f for _, f in seen) >= 1, f"nothing fell: {seen}"
+        _rest(page)
+        assert page.evaluate("() => window.__ph.inspect().drawCalls") == 1
+
+        # Eight panes raining: still one draw call.
+        _running(page, alive, *NAMES[1:])
+        page.evaluate(APPEND, [list(NAMES[1:]), 2])
+        page.wait_for_function("names => { const p = window.__ph.inspect().panes;"
+                               " return names.every(n => p[n] && p[n].settled === 2 && !p[n].falling); }",
+                               arg=list(NAMES[1:]), timeout=15000)
+        _rest(page)
+        rain = page.evaluate("() => window.__ph.inspect()")
+        assert all(rain["panes"][r]["settled"] >= 2 for r in NAMES), rain
+        assert rain["drawCalls"] == 1, rain
+
+        # Past the cap, the oldest glyph is erased.
+        cap = page.evaluate(CAP, "alpha")
+        assert cap > 10, cap
+        seen = page.evaluate(FALL, ["alpha", cap + 5, cap])
+        assert seen[-1] == [cap, 0], seen[-3:]
+
+        # The turn ends: the stack drains top to bottom within 320 ms of elapsed time.
+        alive.discard("alpha")
+        E.append("alpha", [E.event("alpha", "turn_ended", {"turn": "1"}, ticket="RDSD-1")])
+        drained = page.evaluate(DRAIN, ["alpha"])
+        assert 0 < drained["frames"] <= DRAIN_FRAMES, drained
+        assert any(d for _, _, d in drained["out"]), drained
+
+        _rest(page)
+        count = observe_quiet(page, passes=3)
+        assert count["mutations"] == 0, f"a settled rain wrote to the page: {count}"
+        assert count["renders"] == 0, f"a settled rain was redrawn {count['renders']} times"
+        assert not errors, errors
+        page.close()
+
+        # 2. A reload with a 30-line backlog, recorded from the page's first script. Only alpha is
+        # open now, so the others are rails.
+        S.update_window("main", open="alpha", widths={"alpha": 1})
+        alive.add("alpha")
+        E.append("alpha", [E.event("alpha", "turn_started", {}, ticket="RDSD-1")]
+                 + [E.event("alpha", "assistant_text", {"text": f"backlog {i}"}, ticket="RDSD-1") for i in range(30)])
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=1, **SMALL)
+        page.add_init_script(HUSH)
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function("() => !!window.__ph && !!window.__ph.inspect && !!window.__ph.inspect().panes.alpha"
+                               " && !document.body.classList.contains('is-replaying')"
+                               " && !document.body.classList.contains('is-stale')"
+                               " && document.querySelectorAll('.tile[data-repo=\"alpha\"] .transcript > li').length >= 30"
+                               " && document.querySelector('.tile[data-repo=\"alpha\"]').classList.contains('state-running')",
+                               timeout=15000)
+        _rest(page)
+        hush = page.evaluate("() => window.__hushFalls")
+        assert hush["most"] == 0 and hush["frames"] > 0, hush
+        assert _rain(page, "alpha")["falling"] == 0
+        # Lines that arrive while the stream replays settle where they land.
+        before = _rain(page, "alpha")["settled"]
+        page.evaluate("() => document.body.classList.add('is-replaying')")
+        page.evaluate(FALL, ["alpha", 5, min(before + 5, page.evaluate(CAP, "alpha"))])
+        page.evaluate("() => document.body.classList.remove('is-replaying')")
+        hush = page.evaluate("() => window.__hushFalls")
+        assert hush["most"] == 0, hush
+
+        # 3. A rail: beta, running since part 1, is under 90px wide; its lines rain nothing.
+        assert page.evaluate("() => document.querySelector('.tile[data-repo=\"beta\"]').getBoundingClientRect().width") < 90
+        _until_class(page, "beta", "state-running")
+        page.evaluate(APPEND, [["beta"], 4])
+        _rest(page)
+        assert {k: _rain(page, "beta")[k] for k in ("settled", "falling")} == {"settled": 0, "falling": 0}
+        assert not errors, errors
+        page.close()
+
+        # Reduced motion: at once, and no tear.
+        still, errors, _ = _open(browser, port, token, "&ink=on", panes=1, reduced=True, **SMALL)
+        _phosphor(still)
+        _rest(still, "Ink.inspect().layer.skin.paper === 2")
+        assert still.evaluate(IMPORT)
+        _until_class(still, "alpha", "state-running")
+        start = _rain(still, "alpha")["settled"]
+        seen = still.evaluate(FALL, ["alpha", 3, min(start + 3, still.evaluate(CAP, "alpha"))])
+        assert len(seen) <= 2 and not any(f for _, f in seen), seen
+        alive.discard("alpha")
+        E.append("alpha", [E.event("alpha", "error", {"exit_code": 2}, ticket="RDSD-1")])
+        drained = still.evaluate(DRAIN, ["alpha"])
+        assert 0 < drained["frames"] <= 2, drained
+        _until_class(still, "alpha", "state-error")
+        _rest(still)
+        got = _rain(still, "alpha")
+        assert got["tear"] is False and got["band"] is True and got["settled"] == 0, got
         assert not errors, errors
         close_pages(browser)
     finally:

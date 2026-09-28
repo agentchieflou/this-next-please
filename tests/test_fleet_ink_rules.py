@@ -26,6 +26,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from hig_audit import PLAIN_AT_REST
 from test_fleet_desk_glass import _png_pixels
 from test_fleet_ink import AT_REST, _choose, _open, _repos, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until_class
@@ -320,8 +321,16 @@ def test_without_ink_the_plain_transcript_keeps_its_dividers_and_25px_rows(fleet
         seen = {}
         for look in LOOKS:
             _choose(page, look)
-            page.wait_for_function(f"() => Ink.inspect().table === '{look}' && document.body.classList.contains('ink-off')",
-                                   timeout=30000)
+            # The pane's own layout too: a pane on the rail hides its transcript (`display: none`),
+            # where every row reads 0, so the rows are measured once the pane is off the rail, they
+            # have a height and nothing is transitioning (train 26, Windows: `notebook:light`, the
+            # look the page opens on, read every row as {top: 0, bottom: 0, h: 0}).
+            page.wait_for_function(f"""([look, repo]) => Ink.inspect().table === look
+                && document.body.classList.contains('ink-off')
+                && document.querySelector(`.tile[data-repo="${{repo}}"]`).dataset.tier !== 'rail'
+                && [...document.querySelectorAll(`.tile[data-repo="${{repo}}"] .transcript > *`)]
+                     .some(li => li.getBoundingClientRect().height > 0)
+                && ({PLAIN_AT_REST})()""", arg=[look, LONG], timeout=30000)
             seen[look] = page.evaluate(MEASURE, LONG)["rows"]
         assert not errors, errors
         close_pages(browser)
