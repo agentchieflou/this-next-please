@@ -193,6 +193,7 @@ NO_TEXT = ("* { color: transparent !important; -webkit-text-fill-color: transpar
 READ_TARGETS = """(repo) => {
   const t = document.querySelector(`.tile[data-repo="${repo}"]`);
   return [t.querySelector('.head .repo'), t.querySelector('.asks:not([hidden]) .ask:not([hidden]) .ask-q')].map(el => {
+    if (!el) return null;
     const r = document.createRange(); r.selectNodeContents(el); const b = r.getBoundingClientRect();
     return { colour: getComputedStyle(el).color, x: b.x, y: b.y, w: b.width, h: b.height }; }); }"""
 
@@ -234,7 +235,7 @@ def _read_through_the_highlighter(page, repo, full, plain=False):
     for _ in range(5):
         # The question is written in the palette's `--text`: once it is, the page has its palette.
         page.wait_for_function(f"([c, repo, rgb]) => ({CHOSEN})(c) && ({settled})()"
-                               f" && ({READ_TARGETS})(repo)[1].colour === rgb",
+                               f" && !!({READ_TARGETS})(repo)[1] && ({READ_TARGETS})(repo)[1].colour === rgb",
                                arg=[chosen, repo, "rgb(%d, %d, %d)" % tuple(round(v * 255) for v in theme.hex_to_rgb(chosen[1]))],
                                timeout=30000)
         targets = page.evaluate(READ_TARGETS, repo)
@@ -246,7 +247,7 @@ def _read_through_the_highlighter(page, repo, full, plain=False):
                  for tg in targets]
         page.evaluate("() => document.getElementById('no-text').remove()")
         try:
-            page.wait_for_function(f"([c, repo, was]) => ({CHOSEN})(c) && ({READ_TARGETS})(repo).map(t => t.colour).join() === was",
+            page.wait_for_function(f"([c, repo, was]) => ({CHOSEN})(c) && ({READ_TARGETS})(repo).map(t => t && t.colour).join() === was",
                                    arg=[chosen, repo, ",".join(t["colour"] for t in targets)], timeout=5000)
             break
         except Exception:
