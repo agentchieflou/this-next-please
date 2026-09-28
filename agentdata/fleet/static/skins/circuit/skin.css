@@ -1,0 +1,49 @@
+body[data-skin="circuit"] {
+  --paper: #0D2618;
+  --board-max: #1C3A28;
+  --weave: #15301F;
+  --copper: #6B4A2A;
+  --ink-pencil: #E4EDE6;
+  --ink-pen: #D9A066;
+  --ink-red: #F85149;
+  --ink-marker: #F85149;
+  --ink-green: #7EE787;
+  --ink-highlighter: #B7851E;
+  color-scheme: dark;
+}
+
+body[data-skin="circuit"][data-skin-variant="matte"] {
+  --paper: #0A0A0A;
+  --board-max: #1A1A1A;
+  --weave: #141414;
+  --ink-pencil: #D8D8D8;
+  --ink-pen: #D9A066;
+  --ink-red: #F85149;
+  --ink-marker: #F85149;
+  --ink-green: #3FB950;
+  --ink-highlighter: #B7851E;
+}
+
+body[data-skin="circuit"]:not(.ink-off) .tile { border-radius: 0; }
+body[data-skin="circuit"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
+body[data-skin="circuit"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
+body[data-skin="circuit"]:not(.ink-off) main { background: transparent; }
+body[data-skin="circuit"]:not(.ink-off) .tile :is(.head, .asks, .approval, .transcript, .history, .cells,
+                                                  .scope, .assumed, .readonly, .runline, .why, button,
+                                                  input, .payload) {
+  background: transparent;
+}
+body[data-skin="circuit"]:not(.ink-off) .tile .smenu { background: var(--paper); }
+body[data-skin="circuit"]:not(.ink-off) :is(button, input, select, .segment) { background: transparent; }
+
+body[data-skin="circuit"] .tile .head :is(.repo, .n),
+body[data-skin="circuit"] .tile .oldsession,
+body[data-skin="circuit"] #bellcount { font-family: var(--mono); }
+body[data-skin="circuit"] #bellcount { display: inline-block; min-width: 1ch; margin-left: 1.6em; }
+body[data-skin="circuit"]:not(.ink-off) .tile .oldsession {
+  color: var(--ink-pencil); background: transparent; border-color: transparent;
+}
+body[data-skin="circuit"]:not(.ink-off) #bellcount { color: var(--ink-pen); }
+
+body[data-skin="circuit"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="circuit"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
