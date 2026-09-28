@@ -4,6 +4,102 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.17.5
+
+**On update:**
+- **The two standard commands.** There is no new dependency, no `ad-setup --patch`, no config to migrate and no
+  changed skill, so a Copilot chat needs no restart for this one. The IDE extensions are unchanged. The next
+  `ad-fleet open` replaces a desk still running the old code.
+- **A phone lane built from `mobile/flows/samples/`** (#598): those files moved to `contract/examples/`, beside
+  the contract they validate against, `contract/fleet-mobile.v1.schema.json`; the test plan in `mobile/flows/README.md`
+  now copies from there. A decision's `decided` is now always UTC in the `Z` form, and `mobile/data/FleetAgent.xlsx` is
+  regenerated to match the examples; delete its sample rows from any live list, as before.
+- **A fork that protects `main` on named checks** (#595): CI now has one `ci-ok` job that needs every other job,
+  and a `smoke` job. Require `ci-ok` in place of a list of jobs. CI also runs nightly (`17 3 * * *`), with a
+  shuffled `suite · shuffled · seed of the day` job that runs on the schedule or a dispatch with `nightly`
+  only.
+- **`--desk-cpu-throttle`** (#307) is a pytest option of this repo's suite, for reproducing a slow CI runner.
+  It changes nothing in the product.
+
+Developing this repo: nothing new to install. Every browser test now opens its pages through the desk harness
+(`tests/desk_harness.py`), with one Playwright driver per worker, and the desk tests wait on conditions (below).
+
+**The phone page, `/m` (#581).** One column over `/api/attention` and `/api/approval` for a phone or tablet on the
+desk's machine: a row per agent, one open agent's sheet with its approval card, its questions and a reply box,
+and approve, deny, send and answer, each answer read back in the server's words. It follows the stream as `/map`
+does and resumes from per-agent cursors. It is not inked, and its script has its own 4 KiB budget.
+
+**The mobile bridge's contract.**
+- **A versioned JSON Schema** (`contract/fleet-mobile.v1.schema.json`, with a frozen copy under
+  `contract/released/`), with an example per record and producer contract tests that hold the bridge, the
+  flows' samples and the workbook to it (#598).
+- **`docs/fleet-mobile.md`** is the contract page, with every doc row it owed (#554), and
+  `docs/windows-verification.md` gains the §Mobile runbook rows M1 to M12, none yet measured (#570).
+
+**Touch, on a tablet and a phone (#577).**
+- In the stack (640 px and under), a touch starts no drag-reorder, so a small drift is still a tap; the order
+  stays on `Alt+arrows`.
+- Outside the stack, a touch held 400 ms on a rail opens it beside, as a Shift-click does. A double tap on a
+  gutter evens it.
+- `all` on a tablet widens only the panes that fit and says "all that fit: N of M". The pane you are in is
+  always one of them (decision 22). One write, which `u` takes back.
+
+**Skins and ink.**
+- **One state grammar across every skin** (#334): the same state is drawn with the same marks on the same
+  elements in every skin, written down in `docs/desk-ink.md` and held row for row by a test. Glass, farmstead
+  and voxel changed to match.
+- **Auto variants** (#342): `<skin>:auto` follows the system's light or dark appearance, on notebook, glass,
+  graph and farmstead, and changes with it without a reload. `/settings` offers *Auto*. A pane under `auto`
+  wears no state on either side (#339).
+- **Focus is never a state** (#339): focus rings, the selection and the project strip keep out of every state
+  colour, and theme check rule 10 holds it. Where a palette's cursor fails that, the ring is its text colour made
+  neutral; only vanta-black keeps its cursor.
+- **For a skin's author:** `api.fx.animate(el, kind)` moves a pane for a moment (`hit`, `pop`, `flash`), and is
+  refused under reduced motion, focus or a selection (#374); `api.fx.lines(el)` and `api.fx.glyphs(el)` hand a
+  skin the text's boxes (#375); `api.fx.pointer` gives pointer-aware materials, one frame per move and none at
+  rest (#376).
+- **Fixes:** a live skin switch repaints every pane's strip, and a theme frame that repeats the theme paints
+  nothing, so an idle desk stays idle after a reconnect (#610); under reduced motion a pane settles before its
+  material is drawn (#604).
+
+**Settings.** The last theme pick wins, whatever order the writes reach the server, and a pick stored by a clock
+that ran ahead never locks the picker (#483).
+
+**For developers of this repo.**
+- **The desk harness** (#299): one Playwright driver and browser per worker and a fresh context per test, with a
+  guard hook. Every browser test moved onto it: the skin and ink tests (#300), the column, gutter and window
+  tests (#301), the window-chrome and component tests (#302) and the rest (#303), with a hygiene test that keeps
+  one driver per worker.
+- **Condition waits** (#304, #305): one quiescence helper, `settle()`, that fails loudly, and `assert_idle()`,
+  which counts over page work. The desk tests wait on conditions, not on the clock.
+- **`--desk-cpu-throttle=RATE`** (#307) and `.github/scripts/stress_one.py` reproduce a slow runner locally
+  (`docs/testing-this-repo.md`). The throttle calibrates itself and refuses a host where it slows nothing.
+- **CI:**
+  - a `changes` job and `.github/ci-paths.json`, report-only, with every job still running (#593), and a test
+    that every tracked file maps to a CI group (#594);
+  - `ci-ok`, `smoke`, the nightly run and a concurrency group per event (#595).
+- **Flakes fixed at their cause:** the `/m` fold waits for the read each answer starts before its next tap, and
+  the stream's heartbeat is read when a stream opens (#581); farmstead's state check settles on the pressed
+  choice's row (#334).
+- **The agent relay:** merge trains 18, 19a, 19b, 20, 21 and 22 (#608 to #614).
+
+<!-- train-23-cars: the conductor finalises this block after train 23's run. -->
+**Train 23.**
+- **The fixed-wait ratchet** (#306): the last flat waits become condition waits, and
+  `tests/test_hygiene_ratchet.py` holds a baseline in which flat waits stay at 0, and skips and fall-through
+  loops may only go down.
+- **Needs-you is louder than error** (#335): the open question card gets a marker loop, and error's loop moves
+  from the whole pane to its `.why`; the bang stays.
+- **Every variant in its pane** (#340): the ink bounds test sweeps all 17 variants at two widths, ink on and off,
+  and fails when a finished agent has no check.
+- **The voxel blast** (#377): a hidden pane bursts into chunks that home on the hidden count, the ground flashes
+  and heals, and "show all" sets pieces back into the sockets, still in 3 draw calls.
+- **Farmstead's harvest, shower and hen** (#381): produce sinks into the top board, a cloud rains down the left
+  board, and a hen runs along the footer to the hidden count. Each plays once, never on a reload or under
+  reduced motion.
+- **The Windows socket fix** (#603), if it boards.
+<!-- /train-23-cars -->
+
 ## 0.17.0
 
 **On update:**
