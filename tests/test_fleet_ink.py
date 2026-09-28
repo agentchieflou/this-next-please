@@ -1052,8 +1052,12 @@ def _no_skin_css(page):
 
 def _choose(page, skin):
     """Choose a skin the way the settings page does: `POST /api/theme {skin}`, which writes the
-    config every window reads and reaches this one down the stream as `applySkin`."""
-    page.evaluate("s => post('theme', { skin: s })", skin)
+    config every window reads and reaches this one down the stream as `applySkin`. The answer is
+    read: `post()` does not look at the status, so a pick the server failed to write (a 500) would
+    otherwise leave the page on the last skin and every wait after it spending its whole budget on
+    a choice that never happened (train 25: `glass:frost` → `voxel:overworld`, Windows)."""
+    got = page.evaluate("s => post('theme', { skin: s })", skin)
+    assert got.get("ok"), ("the server did not write the pick", skin, got)
 
 
 # The state grammar across skins (#334, docs/desk-ink.md §The state grammar across skins): every
@@ -1111,7 +1115,7 @@ GRAMMAR_CHECK = """async ([skins, grammar]) => {
       out.checked.push(name + ':' + variant);
       for (const [entry, g] of Object.entries(grammar)) {
         const els = [].concat(g.el).flatMap(find);
-        const ok = rows.some(r => g.tools.includes(r.tool) && g.shapes.includes(r.shape)
+        const ok = rows.some(r => g.tools.includes(r.ink || r.tool) && g.shapes.includes(r.shape)
                                   && els.some(e => e.matches(r.selector)));
         if (!ok) out.missing.push(name + ':' + variant + ' ' + entry);
       }

@@ -441,6 +441,8 @@ def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path, de
             looks = _looks_on(name)
             said = f"drawn by {', '.join(looks)}" if looks else f"palette only: {K.PALETTE_ONLY[name]}"
             assert tip == f"{palettes[name]['why']}  ·  {said}", tip
+        # #389: Browns is drawn by the playbook, and its option says so.
+        assert "Playbook · Chalkboard" in dict((n, t) for n, _, t in offered)["nfl-browns"], offered
 
         with _answered(page, {"skin": "voxel:nether"}):
             page.select_option("#skin", "voxel:nether")
@@ -474,6 +476,13 @@ def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path, de
                             bg=palettes[name]["css"]["--bg"],
                             looks=f"palette only: the plain page — {reason}")
             assert "palette only" in said["looks"], said
+
+        # #389: Browns is no longer palette-only; with no skin on, the line names its look.
+        with _answered(page, {"theme": "nfl-browns"}):
+            page.select_option("#theme", "nfl-browns")
+        said = _settled(page, theme="nfl-browns", skin="none", disabled=False,
+                        looks=f"drawn by {', '.join(_looks_on('nfl-browns'))}")
+        assert "Playbook" in said["looks"], said
 
         # A palette with looks names every one of them.
         with _answered(page, {"theme": "dark"}):

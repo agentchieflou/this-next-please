@@ -1,0 +1,37 @@
+body[data-skin="phosphor"] {
+  --paper: #010603;
+  --scan: #0A1F10;
+  --board-max: #0A1F10;
+  --ink-pencil: #3FA866;
+  --ink-pen: #00FF41;
+  --ink-red: #FF3B3B;
+  --ink-marker: #FF3B3B;
+  --ink-green: #A8FFC0;
+  --ink-highlighter: #CCA13B;
+  --gutter: 36px;
+  color-scheme: dark;
+}
+
+body[data-skin="phosphor"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
+body[data-skin="phosphor"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
+body[data-skin="phosphor"]:not(.ink-off) main { background: transparent; }
+body[data-skin="phosphor"]:not(.ink-off) :is(header, footer, main) { border-color: var(--scan); }
+body[data-skin="phosphor"]:not(.ink-off) .tile :is(.head, .asks, .approval, .transcript, .history, .cells,
+                                                   .scope, .assumed, .readonly, .runline, .why, button,
+                                                   input, .payload) {
+  background: transparent;
+}
+body[data-skin="phosphor"]:not(.ink-off) .tile .smenu { background: var(--paper); }
+body[data-skin="phosphor"]:not(.ink-off) :is(button, input, select, .segment) { background: transparent; }
+body[data-skin="phosphor"]:not(.ink-off) :is(.asks, .approval) { border-color: var(--scan); }
+
+body[data-skin="phosphor"]:not(.ink-off) .tile .oldsession {
+  color: var(--ink-pencil); background: transparent; border: 0;
+}
+body[data-skin="phosphor"]:not(.ink-off) .tile .transcript > li.friction > .k { color: var(--text); }
+body[data-skin="phosphor"]:not(.ink-off) .tile .transcript > li.friction > .v { color: var(--ink-red); }
+body[data-skin="phosphor"] #bellcount { display: inline-block; min-width: 1ch; margin-left: 1.6em; }
+body[data-skin="phosphor"]:not(.ink-off) #bellcount { color: var(--ink-pen); }
+
+body[data-skin="phosphor"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="phosphor"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }

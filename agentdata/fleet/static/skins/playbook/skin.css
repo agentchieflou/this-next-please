@@ -1,0 +1,57 @@
+body[data-skin="playbook"] {
+  --paper: #2B1B08;
+  --board-max: #40301D;
+  --yard: #3F2D19;
+  --ink-pencil: #D9CBB3;
+  --ink-pen: #FF3C00;
+  --ink-red: #FF5A8A;
+  --ink-marker: #FF5A8A;
+  --ink-green: #56D364;
+  --ink-highlighter: #BF9637;
+  --hand: "Ink Free", "Chalkboard SE", "Segoe Print", "Bradley Hand", "Comic Neue", cursive;
+  --pitch: 28px;
+  --gutter: 36px;
+  color-scheme: dark;
+}
+
+body[data-skin="playbook"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
+body[data-skin="playbook"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
+body[data-skin="playbook"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
+body[data-skin="playbook"]:not(.ink-off) main { background: transparent; }
+body[data-skin="playbook"]:not(.ink-off) :is(header, footer, main) { border-color: var(--yard); }
+body[data-skin="playbook"]:not(.ink-off) .tile :is(.head, .asks, .approval, .transcript, .history, .cells,
+                                                   .scope, .assumed, .readonly, .runline, .why, button,
+                                                   input, .payload) {
+  background: transparent;
+}
+body[data-skin="playbook"]:not(.ink-off) .tile .smenu { background: var(--paper); }
+body[data-skin="playbook"]:not(.ink-off) .tile .transcript {
+  display: flex; flex-direction: column; flex-basis: 0; scroll-snap-type: y mandatory;
+}
+body[data-skin="playbook"]:not(.ink-off) .tile .transcript > li {
+  flex: none; padding-top: 0; padding-bottom: 0; line-height: var(--pitch); border-bottom: 0; scroll-snap-align: end;
+  overflow-y: clip;
+}
+body[data-skin="playbook"]:not(.ink-off) .tile .transcript > li:first-child { margin-top: auto; }
+body[data-skin="playbook"]:not(.ink-off) .tile .transcript > li > * { position: relative; top: 2px; }
+body[data-skin="playbook"]:not(.ink-off) :is(button, input, select, .segment) { background: transparent; }
+body[data-skin="playbook"]:not(.ink-off) :is(.asks, .approval) { border-color: var(--yard); }
+body[data-skin="playbook"]:not(.ink-off) .head .n { border-color: transparent; }
+
+body[data-skin="playbook"] .tile .head .repo { font-family: var(--hand); font-size: 17px; font-weight: 600; }
+body[data-skin="playbook"] .tile .oldsession { font-family: var(--hand); font-size: 15px; padding: 0 2px; }
+body[data-skin="playbook"] .tile .oldsession::after { content: " \2014 renew?"; }
+body[data-skin="playbook"]:not(.ink-off) .tile .oldsession {
+  color: var(--ink-pencil); background: transparent; border: 0;
+}
+body[data-skin="playbook"]:not(.ink-off) .tile .transcript > li.friction > .k { color: var(--text); }
+body[data-skin="playbook"] .tile .transcript > li.friction > .v { font-family: var(--hand); font-size: 15px; }
+body[data-skin="playbook"]:not(.ink-off) .tile .transcript > li.friction > .v { color: var(--ink-pencil); }
+body[data-skin="playbook"] #bellcount {
+  display: inline-block; min-width: 1ch; margin-left: 1.6em;
+  font-family: var(--hand); font-size: 17px; font-weight: 600;
+}
+body[data-skin="playbook"]:not(.ink-off) #bellcount { color: var(--ink-pencil); }
+
+body[data-skin="playbook"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="playbook"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
