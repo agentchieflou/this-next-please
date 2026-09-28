@@ -62,7 +62,17 @@ class H(http.server.BaseHTTPRequestHandler):
 
 
 def serve():
-    s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    if VARIANT == "static":
+        # A port below Windows' dynamic range (49152-65535), where no client's ephemeral port can be.
+        import random
+        while True:
+            try:
+                s = http.server.ThreadingHTTPServer(("127.0.0.1", random.randint(20000, 45000)), H)
+                break
+            except OSError:
+                continue
+    else:
+        s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     s.daemon_threads = True
     s.stopping = threading.Event()
     threading.Thread(target=s.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()

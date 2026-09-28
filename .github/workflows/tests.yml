@@ -40,13 +40,14 @@ env:
 
 jobs:
   churn:
-    name: churn · ${{ matrix.n }}
+    name: churn · ${{ matrix.listen }} · ${{ matrix.n }}
     runs-on: windows-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         n: [1, 2, 3]
+        listen: [dynamic, static]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,6 +57,7 @@ jobs:
         shell: pwsh
         env:
           CHURN_ITER: "20000"
+          LISTEN: ${{ matrix.listen }}
         run: python .github/scripts/probe603_xproc.py
   pages:
     name: pages · ${{ matrix.variant }} · ${{ matrix.n }}
@@ -64,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [shared, inproc, nonetsandbox]
+        variant: [shared, static]
         n: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4

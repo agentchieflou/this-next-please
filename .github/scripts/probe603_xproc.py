@@ -14,9 +14,17 @@ import time
 ITER = int(os.environ.get("CHURN_ITER", "5000"))
 BURST = 6
 HELPER = r'''
-import socket, sys
+import random, socket, sys
+FIXED = %r
+def bind():
+    while True:
+        ls = socket.socket()
+        try:
+            ls.bind(("127.0.0.1", random.randint(20000, 45000) if FIXED else 0)); return ls
+        except OSError:
+            ls.close()
 for line in sys.stdin:
-    ls = socket.socket(); ls.bind(("127.0.0.1", 0)); ls.listen(128)
+    ls = bind(); ls.listen(128)
     print(ls.getsockname()[1], flush=True)
     ls.settimeout(5)
     acc = []
@@ -33,7 +41,7 @@ for line in sys.stdin:
     for a in acc:
         a.close()
     ls.close()
-''' % BURST
+''' % (os.environ.get('LISTEN') == 'static', BURST)
 
 h = subprocess.Popen([sys.executable, "-c", HELPER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
 out = collections.Counter()
@@ -65,4 +73,4 @@ for _ in range(ITER):
         s.close()
 h.stdin.close()
 h.wait(10)
-print(f"xproc: {ITER} listeners x {BURST} connects from another process in {time.time() - t0:.0f}s: {dict(out)}")
+print(f"xproc[{os.environ.get('LISTEN', 'dynamic')}]: {ITER} listeners x {BURST} connects from another process in {time.time() - t0:.0f}s: {dict(out)}")
