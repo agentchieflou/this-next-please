@@ -155,6 +155,40 @@ Each rain keeps 3:1 on the median plank texel of its weather, lit as the band sh
 A weather recolours a sprite by each texel's brightness against the sprite's commonest colour, which is how the
 stylesheet's cave and rain tiles were drawn from the daylight ones. The palette's other inks are its own.
 
+## Effects
+
+A finished agent's crop is harvested, an agent that errors gets a shower down its frame, and a pane put away sends a
+hen running along the footer to the hidden count (#381, epic #293). The farm's paper is light by day and dark in the
+cave and the rain, so no one effect colour keeps text readable on all three: **nothing crosses the paper's text**, nor
+the header's or the footer's. The cues are the module's `cues` table, matched by the layer from the page
+([desk-ink.md](desk-ink.md) §Effects), and the module asks for the text helpers (`options.fx.text`, #375).
+
+| Cue | Signal (on) | What plays | Where it draws | Duration | Reduced motion |
+| --- | --- | --- | --- | --- | --- |
+| harvest | `#grid > .tile:is(.state-done, .is-done)` (arrive) | once the crop is `crop-bloom` with nothing left to grow (up to 32 frames from a seed), 3 `produce` sprites (at `unitOf(api, 1)`) pop from the crop 120 ms apart, rise with a 2px drift left to the top board's inner edge, and sink into the board 2 art rows a frame | the pane's frame group at renderOrder -11.5: over the paper, under the board, so the board covers them as they sink | all gone 0.65 s after the bloom completes | nothing; the bloom is drawn at once |
+| shower | `#grid > .tile.state-error` (arrive) | a `cloud` centred on the frame's top-left corner, where the top and left boards meet, and 12 streaks (1x3 art px in `--farm-rain`) falling down the **left board only** at 700 px/s, each ending at the bottom board. From 0.9 s to 1.2 s the cloud is drawn away bottom-up, a row at a time. The scorch (`uChar`) stays: it is the state | the pane's frame group at renderOrder -10.5: over the boards | 1.2 s | nothing; the scorch is drawn at once |
+| hen | `#grid > .tile:not(.is-hidden)` (leave) | the hen appears in the footer band's free rows at the pane's left edge and runs along them, `hen-a`/`hen-b` every 80 ms, to the left edge of `#hiddencount` (a hide, with the count shown), where it is drawn away a column of art at a time over 4 frames; otherwise (a pane gone from the registry, whose gone rail is beside the panes, not in the footer) it runs off the nearest edge of the viewport | the effects group (`api.order.fx`), over the soil and the bands | the run 1.1 s, then 4 frames | nothing |
+
+* **Where each piece sits in the draw order.** Every farm material is `transparent: true`, so a pane's meshes sort as
+  one list by their own orders: shadow -13, paper -12, produce -11.5, board -11, shower -10.5, crop -10. three.js
+  orders by the innermost group's `renderOrder` first, and the effects group (-5) draws under every pane's frame
+  group, so an effect on a frame goes in that pane's own group (`rec.group`, set in `frame`). Transparent texels
+  are discarded, as the crop's are; nothing is blended.
+* **The footer's free rows.** The rows between the band's top and its first line of text, which the hen reads with
+  the text helpers (#375): `api.fx.glyphs(footer)`, the glyph boxes that have a size. At 1600x900 that is
+  858.2-871.2, room for the 12px hen. `api.fx.lines` is not used for this: its line boxes include the controls' own
+  boxes (the `?` key's starts at 865.2), which would leave 7 rows. With fewer rows than the hen is tall, it does
+  not run, and `skipped` counts it.
+* **A grouped pane sends no hen.** A pane folded into its project's rail is `.is-grouped`, `display: none`, and still
+  matches `:not(.is-hidden)`: its cue plays nothing.
+* **Card closes play nothing in the farm.** There is nowhere to play them without crossing text.
+* **Freed.** Every mesh an effect adds is removed and disposed when it ends; the textures are the shared sheet's.
+  A `frame()` rebuild empties the pane's group, which ends any effect in it, and the module drops its state.
+  `tick` answers true while an effect lives. A piece moves on the layer's `dt`, never less than a 60 Hz frame's worth.
+
+`inspect().fx` is `{live, played: {harvest, shower, hen}, skipped, pieces: [{sprite, x, y, w, h}]}`, the pieces in
+viewport px.
+
 ## `theme.check`: what the skin puts behind text
 
 * **A pane's text is on `--farm-paper`**, which a test holds equal to the variant's `composited_panel`. So
@@ -205,5 +239,10 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
   sprites is its own colours inside its own size, and the sheet with no fragment draws nothing.
 * **The sizes and the effects' colours**, without a browser: every nested `<svg>` in the sheet is the size `SIZE`
   makes its texture, and `--farm-rain` and `--farm-firefly` keep 3:1 on what they are drawn over.
+* **The effects** (#381), folded into the grammar test: harvest from running and from idle, the shower, the hen and a
+  grouped pane's hen, each played once, none on a reload; every piece recorded on every frame in the page, and none
+  ever crossing a text line box of a visible pane, the header or the footer; each ends within its frames and leaves
+  the GPU's geometry count where it found it, then the desk is idle. Reduced motion plays nothing and draws the bloom
+  at once; `?ink=off` hides with no page error.
 * **`theme.check`** pairs, the bounded catch-up in frames, the idle desk (zero writes, zero frames), and `dispose`
   freeing the textures (the renderer's own count).
