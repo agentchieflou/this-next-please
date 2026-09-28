@@ -49,6 +49,22 @@ const FLASH_UP = 1.25;
 const FLASH_DOWN = 0.6;
 const FLASH_FRAMES = 2;
 const CHUNKS = 140;
+const RAIL = 90;
+const BLINK = 0.09;
+const KNOCK = 3;
+const KNOCK_FOR = 0.15;
+const GRAZE_EVERY = 5000;
+const GRAZE_NEAR = 16;
+const GRAZE_FALL = 30;
+const GRAZE_LIFE = 0.36;
+const ORBS = 5;
+const ORB = 4;
+const ORB_GAP = 0.06;
+const ORB_CLIMB = 0.25;
+const HEART_AT = [0.46, 0.5, 0.54];
+const HEART_END = 0.72;
+const HEART_RISE = 12;
+const HEART = [".x.x.", "xxxxx", ".xxx.", "..x.."];
 
 const LIGHT = (() => {
   const v = [-0.45, 0.55, 0.9], n = Math.hypot(v[0], v[1], v[2]);
@@ -160,7 +176,8 @@ const S = {
 
 function fxState() {
   return { pieces: [], flashes: [], blasts: [], seq: 0, wrote: false, dest: null,
-           played: { blast: 0, break: 0, place: 0 }, ends: { near: 0, far: 0 } };
+           played: { blast: 0, break: 0, place: 0, hurt: 0, graze: 0, reward: 0 }, shook: 0,
+           ends: { near: 0, far: 0 } };
 }
 S.fx = fxState();
 
@@ -265,7 +282,7 @@ export function frame(ctx, el, box) {
   if (!p) {
     const slot = S.slots.indexOf(null, 1);
     if (slot < 0) return;
-    p = { el, group: ctx.scene, slot, w: 0, h: 0, stack: fresh() };
+    p = { el, group: ctx.scene, slot, w: 0, h: 0, stack: fresh(), blink: null, knock: -1, grazed: -Infinity };
     S.slots[slot] = el;
     S.panes.set(el, p);
   }
@@ -283,10 +300,10 @@ export function tick(ctx, dt) {
   let moved = false;
   for (const p of S.panes.values()) if (read(p)) moved = true;
   const step = Math.max(dt, FRAME);
-  const flying = pieces(step), flashing = flash(step);
-  const more = stacks(dt, moved || flying || S.fx.wrote);
+  const flying = pieces(step), flashing = flash(step), hitting = hits(step);
+  const more = stacks(dt, moved || flying || S.fx.wrote || hitting);
   schedule();
-  return more || flying || flashing;
+  return more || flying || flashing || hitting;
 }
 
 export const cues = [
@@ -294,6 +311,10 @@ export const cues = [
   { selector: "#grid > .tile:not(.is-hidden)", on: "arrive", cue: "place" },
   { selector: "#modelcard:not([hidden]), #dispatch:not([hidden]), #keymap:not([hidden]), #side:not([hidden]), .tile .scope:not([hidden])",
     on: "leave", cue: "break" },
+  { selector: "#grid > .tile.state-error", on: "arrive", cue: "hurt" },
+  { selector: ".tile .transcript li.denied, .tile .transcript li.friction, .tile .transcript li.error, .tile .err:not([hidden])",
+    on: "arrive", cue: "graze" },
+  { selector: "#grid > .tile:is(.state-done, .is-done)", on: "arrive", cue: "reward" },
 ];
 
 export function cue(ctx, name, el, box, how) {
@@ -308,6 +329,8 @@ export function cue(ctx, name, el, box, how) {
     homing(box);
   } else if (name === "break") {
     chips(box);
+  } else if (name === "hurt" || name === "graze" || name === "reward") {
+    hit(ctx, name, el, box);
   }
   ctx.api.request();
 }
@@ -364,15 +387,18 @@ function build() {
   for (const p of S.panes.values()) {
     const { slot, w, h } = p;
     if (!w || !h) continue;
+    const b = p.blink && blinkOn(p.blink) ? p.blink : null;
+    const tint = (y, col) => (b && y >= b.lo && y <= b.hi ? S.tokens.human : col);
     put.put(slot, w / 2, h / 2 + DROP, w, h, 6, 0, c.edge);
     put.put(slot, STRIP + (w - STRIP) / 2, h / 2, w - STRIP, h, 12, EDGE, c.panel);
     for (let k = 0; k < SOCKETS; k++) {
-      put.put(slot, STRIP / 2, k * CELL + CELL / 2, STRIP, CELL, 4, 1, shade(c.edge, 1.6));
+      const y = k * CELL + CELL / 2;
+      put.put(slot, STRIP / 2, y, STRIP, CELL, 4, 1, tint(y, shade(c.edge, 1.6)));
     }
     const n = stripCubes(h), top = SOCKETS * CELL, step = (h - top) / n;
     for (let k = 0; k < n; k++) {
-      put.put(slot, STRIP / 2, top + k * step + step / 2, STRIP, step, STRIP, 2,
-              shade(c.accent, jitter(slot, k) * 0.9));
+      const y = top + k * step + step / 2;
+      put.put(slot, STRIP / 2, y, STRIP, step, STRIP, 2, tint(y, shade(c.accent, jitter(slot, k) * 0.9)));
     }
   }
   put.done();
@@ -438,7 +464,7 @@ function stacks(dt, changed) {
     const tone = S.tokens[TONE[st.state] || "idle"] || S.tokens.idle;
     const low = shade(tone, 0.62);
     const cy = k => (SOCKETS - 1 - k) * CELL + CELL / 2;
-    const x = STRIP / 2;
+    const x = STRIP / 2 - knockOf(p);
     for (let k = 0; k < SOCKETS; k++) {
       const top = k === level - 1;
       if (k >= level || !p.w) { put.put(slot, 0, 0, 0, 0, 0, 0, low); continue; }
@@ -557,7 +583,88 @@ function homing(box) {
   add(list);
 }
 
+function blinkOn(b) {
+  return b.t < BLINK || (b.n === 2 && b.t >= 2 * BLINK && b.t < 3 * BLINK);
+}
+
+function knockOf(p) {
+  if (p.knock < 0) return 0;
+  const u = Math.min(1, p.knock / KNOCK_FOR);
+  return KNOCK * (1 - u * u * (3 - 2 * u));
+}
+
+function hits(dt) {
+  let busy = false, redraw = false;
+  for (const p of S.panes.values()) {
+    if (p.blink) {
+      const was = blinkOn(p.blink);
+      p.blink.t += dt;
+      if (p.blink.t >= (2 * p.blink.n - 1) * BLINK) p.blink = null;
+      if (was !== !!(p.blink && blinkOn(p.blink))) redraw = true;
+      if (p.blink) busy = true;
+    }
+    if (p.knock >= 0) {
+      p.knock += dt;
+      if (p.knock >= KNOCK_FOR) p.knock = -1;
+      busy = true;
+    }
+  }
+  if (redraw) build();
+  return busy || redraw;
+}
+
+/** @param {Element} pane */
+function boxOf(pane) {
+  const r = pane.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
+}
+
+function hit(ctx, name, el, box) {
+  const pane = name === "graze" ? el.closest("#grid > .tile") : el;
+  const p = pane && S.panes.get(pane);
+  if (!p || !p.w) return;
+  const b = name === "graze" ? boxOf(pane) : box;
+  if (b.w < RAIL || !b.h) return;
+  const c = surfaces(S.tokens), done = S.tokens.done, list = [], x = b.x + STRIP / 2;
+  if (name === "graze") {
+    const now = performance.now();
+    if (now - p.grazed < GRAZE_EVERY) return;
+    p.grazed = now;
+    const y = Math.min(b.y + b.h, Math.max(b.y, box.y + box.h / 2));
+    p.blink = { n: 1, t: 0, lo: y - b.y - GRAZE_NEAR, hi: y - b.y + GRAZE_NEAR };
+    for (let i = 0; i < 3; i++) {
+      list.push(piece("graze", b.x + 2 + 3 * i, y, 4, 4, c.edge, GRAZE_LIFE, { y0: y, vr: (i - 1) * 8 }));
+    }
+  } else if (name === "hurt") {
+    p.blink = { n: 2, t: 0, lo: -Infinity, hi: Infinity };
+    p.knock = 0;
+    const fx = ctx.api.fx;
+    if (fx && fx.animate(el, "hit")) S.fx.shook += 1;
+  } else {
+    const socket = b.y + CELL / 2;
+    for (let i = 0; i < ORBS; i++) {
+      list.push(piece("orb", x, b.y + b.h * 0.875, ORB, ORB, done, ORB_CLIMB,
+                      { from: [x, b.y + b.h * 0.875], to: [x, socket], wait: i * ORB_GAP, hide: true }));
+    }
+    HEART_AT.forEach((at, i) => {
+      const hx = b.x + STRIP / 2 + 2 * i;
+      HEART.forEach((row, j) => Array.from(row).forEach((m, k) => {
+        if (m !== "x") return;
+        const px = hx + (k - 2) * 2, py = socket + (j - 1.5) * 2;
+        list.push(piece("heart", px, py, 2, 2, done, HEART_END - at,
+                        { from: [px, py], to: [px, py - HEART_RISE], wait: at, hide: true }));
+      }));
+    });
+  }
+  const repo = /** @type {HTMLElement} */ (pane).dataset.repo || "";
+  for (const q of list) q.repo = repo;
+  S.fx.played[name] += 1;
+  add(list);
+  build();
+}
+
 function scaleOf(q) {
+  if (q.hide && q.t < q.wait) return 0;
   const k = q.pop >= 0 ? Math.max(0, 1 - q.pop / POP_FRAMES) : 1;
   return q.kind === "blast" && q.f <= SWELL_FRAMES ? SWELL * k : k;
 }
@@ -582,9 +689,10 @@ function pieces(dt) {
     q.t += dt;
     if (q.kind === "blast") blastStep(q, dt);
     else if (q.kind === "break") fallStep(q, dt);
+    else if (q.kind === "graze") grazeStep(q);
     else placeStep(q);
     if (q.y - Math.max(q.w, q.h) > vh && !(q.kind === "blast" && q.blast.dest)) continue;
-    const due = q.kind === "place" ? q.t >= q.wait + q.life : q.t >= q.life - POP_FRAMES * FRAME;
+    const due = q.wait !== undefined ? q.t >= q.wait + q.life : q.t >= q.life - POP_FRAMES * FRAME;
     if (due) q.pop = Math.max(q.pop, 0);
     out.push(q);
   }
@@ -626,6 +734,12 @@ function fallStep(q, dt) {
   q.x += q.vx * dt;
   q.y += q.vy * dt;
   q.rot += q.vr * dt;
+}
+
+function grazeStep(q) {
+  const u = Math.min(1, q.t / q.life);
+  q.y = q.y0 + GRAZE_FALL * u * u;
+  q.rot += q.vr * FRAME;
 }
 
 function placeStep(q) {
@@ -706,6 +820,7 @@ export function inspect() {
     repo: p.el.dataset.repo || "", slot: p.slot, w: p.w, h: p.h,
     at: S.uPane[p.slot] ? [S.uPane[p.slot].x, -S.uPane[p.slot].y, S.uPane[p.slot].z] : null,
     stack: Object.assign({ level: LEVEL[p.stack.state] || 2 }, p.stack),
+    blink: p.blink ? p.blink.n : 0, knock: knockOf(p),
   }));
   const meshes = [S.ground, S.slabs, S.stacks].filter(Boolean);
   return {
@@ -717,12 +832,14 @@ export function inspect() {
     builds: S.builds,
     timer: !!S.timer,
     panel: S.tokens ? surfaces(S.tokens).panel : null,
+    tones: S.tokens ? Object.fromEntries(["done", "human", "waiting", "idle"].map(k => [k, S.tokens[k]])) : null,
     memory: S.renderer ? Object.assign({}, S.renderer.info.memory) : null,
     panes,
     fx: {
       live: S.fx.pieces.length, played: Object.assign({}, S.fx.played), ends: Object.assign({}, S.fx.ends),
+      shook: S.fx.shook,
       flashes: S.fx.flashes.length, dest: S.fx.dest ? S.fx.dest.slice() : null,
-      pieces: S.fx.pieces.slice(0, 64).map(q => ({ kind: q.kind, x: q.x, y: q.y, s: Math.max(q.w, q.h) * scaleOf(q),
+      pieces: S.fx.pieces.slice(0, 64).map(q => ({ kind: q.kind, repo: q.repo || "", x: q.x, y: q.y, s: Math.max(q.w, q.h) * scaleOf(q),
                                                    c: q.c.slice(), bevel: 0, spin: "z" })),
     },
   };
