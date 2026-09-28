@@ -370,3 +370,96 @@ def test_without_ink_the_playbook_is_plain_and_an_idle_board_is_still(fleet_home
         close_pages(desk_browser)
     finally:
         _stop(server)
+
+
+# ================================================================ the board (#390)
+
+#: The module the layer loaded, for its `inspect()` (as `test_fleet_ink_farmstead.py`'s `LOAD_FARM`).
+LOAD_PLAYBOOK = """async () => { window.__pb = await import(q('/static/ink/skins/playbook.js')); }"""
+
+#: Every pixel three.js drew, read back from a frame drawn for the purpose (`Ink.sample` draws one)
+#: in the same task (`test_fleet_ink_glass.py`'s `READ`, over the whole buffer): the lowest and
+#: highest value per channel of the board, leaving out each mark's bounds and each page trace's box
+#: (the chalk is meant to be brighter), and the pixels at the points asked for.
+BOARD = """(points) => {
+  Ink.sample({ x: 0, y: 0, w: 1, h: 1 });
+  const c = document.getElementById('ink');
+  const gl = c.getContext('webgl2') || c.getContext('webgl');
+  const k = c.width / innerWidth, W = c.width, H = c.height, px = new Uint8Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  const l = Ink.inspect().layer;
+  const skip = l.marks.flatMap(m => m.bounds || [])
+    .concat((l.series || []).map(m => ({ x: m.box.x, y: m.box.y, r: m.box.x + m.box.w, b: m.box.y + m.box.h })))
+    .map(b => [Math.floor((b.x - 6) * k), Math.floor((b.y - 6) * k), Math.ceil((b.r + 6) * k), Math.ceil((b.b + 6) * k)]);
+  const lo = [255, 255, 255], hi = [0, 0, 0];
+  let n = 0;
+  for (let y = 0; y < H; y++) {
+    const top = H - 1 - y;
+    for (let x = 0; x < W; x++) {
+      if (skip.some(s => x >= s[0] && x <= s[2] && top >= s[1] && top <= s[3])) continue;
+      const i = (y * W + x) * 4;
+      for (let ch = 0; ch < 3; ch++) { lo[ch] = Math.min(lo[ch], px[i + ch]); hi[ch] = Math.max(hi[ch], px[i + ch]); }
+      n += 1;
+    }
+  }
+  const at = points.map(([x, y]) => { const i = ((H - 1 - Math.floor(y * k)) * W + Math.floor(x * k)) * 4;
+    return [px[i], px[i + 1], px[i + 2]]; });
+  return { lo, hi, n, at };
+}"""
+
+
+def _rgb(hex_):
+    return [round(v * 255) for v in theme.hex_to_rgb(hex_)]
+
+
+@pytest.mark.browser
+def test_the_board_stays_under_its_ceiling_is_built_once_and_rests(fleet_home, tmp_path, alive, desk_browser):
+    """#390: the slate, its haze, its eraser ghosts, the yard lines and the hash marks, read back at
+    1400x900: every pixel of the board but the marks lies within [--paper, --board-max] per channel
+    (plus or minus 1), a yard line crosses a pane's text in `--yard`, and a ghost is lighter than the
+    slate. The paper is one piece, built once at rest: an idle window does not rebuild it, one
+    resize rebuilds it once, and an idle board is 0 frames and 0 mutations."""
+    _desk(tmp_path, fleet_home)
+    alive.add("alpha")
+    for _ in range(3):
+        E.append("alpha", [E.event("alpha", "assistant_text", {"text": "a line of the play " * 3}, ticket="RDSD-1")])
+    server, token, port = _serve()
+    try:
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on", reduced=True, width=1400, height=900)
+        _playbook(page)
+        page.evaluate(LOAD_PLAYBOOK)
+        _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
+        spec = skins.SKINS["playbook"]["variants"]["chalkboard"]
+        paper, ceiling, yard = (_rgb(spec["composited_panel"]["darkest"]), _rgb(spec["composited_panel"]["lightest"]),
+                                _rgb("#3F2D19"))
+        board = page.evaluate("() => window.__pb.inspect()")
+        assert 3 <= len(board["ghosts"]) <= 5, board
+        # A yard line under a pane's transcript text: the first one inside alpha's transcript.
+        t = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="alpha"] .transcript')
+          .getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom }; }""")
+        lines = [board["top"] + 140 * i for i in range(12) if t["y"] + 2 < board["top"] + 140 * i < t["b"] - 2]
+        assert lines, (board, t)
+        text_x = t["x"] + 40
+        ghost = board["ghosts"][0]
+        got = page.evaluate(BOARD, [[text_x, lines[0]], [ghost["x"], ghost["y"]]])
+        assert got["n"] > 1000000, got["n"]
+        for ch in range(3):
+            assert paper[ch] - 1 <= got["lo"][ch] and got["hi"][ch] <= ceiling[ch] + 1, (got["lo"], got["hi"], paper, ceiling)
+        on_line, in_ghost = got["at"]
+        assert all(abs(a - b) <= 2 for a, b in zip(on_line, yard)), ("the yard line", on_line, yard)
+        assert sum(in_ghost) > sum(paper) + 6, ("the ghost is lighter than the slate", in_ghost, paper)
+        layer = _layer(page)
+        assert layer["skin"]["hooks"] == ["paper"] and layer["skin"]["paper"] == 1 and layer["skin"]["errors"] == []
+
+        # Built once at rest: an idle window changes nothing, and a resize rebuilds it exactly once.
+        before = page.evaluate("() => window.__pb.inspect().builds")
+        assert_idle(page)
+        assert page.evaluate("() => window.__pb.inspect().builds") == before
+        page.set_viewport_size({"width": 1300, "height": 900})
+        _rest(page, "innerWidth === 1300 && Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
+        assert page.evaluate("() => window.__pb.inspect().builds") == before + 1
+        assert _layer(page)["skin"]["paper"] == 1
+        assert not errors, errors
+        close_pages(desk_browser)
+    finally:
+        _stop(server)
