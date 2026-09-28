@@ -111,7 +111,7 @@ class FakeChromium:
 def test_every_chromium_is_launched_without_windows_tcp_port_randomization():
     """#603: Chromium 139+ sets SO_RANDOMIZE_PORT on every outbound socket on Windows, and a random
     local port that collides fails the connect with WSAENOBUFS -- `net::ERR_NO_BUFFER_SPACE` on a
-    desk's page or one of its modules, about one page load in four thousand on the runner, and none in
+    desk's page or one of its modules, about one page load in 2,500 on the runner, and none in
     16,912 with the feature off. The shared browser is launched with it off; a test's own switches
     (`desk_chromium_with`) keep theirs and gain it, and a test's own `--disable-features` is extended,
     since Chromium reads only the last one."""

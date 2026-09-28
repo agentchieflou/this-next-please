@@ -62,9 +62,9 @@ COUNT_FETCHES = """;(() => {
 #: socket gets `SO_RANDOMIZE_PORT`: Windows picks its local port at random, and a pick that collides
 #: fails the connect at once with WSAENOBUFS -- no other port is tried. Chromium reports it as
 #: `net::ERR_NO_BUFFER_SPACE`, on the page itself or on one of its modules. The suite opens a desk per
-#: test and several connections to each, and on the Windows runner about one page load in four thousand
-#: failed that way; with this feature off, none in 16,912 (#603 has the runs). Nothing in the desk is
-#: about which local port the browser dials from, so the tests lose nothing by it.
+#: test and several connections to each, and on the Windows runner about one page load in 2,500
+#: failed that way (63 in 158,790); with this feature off, none in 16,912 (#603 has the runs).
+#: Nothing in the desk is about which local port the browser dials from, so the tests lose nothing.
 NO_PORT_RANDOMIZATION = "TcpPortRandomizationWin"
 
 
