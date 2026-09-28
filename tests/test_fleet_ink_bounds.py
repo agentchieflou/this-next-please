@@ -77,6 +77,11 @@ SELF_TEST_OFF = {"name": "hig-self-test", "marks": [
 
 WIDTHS = (1400, 700)
 
+#: The look the ink-on self-test is drawn under: one whose head wraps the name over the number at
+#: 1400px. Pinned, so that it is not whichever look `every_variant()` happens to list last (#396:
+#: the circuit board's `--mono` name leaves the number beside it, where no check lands).
+SELF_TEST_LOOK = "notebook:dark"
+
 #: Each tool's base width (`pen.js` TOOLS): a stroke's bound is its centre line, inflated by half of it.
 TOOL_W = {"pencil": 1.9, "pen": 1.45, "red": 1.8, "green": 2.6, "marker": 4.6, "highlighter": 18}
 
@@ -486,6 +491,7 @@ def self_test(page, ink):
         hits = ring_problems("self-test", WIDTHS[0], page.evaluate(PLAIN_RINGS), page.evaluate(TEXT_RUNS))
         caught = [h for h in hits if ".chipword" in h[0]]
         return [] if caught else [("self-test, ink off: a loop round the chip's word on its age went unreported", hits)]
+    choose(page, SELF_TEST_LOOK)
     page.evaluate("t => Ink.setSkin(t)", SELF_TEST)
     page.wait_for_function(f"""() => Ink.inspect().table === 'hig-self-test' && ({AT_REST})()
       && Ink.inspect().layer.marks.some(m => m.selector === '.tile .head .repo' && m.shape === 'check' && m.state === 'drawn')""",

@@ -196,6 +196,7 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | `notebook` | The first skin drawn with ink (#249, #250): white stock with blue rules and a red margin by day, charcoal stock and gel inks by night, and state drawn in pencil, pen, marker and highlighter ([skin-notebook.md](skin-notebook.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: the highlighter is multiplied into the day page and screened onto the night one, and every state is a shape as well as an ink. |
 | `playbook` | A coach's chalkboard drawn by the ink layer (#389): brown slate, every agent an O, its turn a route in orange chalk, and the state grammar in X's and O's ([skin-playbook.md](skin-playbook.md)). Plain CSS where WebGL is not measured as hardware. Names no team or league (#318). | *Color & Redundancy*: every state is a shape as well as an ink -- a route, a dashed option route, a bar and an X, a check. |
 | `phosphor` | A green phosphor screen drawn by the ink layer (#394): near-black glass with faint 3px scanlines, and the state grammar traced by a thin, even beam ([skin-phosphor.md](skin-phosphor.md)). Plain CSS where WebGL is not measured as hardware. | *Composited contrast*: the glass is a pair, near-black and its scanline, and the text and every ink are checked at both ends. |
+| `circuit` | A circuit board drawn by the ink layer (#396): solder mask with a fine fibreglass weave, each pane a component with a copper pad and trace along its top edge, its number ringed as pin 1, and the state grammar in silkscreen and copper ([skin-circuit.md](skin-circuit.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: every state is a shape as well as an ink, and the copper is decoration only, never under a word. |
 
 A variant re-colours the surfaces, and its palette colours the states: a chip's word and glyph, a crop
 stage and every mark of the state grammar ([desk-ink.md](desk-ink.md) §The state grammar across skins)
@@ -267,6 +268,8 @@ means the default variant, as an unknown variant does, and is saved as that vari
 | `notebook:dark` | Night notebook | `dark` | `#14171A` | `#1B1E25` | 13.4:1 | charcoal stock and gel inks, the highlighter screened |
 | `playbook:chalkboard` | Chalkboard *(default)* | `nfl-browns` | `#311D00` | `#2B1B08` … `#40301D` | 10.4:1 at the worse end | brown slate, cream and orange chalk |
 | `phosphor:green` | Green *(default)* | `matrix` | `#020A03` | `#010603` … `#0A1F10` | 11.5:1 at the worse end | phosphor on glass |
+| `circuit:solder` | Solder *(default)* | `greens` | `#0B1F14` | `#0D2618` … `#1C3A28` | 9.4:1 at the worse end | green solder mask, white silkscreen and bare copper |
+| `circuit:matte` | Matte | `vanta-black` | `#000000` | `#0A0A0A` … `#1A1A1A` | 10.4:1 at the worse end | a matte-black board, for a room with the lights off |
 
 ### Every palette's look
 
@@ -282,10 +285,10 @@ every `PALETTE_ONLY` palette is.
 |---|---|---|---|
 | `nfl-browns` | Playbook · Chalkboard | a coach's chalkboard: O's, routes, a flag (Playbook, #389-#392) | `planned` |
 | `matrix` | Voxel · Overworld, Phosphor · Green | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `planned` |
-| `greens` | `palette only` | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `planned` |
+| `greens` | Circuit board · Solder | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `planned` |
 | `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
 | `sand` | Farmstead · Daytime, Napkin notes · Kraft | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
-| `vanta-black` | Glass · Noir, Voxel · The End | an observatory: a star field, a meteor per line, a constellation when done, at least 97% true-black pixels | `parked` |
+| `vanta-black` | Glass · Noir, Voxel · The End, Circuit board · Matte | an observatory: a star field, a meteor per line, a constellation when done, at least 97% true-black pixels | `parked` |
 | `reds` | Voxel · Nether | a darkroom: a safelight, prints in the tray, a print hung when done | `parked` |
 | `blues` | Glass · Azure, Farmstead · Rainy day, Graph paper · Blueprint | sonar: one ping ring per line | `parked` |
 | `dark` | Glass · Smoke, Notebook · Night notebook | none: the neutral ground the paper skins share | `built` |

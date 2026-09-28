@@ -254,6 +254,30 @@ SKINS = {
                       "why": "phosphor on glass"},
         },
     },
+    # #396: drawn by the ink layer (`static/ink/skins/circuit.js`). The pane is the board, so the
+    # panel is the solder mask, a pair `composited_range`-style: the mask (`--paper`) at the dark end
+    # and its fibreglass weave at the light one, never brighter than `--board-max`. `inks` are the
+    # ones skin.css sets as `--ink-<tool>`; `tests/test_fleet_ink_circuit.py` reads them back. The
+    # copper (`--copper`) is decoration only, never under a word, so it is in no check. The
+    # highlighter is #D29922 darkened to keep the text 4.5:1 through its screen at the light end.
+    "circuit": {
+        "name": "circuit",
+        "title": "Circuit board",
+        "why": "solder mask, silkscreen and copper: each agent a component on the board",
+        "default": "solder",
+        "variants": {
+            "solder": {"title": "Solder", "base": "greens",
+                       "composited_panel": {"darkest": "#0D2618", "lightest": "#1C3A28"},
+                       "inks": {"pencil": "#E4EDE6", "pen": "#D9A066", "red": "#F85149",
+                                "green": "#7EE787", "marker": "#F85149", "highlighter": "#B7851E"},
+                       "why": "green solder mask, white silkscreen and bare copper"},
+            "matte": {"title": "Matte", "base": "vanta-black",
+                      "composited_panel": {"darkest": "#0A0A0A", "lightest": "#1A1A1A"},
+                      "inks": {"pencil": "#D8D8D8", "pen": "#D9A066", "red": "#F85149",
+                               "green": "#3FB950", "marker": "#F85149", "highlighter": "#B7851E"},
+                      "why": "a matte-black board, for a room with the lights off"},
+        },
+    },
 }
 
 
@@ -262,7 +286,6 @@ SKINS = {
 # /settings can say of every palette which looks are drawn on it -- or that it is the plain page
 # only, and still one to choose. It empties as the skins land: #389 removes `nfl-browns`, #396 `greens`.
 PALETTE_ONLY: dict[str, str] = {
-    "greens": "the circuit board is planned",
 }
 
 
