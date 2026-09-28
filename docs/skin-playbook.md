@@ -90,6 +90,35 @@ when the skin arrives, on a resize and on a palette change. Its colours are the 
 `inspect()` gives `{builds, ghosts, top}`: how many times `paper` has run, the ghosts' centres and radii, and the first
 baseline under the header.
 
+## The moments
+
+Three one-shot moments (#391), each derived from a class the page already sets, drawn in the pane's own `frame`
+group: one record per pane, its materials rebuilt at their current progress whenever `frame` is called again (a
+resize or a palette change kills the old `api.stroke` handles). `tick` answers `true` only while something flies,
+hops or draws.
+
+| Trigger | Moment | Timing |
+| --- | --- | --- |
+| `needs-human` arrives | **The penalty flag**: a 14x10px cloth with a knot in `tokens.waiting` (the palette's warn, 8.5:1 on the board), thrown from the head's right end along an arc with 1.5 turns, landing flat in the pane's left margin (the 36px gutter) below the margin glyph | at most 300 ms; still while the class holds; picked up along the arc reversed in 180 ms when it goes |
+| `is-done` or `state-done` arrives | **Touchdown**: chalk goalposts about 24px tall under the check, in the pencil's chalk in the green ink, then end-zone hatching, diagonal strokes every 6px for 84px under them, one after another | drawn at 900 px/s; erased at the same speed when done goes |
+| `state-error` arrives | **The fumble**: a chalk ball about 10x7px (an ellipse, a seam, three laces), drawn in the margin, then two decaying hops to rest just right of the bang | drawn at 900 px/s, then 180 + 120 ms of hops; erased when the error goes |
+
+- **At rest, never replayed.** A record starts at its pane's state with every material at rest, so nothing is thrown
+  on load. While `body.is-stale` is set (a cached desk restored), changes go straight to rest.
+- **The margin only.** The hatch is chalk at the pencil's chalk tuning, and every stroke lies within the pane's
+  first 36px, stops 8px above its bottom and crosses no word. The margin carries no text, so the `--board-max`
+  ceiling (which protects text) does not apply there: at that ceiling cream chalk would be about 1.3:1 and
+  invisible.
+- **Rails.** A rail (under 90px wide) gets no flag, posts, hatch or ball.
+- **Reduced motion.** Every material at rest at once: no arc, no hop, the strokes complete, and leaving is
+  instant. Reduced motion is the only off switch (the issue's default decision): there is no separate setting.
+- **The rules.** No colour literal, no page write and no `MutationObserver`. Materials move, and are drawn and
+  erased, but never fade. Under `body.ink-off` none of them is shown: the plain table already carries each state.
+- `inspect()` gives, per pane, `{flag: 'none'|'flying'|'resting'|'leaving', posts: 0..1, hatch: 0..1,
+  ball: 'none'|'drawing'|'hopping'|'resting', flagBox, postsBox, hatchBoxes, ballBox}` (boxes `{x, y, r, b}` in
+  viewport px, or null), with `throws`, `hops` and `rail`; and `strokes`, the live material strokes, and
+  `geometries`, the renderer's count.
+
 ## Names
 
 The skin's own strings and art name neither team nor league (#318's names decision): no logos, helmets, wordmarks,

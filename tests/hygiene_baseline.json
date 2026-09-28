@@ -160,7 +160,7 @@
   "tests/test_fleet_ink_margin.py": {"tests": 2},
   "tests/test_fleet_ink_notebook.py": {"tests": 11},
   "tests/test_fleet_ink_phosphor.py": {"tests": 6},
-  "tests/test_fleet_ink_playbook.py": {"tests": 10},
+  "tests/test_fleet_ink_playbook.py": {"tests": 11},
   "tests/test_fleet_ink_preload.py": {"tests": 8},
   "tests/test_fleet_ink_rules.py": {"tests": 3},
   "tests/test_fleet_instant.py": {"tests": 13},

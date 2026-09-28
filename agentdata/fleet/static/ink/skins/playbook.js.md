@@ -64,3 +64,27 @@ its paper.
 
 `builds` counts the `paper` calls; `ghosts` and `top` say where the board put its smudges and its
 first yard line, for the readback test.
+
+## the moments (#391)
+
+docs/skin-playbook.md §The moments is the full account. A record per pane (`recs`, keyed by the
+pane, dropped once it leaves the page) holds what is shown for `needs-human`, done and
+`state-error`, and each material's progress; `frame` rebuilds the materials at that progress,
+since a resize or a palette change empties the group and kills the old strokes.
+
+### `function settle`
+
+A new record starts at rest in its pane's current state: nothing is thrown on load.
+
+### `function start`
+
+A change seen in `tick` animates, unless motion is reduced, the desk is a restored cached one
+(`body.is-stale`) or the pane is a rail: then it goes straight to rest.
+
+### `export function tick`
+
+Answers `true` only while something flies, hops or draws, so an idle board draws no frame.
+
+### `export function dispose`
+
+The groups are the layer's to free; the skin only forgets its records.
