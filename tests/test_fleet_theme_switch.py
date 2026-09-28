@@ -19,10 +19,10 @@ from agentdata import theme as T
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
-from test_fleet_desk_browser import launch_chromium
+from desk_waits import WATCH
 from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home)  # noqa: F401
 
-SAMPLER = """
+SAMPLER = WATCH + """
 (() => {
   window.__frames = [];
   window.__firstPaint = null;
@@ -61,7 +61,9 @@ SAMPLER = """
   } catch (e) {}
   // Every write to what the theme is: <html>'s style and data-theme, <body>'s data-skin and
   // data-skin-variant, and the skin link's href. The parser's own attributes are not mutations.
-  new MutationObserver(records => {
+  window.__deskWaits.watch(document, { childList: false, characterData: false,
+                                       attributeFilter: ["style", "data-theme", "data-skin", "data-skin-variant", "href"] },
+                          records => {
     for (const r of records) {
       const el = r.target;
       const theme = (el === document.documentElement && (r.attributeName === "style" || r.attributeName === "data-theme"))
@@ -69,8 +71,7 @@ SAMPLER = """
         || (el.matches && el.matches("link[data-skin]") && r.attributeName === "href");
       if (theme) window.__writes.push({ el: el.tagName, name: r.attributeName, t: Math.round(performance.now() - t0) });
     }
-  }).observe(document, { subtree: true, attributes: true,
-                         attributeFilter: ["style", "data-theme", "data-skin", "data-skin-variant", "href"] });
+  });
   addEventListener("pageshow", e => { if (e.persisted) window.__frames = []; });
 })();
 """
@@ -80,13 +81,10 @@ SETTLED = """() => typeof lastFleet !== 'undefined' && !!lastFleet && themeEvent
              && !document.body.classList.contains('is-stale') && !!window.Ink"""
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 def _config(fleet_home, **theme):

@@ -28,10 +28,22 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_column import _until
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, observe_quiet, settle
 from test_fleet_gutters import _gutter_point
 
 SKINS = ["none", "glass:smoke"]
+
+# The skin the server was told is the page's, and its stylesheet has loaded (#305): the family and
+# variant on `<body>`, and the `link[data-skin]` sheet read from the address it now names -- or, for
+# `none`, no skin sheet at all.
+SKIN_ON = """(s) => {
+  const [family, variant] = s.split(':');
+  const b = document.body, l = document.head.querySelector('link[data-skin]');
+  if ((b.getAttribute('data-skin') || 'none') !== family) return false;
+  if ((b.getAttribute('data-skin-variant') || '') !== (variant || '')) return false;
+  return family === 'none' ? !l : !!(l && l.sheet && l.sheet.href === l.href);
+}"""
 
 
 @pytest.fixture()
@@ -78,193 +90,186 @@ def _desk_of_five(tmp_path):
 
 
 @pytest.mark.browser
-def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path, desk_browser):
     _desk_of_five(tmp_path)
     shots = os.environ.get("AGENTDATA_SHOTS") or str(tmp_path / "shots")
     os.makedirs(shots, exist_ok=True)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            context = browser.new_context(
-                viewport={"width": 1600, "height": 1000},
-                record_video_dir=os.path.join(shots, "video"),
-                record_video_size={"width": 1600, "height": 1000})
-            page = context.new_page()
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
-            page.wait_for_function(
-                "() => !!document.querySelector('.tile .trace[aria-label]')", timeout=15000)
-            page.wait_for_timeout(400)
-            page.screenshot(path=os.path.join(shots, "ownership-desk.png"))
+        browser = desk_browser
+        context = browser.new_context(
+            viewport={"width": 1600, "height": 1000},
+            record_video_dir=os.path.join(shots, "video"),
+            record_video_size={"width": 1600, "height": 1000})
+        page = counted(context.new_page())
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
+        page.wait_for_function(
+            "() => !!document.querySelector('.tile .trace[aria-label]')", timeout=15000)
+        settle(page)
+        page.screenshot(path=os.path.join(shots, "ownership-desk.png"))
 
-            # 1. The swap. One agent opened from its rail and then the one before it again, each
-            #    through the one door a layout change has, so the transition is the same one every
-            #    gesture uses.
-            page.locator('.tile[data-repo="luna"] .pane-rail').click()
-            page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
-            page.wait_for_timeout(450)
-            page.screenshot(path=os.path.join(shots, "ownership-open.png"))
-            page.evaluate("() => backToPrevious()")
-            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
-            page.wait_for_timeout(350)
+        # 1. The swap. One agent opened from its rail and then the one before it again, each
+        #    through the one door a layout change has, so the transition is the same one every
+        #    gesture uses.
+        page.locator('.tile[data-repo="luna"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
+        settle(page)
+        page.screenshot(path=os.path.join(shots, "ownership-open.png"))
+        page.evaluate("() => backToPrevious()")
+        page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
+        settle(page)
 
-            # 2. The resize: the gutter on the open pane's right, pulled left until the rail beside
-            #    it is a pane of its own (#234), and one step back from the keyboard. Once the swap
-            #    back has finished moving, or the gutter's box is where it was.
-            x, y = _gutter_point(page, "rdsd-pbi-reporting")
-            page.mouse.move(x, y)
-            page.mouse.down()
-            page.wait_for_function("() => !!gutterHeld", timeout=8000)
-            page.mouse.move(x - 500, y, steps=12)
-            page.mouse.up()
-            page.wait_for_selector('.tile[data-repo="luna"].is-solo:not([data-tier="rail"])',
-                                   timeout=8000)
-            page.evaluate(
-                """() => document.querySelector('.tile[data-repo="rdsd-pbi-reporting"]').focus()""")
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            _until(lambda: (S.desk_state()["windows"].get("main") or {}).get("widths", {})
-                   .get("luna", 0) > 0)
-            page.wait_for_timeout(450)
-            page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
+        # 2. The resize: the gutter on the open pane's right, pulled left until the rail beside
+        #    it is a pane of its own (#234), and one step back from the keyboard. Once the swap
+        #    back has finished moving, or the gutter's box is where it was.
+        x, y = _gutter_point(page, "rdsd-pbi-reporting")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => !!gutterHeld", timeout=8000)
+        page.mouse.move(x - 500, y, steps=12)
+        page.mouse.up()
+        page.wait_for_selector('.tile[data-repo="luna"].is-solo:not([data-tier="rail"])',
+                               timeout=8000)
+        page.evaluate(
+            """() => document.querySelector('.tile[data-repo="rdsd-pbi-reporting"]').focus()""")
+        page.keyboard.press("Alt+Shift+ArrowRight")
+        page.wait_for_function("() => windowWrites === 0", timeout=8000)
+        _until(lambda: (S.desk_state()["windows"].get("main") or {}).get("widths", {})
+               .get("luna", 0) > 0)
+        settle(page)
+        page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
 
-            # 3. The hide, and back. Painted before the server answers, and the footer says where
-            #    it went. `h` on the rail, which is where the band's hide button went (#233).
-            page.focus('.tile[data-repo="backlog-health"] .pane-rail')
-            page.keyboard.press("h")
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="backlog-health"]')
+        # 3. The hide, and back. Painted before the server answers, and the footer says where
+        #    it went. `h` on the rail, which is where the band's hide button went (#233).
+        page.focus('.tile[data-repo="backlog-health"] .pane-rail')
+        page.keyboard.press("h")
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="backlog-health"]')
                            .classList.contains('is-hidden')""", timeout=8000)
-            page.wait_for_function(
-                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
-                timeout=8000)
-            page.wait_for_timeout(350)
-            page.screenshot(path=os.path.join(shots, "ownership-hidden.png"))
-            page.locator("#hiddencount").click()
-            page.wait_for_function(
-                """() => !document.querySelector('.tile[data-repo="backlog-health"]')
+        page.wait_for_function(
+            "() => document.getElementById('hiddencount').textContent === '1 hidden'",
+            timeout=8000)
+        settle(page)
+        page.screenshot(path=os.path.join(shots, "ownership-hidden.png"))
+        page.locator("#hiddencount").click()
+        page.wait_for_function(
+            """() => !document.querySelector('.tile[data-repo="backlog-health"]')
                             .classList.contains('is-hidden')""", timeout=8000)
-            # The page below is a reload; it reads the server's arrangement, not these pixels.
-            _until(lambda: S.desk_state()["arrangement"]["hidden"] == [])
+        # The page below is a reload; it reads the server's arrangement, not these pixels.
+        _until(lambda: S.desk_state()["arrangement"]["hidden"] == [])
 
-            # 4a. Hidden, then shown (#579). iOS 18 closes a backgrounded stream without an `error`
-            #     and leaves `readyState` at 1, so the page closes its own stream when it is hidden;
-            #     shown again, it reads the fleet once and reconnects from its cursors, and the next
-            #     event arrives on the new stream.
-            asked = []
+        # 4a. Hidden, then shown (#579). iOS 18 closes a backgrounded stream without an `error`
+        #     and leaves `readyState` at 1, so the page closes its own stream when it is hidden;
+        #     shown again, it reads the fleet once and reconnects from its cursors, and the next
+        #     event arrives on the new stream.
+        asked = []
 
-            def heard(r):
-                path = r.url.split("?")[0].rsplit("/", 1)[-1]
-                if path in ("fleet", "events"):
-                    asked.append((path, parse_qs(urlsplit(r.url).query).get("since", [""])[0]))
+        def heard(r):
+            path = r.url.split("?")[0].rsplit("/", 1)[-1]
+            if path in ("fleet", "events"):
+                asked.append((path, parse_qs(urlsplit(r.url).query).get("since", [""])[0]))
 
-            page.evaluate("""() => {
+        page.evaluate("""() => {
               window.__shown = 'hidden';
               Object.defineProperty(document, 'visibilityState',
                                     { configurable: true, get: () => window.__shown });
               document.dispatchEvent(new Event('visibilitychange'));
             }""")
-            assert page.evaluate("() => source === null"), "a hidden page kept its stream open"
-            page.on("request", heard)
+        assert page.evaluate("() => source === null"), "a hidden page kept its stream open"
+        page.on("request", heard)
+        # Until the new stream's own request has been heard: `heard` was added first, so it has it.
+        with page.expect_request(lambda r: "/api/events" in r.url, timeout=8000):
             page.evaluate(
                 "() => { window.__shown = 'visible'; document.dispatchEvent(new Event('visibilitychange')); }")
-            page.wait_for_function("() => !!source && source.readyState === 1", timeout=8000)
-            page.wait_for_timeout(300)
-            page.remove_listener("request", heard)
-            upto = [a for a, _ in asked].index("events")
-            assert [a for a, _ in asked[:upto]] == ["fleet"], asked
-            since = asked[upto][1]
-            assert since == page.evaluate("() => cursors()"), (since, asked)
-            names = sorted(part.split(":")[0] for part in since.split(","))
-            assert names == sorted(["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
-                                    "arl-usage"]) and all(int(part.split(":")[1]) > 0 for part in
-                                                          since.split(",")), since
-            # The next event comes down the new stream (the one-second promise itself is
-            # `test_a_live_stream_delivers_a_new_event_within_a_second`'s, with the same deadline).
-            seq = page.evaluate("() => tiles.get('velocity').seq")
-            E.append("velocity", [E.event("velocity", "assistant_text", {"text": "back again"},
-                                          ticket="RDSD-1")])
-            page.wait_for_function("(n) => tiles.get('velocity').seq > n", arg=seq, timeout=5000)
+        page.wait_for_function("() => !!source && source.readyState === 1", timeout=8000)
+        page.remove_listener("request", heard)
+        upto = [a for a, _ in asked].index("events")
+        assert [a for a, _ in asked[:upto]] == ["fleet"], asked
+        since = asked[upto][1]
+        assert since == page.evaluate("() => cursors()"), (since, asked)
+        names = sorted(part.split(":")[0] for part in since.split(","))
+        assert names == sorted(["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
+                                "arl-usage"]) and all(int(part.split(":")[1]) > 0 for part in
+                                                      since.split(",")), since
+        # The next event comes down the new stream (the one-second promise itself is
+        # `test_a_live_stream_delivers_a_new_event_within_a_second`'s, with the same deadline).
+        seq = page.evaluate("() => tiles.get('velocity').seq")
+        E.append("velocity", [E.event("velocity", "assistant_text", {"text": "back again"},
+                                      ticket="RDSD-1")])
+        page.wait_for_function("(n) => tiles.get('velocity').seq > n", arg=seq, timeout=5000)
 
-            # 4. The reconnect. The stream is dropped and the desk keeps what it had -- and the
-            #    window that comes back shows it before the fleet answers.
-            page.evaluate("() => { if (source) { source.close(); source = null; } }")
-            page.wait_for_timeout(300)
-            still_there = page.evaluate(
-                "() => document.querySelectorAll('#grid .tile').length")
-            assert still_there == 5, "the desk emptied when the stream went"
-            page.add_init_script("""
-              const real = window.fetch;
+        # 4. The reconnect. The stream is dropped and the desk keeps what it had -- and the
+        #    window that comes back shows it before the fleet answers.
+        page.evaluate("() => { if (source) { source.close(); source = null; } }")
+        # Over the page's own work: what the dropped stream left behind (a `refreshSoon` it had
+        # armed, one refresh) runs out, and then the desk is counted.
+        observe_quiet(page, passes=1, drive=False)
+        still_there = page.evaluate(
+            "() => document.querySelectorAll('#grid .tile').length")
+        assert still_there == 5, "the desk emptied when the stream went"
+        # The fleet's answer is held until the test has looked (#305): a hold of 1200 ms was a race
+        # with the look itself on a loaded runner, which lost it when the look came later.
+        page.add_init_script("""
+              const real = window.fetch, held = [];
+              window.__releaseFleet = () => { window.__fleetFree = true; held.splice(0).forEach(go => go()); };
               window.fetch = function (url, opts) {
-                if (String(url).indexOf('/api/fleet') >= 0) {
-                  return new Promise(go => setTimeout(() => go(real(url, opts)), 1200));
+                if (!window.__fleetFree && String(url).indexOf('/api/fleet') >= 0) {
+                  return new Promise(go => held.push(go)).then(() => real(url, opts));
                 }
                 return real.apply(this, arguments);
               };
             """)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            # The open pane, not the first tile: Playwright waits on the first match, and the first
-            # tile can be one that is not on the glass -- the column's hidden tile (#259), or a
-            # hidden or grouped rail in the row (#233).
-            page.wait_for_selector(".tile.is-solo", timeout=6000)
-            early = page.evaluate("""() => ({
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        # The open pane, not the first tile: Playwright waits on the first match, and the first
+        # tile can be one that is not on the glass -- the column's hidden tile (#259), or a
+        # hidden or grouped rail in the row (#233).
+        page.wait_for_selector(".tile.is-solo", timeout=6000)
+        early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,
               stale: document.body.classList.contains('is-stale'),
             })""")
-            assert early["tiles"] == 5, early
-            assert early["stale"], "the reconnect did not say the desk was the old one"
-            page.screenshot(path=os.path.join(shots, "ownership-stale.png"))
-            page.wait_for_function(
-                "() => !document.body.classList.contains('is-stale')", timeout=15000)
+        assert early["tiles"] == 5, early
+        assert early["stale"], "the reconnect did not say the desk was the old one"
+        page.screenshot(path=os.path.join(shots, "ownership-stale.png"))
+        page.evaluate("() => window.__releaseFleet()")
+        page.wait_for_function(
+            "() => !document.body.classList.contains('is-stale')", timeout=15000)
 
-            # 5. The redraw. Twenty passes with nothing to change, touching nothing at all --
-            #    which is the render contract, and what every gesture above rests on.
-            page.wait_for_timeout(400)
-            touched = page.evaluate("""() => {
-              let n = 0;
-              const what = [];
-              const obs = new MutationObserver(rs => {
-                n += rs.length;
-                rs.forEach(r => what.push(r.type + ' ' + (r.attributeName || '') + ' on ' +
-                  (r.target.className || r.target.nodeName)));
-              });
-              obs.observe(document.body, { subtree: true, childList: true,
-                                           attributes: true, characterData: true });
+        # 5. The redraw. Twenty passes with nothing to change, touching nothing at all --
+        #    which is the render contract, and what every gesture above rests on.
+        settle(page)
+        touched = page.evaluate("""() => {
+              const w = __deskWaits.watch(document.body);
               for (let i = 0; i < 20; i++) redrawAll();
-              obs.takeRecords().forEach(r => {
-                n += 1;
-                what.push(r.type + ' ' + (r.attributeName || '') + ' on ' +
-                  (r.target.className || r.target.nodeName));
-              });
-              obs.disconnect();
-              return { n: n, what: what.slice(0, 8) };
+              w.stop();
+              return { n: w.n, what: w.seen.slice(0, 8) };
             }""")
-            assert touched["n"] == 0, \
-                f"twenty idle redraws made {touched['n']} DOM mutations: {touched['what']}"
+        assert touched["n"] == 0, \
+            f"twenty idle redraws made {touched['n']} DOM mutations: {touched['what']}"
 
-            for skin in SKINS:
-                S.act("theme", {"skin": skin})
-                page.wait_for_timeout(500)
-                page.screenshot(path=os.path.join(
-                    shots, "ownership-" + skin.replace(":", "-") + ".png"))
+        for skin in SKINS:
+            S.act("theme", {"skin": skin})
+            page.wait_for_function(SKIN_ON, arg=skin, timeout=DESK_WAIT_MS)
+            settle(page, allow_ground=True)
+            page.screenshot(path=os.path.join(
+                shots, "ownership-" + skin.replace(":", "-") + ".png"))
 
-            assert not errors, errors
-            video = page.video
-            context.close()
-            if video:
-                try:
-                    shutil.copyfile(video.path(),
-                                    os.path.join(shots, "ownership-demo.webm"))
-                except OSError:
-                    pass
-            browser.close()
+        assert not errors, errors
+        video = page.video
+        context.close()
+        if video:
+            try:
+                shutil.copyfile(video.path(),
+                                os.path.join(shots, "ownership-demo.webm"))
+            except OSError:
+                pass
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

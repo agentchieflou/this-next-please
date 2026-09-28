@@ -35,7 +35,8 @@ from agentdata.fleet import agentstate, events as E, skins, supervisor
 
 from desk_harness import close_pages
 from test_fleet_gutters import _gutter_point
-from test_fleet_ink import (IDLE_LOOP, COUNT_FETCHES, _desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
+from desk_waits import counted, observe_quiet, settle
+from test_fleet_ink import (_desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
                             fleet_home)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -192,7 +193,7 @@ def test_the_mark_table_names_only_what_the_page_already_sets():
     app = _read(os.path.join(STATIC, "app.js"))
     html = _read(os.path.join(STATIC, "index.html"))
     selectors = re.findall(r'selector: "((?:[^"\\]|\\.)*)"', _read(MODULE))
-    assert len(selectors) == 7, selectors
+    assert len(selectors) == 10, selectors
     for sel in selectors:
         for cls in re.findall(r"\.([\w-]+)", sel):
             if cls.startswith("state-"):
@@ -282,10 +283,11 @@ FARM = "() => window.__farm ? window.__farm.inspect() : null"
 
 LOAD_FARM = """async () => { window.__farm = await import(q('/static/ink/skins/farmstead.js')); }"""
 
-#: At rest: the layer has nothing queued or lifting, the sheet has been drawn into its textures,
-#: no crop is still growing, and every pane on the glass has its frame.
+#: The farm at rest, as the skin says it (`__farm.inspect()`): the sheet has been drawn into its
+#: textures, no crop is still growing, and every pane on the glass has its frame. The predicate
+#: `desk_waits.settle` is given; it waits for the layer's rest and everything else itself.
 AT_REST = """() => { const l = Ink.inspect().layer; const f = window.__farm && window.__farm.inspect();
-  if (!l || l.busy || Object.values(l.lanes).some(x => x.hand) || !f || !f.loaded) return false;
+  if (!l || !f || !f.loaded) return false;
   const panes = document.querySelectorAll('#grid .tile[data-repo]').length;
   return l.skin && l.skin.frames === panes && Object.values(f.panes).every(p => !p.growing.length); }"""
 
@@ -303,8 +305,7 @@ def _page(browser, port, token, extra="&ink=on", *, panes=2, width=1400, height=
     """The desk, waited on until every pane has its width and the ink module has run."""
     page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=dpr,
                             reduced_motion="reduce" if reduced else "no-preference")
-    if count:
-        page.add_init_script(COUNT_FETCHES)
+    counted(page)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "farmstead" in m.text else None)
@@ -328,7 +329,9 @@ def _choose(page, skin):
 
 
 def _settle(page, also="true", timeout=30000):
-    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=timeout)
+    """`desk_waits.settle` with the farm at rest (`AT_REST`) and `also`. `timeout` is kept for its
+    callers; the one ceiling is `DESK_WAIT_MS`."""
+    settle(page, also=f"({AT_REST})() && ({also})")
 
 
 def _inked(page, name, panes=2):
@@ -807,6 +810,10 @@ def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path, d
     assert farm["panes"]["alpha"]["shown"] == "crop-seed", farm["panes"]["alpha"]
 
 
+#: The pressed choice's row in farmstead's table: the answer, circled in pen.
+PRESSED = '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]'
+
+
 @pytest.mark.browser
 def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp_path, monkeypatch, desk_browser):
     """The grammar (docs/skin-farmstead.md), every row from the fold's own events: an agent that was
@@ -837,8 +844,11 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
                                timeout=20000)
         page.locator(choice).first.click()
         page.wait_for_selector(choice + '[aria-pressed="true"]', timeout=20000)
+        # The pressed choice's own row: since #334 the unpressed choices carry a pencil loop that is
+        # drawn before the click, so any `ask-choice` row would let this settle before the pen's.
         _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn').length >= 8
-                         && Ink.inspect().layer.marks.some(m => m.selector.includes('ask-choice') && m.drawn === 1)""")
+                         && Ink.inspect().layer.marks.some(m => m.selector === '%s' && m.drawn === 1)"""
+                % PRESSED.replace('"', '\\"'))
         on = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
         # Done: the fold says so for a supervised agent.
         forced["state"]["gamma"] = "done"
@@ -865,7 +875,10 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         return [m for m in snapshot["marks"] if m["lane"] == "pane:" + lane and m["selector"] == selector
                 and not m["strikeOf"] and m["state"] == "drawn"]
     assert live(on, "beta", ".tile.needs-human .head .repo")[0]["tool"] == "highlighter"
-    assert live(on, "beta", '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]')[0]["shape"] == "loop"
+    assert live(on, "beta", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q")[0]["tool"] == "highlighter"
+    assert live(on, "alpha", ".tile.state-error")[-1]["shape"] in ("loop", "bang")
+    assert {m["shape"] for m in live(on, "alpha", ".tile.state-error")} == {"loop", "bang"}
+    assert live(on, "beta", PRESSED)[0]["shape"] == "loop"
     assert live(on, "beta", ".tile .transcript li.friction")[0]["tool"] == "red"
     assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "marker"
     assert live(on, "gamma", ".tile.state-running .head .repo")[0]["tool"] == "pen"
@@ -882,6 +895,9 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         if m["strikeOf"] or "oldsession" in m["selector"] or "friction" in m["selector"]:
             continue
         if m["selector"] == ".tile.state-running .head .repo" and m in done["marks"]:
+            continue
+        if m["tool"] == "pencil":   # the open choices' loops (#334): pencil leaves by being erased
+            assert m["id"] not in {o["id"] for o in off["marks"]}, f"{m['selector']} in {m['lane']} kept"
             continue
         assert m["id"] in struck, f"{m['selector']} in {m['lane']} left without being struck"
     for repo in ("alpha", "beta", "gamma"):
@@ -930,12 +946,12 @@ def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path, des
         browser = desk_browser
         page, errors = _page(browser, port, token, count=True)
         _inked(page, "farmstead:daytime")
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle farm wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle farm wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle farm drew {count['renders']} frames"
 
 

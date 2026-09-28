@@ -30,6 +30,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet, settle
 from test_fleet import make_project
 from test_fleet_column import _until
 
@@ -88,6 +89,7 @@ def _page(browser, port, token, *, w="", width=1400, height=900, wide=1, touch=F
                                    is_mobile=True).new_page()
     else:
         page = browser.new_page(viewport={"width": width, "height": height})
+    counted(page)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     posts = []
@@ -163,14 +165,15 @@ def _gutter_point(page, repo):
     """Where to press the gutter on the right of `repo`: its centre, once the row has stopped
     moving and the page itself says that point is the gutter. A pane put back by FLIP is displaced
     by an inline transform for two frames before its transition even starts, and a busy runner
-    makes those frames long."""
-    page.wait_for_function(f"""() => {{
+    makes those frames long. It is `desk_waits.settle` with the row's own predicate (`SETTLED`) and
+    that point as `also`."""
+    settle(page, also=f"""(() => {{
       if (!({SETTLED})()) return false;
       const g = document.querySelector('.tile[data-repo="{repo}"] > .gutter');
       if (!g || g.hidden) return false;
       const r = g.getBoundingClientRect();
       return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === g;
-    }}""", timeout=8000)
+    }})()""")
     box = page.locator(f'.tile[data-repo="{repo}"] > .gutter').bounding_box()
     assert box, f"no gutter on the right of {repo}"
     return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
@@ -1153,7 +1156,7 @@ def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_p
         browser = desk_browser
         page, errors, posts = _page(browser, port, token, wide=3)
         page.wait_for_selector('#grid .tile.needs-human[data-tier="rail"]', timeout=15000)
-        count = page.evaluate(IDLE_PASSES)
+        count = observe_quiet(page, passes=6)
         # And once at a phone's 390 px (#575): the stack's bottom bar is the same rails, drawn
         # by the same code, so an idle pass there touches nothing either.
         page.set_viewport_size({"width": 390, "height": 844})
@@ -1161,44 +1164,13 @@ def test_an_idle_desk_with_widths_of_its_own_makes_no_mutation(fleet_home, tmp_p
             """() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'
                   && document.querySelector('.tile[data-repo="alpha"]').dataset.tier === 'full'""",
             timeout=10000)
-        phone = page.evaluate(IDLE_PASSES)
+        phone = observe_quiet(page, passes=6)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle desk wrote to the row: {count}"
-    assert phone["n"] == 0, f"an idle desk at 390 px wrote to the stack: {phone}"
-
-
-IDLE_PASSES = """async () => {
-              // Idle means the same answer: a live `/api/fleet` carries ages that are MEANT to
-              // move a chip once a second, so the answer is replayed byte for byte (as
-              // `test_fleet_panes` does for the whole document).
-              const real = window.fetch.bind(window);
-              const body = await (await real(q('/api/fleet'))).text();
-              window.fetch = function (url, opts) {
-                if (String(url).indexOf('/api/fleet') >= 0) {
-                  return Promise.resolve(new Response(body, {
-                    status: 200, headers: { 'Content-Type': 'application/json' } }));
-                }
-                return real(url, opts);
-              };
-              const frame = () => new Promise(done => requestAnimationFrame(() => done()));
-              await refresh(); place(); redrawAll(); await frame(); await frame();
-              let n = 0;
-              const seen = [];
-              const obs = new MutationObserver(records => {
-                n += records.length;
-                records.slice(0, 5).forEach(r => seen.push(r.type + ' ' + (r.attributeName || '') +
-                                                          ' ' + (r.target.className || r.target.nodeName)));
-              });
-              obs.observe(document.getElementById('grid'), { subtree: true, childList: true,
-                                                              attributes: true, characterData: true });
-              for (let i = 0; i < 6; i++) { await refresh(); place(); redrawAll(); await frame(); }
-              obs.takeRecords().forEach(() => { n += 1; });
-              obs.disconnect();
-              return { n: n, seen: seen };
-            }"""
+    assert count["mutations"] == 0, f"an idle desk wrote to the row: {count}"
+    assert phone["mutations"] == 0, f"an idle desk at 390 px wrote to the stack: {phone}"
 
 
 @pytest.mark.browser

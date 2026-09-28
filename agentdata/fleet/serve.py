@@ -101,8 +101,10 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `picker.js` (#362) is the model picker, a classic script the desk and /settings both load right
 # after `common.js`.
+#
+# `/m` (#581), the phone page, brings `m.css` and its one script, `m/m.js`.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js")
+          "map.css", "map/map.js", "m.css", "m/m.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -116,8 +118,12 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 #
 # `/map` (#405) is the fourth: the fleet's structure as an accessible tree (docs/fleet-map.md
 # §The page), read-only, and a page rather than a desk view for the reason settings is one.
+#
+# `/m` (#581) is the fifth: the phone page, one column over `/api/attention` and `/api/approval`
+# (#559) with the four verbs (approve, deny, send, answer), for a tablet on this machine's
+# localhost. Not inked: it is not in `INKED_PAGES`, and it wears `ink-off` like the map.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html"}
+         "/map": "map.html", "/m": "m.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
@@ -2915,7 +2921,7 @@ def _config_changed() -> None:
         _WAKE.notify_all()
 
 
-def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
+def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float | None = None,
                   tick: float = TICK_S, once: bool = False, url: str = "",
                   notify_every: float = NOTIFY_EVERY_S, polls: bool = True,
                   agents: bool = True, sweep: bool = True) -> None:
@@ -2963,6 +2969,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     this stream last sent, and a `models` frame goes out only when it moved. The first pass records
     it without a frame: a page fetches `/api/models` itself.
     """
+    # Read at connect, not at import, so a test can set `HEARTBEAT_S` for the streams it opens.
+    heartbeat = HEARTBEAT_S if heartbeat is None else heartbeat
     last_beat = 0.0
     seen_selection = -1
     last_config_mtime = -1.0

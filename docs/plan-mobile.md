@@ -368,7 +368,7 @@ mobile/
   flows/
     FleetOutboxToLists.definition.json     the exported Workflows JSON, reviewed in the repo
     FleetDecide.definition.json
-    samples/*.json                         one outbox record per kind (and a rejected result): the Parse JSON schema source, the test plan's seeds
+    samples/*.json                         one outbox record per kind (and a rejected result): the Parse JSON schema source, the test plan's seeds (moved to contract/examples/ by #598)
     solution/                              the unmanaged solution zip's contents after F4
     README.md                              build sheets, the import sheet, the "verify on import" table, request-budget arithmetic
   data/

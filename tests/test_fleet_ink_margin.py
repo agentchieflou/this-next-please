@@ -25,7 +25,7 @@ import pytest
 from agentdata.fleet import events as E, serve as S
 from agentdata.fleet.registry import Registry
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 # The ink layer's own fixtures and helpers: the fleet directory, the desk's globals (autouse), the
 # page, and the paper at rest; the notebook's supervised agents and its waits on the fold.
 from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
@@ -250,23 +250,21 @@ def check_off(look, width, bars, panes=()):
 
 @pytest.mark.browser
 @pytest.mark.parametrize("width", WIDTHS)
-def test_check_and_bang_are_written_in_the_panes_margin_with_ink_on(fleet_home, tmp_path, alive, finished, width):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_check_and_bang_are_written_in_the_panes_margin_with_ink_on(fleet_home, tmp_path, alive, finished, width, desk_browser):
     alive.add(SUPERVISED)
     finished.add(SUPERVISED)
     margin_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=width, reduced=True)
-            desk_states(page)
-            for look in LOOKS:
-                choose_on(page, look)
-                seen[look] = measure_on(page)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=width, reduced=True)
+        desk_states(page)
+        for look in LOOKS:
+            choose_on(page, look)
+            seen[look] = measure_on(page)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for look, marks in seen.items():
@@ -275,23 +273,21 @@ def test_check_and_bang_are_written_in_the_panes_margin_with_ink_on(fleet_home, 
 
 @pytest.mark.browser
 @pytest.mark.parametrize("width", WIDTHS)
-def test_the_plain_margin_bar_is_on_the_pane_and_off_the_words_with_ink_off(fleet_home, tmp_path, alive, finished, width):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_the_plain_margin_bar_is_on_the_pane_and_off_the_words_with_ink_off(fleet_home, tmp_path, alive, finished, width, desk_browser):
     alive.add(SUPERVISED)
     finished.add(SUPERVISED)
     margin_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     seen = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=off", panes=len(OPEN), width=width, reduced=True)
-            desk_states(page)
-            for look in LOOKS:
-                choose_off(page, look)
-                seen[look] = (measure_off(page), page.evaluate(PANES_OFF))
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=off", panes=len(OPEN), width=width, reduced=True)
+        desk_states(page)
+        for look in LOOKS:
+            choose_off(page, look)
+            seen[look] = (measure_off(page), page.evaluate(PANES_OFF))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for look, (bars, panes) in seen.items():

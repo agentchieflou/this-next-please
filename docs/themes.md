@@ -195,9 +195,11 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | `napkin` | Napkin notes drawn by the ink layer (#252): quilted two-ply stock, a felt tip that bleeds along the emboss, and a coffee ring under a pane idle a long time ([skin-napkin.md](skin-napkin.md)). Plain CSS where WebGL is not measured as hardware. | *Composited contrast*: the text is checked on the stock and on the coffee ring's rim, the darker end of its panel. |
 | `notebook` | The first skin drawn with ink (#249, #250): white stock with blue rules and a red margin by day, charcoal stock and gel inks by night, and state drawn in pencil, pen, marker and highlighter ([skin-notebook.md](skin-notebook.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: the highlighter is multiplied into the day page and screened onto the night one, and every state is a shape as well as an ink. |
 
-A variant re-colours the surfaces and nothing else. The status chips and the crop stages are
-deliberately **not** among them: a chip means the same thing in every world, and a `fail` that were
-red in one and orange in another would be a state the operator has to translate before reading it.
+A variant re-colours the surfaces, and its palette colours the states: a chip's word and glyph, a crop
+stage and every mark of the state grammar ([desk-ink.md](desk-ink.md) §The state grammar across skins)
+mean the same thing in every world, but their colour is the world's, so Voxel Nether's needs-you and
+error chips (and its error marks) are its palette's yellow `--human` while its pane accent is red (#334;
+the accent is #339).
 
 ### Skins and their worlds
 

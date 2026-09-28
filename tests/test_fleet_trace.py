@@ -26,6 +26,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet, settle
 from test_fleet_ink import _serve  # noqa: F401 - over the harness's serve_desk; re-exported
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -386,8 +387,8 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
     try:
         browser = desk_browser
         for reduced in (False, True):
-            page = browser.new_page(viewport={"width": 1400, "height": 900},
-                                    reduced_motion="reduce" if reduced else "no-preference")
+            page = counted(browser.new_page(viewport={"width": 1400, "height": 900},
+                                            reduced_motion="reduce" if reduced else "no-preference"))
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
@@ -401,21 +402,11 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
 
             # What it costs: frames while it drifts, and none while it holds still.
             if reduced:
-                cost = page.evaluate("""async () => {
-                  // From rest: the frames the page's arrival asked for (its stylesheet, its
-                  // palette) are drawn, and 600ms have passed without one.
-                  const pause = ms => new Promise(done => setTimeout(done, ms));
-                  let last = Ink.inspect().layer.renders, quiet = performance.now();
-                  while (performance.now() - quiet < 600) {
-                    await pause(50);
-                    const n = Ink.inspect().layer.renders;
-                    if (n !== last) { last = n; quiet = performance.now(); }
-                  }
-                  const l0 = Ink.inspect().layer;
-                  await new Promise(done => setTimeout(done, 2200));
-                  const l1 = Ink.inspect().layer;
-                  return { renders: l1.renders - l0.renders }; }""")
-                assert cost == {"renders": 0}, f"a still ground drew {cost}"
+                # From rest (the frames the page's arrival asked for -- its stylesheet, its palette
+                # -- drawn), then passes of the page's own work: a still ground draws none.
+                settle(page, allow_ground=True)
+                cost = observe_quiet(page, passes=3, drive=False)
+                assert cost["renders"] == 0, f"a still ground drew {cost}"
             else:
                 r0 = page.evaluate("() => Ink.inspect().layer.renders")
                 page.wait_for_function(f"() => Ink.inspect().layer.renders >= {r0 + 2}", timeout=10000)

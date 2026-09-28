@@ -5,6 +5,9 @@
       "kind": "frozen",
       "paths": [
         ".github/workflows/tests.yml",
+        ".github/ci-paths.json",
+        ".github/scripts/ci_paths.py",
+        ".github/scripts/ci_ok.py",
         "tests/conftest.py"
       ],
       "toml": ["tool.pytest.ini_options"],

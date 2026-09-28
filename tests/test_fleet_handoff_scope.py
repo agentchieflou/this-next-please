@@ -17,7 +17,7 @@ from agentdata.fleet import events as E, handoff as H, registry, scope as SC, se
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 
 @pytest.fixture()
@@ -207,10 +207,9 @@ def test_an_unregistered_repo_is_refused_with_a_code(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_dropped_file_resolves_on_the_page_and_only_a_hash_leaves_it(fleet_home, tmp_path):
+def test_a_dropped_file_resolves_on_the_page_and_only_a_hash_leaves_it(fleet_home, tmp_path, desk_browser):
     """Acceptance criteria, together: the drop resolves to a path on the card, and nothing but the
     hash request leaves the page until *attach a copy* is clicked."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     repo = _checkout(tmp_path)
     _git(repo, "rm", "-q", "copy/Velocity.tmdl")       # one path, so the drop resolves outright
 
@@ -219,42 +218,41 @@ def test_a_dropped_file_resolves_on_the_page_and_only_a_hash_leaves_it(fleet_hom
     thread.start()
     port = server.server_address[1]
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors, posted = [], []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.on("request", lambda r: posted.append(r.url) if r.method == "POST" else None)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors, posted = [], []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("request", lambda r: posted.append(r.url) if r.method == "POST" else None)
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
 
-            page.evaluate("""(body) => {
+        page.evaluate("""(body) => {
               const tile = document.querySelector('.tile[data-repo="luna"]');
               const dt = new DataTransfer();
               dt.items.add(new File([body], 'Velocity.tmdl', {type: 'text/plain'}));
               tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
             }""", "table Velocity\n  measure Rate = 1\n")
 
-            page.wait_for_selector('.tile[data-repo="luna"] .scope:not([hidden])', timeout=5000)
-            card = page.locator('.tile[data-repo="luna"] .scope')
-            page.wait_for_function(
-                """() => /given to|queued/.test(
+        page.wait_for_selector('.tile[data-repo="luna"] .scope:not([hidden])', timeout=5000)
+        card = page.locator('.tile[data-repo="luna"] .scope')
+        page.wait_for_function(
+            """() => /given to|queued/.test(
                      document.querySelector('.tile[data-repo="luna"] .scope-note').textContent)""",
-                timeout=5000)
-            row = card.locator(".scope-row:not([hidden])")
-            assert row.count() == 1
-            assert row.locator(".sc-path").inner_text().strip() == "models/Velocity.tmdl"
-            assert row.locator(".sc-how").inner_text().strip().lower() == "fingerprint"
+            timeout=5000)
+        row = card.locator(".scope-row:not([hidden])")
+        assert row.count() == 1
+        assert row.locator(".sc-path").inner_text().strip() == "models/Velocity.tmdl"
+        assert row.locator(".sc-how").inner_text().strip().lower() == "fingerprint"
 
-            # Only the two scope calls were posted. The file's bytes never left the page.
-            assert not any("attach-bytes" in u for u in posted), posted
-            assert sum("scope/resolve" in u for u in posted) == 1, posted
+        # Only the two scope calls were posted. The file's bytes never left the page.
+        assert not any("attach-bytes" in u for u in posted), posted
+        assert sum("scope/resolve" in u for u in posted) == 1, posted
 
-            # ...and the server wrote the scope it was told about.
-            rows = SC.read_scope(repo, "RDSD-118")
-            assert [r["path"] for r in rows] == ["models/Velocity.tmdl"]
-            assert not errors, errors
-            browser.close()
+        # ...and the server wrote the scope it was told about.
+        rows = SC.read_scope(repo, "RDSD-118")
+        assert [r["path"] for r in rows] == ["models/Velocity.tmdl"]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -262,8 +260,7 @@ def test_a_dropped_file_resolves_on_the_page_and_only_a_hash_leaves_it(fleet_hom
 
 
 @pytest.mark.browser
-def test_a_file_that_is_not_the_repos_offers_a_copy_and_says_so(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_file_that_is_not_the_repos_offers_a_copy_and_says_so(fleet_home, tmp_path, desk_browser):
     _checkout(tmp_path)
 
     server, token = S.build(0)
@@ -271,34 +268,33 @@ def test_a_file_that_is_not_the_repos_offers_a_copy_and_says_so(fleet_home, tmp_
     thread.start()
     port = server.server_address[1]
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
 
-            page.evaluate("""() => {
+        page.evaluate("""() => {
               const tile = document.querySelector('.tile[data-repo="luna"]');
               const dt = new DataTransfer();
               dt.items.add(new File(['quarter,amount\\n'], 'from-downloads.csv', {type: 'text/csv'}));
               tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
             }""")
 
-            page.wait_for_selector('.tile[data-repo="luna"] .scope:not([hidden])', timeout=5000)
-            card = page.locator('.tile[data-repo="luna"] .scope')
-            page.wait_for_selector('.tile[data-repo="luna"] .sc-attach:not([hidden])', timeout=5000)
-            assert "not a file of luna" in card.locator(".scope-note").inner_text()
+        page.wait_for_selector('.tile[data-repo="luna"] .scope:not([hidden])', timeout=5000)
+        card = page.locator('.tile[data-repo="luna"] .scope')
+        page.wait_for_selector('.tile[data-repo="luna"] .sc-attach:not([hidden])', timeout=5000)
+        assert "not a file of luna" in card.locator(".scope-note").inner_text()
 
-            card.locator(".sc-attach:not([hidden])").click()
-            page.wait_for_function(
-                """() => /attached/.test(document.querySelector(
+        card.locator(".sc-attach:not([hidden])").click()
+        page.wait_for_function(
+            """() => /attached/.test(document.querySelector(
                      '.tile[data-repo="luna"] .scope-row:not([hidden]) .sc-why').textContent)""",
-                timeout=5000)
-            assert "attached → .agent/in/RDSD-118" in card.locator(".scope-row:not([hidden]) .sc-why").inner_text()
-            assert not errors, errors
-            browser.close()
+            timeout=5000)
+        assert "attached → .agent/in/RDSD-118" in card.locator(".scope-row:not([hidden]) .sc-why").inner_text()
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

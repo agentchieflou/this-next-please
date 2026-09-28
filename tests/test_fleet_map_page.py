@@ -11,16 +11,32 @@ import urllib.request
 
 import pytest
 
+from agentdata.fleet import approval as AP
+from agentdata.fleet import events as E
 from agentdata.fleet import fleetmap as M
 from agentdata.fleet import serve as S
-from agentdata.fleet.registry import Registry
+from agentdata.fleet import supervisor as SV
+from agentdata.fleet.registry import AGENT_ENV, Registry
 
+from desk_waits import WATCH
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _serve, _stop
 from test_fleet_map import _worktree, fleet_home, row, snap  # noqa: F401
 
 READY = "() => !!window.FleetMap && FleetMap.graph !== null"
+#: The phone page (#581) as it lands: its window, ink, width, target heights, rows and which say they need you.
+PHONE_LOOK = """() => { const d = document.documentElement, li = [...document.querySelectorAll('#agents > li')];
+  return { w: FleetPhone.w, inkOff: document.body.classList.contains('ink-off'),
+           canvas: document.querySelectorAll('canvas').length, sw: d.scrollWidth, cw: d.clientWidth,
+           targets: [...document.querySelectorAll('#agents .pick, a, button')].filter(e => e.offsetParent)
+             .map(e => e.getBoundingClientRect().height),
+           rows: li.map(e => e.dataset.rowkey),
+           needs: li.filter(e => e.classList.contains('needs-human')).map(e => e.dataset.rowkey),
+           told: FleetPhone.rows.filter(r => r.needs_human).map(r => r.repo) }; }"""
+#: Every write to the phone page from now, and the ticks and refreshes so far.
+PHONE_WATCH = """() => { """ + WATCH + """ window.__refreshes = FleetPhone.stream.refreshes;
+  window.__mobs = __deskWaits.watch(document.documentElement);
+  return FleetPhone.stream.ticks; }"""
 
 
 def _fleet(tmp_path):
@@ -73,13 +89,10 @@ def test_open_page_map_lands_on_the_map(fleet_home, tmp_path):
 # -------------------------------------------------------------------------------- the browser
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 def _open(browser, port, token, extra="", viewport=(1400, 900)):
@@ -208,10 +221,10 @@ def _synthetic():
     return g
 
 
-OBSERVE = """() => { window.__muts = 0;
-  window.__obs = new MutationObserver(r => { window.__muts += r.length; });
-  window.__obs.observe(document.getElementById('maptree'),
-                       { subtree: true, childList: true, attributes: true, characterData: true }); }"""
+OBSERVE = """() => { """ + WATCH + """ if (window.__obs) window.__obs.stop();
+  window.__obs = __deskWaits.watch(document.getElementById('maptree')); }"""
+#: What the watch `OBSERVE` put on the tree has seen since.
+MUTS = "() => window.__obs.count()"
 
 
 @pytest.mark.browser
@@ -225,7 +238,7 @@ def test_redraws_of_one_graph_touch_nothing_and_keep_what_the_operator_opened(
         assert page.evaluate("() => FleetMap.paused") is True
         page.evaluate(OBSERVE)
         page.evaluate("g => FleetMap.draw(g)", g)
-        assert page.evaluate("() => window.__muts") == 0
+        assert page.evaluate(MUTS) == 0
 
         agents = page.evaluate("""() => [...document.querySelectorAll('#maptree [data-node^="a:"]')]
             .map(li => ({sub: +li.dataset.subagents, stale: li.classList.contains('stale'),
@@ -250,10 +263,10 @@ def test_redraws_of_one_graph_touch_nothing_and_keep_what_the_operator_opened(
         page.wait_for_function(f"() => document.querySelector('{group}').getAttribute('aria-expanded') === 'true'",
                                timeout=5000)
         assert page.is_visible('[data-node="b:luna:main"]')
-        page.evaluate("() => { window.__muts = 0; }")
+        page.evaluate(OBSERVE)
         for _ in range(3):
             page.evaluate("g => FleetMap.draw(g)", g)
-        assert page.evaluate("() => window.__muts") == 0
+        assert page.evaluate(MUTS) == 0
         assert page.get_attribute(group, "aria-expanded") == "true"
         assert not errors, errors
         page.close()
@@ -268,7 +281,11 @@ SAY_HEIGHTS = """() => [...document.querySelectorAll('#maptree .say')].filter(s 
 
 @pytest.mark.browser
 def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_stage(
-        browser, fleet_home, tmp_path):
+        browser, fleet_home, tmp_path, monkeypatch):
+    """The map with ink off, the map's scene stacked at 480 px, the map under a finger (#578), and the
+    phone page (#581): /m at 390x844 under a finger lists the agents from /api/attention, opens one
+    on a tap, and approves, denies, replies and answers through the four POSTs, each answer read out
+    in the server's words; idle, it writes nothing over one stream tick."""
     _fleet(tmp_path)
     server, token, port = _serve()
     try:
@@ -320,6 +337,79 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
         page.tap(checkout + " > .say")
         page.wait_for_url(lambda u: "/map" not in u and "w=side" in u, timeout=15000)
         assert S.desk_state()["windows"]["side"]["open"] == "luna"
+        assert not errors, errors
+        phone.close()
+
+        # The phone page (#581): two approvals waiting on luna, a question on uat, and `send` stubbed where the
+        # server calls it, so a reply and an answer are answered without a CLI.
+        monkeypatch.setenv(AGENT_ENV, "luna")
+        waiting = {AP.require(kind, summary, {"key": "RDSD-1"}, ticket="RDSD-1", timeout=0).id
+                   for kind, summary in (("jira-transition", "RDSD-1: In Progress -> In Review"),
+                                         ("jira-comment", "RDSD-1: say it is done"))}
+        monkeypatch.delenv(AGENT_ENV)
+        E.append("uat", [E.event("uat", "question_opened", {"question": "which sprint?", "id": "q1",
+                                                            "choices": ["this one", "the next"]}, ticket="RDSD-9")])
+        sent = []
+        monkeypatch.setattr(SV, "send", lambda repo, message, **k: sent.append((repo, message)) or {"pid": 4242})
+        # A 6 s beat for the stream /m opens, not 15 s: still longer than the poller's floor, so the idle
+        # window below spans a poll as well as a tick.
+        monkeypatch.setattr(S, "HEARTBEAT_S", 6.0)
+        assert S.POLL_EVERY_S < S.HEARTBEAT_S
+        phone = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page = phone.new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/m?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function("() => !!window.FleetPhone && FleetPhone.rows.length === 3"
+                               " && FleetPhone.stream.ticks >= 1 && !FleetPhone.stream.busy", timeout=20000)
+        look = page.evaluate(PHONE_LOOK)
+        assert look["w"] == "phone" and look["inkOff"] and look["canvas"] == 0, look
+        assert look["sw"] == look["cw"] and min(look["targets"]) >= 44, look
+        assert look["rows"] == sorted(look["rows"]) == ["luna", "luna-hotfix", "uat"], look
+        assert look["needs"] == look["told"] and "uat" in look["needs"], look
+        # Idle: nothing written from here to the stream's next tick.
+        ticks = page.evaluate(PHONE_WATCH)
+        page.wait_for_function("t => FleetPhone.stream.ticks > t", arg=ticks, timeout=30000)
+        idle = page.evaluate("() => { window.__mobs.stop(); return { n: window.__mobs.n,"
+                             " refreshes: FleetPhone.stream.refreshes - window.__refreshes }; }")
+        assert idle == {"n": 0, "refreshes": 0}, f"an idle /m wrote to the page: {idle}"
+
+        def said(action, go):
+            """Tap `go`, and wait for the live line to say what the server answered `action`, and for
+            the read that answer starts to land. The line is written before that read, and the read
+            redraws the sheet: after the second decision it hides the approval card and `#send` moves
+            up 222px, so a tap aimed before it lands on `main` and sends nothing (#614)."""
+            with page.expect_response(lambda r: r.url.split("?")[0].endswith("/api/" + action)) as got:
+                page.tap(go)
+            answer = got.value.json()
+            words = (" · ".join(w for w in (answer.get("action"), answer.get("decision") or answer.get("repo")) if w)
+                     if answer["ok"] else answer["error"] + (" — " + answer["hint"] if answer.get("hint") else ""))
+            page.wait_for_function("w => document.getElementById('said').textContent === w", arg=words,
+                                   timeout=10000)
+            page.wait_for_function("() => !FleetPhone.stream.busy", timeout=10000)
+            return answer
+
+        # The row's own order (`approval_id` is the first of `approvals`), which the sheet follows.
+        first, second = page.evaluate("() => FleetPhone.rows.find(r => r.repo === 'luna').approvals")
+        assert {first, second} == waiting
+        page.tap('#agents [data-rowkey="luna"] .pick')
+        page.wait_for_function(f"() => document.getElementById('approval').dataset.id === '{first}'"
+                               " && !document.getElementById('open').hidden", timeout=10000)
+        assert page.evaluate("() => getComputedStyle(document.getElementById('agents')).display") == "none"
+        page.fill("#reason", "looks right")
+        assert said("approve", "#approve")["decision"] == "approved"
+        page.wait_for_function(f"() => document.getElementById('approval').dataset.id === '{second}'", timeout=10000)
+        assert said("deny", "#deny")["ok"] is False                       # no reason: the server's refusal
+        page.fill("#reason", "not yet")
+        assert said("deny", "#deny")["decision"] == "denied"
+        assert [AP.read_decision(i)["decision"] for i in (first, second)] == ["approved", "denied"]
+        page.fill("#message", "ship it")
+        said("send", "#send")
+        page.tap("#back")
+        page.tap('#agents [data-rowkey="uat"] .pick')
+        page.wait_for_function("() => !document.getElementById('asks').hidden", timeout=10000)
+        page.tap("#asklist .ask-choice")
+        said("answer", "#answer")
+        assert sent[0] == ("luna", "ship it") and sent[1][0] == "uat" and "this one" in sent[1][1], sent
         assert not errors, errors
         phone.close()
     finally:

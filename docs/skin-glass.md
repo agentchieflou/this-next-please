@@ -38,14 +38,16 @@ in the state's colour, drawn clockwise round the pane from the top middle over 0
 back the way it came over 0.45s, even though it is a material. A new state's rim is drawn only once the old one has
 run back. Under reduced motion both happen at once.
 
-Every row is a class or attribute `app.js` already sets. Glass adds no state class.
+Every row is a class or attribute `app.js` already sets. Glass adds no state class. The marks are the state grammar
+every skin draws ([desk-ink.md](desk-ink.md) §The state grammar across skins, #334); the rims and the glint are the
+material glass adds, never instead of a mark.
 
 | State | The page's class | Mark (the layer) | The pane |
 | --- | --- | --- | --- |
 | needs you | `.tile.needs-human` | highlighter `lines` on `.repo`, and on each open question (`.asks:not([hidden]) .ask:not([hidden]) .ask-q`) | rim in `--human` |
 | answered | `.ask-choice[aria-pressed="true"]` | pen `loop` round the chosen answer. Choosing another strikes it and circles the new one | — |
-| running | `.tile.state-running` | pen `underline` under the `.chip` | the top glint travels along the top edge in `--running`, a lap every 4.5s. Held still under reduced motion, it tints the glint |
-| error, blocked | `.tile.state-error`, `.tile.state-blocked` | marker `bang` in the pane's margin (#330) | rim in `--human` |
+| running | `.tile.state-running` | pen `underline` under the name (`.head .repo`, #334; it was the `.chip`) | the top glint travels along the top edge in `--running`, a lap every 4.5s. Held still under reduced motion, it tints the glint |
+| error, blocked | `.tile.state-error`, `.tile.state-blocked` | marker `bang` in the pane's margin (#330); an error also a marker `loop` round the pane, inside it (pad -7, #334; #335 narrows it to `.why`) | rim in `--human` |
 | done | `.tile:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | green `check` in the pane's margin (#330) | rim in `--done` |
 | stale (#240) | `.tile .oldsession:not([hidden])` | none: the note's own words. A dashed outline round it ran over the chip's age in a compact pane even at pad 0 (#332) | — |
 | a finding | `.tile .scopereport.outside:not([hidden])`: edits outside the scope it was given (#168) | red `ellipse` round the report | — |

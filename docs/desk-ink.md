@@ -181,15 +181,17 @@ from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px 
 its border box inset 1px (#331), so a row that pads outward is cut away rather than drawn in the gutter:
 
 * An `outline` or `loop` round the pane has a pad of 0 or less, so the stroke and half its width are on the pane:
-  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead), the
+  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead, glass,
+  voxel), the
   stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it.
 * A mark round something in the head is round that thing, never round the head: farmstead's error loop is round
   the pane, and a stale outline round `.oldsession` is on the note's own box (pad 0).
 * A compact pane's head wraps the name onto a line of its own, 2px over the number and the chip. A skin that
   underlines the name gives that head room in its sheet (`row-gap: 8px`, layout, keyed
-  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead and the legal pad.
-  Glass underlines the chip, not the name, and draws no stale outline: round the note it still ran over the chip's
-  age at 700px, and the note's own words say it.
+  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead, the legal pad
+  and glass.
+  Glass draws no stale outline: round the note it still ran over the chip's age at 700px, and the note's own words
+  say it. Since #334 it underlines the name, as every skin does, and gives the compact head the same room.
 
 `tests/test_fleet_ink_bounds.py` holds one look per module at 1400px and 700px, with a blocking question, a running
 turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
@@ -241,6 +243,44 @@ the lit pencil back. Anything else is refused, naming `hand`. A new table's hand
 **A palette colours the inks, and a skin chooses the paper.** Colours are read from the page's custom properties at
 paint time, on `body`, so a skin can override `--ink-pen` and a palette change repaints them. They are never carried
 in the script ([desk-rendering.md](desk-rendering.md) rule 1).
+
+## The state grammar across skins
+
+A state is drawn with the same marks on the same elements in every skin (#334; HIG *Color*: one sign never means two
+things). Each module's table must carry these rows. A skin may add material responses (glass's rims, voxel's stacks,
+farmstead's crops) and extra marks, never instead of a required row. The test holds it as data:
+`GRAMMAR` in `tests/test_fleet_ink.py`, which is this table, row for row
+(`test_the_state_grammar_in_desk_ink_is_the_one_the_skins_are_held_to`).
+
+| Entry | State | Element | Tools | Shapes |
+| --- | --- | --- | --- | --- |
+| `needs_name` | needs you: the name | `.tile.needs-human .head .repo` | `highlighter` | `lines` |
+| `needs_q` | needs you: the open question | `.tile.needs-human .ask:not([hidden]) .ask-q` | `highlighter` | `lines` |
+| `answered` | the choice picked | `.ask-choice[aria-pressed=true]` | `pen` | `loop`, `ellipse` |
+| `running` | running: the name | `.tile.state-running .head .repo` | `pen` | `underline` |
+| `error_bang` | error: the margin | `.tile.state-error` | `red`, `marker` | `bang` |
+| `error_box` | error: the pane, or its why | `.tile.state-error`, `.tile.state-error .why` | `marker` | `loop`, `outline` |
+| `done` | done | `.tile.is-done` | `green` | `check` |
+
+The element decides, not the selector string. `test_a_skin_is_a_module_the_page_loads_when_it_is_chosen` imports
+every `static/ink/skins/*.js` but `example.js` (so a new skin is held to it the day it lands), calls `marks(variant)`
+(and `options(variant)` where it is a function) for every variant skins.py gives it, and clones the page's `#tile`
+template into detached panes, one per state, set the way `app.js` sets them (classes, attributes, `hidden`, never
+markup). An entry passes when some row with one of its tools and shapes matches the entry's element
+(`E.matches(row.selector)`). A module missing a row fails, naming the skin, the variant and the entry.
+
+Where the skins stand after #334:
+
+| | notebook, legal pad, napkin, graph | glass | farmstead | voxel |
+| --- | --- | --- | --- | --- |
+| running | pen underline on the name | the same (it was the chip) | the same | the same (it had none) |
+| needs you | highlighter on the name and the question | the same | the same (it had the name only), and the choices looped in pencil | the same (it was a marker underline) |
+| error | marker (graph: ruled outline) round the pane, and a bang | a marker loop round the pane (#335 narrows it to `.why`), and a bang | a marker loop round the pane, and a red bang (it had no bang) | a marker loop round the pane (it had the bang only), and a red bang |
+| answered | pen ellipse | pen loop | pen loop | pen loop (it was green, done's ink) |
+
+Which of these states is the loudest is #335's; a mark's geometry is #330-#332's. A colour is the world's: voxel
+Nether's needs-you and error chips, and its error marks, are its palette's yellow `--human`, while its
+pane accent is red ([themes.md](themes.md); the accent is #339).
 
 ## Writing a skin
 
@@ -670,9 +710,9 @@ asked for another frame while more wait or a piece is still in the effects group
 at 60 Hz) is taken out, freed and counted in `reaped`. That is a safety net; no shipped skin relies on it.
 
 **`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused,
-animating, animated, skipped}`: `armed` says the next match may cue, `zero` counts leave-row matches whose box is
-stamped empty, and `children` counts the effects group's pieces, none on an idle desk. The last three are §Moving the
-page's.
+animating, animated, skipped}`, and `pointer` too for a table that asked for it: `armed` says the next match may cue,
+`zero` counts leave-row matches whose box is stamped empty, and `children` counts the effects group's pieces, none on
+an idle desk. `animating`, `animated` and `skipped` are §Moving the page's, and `pointer` is §Pointer's.
 
 **The rule.** A cue is decoration. It never shows a state the page does not have, ends by moving, shrinking or being
 covered and never by an alpha fade, draws nothing under reduced motion, and leaves an idle desk at zero frames. Its
@@ -735,6 +775,29 @@ that has left the page gives `[]`. Without `options.fx.text`, `api.fx` has neith
 name or a line when a cue plays, never a whole pane or transcript on every frame; nothing is rasterised, and neither
 helper writes to the page. `skins/example.js` asks for them under `example:text`, and its `helpers()` hands a test the
 `api.fx` its hooks were given.
+
+### Pointer (#376)
+
+A material can answer the hand: catch the light where the pointer is, or outline the block under it. A skin asks for
+the pointer in its options, `options.fx.pointer`, and its hooks then read `api.fx.pointer`:
+
+```js
+export function options(variant) { return { fx: variant === "pointer" ? { pointer: true } : undefined }; }
+export function tick({ api }) { const p = api.fx.pointer; /* {x, y, repo, el} or null */ }
+```
+
+`api.fx.pointer` is `{x, y, repo, el}`: the point in viewport CSS px, the pane under it (`repo`, from
+`el.closest('.tile[data-repo]')`, or `null`) and the element it is over, to read and never write; `null` before the first
+move and after the pointer leaves the page. `fx.js` listens with one capturing, passive `pointermove` on `document` and
+one `pointerleave` on `<html>`, only for a table that asked, and takes both away with the table (a table without it,
+`Ink.setSkin(null)`, `Ink.off()`). **One frame a move, none at rest:** a move records the point and asks for a frame
+through `api.request()`, which the layer coalesces into the one rAF it keeps, and the skin's `tick` draws; a leave sets
+`null` and asks for one last frame. Nothing runs while the hand is still, so an idle desk stays at zero frames with the
+pointer resting on it. **Under reduced motion** (`api.reduced`, read on each event) a move is ignored: `pointer` stays
+`null` and no frame is asked for. The canvas keeps `pointer-events: none` and `aria-hidden`; the pointer never changes the
+cursor, and a material that answers it never changes layout or text and never loops. `Ink.inspect().layer.fx.pointer`
+is `{at: {x, y, repo} | null, moves}` for a table that asked, and absent otherwise. `skins/example.js` asks under
+`example:pointer`, and its `tick` puts a square in the palette's accent under the pointer.
 
 ## Following the page
 
@@ -877,6 +940,11 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 * **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
 
+Every skin test waits for the paper with `desk_waits.settle` (the layer at rest is `AT_REST`, the predicate
+`settle` uses; a skin passes only its own predicate as `also=`, such as farmstead's `__farm.inspect()` or the
+napkin's bleed), and says an idle desk writes nothing and draws nothing with `assert_idle` / `observe_quiet`,
+observed over page work rather than a duration ([testing-this-repo.md](testing-this-repo.md) §Settle, then assert).
+
 `tests/test_fleet_ink_fx.py` covers the effects seam (#370): `fx.js` is never fetched for a table without `fx`,
 fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
 a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws
@@ -897,6 +965,13 @@ matches each character's own Range rect within 0.5 px; a wrapped `Range.prototyp
 first call, none for an identical second, some again after the text and again after the width changes); the default
 cap is 128, `max` above 256 is clamped, whitespace is skipped, `lines` stays inside its element, and a removed element
 gives `[]`; the example's cue records the name's letters; and under `example` neither helper exists.
+
+And the pointer (#376): under `example:pointer`, ten moves over a pane are ten moves taken and between one and ten
+renders, the square drawn where the last one was; the idle loop with the pointer still writes nothing and draws
+nothing; a `pointerleave` takes the pointer and the square away; `example` takes the listeners with it, so moves then
+draw nothing; and under reduced motion moves draw nothing and `api.fx.pointer` stays `null`. Its measured half is in
+`test_fleet_ink.py`'s gesture-budget test: the page's gestures, taken while a `pointermove` loop drives the layer on a
+table that asks for the pointer, stay inside 50 ms.
 
 `tests/test_fleet_ink_cues.py` holds every skin module that ships `cues` to the cue contract (#373), with no
 browser: `cue` and `tick` exported, each cue named in a table row of its `docs/skin-<name>.md`, only classes the

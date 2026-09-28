@@ -18,6 +18,7 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_waits import counted
 from desk_harness import close_pages
 from test_fleet import make_project
 
@@ -66,7 +67,7 @@ def test_every_draw_function_is_named_in_the_inventory():
     came to paint the same tile's accent on two different edges."""
     doc = open(INVENTORY, encoding="utf-8").read()
     missing = []
-    for page in ("app.js", "settings.js", "map/map.js", "picker.js"):
+    for page in ("app.js", "settings.js", "map/map.js", "picker.js", "m/m.js"):
         js = open(os.path.join(STATIC, page), encoding="utf-8").read()
         for name in sorted(set(re.findall(r"(?m)^function (draw[A-Za-z]*)\(", js))):
             if name not in doc:
@@ -78,9 +79,9 @@ def test_every_component_class_the_inventory_names_really_exists():
     """The other direction: a row for a component that is not on the page is a row that will rot."""
     doc = open(INVENTORY, encoding="utf-8").read()
     html = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                   for n in ("index.html", "map.html"))
+                   for n in ("index.html", "map.html", "m.html"))
     css = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                  for n in ("app.css", "map.css"))
+                  for n in ("app.css", "map.css", "m.css"))
     # Only the `Styled in` column, which is the one that names classes and ids.
     named = set()
     for row in doc.splitlines():
@@ -94,6 +95,19 @@ def test_every_component_class_the_inventory_names_really_exists():
     assert named, "the inventory names no styled component at all"
     missing = [n for n in sorted(named) if n not in css and n.lstrip(".#") not in html]
     assert missing == [], f"named in the inventory and styled nowhere: {missing}"
+
+
+def test_the_phone_page_draws_the_desks_state_glyphs():
+    """/m (#581) has no chip grammar of its own: its glyph per state is the desk rail's table, entry for
+    entry, and its chip is the desk's `.chip <state>` rule."""
+    def table(name, rel):
+        js = open(os.path.join(STATIC, rel), encoding="utf-8").read()
+        body = js[js.index(f"var {name} = {{"):]
+        return dict(re.findall(r'(\w+): "([^"]+)"', body[:body.index("};")]))
+
+    rail = table("RAIL_GLYPHS", "app.js")
+    assert rail and table("M_GLYPHS", "m/m.js") == rail, rail
+    assert 'setClass(chip, "chip " + state)' in open(os.path.join(STATIC, "m", "m.js"), encoding="utf-8").read()
 
 
 def test_the_contract_names_one_reconciler_and_the_page_uses_it():
@@ -142,7 +156,7 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path, desk_b
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -152,16 +166,7 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path, desk_b
             timeout=15000)
 
         counts = page.evaluate("""() => {
-          const watch = (node, run) => {
-            let n = 0;
-            const obs = new MutationObserver(rs => { n += rs.length; });
-            obs.observe(node, { subtree: true, childList: true,
-                                attributes: true, characterData: true });
-            run();
-            obs.takeRecords().forEach(() => { n += 1; });
-            obs.disconnect();
-            return n;
-          };
+          const watch = (node, run) => { const w = __deskWaits.watch(node); run(); return w.stop().n; };
           const tile = document.querySelector('.tile.is-solo');
           const row = tiles.get(tile.dataset.repo).row;
           // The red one, as a rail: the pane at its narrowest, and the face that says it (#233).

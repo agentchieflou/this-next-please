@@ -21,6 +21,7 @@ from agentdata.fleet import serve as S, registry
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages, launch_chromium, serve_desk  # noqa: F401 - launch_chromium is re-exported
+from desk_waits import WATCH
 from test_fleet import make_project
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
 
@@ -162,17 +163,16 @@ def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(
     context = browser.new_context()
     # Every time the footer starts saying something, from the first byte of the page on: a
     # sentence said twice is two entries, a sentence that simply stays is one.
-    context.add_init_script("""
+    context.add_init_script(WATCH + """
       window.__said = [];
       window.__last = "";
-      new MutationObserver(() => {
+      window.__deskWaits.watch(document, {}, () => {
         const n = document.getElementById('notice');
         const now = n && !n.hidden ? n.textContent : "";
         if (now === window.__last) return;
         window.__last = now;
         if (now) window.__said.push(now);
-      }).observe(document, { subtree: true, childList: true, characterData: true,
-                             attributes: true });
+      });
     """)
     page = context.new_page()
 

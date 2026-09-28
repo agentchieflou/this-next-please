@@ -16,8 +16,12 @@ const ORDER = { shadow: -13, paper: -12, board: -11, crop: -10 };
 export function marks() {
   return [
     { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines" },
+    { selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "highlighter", shape: "lines" },
+    { selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-choice:not([aria-pressed=\"true\"])",
+      tool: "pencil", shape: "loop" },
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
+    { selector: ".tile.state-error", tool: "red", shape: "bang" },
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 0, dash: true },
     { selector: ".tile .asks:not([hidden]) .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "loop", pad: 2 },

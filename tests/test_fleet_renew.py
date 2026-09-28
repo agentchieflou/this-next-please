@@ -17,7 +17,7 @@ from agentdata.fleet import supervisor
 from agentdata.fleet.registry import Registry, agent_dir
 
 from test_fleet import make_project
-from test_fleet_ink import IDLE_LOOP
+from desk_waits import counted, observe_quiet
 
 OLD = {"version": "0.13.1", "commit": "aaaaaaaaaaaa", "skills": "111111111111"}
 NOW = {"version": "0.13.2", "commit": "bbbbbbbbbbbb", "skills": "222222222222"}
@@ -289,9 +289,8 @@ def _serve():
 
 @pytest.mark.browser
 def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
-        fleet_home, tmp_path, monkeypatch):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    from test_fleet_desk_browser import launch_chromium
+        fleet_home, tmp_path, monkeypatch, desk_browser):
+    from desk_harness import close_pages
 
     monkeypatch.setattr(FP, "current", lambda: dict(NOW))
     _repo(tmp_path, "fresh", events=[started(NOW), turn_ended()])
@@ -319,129 +318,128 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
     S.update_window("main", open="old")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="old"] .oldsession:not([hidden])', timeout=15000)
-            # The chip's own attribute, not its visibility: the fresh agent's tile is behind the
-            # open one in the column, so "not visible" would pass for the wrong reason.
-            assert page.get_attribute('.tile[data-repo="fresh"] .oldsession', "hidden") is not None
-            assert "0.13.1" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
-            assert "1 session began" in page.inner_text("#renew-strip .renew-sum")
-            # #489: the stale pane's own door, on its head: what it starts, on which model. Only
-            # presence and title here -- this test fails any start.
-            fresh = '.tile[data-repo="old"] .freshtoggle'
-            page.wait_for_selector(fresh + ":not([hidden])", timeout=10000)
-            title = page.get_attribute(fresh, "title")
-            assert "on RDSD-1" in title and "cli-auto" in title and "Alt+N" in title, title
-            # #509: the button is drawn on every pane with a verdict, and offered (`is-offer`) only
-            # where #489 offers it; off a compact pane, one that is not offered is not shown.
-            assert page.evaluate("""() => { const b = document.querySelector('.tile[data-repo="fresh"] .freshtoggle');
+        browser = desk_browser
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="old"] .oldsession:not([hidden])', timeout=15000)
+        # The chip's own attribute, not its visibility: the fresh agent's tile is behind the
+        # open one in the column, so "not visible" would pass for the wrong reason.
+        assert page.get_attribute('.tile[data-repo="fresh"] .oldsession', "hidden") is not None
+        assert "0.13.1" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
+        assert "1 session began" in page.inner_text("#renew-strip .renew-sum")
+        # #489: the stale pane's own door, on its head: what it starts, on which model. Only
+        # presence and title here -- this test fails any start.
+        fresh = '.tile[data-repo="old"] .freshtoggle'
+        page.wait_for_selector(fresh + ":not([hidden])", timeout=10000)
+        title = page.get_attribute(fresh, "title")
+        assert "on RDSD-1" in title and "cli-auto" in title and "Alt+N" in title, title
+        # #509: the button is drawn on every pane with a verdict, and offered (`is-offer`) only
+        # where #489 offers it; off a compact pane, one that is not offered is not shown.
+        assert page.evaluate("""() => { const b = document.querySelector('.tile[data-repo="fresh"] .freshtoggle');
                 return !b.classList.contains('is-offer') && (b.closest('.tile').dataset.tier === 'compact'
                        || getComputedStyle(b).display === 'none'); }""")
-            assert "start fresh (Alt+N)" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
+        assert "start fresh (Alt+N)" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
 
-            page.click("#renew")
-            page.wait_for_selector('#renew-strip .renew-row[data-rowkey="old"]', timeout=5000)
-            assert "now" in page.inner_text('#renew-strip .renew-row[data-rowkey="old"] .renew-verdict')
-            assert page.inner_text("#renewgo") == "renew 1"
-            assert [w for w, b in posted if w == "renew"] == ["renew"]
-            assert all(b.get("dry_run") for w, b in posted if w == "renew"), "only the preview was asked for"
+        page.click("#renew")
+        page.wait_for_selector('#renew-strip .renew-row[data-rowkey="old"]', timeout=5000)
+        assert "now" in page.inner_text('#renew-strip .renew-row[data-rowkey="old"] .renew-verdict')
+        assert page.inner_text("#renewgo") == "renew 1"
+        assert [w for w, b in posted if w == "renew"] == ["renew"]
+        assert all(b.get("dry_run") for w, b in posted if w == "renew"), "only the preview was asked for"
 
-            page.click("#renewcancel")
-            page.wait_for_selector("#renew-strip .renew-rows", state="hidden", timeout=5000)
+        page.click("#renewcancel")
+        page.wait_for_selector("#renew-strip .renew-rows", state="hidden", timeout=5000)
 
-            # #511: a fresh day from the desk. The line counts the two idle panes with a ticket on
-            # sessions that began before today -- the Send this morning does not make `sent` today's.
-            page.wait_for_function("""() => !document.getElementById('day-strip').hidden
+        # #511: a fresh day from the desk. The line counts the two idle panes with a ticket on
+        # sessions that began before today -- the Send this morning does not make `sent` today's.
+        page.wait_for_function("""() => !document.getElementById('day-strip').hidden
                 && /^2 panes are on sessions that began before today/.test(
                      document.querySelector('#day-strip .day-offer-words').textContent)""", timeout=10000)
-            page.keyboard.press("Shift+N")
-            page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)').length === 6
+        page.keyboard.press("Shift+N")
+        page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)').length === 6
                 && !document.getElementById('daygo').disabled""", timeout=10000)
-            day = {r["repo"]: r for r in page.evaluate(DAY_ROWS)}
-            assert (day["yday"]["ticked"], day["sent"]["ticked"]) == (True, True), day
-            assert (day["free"]["ticked"], day["free"]["disabled"], day["free"]["verdict"]) == (False, False, "keyless")
-            assert (day["asking"]["disabled"], day["asking"]["verdict"]) == (True, "needs_you")
-            assert day["asking"]["question"] == "“which workspace?”" and day["asking"]["answer"], day["asking"]
-            assert day["asking"]["why"].startswith("answer it first")
-            assert day["yday"]["model"] == "auto · cli-auto" and "no --model flag" in day["yday"]["model_title"]
-            assert day["yday"]["began"].startswith("began yesterday"), day["yday"]
-            assert page.is_visible("#day-strip .day-keyless")
-            assert page.inner_text("#daygo") == "start 4 fresh — about 4 premium turns", "yday, sent, fresh, old"
-            assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}], posted
-            # An idle desk with the strip open writes nothing.
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
-            page.click("#daycancel")
-            page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
-            # The *day* menu's item opens the same preview, and Esc closes the strip.
-            page.click("#daybtn")
-            page.wait_for_selector("#daymenu:not([hidden])", timeout=5000)
-            assert page.get_attribute("#daybtn", "aria-expanded") == "true"
-            page.click("#dayfresh")
-            page.wait_for_selector("#day-strip .day-rows:not([hidden])", timeout=5000)
-            page.wait_for_function("() => !document.getElementById('daygo').disabled", timeout=10000)
-            assert page.is_hidden("#daymenu")
-            page.keyboard.press("Escape")
-            page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
-            assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}] * 2, posted
+        day = {r["repo"]: r for r in page.evaluate(DAY_ROWS)}
+        assert (day["yday"]["ticked"], day["sent"]["ticked"]) == (True, True), day
+        assert (day["free"]["ticked"], day["free"]["disabled"], day["free"]["verdict"]) == (False, False, "keyless")
+        assert (day["asking"]["disabled"], day["asking"]["verdict"]) == (True, "needs_you")
+        assert day["asking"]["question"] == "“which workspace?”" and day["asking"]["answer"], day["asking"]
+        assert day["asking"]["why"].startswith("answer it first")
+        assert day["yday"]["model"] == "auto · cli-auto" and "no --model flag" in day["yday"]["model_title"]
+        assert day["yday"]["began"].startswith("began yesterday"), day["yday"]
+        assert page.is_visible("#day-strip .day-keyless")
+        assert page.inner_text("#daygo") == "start 4 fresh — about 4 premium turns", "yday, sent, fresh, old"
+        assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}], posted
+        # An idle desk with the strip open writes nothing.
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
+        page.click("#daycancel")
+        page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
+        # The *day* menu's item opens the same preview, and Esc closes the strip.
+        page.click("#daybtn")
+        page.wait_for_selector("#daymenu:not([hidden])", timeout=5000)
+        assert page.get_attribute("#daybtn", "aria-expanded") == "true"
+        page.click("#dayfresh")
+        page.wait_for_selector("#day-strip .day-rows:not([hidden])", timeout=5000)
+        page.wait_for_function("() => !document.getElementById('daygo').disabled", timeout=10000)
+        assert page.is_hidden("#daymenu")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
+        assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}] * 2, posted
 
-            # `?fresh=1` only previews, from `/open` and from the tokened address, and comes off the
-            # address. No parameter makes the page post `repos`.
-            for url in (f"http://127.0.0.1:{port}/open?fresh=1",
-                        f"http://127.0.0.1:{port}/?t={token}&fresh=1&repos=yday&all=1&confirm=1"):
-                before = len(posted)
-                page.goto(url, wait_until="domcontentloaded")
-                page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)').length === 6
-                    && !document.getElementById('daygo').disabled""", timeout=15000)
-                assert "fresh=1" not in page.url and "t=" in page.url, page.url
-                assert [b for w, b in posted[before:] if w == "fresh"] == [{"all": True, "dry_run": True}]
-            assert not [b for w, b in posted if "repos" in b], "no address confirms a fresh day"
-
-            # #512: the end-of-day sweep from the *day* menu. #503's `RUN` is recorded; nothing starts.
+        # `?fresh=1` only previews, from `/open` and from the tokened address, and comes off the
+        # address. No parameter makes the page post `repos`.
+        for url in (f"http://127.0.0.1:{port}/open?fresh=1",
+                    f"http://127.0.0.1:{port}/?t={token}&fresh=1&repos=yday&all=1&confirm=1"):
             before = len(posted)
-            page.click("#daybtn")
-            page.wait_for_selector("#daymenu:not([hidden])", timeout=5000)
-            page.click("#daywrapday")
-            page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li.sweep-row:not(.day-pattern)').length === 6
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)').length === 6
+                    && !document.getElementById('daygo').disabled""", timeout=15000)
+            assert "fresh=1" not in page.url and "t=" in page.url, page.url
+            assert [b for w, b in posted[before:] if w == "fresh"] == [{"all": True, "dry_run": True}]
+        assert not [b for w, b in posted if "repos" in b], "no address confirms a fresh day"
+
+        # #512: the end-of-day sweep from the *day* menu. #503's `RUN` is recorded; nothing starts.
+        before = len(posted)
+        page.click("#daybtn")
+        page.wait_for_selector("#daymenu:not([hidden])", timeout=5000)
+        page.click("#daywrapday")
+        page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li.sweep-row:not(.day-pattern)').length === 6
                 && !document.getElementById('daygo').disabled""", timeout=20000)
-            swept = {r["repo"]: r for r in page.evaluate(SWEEP_ROWS)}
-            job = WRAP.fleet_job_state()
-            planned = {r["repo"]: [s["id"] for s in r["steps"] if s["ticked"]] for r in job["repos"]}
-            assert {k: [c["id"] for c in r["cells"] if c["ticked"]] for k, r in swept.items()} == planned, swept
-            assert [c["step"] for c in swept["yday"]["cells"]] == ["push", "pr", "page", "comment"], swept["yday"]
-            assert [c["step"] for c in swept["free"]["cells"]] == ["push", "pr"], swept["free"]
-            for repo, row in swept.items():
-                pr = next(c for c in row["cells"] if c["step"] == "pr")
-                assert "not_pinned" in pr["text"] and "capture-help" in pr["text"] and pr["disabled"], (repo, pr)
-            page_cell = next(c for c in swept["yday"]["cells"] if c["step"] == "page")
-            assert "not_pinned" in page_cell["text"], page_cell
-            ticked = sum(len(v) for v in planned.values())
-            assert page.inner_text("#daygo") == (f"write {ticked} — 6 pushes, 0 PRs, 0 pages, 5 comments, "
-                                                 "0 transitions"), page.inner_text("#daygo")
-            assert not any("merge" in c["text"].lower() for r in swept.values() for c in r["cells"])
-            # An idle desk with the table open, and no job running, writes nothing.
-            assert WRAP.wait_all(10)
-            swept_idle = page.evaluate(IDLE_LOOP)
-            assert swept_idle["n"] == 0, f"an idle desk with the sweep open wrote to the page: {swept_idle}"
-            page.click("#daygo")
-            page.wait_for_function("""() => [...document.querySelectorAll('#day-strip .sweep-row:not(.day-pattern) .wrap-row')]
+        swept = {r["repo"]: r for r in page.evaluate(SWEEP_ROWS)}
+        job = WRAP.fleet_job_state()
+        planned = {r["repo"]: [s["id"] for s in r["steps"] if s["ticked"]] for r in job["repos"]}
+        assert {k: [c["id"] for c in r["cells"] if c["ticked"]] for k, r in swept.items()} == planned, swept
+        assert [c["step"] for c in swept["yday"]["cells"]] == ["push", "pr", "page", "comment"], swept["yday"]
+        assert [c["step"] for c in swept["free"]["cells"]] == ["push", "pr"], swept["free"]
+        for repo, row in swept.items():
+            pr = next(c for c in row["cells"] if c["step"] == "pr")
+            assert "not_pinned" in pr["text"] and "capture-help" in pr["text"] and pr["disabled"], (repo, pr)
+        page_cell = next(c for c in swept["yday"]["cells"] if c["step"] == "page")
+        assert "not_pinned" in page_cell["text"], page_cell
+        ticked = sum(len(v) for v in planned.values())
+        assert page.inner_text("#daygo") == (f"write {ticked} — 6 pushes, 0 PRs, 0 pages, 5 comments, "
+                                             "0 transitions"), page.inner_text("#daygo")
+        assert not any("merge" in c["text"].lower() for r in swept.values() for c in r["cells"])
+        # An idle desk with the table open, and no job running, writes nothing.
+        assert WRAP.wait_all(10)
+        swept_idle = observe_quiet(page, passes=8)
+        assert swept_idle["mutations"] == 0, f"an idle desk with the sweep open wrote to the page: {swept_idle}"
+        page.click("#daygo")
+        page.wait_for_function("""() => [...document.querySelectorAll('#day-strip .sweep-row:not(.day-pattern) .wrap-row')]
                 .filter(c => c.querySelector('.wrap-tick').checked).every(c => c.dataset.done)""", timeout=20000)
-            wraps = [b for w, b in posted[before:] if w == "wrapup"]
-            assert [b.get("dry_run") for b in wraps] == [True, None], wraps
-            assert wraps[0] == {"all": True, "mode": "day", "dry_run": True}, wraps[0]
-            assert wraps[1]["all"] is True and wraps[1]["job"] == job["job"] and wraps[1]["mode"] == "day"
-            assert wraps[1]["steps"] == {k: v for k, v in planned.items() if v}, wraps[1]
-            done = {r["repo"]: [c["done"] for c in r["cells"] if c["ticked"]] for r in page.evaluate(SWEEP_ROWS)}
-            assert all(d == ["written"] * len(planned[k]) for k, d in done.items()), done
-            assert len(sweep_run.writes) == ticked
-            assert f"sweep: {ticked} written" in page.inner_text("#notice")
-            assert not errors, errors
-            browser.close()
+        wraps = [b for w, b in posted[before:] if w == "wrapup"]
+        assert [b.get("dry_run") for b in wraps] == [True, None], wraps
+        assert wraps[0] == {"all": True, "mode": "day", "dry_run": True}, wraps[0]
+        assert wraps[1]["all"] is True and wraps[1]["job"] == job["job"] and wraps[1]["mode"] == "day"
+        assert wraps[1]["steps"] == {k: v for k, v in planned.items() if v}, wraps[1]
+        done = {r["repo"]: [c["done"] for c in r["cells"] if c["ticked"]] for r in page.evaluate(SWEEP_ROWS)}
+        assert all(d == ["written"] * len(planned[k]) for k, d in done.items()), done
+        assert len(sweep_run.writes) == ticked
+        assert f"sweep: {ticked} written" in page.inner_text("#notice")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -623,23 +621,21 @@ def test_both_shells_treat_an_out_of_date_desk_as_missing():
 
 
 @pytest.mark.browser
-def test_the_page_says_when_the_desk_itself_is_out_of_date(fleet_home, tmp_path, monkeypatch):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    from test_fleet_desk_browser import launch_chromium
+def test_the_page_says_when_the_desk_itself_is_out_of_date(fleet_home, tmp_path, monkeypatch, desk_browser):
+    from desk_harness import close_pages
 
     monkeypatch.setattr(FP, "current", lambda: dict(NOW))
     _repo(tmp_path, "fresh", events=[started(NOW), turn_ended()])
     server, token, port = _serve()
     monkeypatch.setattr(S, "LOADED", dict(OLD))
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector("#renew-strip .renew-desk:not([hidden])", timeout=15000)
-            assert "the desk is running 0.13.1" in page.inner_text("#renew-strip .renew-desk")
-            assert page.locator("#renew").is_hidden(), "no stale session: nothing to preview"
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector("#renew-strip .renew-desk:not([hidden])", timeout=15000)
+        assert "the desk is running 0.13.1" in page.inner_text("#renew-strip .renew-desk")
+        assert page.locator("#renew").is_hidden(), "no stale session: nothing to preview"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

@@ -654,6 +654,9 @@
   "tests/test_hygiene_flake_policy.py": {
    "default": 0.0
   },
+  "tests/test_hygiene_harness.py": {
+   "default": 0.1
+  },
   "tests/test_hygiene_linux_shards.py": {
    "default": 0.8
   },
@@ -1561,6 +1564,9 @@
    "default": 0.2
   },
   "tests/test_hygiene_flake_policy.py": {
+   "default": 0.1
+  },
+  "tests/test_hygiene_harness.py": {
    "default": 0.1
   },
   "tests/test_hygiene_linux_shards.py": {

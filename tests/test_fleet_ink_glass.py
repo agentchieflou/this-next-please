@@ -21,6 +21,7 @@ rows in the state wanted, and `app.js` sets every class from them, as it does fo
 * `dispose` frees the ground's render target when the skin changes.
 """
 from __future__ import annotations
+import json
 import os
 import re
 
@@ -32,8 +33,9 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, observe_quiet, settle
 from test_fleet_ink import _serve, _stop  # noqa: F401 - over the harness's serve_desk; re-exported
-from test_fleet_ink import AT_REST, COUNT_FETCHES, IDLE_LOOP, _choose, catch_up_frames
+from test_fleet_ink import _choose, catch_up_frames
 from test_fleet_ink_notebook import _read_through_the_highlighter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,7 +69,7 @@ def _desk(tmp_path, fleet_home, skin="glass:smoke"):
 def _open(browser, port, token, extra="&ink=on", *, reduced=False, count=False):
     page = browser.new_page(viewport={"width": 1400, "height": 900},
                             reduced_motion="reduce" if reduced else "no-preference")
-    page.add_init_script(COUNT_FETCHES)
+    counted(page)
     errors, asked = [], []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("request", lambda r: asked.append(r.url))
@@ -111,13 +113,24 @@ def _ready(page, variant, also="true", timeout=30000, rest=True):
     twenty-one taps a pixel) costs from half a second to several. So `rest` is those frames' cost
     on top of the layer's start, and a test that needs only the glass -- its ground target, its
     panes, their colours -- passes `rest=False`. The dispose test waited for the ink, and on the
-    Windows leg the ink's frames ran its first wait past 30s (#254)."""
+    Windows leg the ink's frames ran its first wait past 30s (#254).
+
+    With `rest` it is `desk_waits.settle` with `READY` as the skin's predicate, whose clock restarts
+    at each frame the layer draws; with motion allowed the ground is a material that moves, and is
+    allowed its frames and its timer. `timeout` is kept for its callers (`rest=False` uses it)."""
     page.evaluate(MODULE)
-    want = f"(v) => ({READY})(v) && ({AT_REST if rest else '() => true'})() && ({also})"
+    if rest:
+        moving = not page.evaluate("() => matchMedia('(prefers-reduced-motion: reduce)').matches")
+        try:
+            settle(page, also=f"({READY})({json.dumps(variant)}) && ({also})", allow_ground=moving)
+        except AssertionError as e:
+            raise AssertionError(("glass not ready", variant, "at rest", str(e), page.evaluate(WHY))) from None
+        return
+    want = f"(v) => ({READY})(v) && ({also})"
     try:
         page.wait_for_function(want, arg=variant, timeout=timeout)
     except Exception:
-        raise AssertionError(("glass not ready", variant, "at rest" if rest else "drawn", page.evaluate(WHY)))
+        raise AssertionError(("glass not ready", variant, "drawn", page.evaluate(WHY)))
 
 
 def _choose(page, skin):
@@ -153,14 +166,15 @@ STUB = """async () => {
 
 #: Rows changed, and the page redrawn from them: `{repo: {field: value}}`. A fetch of the real
 #: rows still in flight would land after them and put the old states back, so the page's own
-#: fetches are waited out first (`COUNT_FETCHES`), and `refresh` is asked twice: the first can be
-#: one that began before the stub, and hands back its promise.
+#: fetches are waited out first (`__noFetchInFlight`, which rejects -- failing the test -- at
+#: `DESK_WAIT_MS`), and `refresh` is asked twice: the first can be one that began before the stub,
+#: and hands back its promise.
 PATCH = """async (patches) => {
   for (const row of window.__fleet.repos) Object.assign(row, patches[row.repo] || {});
-  for (let i = 0; i < 400 && (window.__inflight || 0) > 0; i++) await new Promise(d => setTimeout(d, 25));
+  await window.__noFetchInFlight(%d);
   await refresh(); await refresh(); place(); redrawAll();
   return true;
-}"""
+}""" % DESK_WAIT_MS
 
 
 def _states(page, patches):
@@ -389,7 +403,7 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
             page, errors, _ = _open(browser, port, token, reduced=reduced)
             _ready(page, "smoke")
             before = _glass(page)
-            count = page.evaluate(IDLE_LOOP)
+            count = observe_quiet(page, passes=8, ground_moves=not reduced)
             after = _glass(page)
             # And it goes on: the ground's own timer asks for the next frame, and the next.
             # Read as the clock moving again, not as the timer being set -- between its firing
@@ -404,9 +418,9 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
     finally:
         _stop(server)
     moving, still = seen[False], seen[True]
-    assert moving["count"]["n"] == 0, f"an idle glass desk wrote to the page: {moving['count']}"
+    assert moving["count"]["mutations"] == 0, f"an idle glass desk wrote to the page: {moving['count']}"
     assert moving["after"]["clock"] > moving["before"]["clock"] and moving["count"]["renders"] > 0, moving
-    assert still["count"]["n"] == 0, f"an idle glass desk wrote to the page: {still['count']}"
+    assert still["count"]["mutations"] == 0, f"an idle glass desk wrote to the page: {still['count']}"
     assert still["count"]["renders"] == 0, f"a still ground was redrawn {still['count']['renders']} times"
     assert still["after"]["clock"] == 0 and not still["after"]["timer"], still["after"]
 
@@ -415,8 +429,9 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
 def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_home, tmp_path, desk_browser):
     """The grammar (docs/skin-glass.md), from the classes app.js sets for the rows it is given.
     needs you: the name and the question highlighted, the rim lit in the human colour. answered:
-    the choice circled in pen, and struck when another is chosen. error: a bang, the rim lit.
-    done: a green tick, the rim in green. running: the chip underlined, the top glint running.
+    the choice circled in pen, and struck when another is chosen. error: a marker loop round the
+    pane and a bang, the rim lit. done: a green tick, the rim in green. running: the name
+    underlined (#334: the state grammar; it was the chip), the top glint running.
     stale: no mark, the note's own words (#332: an outline round it ran over the chip's age). A finding: the scope report ringed in red. A state that
     goes is struck (an ink never fades), and the rim that went with it is off. Reduced motion, so
     every step is at rest at once."""
@@ -430,9 +445,9 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
 
         def at_rest(also="true"):
             try:
-                page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=30000)
-            except Exception:
-                raise AssertionError(("not at rest with", also, _by(page), page.evaluate(TILES)))
+                settle(page, also=f"!!Ink.inspect().layer && ({also})")
+            except AssertionError as e:
+                raise AssertionError(("not at rest with", also, str(e), _by(page), page.evaluate(TILES))) from None
             return _by(page), _rims(page)
 
         _states(page, {"alpha": dict(_live("needs_human"), needs_human=True, asked=ASKED),
@@ -450,9 +465,12 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
         _choose(page, "glass:smoke")
         _ready(page, "smoke")
         page.click('.tile[data-repo="alpha"] .ask-choice >> nth=0')
-        steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop')")
+        # The choice's loop, not the error's (#334 loops the error pane too).
+        steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop'"
+                                  " && m.selector.includes('ask-choice'))")
         page.click('.tile[data-repo="alpha"] .ask-choice >> nth=1')
-        steps["picked again"] = at_rest("Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        steps["picked again"] = at_rest("Ink.inspect().layer.marks.filter(m => m.shape === 'loop'"
+                                        " && m.selector.includes('ask-choice')).length === 2")
         _states(page, {"alpha": _live("idle", stale={"stale": False}),
                        "beta": _live("idle", scope_report={"edited": 3, "outside": ["docs/x.md"]}),
                        "gamma": _live("running")})
@@ -467,6 +485,7 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     hl, q = ".tile.needs-human .repo", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q"
     assert _drawn(marks, hl, "pane:alpha") and _drawn(marks, q, "pane:alpha"), marks
     assert _drawn(marks, ".tile.state-error", "pane:beta"), marks
+    assert len([m for m in marks if m[:3] == (".tile.state-error", "pane:beta", "drawn") and not m[3]]) == 2, marks
     assert _drawn(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     stale = ".tile .oldsession:not([hidden])"
     assert not [m for m in marks if m[0] == stale], ("stale is the note's own words on glass", marks)
@@ -481,10 +500,11 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     marks, rims = steps["moved on"]
     assert _struck(marks, hl, "pane:alpha") and _struck(marks, q, "pane:alpha"), marks
     assert _struck(marks, ".tile.state-error", "pane:beta"), marks
+    assert not _drawn(marks, ".tile.state-error", "pane:beta"), marks
     assert _struck(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     assert not [m for m in marks if m[0] == stale], marks
     assert _drawn(marks, ".tile .scopereport.outside:not([hidden])", "pane:beta"), marks
-    assert _drawn(marks, ".tile.state-running .chip", "pane:gamma"), marks
+    assert _drawn(marks, ".tile.state-running .head .repo", "pane:gamma"), marks
     assert rims == {"alpha": (None, 0), "beta": (None, 0), "gamma": (None, 0)}, rims
     assert dict(steps["run"]) == {"alpha": 0, "beta": 0, "gamma": 1}, steps["run"]
 
@@ -544,8 +564,8 @@ def test_a_finished_agent_nothing_supervises_is_ticked_and_rimmed_on_every_varia
         page.wait_for_function(
             """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
                          return true; refresh(); return false; }""", timeout=20000, polling=250)
-        page.wait_for_function(f"""() => ({AT_REST})() && !({CHECKS})('beta').includes('drawn')
-            && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim !== 'done'""", timeout=30000)
+        settle(page, also=f"""!!Ink.inspect().layer && !({CHECKS})('beta').includes('drawn')
+            && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim !== 'done'""")
         again = {"checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
         assert not errors, errors
         close_pages(browser)

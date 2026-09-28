@@ -21,7 +21,8 @@ from __future__ import annotations
 import pytest
 
 from desk_harness import close_pages
-from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
+from desk_waits import counted, observe_quiet
+from test_fleet_ink import _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 
 @pytest.mark.browser
@@ -33,7 +34,7 @@ def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path, desk_brow
     try:
         browser = desk_browser
         page = browser.new_page(viewport={"width": 1400, "height": 900})
-        page.add_init_script(COUNT_FETCHES)
+        counted(page)
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -44,9 +45,9 @@ def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path, desk_brow
                  // ground, and the stylesheet paints no ground of its own, #257).
                  && !!(document.head.querySelector('link[data-skin]') || {}).sheet
                  && !document.body.classList.contains('is-stale')""", timeout=15000)
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle skinned desk wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle skinned desk wrote to the page: {count}"

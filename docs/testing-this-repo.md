@@ -285,8 +285,9 @@ browser that is up costs under 0.1 s.
 | --- | --- |
 | `desk_server` | a desk served on a daemon thread: `.url(extra="")`, `.token`, `.port`, `.base`, `.server`; stopped at teardown |
 | `desk_browser` | the worker's Chromium (from `launch_chromium`, relaunched if a test closed it); the contexts the test made are closed at teardown |
-| `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` installed; `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
+| `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` and `desk_waits.COUNT_TIMERS` installed (as on every `desk_page`); `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
 | `no_desk_driver` | no shared driver in this thread, for a test that needs `asyncio.run` |
+| `desk_chromium_with` | `launch(args)`: a Chromium of the test's own on the worker's driver, started with extra switches (a Blink flag), closed at teardown |
 
 ```python
 @pytest.mark.browser
@@ -299,17 +300,44 @@ def test_the_open_pane_is_full(fleet_home, tmp_path, desk_server, new_desk_page)
 ```
 
 No `pytest.importorskip("playwright.sync_api")` of its own and no `browser.close()`: the harness does
-both. A test that still opens `with sync_playwright()` works beside it (the harness stops the shared
-driver before any browser test that does not use `desk_browser`, because two sync drivers cannot
-live in one thread), and #300–#303 move the rest over. `tests/test_fleet_desk_browser.py` and
+both. `with sync_playwright()` is gone from the tests (#303): every browser test is on the harness,
+and `tests/test_hygiene_harness.py` fails on a `sync_playwright(` anywhere under `tests/` but the
+harness, or a `launch_chromium(` outside it, and says to use `desk_server`/`new_desk_page` instead.
+A module `browser` fixture is `desk_browser` under its old name. `tests/test_fleet_desk_browser.py` and
 `tests/test_fleet_ink.py` are the pattern; `test_fleet_ink`'s `_serve`, `_stop` and `_open` are thin
 wrappers over the harness, so the modules that import them keep working.
+
+#### Settle, then assert (#304)
+
+A browser test waits for the desk one way: `tests/desk_waits.py`. `settle(page, also=...)` waits
+until six frames in a row pass with nothing moving -- no fetch in flight, no `setTimeout` of 1000 ms
+or less pending, no DOM write, the fonts loaded, no animation but the live `.dot`, the ink layer off
+or at rest and not rendering (`allow_ground=True` lets a moving ground draw) -- and `also`, a JS
+expression that holds a skin's or a test's own condition, true. When nothing has moved it on for
+`DESK_WAIT_MS` (30 s; a frame the ink layer draws is moving on, a pen that never lifts is not) it
+prints the page and raises `the desk never settled: <what was still moving>`. There is no other
+ceiling, and no pause "to let it settle".
+
+A negative assertion is observed over page work, never over a duration. `assert_idle(page)` settles,
+replays `/api/fleet` byte for byte, and drives `refresh(); place(); redrawAll(); bell();` eight times
+under one observer over the whole document: zero writes, and zero ink frames unless the ground
+moves (`ground_moves=True`). Each pass ends when the work it started is done -- no fetch in flight,
+no short timer pending -- plus two frames, so a write a timer makes 300 ms later is inside the
+window. `observe_quiet(page, passes=, drive=False)` leaves the page alone and counts its own work (a
+refresh it starts itself, a retry it arms) as the passes. An observer that records what an action
+writes is `record_mutations(page, ...)` (or `WATCH`'s `__deskWaits.watch(node)` inside page code);
+`new MutationObserver` appears under `tests/` only in `desk_waits.py`, and `tests/test_desk_waits.py`
+keeps it so. `AGENTDATA_DESK_WAIT_SCALE` scales the ceiling for a local throttled run; CI never sets
+it.
 
 #### The guards that measure rather than read (#202)
 
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
 after the change that makes it slow. Each prints what it measured, and the CI browser leg tees
 that into the job summary and uploads the recorded demo beside it.
+
+They share the worker's browser like every other browser test (#303), and it starts at fixture
+setup, so no timed window includes a driver or a Chromium starting.
 
 | Guard | Asserts | In |
 | --- | --- | --- |
@@ -318,6 +346,16 @@ that into the job summary and uploads the recorded demo beside it.
 | frame time | a layout swap of five tiles at 1080p records no `longtask` and hands the main thread back inside 50 ms | `test_fleet_motion.py` |
 | the ground | a repaint under 4 ms, and the drift timer off under reduced motion | `test_fleet_trace.py` |
 | latency | every marked local gesture under 50 ms, hiding a tile painted against a server held for two seconds, and one round trip per action | `test_fleet_instant.py` |
+
+The payload budgets are plain tests. Each measures what the server sends (`serve.static_body`, gzip level 6), and
+none is raised by a card (decisions 18 and 19 on #429):
+
+| Budget | Holds | In |
+| --- | --- | --- |
+| the static payload | every file in `static/` and `static/ink/` under 200 KiB, `m.html` and `m.css` included | `test_fleet_serve.py` |
+| `MAP_BUDGET` | `static/map/**/*.js` outside `map/skins/` under 32 KiB; `map.html` + `map.css` under 4 KiB of the 200 | `test_fleet_serve.py` |
+| `M_BUDGET` | `static/m/**/*.js` under 4 KiB (P-15; `m/m.js` was 2,746 B at #581); `m.html` + `m.css` under 4 KiB of the 200 | `test_fleet_serve.py` |
+| `INK_BUDGET`, `FX_BUDGET` | the ink layer's modules, and `fx.js` on its own ([desk-ink.md](desk-ink.md) §Budgets) | `test_fleet_ink.py` |
 
 Two of those deserve their reasoning repeated here, because the obvious version of each is wrong:
 
@@ -779,8 +817,9 @@ and cap raises. None of them named a cause.
    ([`.github/ISSUE_TEMPLATE/flake.md`](../.github/ISSUE_TEMPLATE/flake.md)) with the job URL, the node id, the
    full failure output (including what `_explain_the_page` printed), the commit, and the runner OS and Python.
 2. **Reproduce before fixing.** Run `-n 8` on 4 cores, several concurrent copies of the one test, or the
-   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did). #307
-   adds a CPU throttle and a stress script to this list. Paste the reproduction in the issue.
+   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did), or
+   the two tools in *Reproducing a CI-only failure* below: `--desk-cpu-throttle` and
+   `.github/scripts/stress_one.py` (#307). Paste the reproduction in the issue.
 3. **Fix the cause**: a missing condition, a stub race, a leaked global, a product defect. A product defect gets
    a regression file, `tests/regressions/test_<yyyymmdd>_<any|shell>_<short>.py`, quoting what the runner
    printed (see *The regression convention*).
@@ -794,6 +833,55 @@ names the check and links its flake issue. Branch protection is the operator's s
 the `flake` label the template applies is created by the operator. `tests/test_hygiene_flake_policy.py` keeps
 this section, the template and the rule together.
 
+## Reproducing a CI-only failure
+
+A runner is 1.5 to 3 times slower than a laptop, and Windows-only failures were fixed by guessing because
+nobody could make a laptop that slow (#307). Two tools do it, and both are local: CI runs neither, and neither
+is a reason to raise a ceiling.
+
+| Tool | What it slows | What it does not slow |
+| --- | --- | --- |
+| `--desk-cpu-throttle=RATE` (or `AGENTDATA_DESK_THROTTLE=RATE`; default 1) | the main thread of every desk page the harness opens (`tests/desk_harness.py` `desk_page`, so `new_desk_page` and every helper on it): CDP `Emulation.setCPUThrottlingRate`, sent again whenever the page's main frame navigates, because a navigation to another site starts a new renderer process unthrottled | the Python server, the Playwright driver, and Chromium's GPU process |
+| `python .github/scripts/stress_one.py NODEID [--copies 8] [--rounds 2] [--throttle 1] [--timeout 600]` | everything, by contention: `--copies` processes of the one test fight for the CPU at once, as the tests on a loaded runner do; `--throttle` passes the option above to each copy | nothing in particular: it is the whole machine that is slow, not one thread |
+
+```
+python -m pytest -q -m browser tests/test_fleet_ink_glass.py --desk-cpu-throttle=4
+python .github/scripts/stress_one.py tests/test_fleet_ink_glass.py::test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing
+```
+
+The numbers they were chosen on, in this suite's headless Chromium: a fixed JS loop took 43 ms at rate 1 and
+171 ms at rate 4; 8 copies over 2 rounds of
+`test_fleet_ink_glass.py::test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing`
+took about 115 s each, about 11x slower than under `-n 4`, and all 16 passed.
+
+**Where the throttle does nothing.** CDP CPU throttling is Chromium's, and on Windows it suspends the page's
+main thread from a second thread every 200 µs. On most hosts that works: on 18 of 20 Windows runners sampled in
+run 36349924909 (AMD EPYC 7763 and 9V74, Xeon Platinum 8370C and 8573C) a CPU-bound loop ran 3.5 to 5.5 times
+slower at rate 4, and on Linux 4 to 4.7 times, whatever the loop's length (15, 60 or 250 ms). On the other two,
+both **AMD EPYC 9V45** hosts, it ran 1.04 to 1.23 times slower at rates 2, 4 and 8 alike: the throttle has no
+effect there, and that is what failed train 20 (`{1: 15, 4: 17.4}`, run 36346175771). The loop's length is not
+the cause, and neither is Windows' 15.6 ms timer. So:
+
+- the option measures before it trusts: with `--desk-cpu-throttle` over 1, `desk_browser` times the fixed loop
+  on a page at rate 4 against one at rate 1, once per process, and when it is under 2x slower every test that
+  asks for the browser fails with the measured figure and the machine's CPU, instead of running unthrottled;
+- the check in `test_a_gesture_keeps_its_budget_while_the_ink_draws` holds the 3x bar everywhere except on
+  Windows on a host in `THROTTLE_HAS_NO_EFFECT_ON` (the EPYC 9V45), where it asserts that the throttle still
+  does nothing and that the option is refused. A CI job that lands on such a host checks that; the day the
+  throttle starts working there, it fails and the host comes off the list.
+
+On a macOS runner (Apple M1, virtual) the throttle is partial: 3.3 to 4.9x at rate 4 in some probes, 2.2 to
+2.8x in others, so the 3x check can fail on a Mac; CI runs no macOS browser job.
+
+`stress_one.py` prints a TOON table, `round, copy, outcome, seconds`, and exits 1 when any copy did not pass.
+An outcome is `passed` (exit 0), `failed` (any other exit) or `timeout`. Every copy is started with
+`agentdata.proc.run`, which on POSIX gives it a session of its own and on a timeout kills the whole tree, so a
+copy that ran out of time leaves no driver or Chromium behind. `tests/test_stress_one.py` drives it with the
+node ids in `tests/fixtures/stress_one/target.py`, and
+`test_fleet_ink.py::test_a_gesture_keeps_its_budget_while_the_ink_draws` checks the throttle (a loop at rate 4
+takes at least three times as long, before and after a navigation to another site, except on the one host
+where it is measured to do nothing, above).
+
 ## What CI runs
 
 A red job is handled as *When CI is red* says: a flake issue and a reproduction first, never a re-run into green.
@@ -805,21 +893,22 @@ Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh 
 
 | Tier | ubuntu · 3.14 | windows · 3.14 |
 |---|---|---|
-| `default` | parallel + serial + serial, named files + shuffled (2 seeds) | 3 shards, serial |
+| `default` | parallel + parallel, named files + serial + serial, named files + shuffled + shuffled (2 seeds) | 3 shards, serial |
 | `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 3 shards, serial |
-| `measured` | serial + shuffled (2 seeds) | serial |
-| `scale` | serial + shuffled (2 seeds) | serial |
-| `slow` | serial + shuffled (2 seeds) | serial |
+| `measured` | serial + shuffled + shuffled (2 seeds) | serial |
+| `scale` | serial + shuffled + shuffled (2 seeds) | serial |
+| `slow` | serial + shuffled + shuffled (2 seeds) | serial |
 | `laptop` | gated | gated |
 | `browser+slow` | serial | serial |
 | `browser+measured` | serial + serial, named files | serial |
-| `measured+scale` | serial + serial, named files + shuffled (2 seeds) | serial |
+| `measured+scale` | serial + serial, named files + shuffled + shuffled (2 seeds) | serial |
 | `laptop+measured` | gated | gated |
 
 Per job, as the checks are named:
 
 | Job | `default` | `browser` | `measured` | `scale` | `slow` | `laptop` | `browser+slow` | `browser+measured` | `measured+scale` | `laptop+measured` |
 |---|---|---|---|---|---|---|---|---|---|---|
+| `smoke · install, doctor, entry points and hygiene` | parallel, named files | — | — | — | — | — | — | — | — | — |
 | `ubuntu-latest · python 3.14` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files | gated |
 | `ubuntu · python 3.14 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — | — |
 | `ubuntu · python 3.14 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — | — |
@@ -833,6 +922,7 @@ Per job, as the checks are named:
 | `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
 | `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — | — |
 | `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · seed of the day` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
 <!-- tier-matrix:end -->
 
 `tests/test_hygiene_tier_matrix.py` keeps the block equal to the workflow (its failure names the refresh
@@ -845,6 +935,7 @@ tier markers the matrix does not list (#315). The table below is the prose per j
 
 | Job | What it proves |
 |---|---|
+| `changes · which groups a filter would run (report only)` | which groups of `.github/ci-paths.json` the PR's diff (or the push's range) touches, and in its job summary which jobs a path filter *would* skip (#593). Report only: every job `needs:` it and none reads its outputs, so nothing is skipped until #596. A path no group names, a push, a dispatch and an empty diff all mean everything |
 | `ubuntu-latest · python 3.14` | the suite on the floor, which is also the laptop's Python (#591): the bulk on every core without the browser tier, then `measured` + `scale` with the machine to themselves, then `slow` serially. It first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236), and keeps Chromium for the `browser` tests that are also `measured` or `slow`, the measurements and the demo (#312) |
 | `ubuntu · python 3.14 · browser · shard K/2` (K = 1, 2) | the browser tier (`browser and not slow and not measured and not scale`), once per run, in two whole-file shards under `-n 2`, with Chromium (#312) |
 | `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf true` (Git for Windows' default; #591) |

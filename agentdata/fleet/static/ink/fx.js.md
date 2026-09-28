@@ -190,10 +190,39 @@ In `attach`, above `const text = !!(spec && spec.use && spec.use.text === true);
 `options.fx.text` (the table's `fx.use`, ink.js's `fromModule`): only a skin that asks for
 the text helpers gets them, so an `api.fx` without them says the skin never asked.
 
-In `attach`, above `api: Object.freeze(text ? { animate, lines, glyphs } : { animate }),`:
+In `attach`, above `const point = !!(spec && spec.use && spec.use.pointer === true);`:
+
+`options.fx.pointer` (#376), asked for the same way: only a skin that asks for the pointer has
+the listeners at all, and an `api.fx` without `pointer` says the skin never asked.
+
+In `attach`, above `const onPointer = e => {`:
+
+One move (#376): where the pointer is, `{x, y, repo, el}` in viewport CSS px (`repo` from the
+pane under it, `el` the element it is over, to read and never write), and one frame asked for
+through `api.request()`, which the layer coalesces into the rAF `kick` keeps: at most one frame a
+move, and none while the hand is still. Under reduced motion (`layer.instant()`, read on each
+event, so a change mid-page counts) it returns at once: `pointer` stays as it was and no frame
+is asked for. It never touches the cursor or the page. `moves` counts the moves it took, for
+`inspect`.
+
+In `attach`, above `const onLeave = () => {`:
+
+The pointer leaves the document: `pointer` is `null`, and one last frame is asked for so a
+material can put itself away. Nothing under reduced motion, and nothing when there was no
+pointer to take away.
+
+In `attach`, above `const pointing = on => {`:
+
+The two listeners (#376): a capturing, passive `pointermove` on `document`, so a pane that stops
+propagation still reports, and a passive `pointerleave` on `<html>`. Added once by `attach` and
+removed by `detach`, so a table without `options.fx.pointer`, `Ink.setSkin(null)` and `stop()`
+all take them away. The canvas keeps `pointer-events: none`.
+
+In `attach`, above `const api = { animate };`:
 
 The helpers a skin's hooks reach as `api.fx`: `animate` (#374) always, `lines` and `glyphs`
-(#375) under `options.fx.text`; #376 adds to it.
+(#375) under `options.fx.text`, and the `pointer` getter (#376) under `options.fx.pointer`.
+Frozen once it is built; `pointer` is a getter, so the frozen object still reads the latest.
 
 In `attach`, above `match() {`:
 
@@ -209,6 +238,11 @@ In `attach`, above `measure() {`:
 After the marks are measured: each leave row's match keeps its last non-empty box, and an
 empty measure (a pane the ResizeObserver sees just hidden, at 0x0) stamps it. Arrive rows
 are never measured again.
+
+In `attach`, above `inspect() {`:
+
+`pointer` (#376) is `{at: {x, y, repo} | null, moves}`, only for a table that asked for the
+pointer: a table that did not has no `pointer` key, so its report is what it was before #376.
 
 In `attach`, above `deliver() {`:
 

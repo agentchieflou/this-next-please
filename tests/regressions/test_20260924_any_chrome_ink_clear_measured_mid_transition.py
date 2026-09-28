@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401
 from test_fleet_ink_clear import CLEAR_AT_REST, PROBE, drawn, opaque
@@ -38,28 +38,26 @@ LOOK = "glass:smoke"
 
 @pytest.mark.browser
 def test_the_ink_clear_is_measured_at_rest_not_on_its_transitions_first_frame(fleet_home, tmp_path, alive,
-                                                                             finished):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+                                                                             finished, desk_browser):
     alive.add(OPEN[1])
     finished.add(OPEN[1])
     margin_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=1400, reduced=True)
-            desk_states(page)
-            cdp = page.context.new_cdp_session(page)
-            cdp.send("Animation.enable")
-            cdp.send("Animation.setPlaybackRate", {"playbackRate": 0})
-            _choose(page, LOOK)
-            drawn(page, LOOK, rest="() => document.querySelector('header').getAnimations().length > 0")
-            held = page.evaluate(f"() => ({{ probe: ({PROBE})(), ready: ({CLEAR_AT_REST})() }})")
-            cdp.send("Animation.setPlaybackRate", {"playbackRate": 1})
-            page.wait_for_function(CLEAR_AT_REST, timeout=10000, polling=100)
-            rest = page.evaluate(PROBE)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=1400, reduced=True)
+        desk_states(page)
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Animation.enable")
+        cdp.send("Animation.setPlaybackRate", {"playbackRate": 0})
+        _choose(page, LOOK)
+        drawn(page, LOOK, rest="() => document.querySelector('header').getAnimations().length > 0")
+        held = page.evaluate(f"() => ({{ probe: ({PROBE})(), ready: ({CLEAR_AT_REST})() }})")
+        cdp.send("Animation.setPlaybackRate", {"playbackRate": 1})
+        page.wait_for_function(CLEAR_AT_REST, timeout=10000, polling=100)
+        rest = page.evaluate(PROBE)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     # the first frame: the rule matches, and the header still reads as the opaque panel

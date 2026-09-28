@@ -22,7 +22,7 @@ from agentdata.fleet import events as E, lifecycle, registry, serve as S, spend 
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 SKINS = ["none", "glass:smoke"]
 
@@ -109,14 +109,13 @@ def test_the_ledger_and_the_cli_and_the_page_all_say_the_same_number(fleet_home,
 
 
 @pytest.mark.browser
-def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_path):
+def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_path, desk_browser):
     """The demo. Amber at four fifths, red at the line, both with a sentence -- and the fleet's own
     total beside the agent count, from the same ledgers.
 
     The cell is drawn on a pane wide enough for its cells (#233: a rail and a compact pane skip
     them), so the four being read are open side by side -- three pinned beside the open one -- and
     the fifth is a rail, whose label carries the same number the band's chip did."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of_five(tmp_path)
     S.arrange(pinned=["rdsd-pbi-reporting", "luna", "velocity"])
     S.update_window("main", open="backlog-health")
@@ -125,18 +124,17 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1800, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('.tile[data-tier=\"full\"] .cell.spend').length"
-                " === 4", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1800, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('.tile[data-tier=\"full\"] .cell.spend').length"
+            " === 4", timeout=15000)
 
-            out = page.evaluate("""() => {
+        out = page.evaluate("""() => {
               const cell = t => {
                 const c = document.querySelector(`.tile[data-repo="${t}"] .cell.spend`);
                 return c ? { text: c.innerText.replace(/\\s+/g, ' '),
@@ -154,33 +152,33 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
                   .map(f => f.getAttribute('aria-label')),
               };
             }""")
-            assert not errors, errors
+        assert not errors, errors
 
-            assert out["over"]["over"] is True and "12.5 premium" in out["over"]["text"]
-            assert "of 10" in out["over"]["text"]
-            assert "budget" in out["over"]["why"], "red carries its sentence, not just its colour"
+        assert out["over"]["over"] is True and "12.5 premium" in out["over"]["text"]
+        assert "of 10" in out["over"]["text"]
+        assert "budget" in out["over"]["why"], "red carries its sentence, not just its colour"
 
-            assert out["near"]["warn"] is True and "8.4 premium" in out["near"]["text"]
-            assert "mean" in out["near"]["why"].lower(), "a mean, and said to be one"
+        assert out["near"]["warn"] is True and "8.4 premium" in out["near"]["text"]
+        assert "mean" in out["near"]["why"].lower(), "a mean, and said to be one"
 
-            assert out["fine"]["over"] is False and out["fine"]["warn"] is False
-            # An agent that has spent nothing still shows its headroom when a budget exists: "0 of
-            # 10" is the answer to "how much room have I got", and it is the reassurance the whole
-            # epic is for. The cell is absent only when there is no budget AND nothing spent.
-            assert out["none"] is not None and "0 premium" in out["none"]["text"]
-            assert "of 10" in out["none"]["text"]
-            assert out["none"]["over"] is False and out["none"]["warn"] is False
+        assert out["fine"]["over"] is False and out["fine"]["warn"] is False
+        # An agent that has spent nothing still shows its headroom when a budget exists: "0 of
+        # 10" is the answer to "how much room have I got", and it is the reassurance the whole
+        # epic is for. The cell is absent only when there is no budget AND nothing spent.
+        assert out["none"] is not None and "0 premium" in out["none"]["text"]
+        assert "of 10" in out["none"]["text"]
+        assert out["none"]["over"] is False and out["none"]["warn"] is False
 
-            assert "premium today" in out["footer"] and "28.9 all time" in out["footer"]
-            # The rail says what the band's chip said: what this agent has cost.
-            assert len(out["rails"]) == 1 and "6 premium" in out["rails"][0], out["rails"]
+        assert "premium today" in out["footer"] and "28.9 all time" in out["footer"]
+        # The rail says what the band's chip said: what this agent has cost.
+        assert len(out["rails"]) == 1 and "6 premium" in out["rails"][0], out["rails"]
 
-            for skin in SKINS:
-                S.act("theme", {"skin": skin})
-                page.wait_for_timeout(350)
-                page.screenshot(path=os.path.join(
-                    shots, "meter-" + skin.replace(":", "-") + ".png"))
-            browser.close()
+        for skin in SKINS:
+            S.act("theme", {"skin": skin})
+            page.wait_for_timeout(350)
+            page.screenshot(path=os.path.join(
+                shots, "meter-" + skin.replace(":", "-") + ".png"))
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -188,35 +186,33 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
 
 
 @pytest.mark.browser
-def test_an_over_budget_agent_is_reachable_from_the_page_on_a_second_press(fleet_home, tmp_path):
+def test_an_over_budget_agent_is_reachable_from_the_page_on_a_second_press(fleet_home, tmp_path, desk_browser):
     """The whole of #213: it was enforced in `send`, the desk called `send` with no `force`, and so
     the only door was a terminal."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of_five(tmp_path)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"]', timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"]', timeout=15000)
 
-            tile = page.locator('.tile[data-repo="rdsd-pbi-reporting"]')
-            tile.locator(".say").fill("carry on")
-            tile.locator(".send").click()
-            page.wait_for_function(
-                """() => /Send anyway/.test(document.querySelector(
+        tile = page.locator('.tile[data-repo="rdsd-pbi-reporting"]')
+        tile.locator(".say").fill("carry on")
+        tile.locator(".send").click()
+        page.wait_for_function(
+            """() => /Send anyway/.test(document.querySelector(
                      '.tile[data-repo="rdsd-pbi-reporting"] .send').textContent)""",
-                timeout=8000)
-            said = tile.locator(".err").inner_text()
-            assert "premium-request budget" in said, said
-            assert "--force" in said or "raise" in said, "the supervisor's own hint"
-            assert not errors, errors
-            browser.close()
+            timeout=8000)
+        said = tile.locator(".err").inner_text()
+        assert "premium-request budget" in said, said
+        assert "--force" in said or "raise" in said, "the supervisor's own hint"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

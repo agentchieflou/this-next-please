@@ -21,14 +21,20 @@ Lines and letters (#375, docs/desk-ink.md §Lines and letters): under `options.f
 character's own box, cached per element on its text length and size, capped and clamped, whitespace skipped, `[]` for
 an element that left the page; `api.fx.lines(el)` gives the element's line boxes; without it, `api.fx` has neither.
 
+The pointer (#376, docs/desk-ink.md §Pointer): under `options.fx.pointer`, a move is one frame at most and the square the
+example draws follows it, nothing while the pointer is still, a leave takes it away, a table without it takes its
+listeners, and under reduced motion moves draw nothing and `api.fx.pointer` stays `null`. Its measured half is in
+tests/test_fleet_ink.py's gesture-budget test.
+
 The budgets (`FX_BUDGET`, `INK_BUDGET`) are held in tests/test_fleet_ink.py.
 """
 from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (IDLE_LOOP, TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
+from desk_harness import close_pages
+from desk_waits import observe_quiet
+from test_fleet_ink import (TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
                             fleet_home)
 
 #: The test table with effects, and hooks shaped like a skin module's (`cue` is #372's hook).
@@ -49,64 +55,62 @@ def _fx(asked):
 
 
 @pytest.mark.browser
-def test_fx_js_is_fetched_only_by_a_table_with_effects(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_fx_js_is_fetched_only_by_a_table_with_effects(fleet_home, tmp_path, desk_browser):
     _desk_of(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, asked = _open(browser, port, token, "&ink=on", count=True)
+        browser = desk_browser
+        page, errors, asked = _open(browser, port, token, "&ink=on", count=True)
 
-            # A table without effects: fx.js is never asked for.
-            assert page.evaluate("t => Ink.setSkin(t)", TABLE)["drawn"] == "ink"
-            _rest(page)
-            assert _fx(asked) == [], asked
-            assert page.evaluate("() => Ink.inspect().layer.fx") is None
+        # A table without effects: fx.js is never asked for.
+        assert page.evaluate("t => Ink.setSkin(t)", TABLE)["drawn"] == "ink"
+        _rest(page)
+        assert _fx(asked) == [], asked
+        assert page.evaluate("() => Ink.inspect().layer.fx") is None
 
-            # A table with effects, set twice: fetched once, with the token.
-            for _ in range(2):
-                assert page.evaluate(SET_FX, TABLE)["drawn"] == "ink"
-            _rest(page, FX_UP)
-            _armed(page)
-            fx = page.evaluate("() => Ink.inspect().layer.fx")
-            assert fx == {"loaded": True, "rows": 0, "delivered": 0, "queued": 0, "dropped": 0, "armed": True,
-                          "reaped": 0, "zero": 0, "children": 0, "refused": None, "animating": 0,
-                          "animated": {"hit": 0, "pop": 0, "flash": 0}, "skipped": 0}, fx
-            assert page.evaluate(ATTACHED) == {"attached": 1, "fx": True, "layer": True}
-            assert len(_fx(asked)) == 1 and f"?t={token}" in _fx(asked)[0], _fx(asked)
-            assert page.evaluate("() => Object.keys(Ink.inspect().layer).includes('fx')")
+        # A table with effects, set twice: fetched once, with the token.
+        for _ in range(2):
+            assert page.evaluate(SET_FX, TABLE)["drawn"] == "ink"
+        _rest(page, FX_UP)
+        _armed(page)
+        fx = page.evaluate("() => Ink.inspect().layer.fx")
+        assert fx == {"loaded": True, "rows": 0, "delivered": 0, "queued": 0, "dropped": 0, "armed": True,
+                      "reaped": 0, "zero": 0, "children": 0, "refused": None, "animating": 0,
+                      "animated": {"hit": 0, "pop": 0, "flash": 0}, "skipped": 0}, fx
+        assert page.evaluate(ATTACHED) == {"attached": 1, "fx": True, "layer": True}
+        assert len(_fx(asked)) == 1 and f"?t={token}" in _fx(asked)[0], _fx(asked)
+        assert page.evaluate("() => Object.keys(Ink.inspect().layer).includes('fx')")
 
-            # At rest with effects attached: nothing written, nothing drawn.
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0, f"an idle desk with effects attached wrote to the page: {count}"
-            assert count["renders"] == 0, f"an idle paper with effects was redrawn {count['renders']} times"
+        # At rest with effects attached: nothing written, nothing drawn.
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk with effects attached wrote to the page: {count}"
+        assert count["renders"] == 0, f"an idle paper with effects was redrawn {count['renders']} times"
 
-            # Detached by a table without effects.
-            page.evaluate("t => Ink.setSkin(t)", TABLE)
-            _rest(page)
-            assert page.evaluate(ATTACHED) == {"attached": 0, "fx": False, "layer": True}
+        # Detached by a table without effects.
+        page.evaluate("t => Ink.setSkin(t)", TABLE)
+        _rest(page)
+        assert page.evaluate(ATTACHED) == {"attached": 0, "fx": False, "layer": True}
 
-            # Attached again (the module is already here), then detached by no table at all.
-            page.evaluate(SET_FX, TABLE)
-            _rest(page, FX_UP)
-            assert page.evaluate(ATTACHED)["attached"] == 1
-            page.evaluate("() => Ink.setSkin(null)")
-            assert page.evaluate(ATTACHED) == {"attached": 0, "fx": False, "layer": True}
-            assert len(_fx(asked)) == 1, _fx(asked)
-            assert not errors, errors
-            page.close()
+        # Attached again (the module is already here), then detached by no table at all.
+        page.evaluate(SET_FX, TABLE)
+        _rest(page, FX_UP)
+        assert page.evaluate(ATTACHED)["attached"] == 1
+        page.evaluate("() => Ink.setSkin(null)")
+        assert page.evaluate(ATTACHED) == {"attached": 0, "fx": False, "layer": True}
+        assert len(_fx(asked)) == 1, _fx(asked)
+        assert not errors, errors
+        page.close()
 
-            # Detached by the layer going: a fresh page, so the module's count is its own.
-            page, errors, asked = _open(browser, port, token, "&ink=on")
-            page.evaluate(SET_FX, TABLE)
-            _rest(page, FX_UP)
-            assert page.evaluate(ATTACHED)["attached"] == 1
-            page.evaluate("() => Ink.off()")
-            assert page.evaluate(ATTACHED) == {"attached": 0, "fx": False, "layer": False}
-            assert len(_fx(asked)) == 1, _fx(asked)
-            assert not errors, errors
-            browser.close()
+        # Detached by the layer going: a fresh page, so the module's count is its own.
+        page, errors, asked = _open(browser, port, token, "&ink=on")
+        page.evaluate(SET_FX, TABLE)
+        _rest(page, FX_UP)
+        assert page.evaluate(ATTACHED)["attached"] == 1
+        page.evaluate("() => Ink.off()")
+        assert page.evaluate(ATTACHED) == {"attached": 0, "fx": False, "layer": False}
+        assert len(_fx(asked)) == 1, _fx(asked)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -169,16 +173,13 @@ ARRIVE = """async ([repo, n]) => {
   const frame = () => new Promise(done => requestAnimationFrame(() => done()));
   const el = tiles.get(repo).el, r = el.getBoundingClientRect();
   el.classList.add('ink-cue');
-  const seen = [], obs = new MutationObserver(rs => rs.forEach(x => seen.push(x.type + ' ' +
-    (x.attributeName || '') + ' ' + (x.target.id || x.target.className || x.target.nodeName))));
-  obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(document.documentElement);
   for (let i = 0; i < 600; i++) {
     const l = Ink.inspect().layer;
     if (l.fx.delivered > n && !l.fx.queued && !l.fx.children && !window.__example.inspect().quads) break;
     await frame();
   }
-  obs.takeRecords().forEach(x => seen.push(x.type));
-  obs.disconnect();
+  const seen = w.stop().records();
   return { box: { x: r.left, y: r.top, w: r.width, h: r.height }, seen };
 }"""
 #: A pane that arrives already matching the arrive row: made by the test, outside the grid.
@@ -227,9 +228,7 @@ MOVED = """async (repo) => {
   const before = { style: el.getAttribute('style'), css: el.style.cssText, box: box() };
   window.__went = undefined;
   el.classList.add('ink-cue');
-  const seen = [], obs = new MutationObserver(rs => rs.forEach(x => seen.push(x.type + ' ' +
-    (x.attributeName || '') + ' ' + (x.target.id || x.target.className || x.target.nodeName))));
-  obs.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(document.body);
   const samples = [];
   let i = 0, anim = null, finished = -1, timing = null, frames = null;
   for (; i < 600; i++) {
@@ -247,8 +246,7 @@ MOVED = """async (repo) => {
   }
   const gone = i;
   for (let k = 0; k < 10; k++) await frame();
-  obs.takeRecords().forEach(x => seen.push(x.type));
-  obs.disconnect();
+  const seen = w.stop().records();
   return { went: window.__went, before, after: { style: el.getAttribute('style'), css: el.style.cssText, box: box() },
            samples, timing, frames, finished, gone, seen, fx: Ink.inspect().layer.fx };
 }"""
@@ -296,6 +294,28 @@ CAPS = """() => { const h = window.__example.helpers(), d = document.createEleme
            gone: [h.glyphs(d).length, h.lines(d).length] }; }"""
 
 
+#: The pointer (#376): the layer's renders, the effects' own pointer counts and what the example drew with them.
+POINTED = """() => { const l = Ink.inspect().layer;
+  return { renders: l.renders, fx: l.fx && l.fx.pointer, drew: window.__example.inspect().pointer,
+           api: window.__example.helpers() ? window.__example.helpers().pointer : undefined }; }"""
+
+
+def _hover(page, repo):
+    """One pointer move to a point low in a pane, where the moves that follow keep the same hover; the point."""
+    box = page.evaluate(BOX, repo)
+    x, y = round(box["x"] + box["w"] / 2), round(box["y"] + box["h"] - 24)
+    page.mouse.move(x, y)
+    return x, y
+
+
+def _moves(page, at, n=10):
+    """`n` pointer moves from `at`, a pixel apart to the right; the point of the last."""
+    x, y = at
+    for i in range(1, n + 1):
+        page.mouse.move(x + i, y)
+    return x + n, y
+
+
 def _same(moved):
     """The pane's style attribute and `cssText` never changed: before, on every frame and after."""
     first = [moved["before"]["style"], moved["before"]["css"]]
@@ -328,7 +348,7 @@ def _near(box, rect):
 
 
 @pytest.mark.browser
-def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_path):
+def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_path, desk_browser):
     """#372, through the real desk, with the example skin chosen as the settings page chooses one.
     Three panes, and in turn: nothing is cued on the first match (alpha's history holds a refusal);
     a pane `is-grouped` for two layer frames and then hidden cues nothing; a hide cues the leave row
@@ -341,10 +361,11 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
     refusals, #374: a cue that moves its pane, on the pane as styled and with a transform of its
     own, then where `animate` may not run and what takes it back; and #375: under `example:text`
     the letters of a pane's name, their cache, their caps and the lines of a made element, the
-    letters a cue reads, and neither helper under `example`. Then a page under reduced
-    motion, where nothing is queued and no pane moves, and one with `?ink=off`, where nothing
-    happens, nothing is fetched and nothing animates."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    letters a cue reads, and neither helper under `example`; and #376: under `example:pointer`
+    ten moves are at most ten frames and none while the pointer is still, a leave takes the
+    square away, and `example` takes the listeners with it. Then a page under reduced
+    motion, where nothing is queued, no pane moves and the pointer is never read, and one with
+    `?ink=off`, where nothing happens, nothing is fetched and nothing animates."""
     from agentdata.fleet import events as E
     from agentdata.fleet.registry import Registry
     from test_fleet_ink import _choose, _mark, _no_skin_css
@@ -357,280 +378,337 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "example"}}', encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=3, count=True)
-            said = []
-            page.on("console", lambda m: said.append(m.text) if m.type == "error" else None)
-            _no_skin_css(page)
-            page.evaluate(EXAMPLE)
-            _armed(page)
-            _still(page, 0)
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=3, count=True)
+        said = []
+        page.on("console", lambda m: said.append(m.text) if m.type == "error" else None)
+        _no_skin_css(page)
+        page.evaluate(EXAMPLE)
+        _armed(page)
+        _still(page, 0)
 
-            # The first match: three panes, and a refusal in alpha's history. Nothing is cued.
-            before = page.evaluate(CUED)
-            fx = before["fx"]
-            assert before["cues"] == [] and fx["rows"] == 3 and fx["refused"] is None, before
-            assert (fx["delivered"], fx["queued"], fx["dropped"], fx["reaped"]) == (0, 0, 0, 0), fx
+        # The first match: three panes, and a refusal in alpha's history. Nothing is cued.
+        before = page.evaluate(CUED)
+        fx = before["fx"]
+        assert before["cues"] == [] and fx["rows"] == 3 and fx["refused"] is None, before
+        assert (fx["delivered"], fx["queued"], fx["dropped"], fx["reaped"]) == (0, 0, 0, 0), fx
 
-            # Grouped for two layer frames, then hidden: the box it last had is stale, so no cue.
-            f = _frames(page)
-            for _ in range(3):
-                grouped = page.evaluate(GROUPED, "gamma")
-                if grouped["held"]:
-                    break
-            assert grouped["held"] and grouped["zero"] >= 1 and grouped["frames"] >= 2, grouped
-            _still(page, f)
-            got = page.evaluate(CUED)
-            assert got["cues"] == [] and got["fx"]["zero"] == 0, got
+        # Grouped for two layer frames, then hidden: the box it last had is stale, so no cue.
+        f = _frames(page)
+        for _ in range(3):
+            grouped = page.evaluate(GROUPED, "gamma")
+            if grouped["held"]:
+                break
+        assert grouped["held"] and grouped["zero"] >= 1 and grouped["frames"] >= 2, grouped
+        _still(page, f)
+        got = page.evaluate(CUED)
+        assert got["cues"] == [] and got["fx"]["zero"] == 0, got
 
-            # A hide: the leave row, once, with the box the pane had just before the click.
-            f = _frames(page)
-            rect = page.evaluate(HIDE, "beta")
-            _delivered(page, 0)
-            _still(page, f)
-            cued, boxes = _new(page, before)
-            assert cued == [("example-leave", "unmatched")], cued
-            assert _near(boxes[0], rect), (boxes[0], rect)
+        # A hide: the leave row, once, with the box the pane had just before the click.
+        f = _frames(page)
+        rect = page.evaluate(HIDE, "beta")
+        _delivered(page, 0)
+        _still(page, f)
+        cued, boxes = _new(page, before)
+        assert cued == [("example-leave", "unmatched")], cued
+        assert _near(boxes[0], rect), (boxes[0], rect)
 
-            # Shown again, then removed from the registry: its pane goes, cued as `removed`.
-            f = _frames(page)
-            page.evaluate("() => setHidden('beta', false)")
-            _still(page, f)
-            before = page.evaluate(CUED)
-            rect = page.evaluate(BOX, "beta")
-            f = _frames(page)
-            Registry().remove("beta")
-            page.wait_for_function("() => { if (!tiles.has('beta')) return true; refresh(); return false; }",
-                                   timeout=20000, polling=250)
-            _still(page, f)
-            cued, boxes = _new(page, before)
-            assert cued == [("example-leave", "removed")], cued
-            assert _near(boxes[0], rect), (boxes[0], rect)
+        # Shown again, then removed from the registry: its pane goes, cued as `removed`.
+        f = _frames(page)
+        page.evaluate("() => setHidden('beta', false)")
+        _still(page, f)
+        before = page.evaluate(CUED)
+        rect = page.evaluate(BOX, "beta")
+        f = _frames(page)
+        Registry().remove("beta")
+        page.wait_for_function("() => { if (!tiles.has('beta')) return true; refresh(); return false; }",
+                               timeout=20000, polling=250)
+        _still(page, f)
+        cued, boxes = _new(page, before)
+        assert cued == [("example-leave", "removed")], cued
+        assert _near(boxes[0], rect), (boxes[0], rect)
 
-            # An arrival: cued with the box it has, and nothing is written to the page while it plays.
-            before = page.evaluate(CUED)
-            played = page.evaluate(ARRIVE, ["alpha", before["fx"]["delivered"]])
-            cued, boxes = _new(page, before)
-            assert cued == [("example", "arrived")], cued
-            assert _near(boxes[0], played["box"]), (boxes[0], played["box"])
-            assert played["seen"] == [], f"the page was written while a cue played: {played['seen']}"
-            # Once per new match: gone (an arrive row plays nothing then), and back.
-            f = _frames(page)
-            _mark(page, "alpha", "ink-cue", False)
-            _still(page, f)
-            f = _frames(page)
-            _mark(page, "alpha", "ink-cue")
-            _delivered(page, before["fx"]["delivered"] + 1)
-            _still(page, f)
-            assert _new(page, before)[0] == [("example", "arrived")] * 2
-            # A pane that arrives already matching: it only just arrived, so nothing.
-            before = page.evaluate(CUED)
-            f = _frames(page)
-            page.evaluate(ZETA)
-            _still(page, f)
-            f = _frames(page)
-            page.evaluate("() => document.querySelector('.tile[data-repo=\"zeta\"]').remove()")
-            _still(page, f)
-            assert _new(page, before)[0] == [], "a pane that arrived already matching was cued"
+        # An arrival: cued with the box it has, and nothing is written to the page while it plays.
+        before = page.evaluate(CUED)
+        played = page.evaluate(ARRIVE, ["alpha", before["fx"]["delivered"]])
+        cued, boxes = _new(page, before)
+        assert cued == [("example", "arrived")], cued
+        assert _near(boxes[0], played["box"]), (boxes[0], played["box"])
+        assert played["seen"] == [], f"the page was written while a cue played: {played['seen']}"
+        # Once per new match: gone (an arrive row plays nothing then), and back.
+        f = _frames(page)
+        _mark(page, "alpha", "ink-cue", False)
+        _still(page, f)
+        f = _frames(page)
+        _mark(page, "alpha", "ink-cue")
+        _delivered(page, before["fx"]["delivered"] + 1)
+        _still(page, f)
+        assert _new(page, before)[0] == [("example", "arrived")] * 2
+        # A pane that arrives already matching: it only just arrived, so nothing.
+        before = page.evaluate(CUED)
+        f = _frames(page)
+        page.evaluate(ZETA)
+        _still(page, f)
+        f = _frames(page)
+        page.evaluate("() => document.querySelector('.tile[data-repo=\"zeta\"]').remove()")
+        _still(page, f)
+        assert _new(page, before)[0] == [], "a pane that arrived already matching was cued"
 
-            # A forced replay: alpha's history drawn again, its refusal with it. History, not news.
-            lines = page.evaluate(LINES, "alpha")
-            f = _frames(page)
-            page.evaluate("() => { tiles.get('alpha').seq = 0; connect(); }")
-            page.wait_for_function(f"() => ({LINES})('alpha') > {lines}", timeout=20000)
-            _armed(page)
-            _still(page, f)
-            assert _new(page, before)[0] == [], "a replayed refusal was cued"
+        # A forced replay: alpha's history drawn again, its refusal with it. History, not news.
+        lines = page.evaluate(LINES, "alpha")
+        f = _frames(page)
+        page.evaluate("() => { tiles.get('alpha').seq = 0; connect(); }")
+        page.wait_for_function(f"() => ({LINES})('alpha') > {lines}", timeout=20000)
+        _armed(page)
+        _still(page, f)
+        assert _new(page, before)[0] == [], "a replayed refusal was cued"
 
-            # A replay said and unsaid inside one task, with a refusal drawn between: never seen by a
-            # match, which reads the body once a frame, and still no cue.
-            f = _frames(page)
-            quiet = page.evaluate("""async () => {
+        # A replay said and unsaid inside one task, with a refusal drawn between: never seen by a
+        # match, which reads the body once a frame, and still no cue.
+        f = _frames(page)
+        quiet = page.evaluate("""async () => {
               toggle(document.body, 'is-replaying', true);
               append(tiles.get('alpha').el, { kind: 'denied', data: { message: 'x' } });
               toggle(document.body, 'is-replaying', false);
               await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
               return Ink.inspect().layer.fx.delivered; }""")
-            assert quiet == before["fx"]["delivered"], "a refusal drawn while the page said it replays was cued"
-            _still(page, f)
-            assert _new(page, before)[0] == []
+        assert quiet == before["fx"]["delivered"], "a refusal drawn while the page said it replays was cued"
+        _still(page, f)
+        assert _new(page, before)[0] == []
 
-            # A live refusal: exactly one line cue.
-            f = _frames(page)
-            refusal("alpha", "git push --force")
-            _delivered(page, before["fx"]["delivered"])
-            _still(page, f)
-            assert _new(page, before)[0] == [("example-line", "arrived")]
+        # A live refusal: exactly one line cue.
+        f = _frames(page)
+        refusal("alpha", "git push --force")
+        _delivered(page, before["fx"]["delivered"])
+        _still(page, f)
+        assert _new(page, before)[0] == [("example-line", "arrived")]
 
-            # At rest after them all: nothing written, nothing drawn, nothing delivered or left.
-            before = page.evaluate(CUED)
-            count = page.evaluate(IDLE_LOOP)
-            after = page.evaluate(CUED)
-            assert count["n"] == 0, f"an idle desk after its cues wrote to the page: {count}"
-            assert count["renders"] == 0, f"an idle desk after its cues was redrawn {count['renders']} times"
-            assert after["fx"]["delivered"] == before["fx"]["delivered"], (before["fx"], after["fx"])
-            assert (after["quads"], after["fx"]["reaped"], after["fx"]["dropped"]) == (0, 0, 0), after
-            assert len(after["cues"]) == after["fx"]["delivered"] == 5, after
+        # At rest after them all: nothing written, nothing drawn, nothing delivered or left.
+        before = page.evaluate(CUED)
+        count = observe_quiet(page, passes=8)
+        after = page.evaluate(CUED)
+        assert count["mutations"] == 0, f"an idle desk after its cues wrote to the page: {count}"
+        assert count["renders"] == 0, f"an idle desk after its cues was redrawn {count['renders']} times"
+        assert after["fx"]["delivered"] == before["fx"]["delivered"], (before["fx"], after["fx"])
+        assert (after["quads"], after["fx"]["reaped"], after["fx"]["dropped"]) == (0, 0, 0), after
+        assert len(after["cues"]) == after["fx"]["delivered"] == 5, after
 
-            # The net: a skin that leaves a piece in the effects group has it taken out 90 frames on,
-            # on a desk that is otherwise at rest.
-            _mark(page, "alpha", "ink-cue", False)
-            page.evaluate(LEAK, TABLE)
-            _armed(page)
-            _mark(page, "alpha", "ink-cue")
-            page.wait_for_function("""() => { const fx = Ink.inspect().layer.fx;
+        # The net: a skin that leaves a piece in the effects group has it taken out 90 frames on,
+        # on a desk that is otherwise at rest.
+        _mark(page, "alpha", "ink-cue", False)
+        page.evaluate(LEAK, TABLE)
+        _armed(page)
+        _mark(page, "alpha", "ink-cue")
+        page.wait_for_function("""() => { const fx = Ink.inspect().layer.fx;
               return fx.delivered === 1 && fx.reaped === 1 && fx.children === 0; }""", timeout=20000)
 
-            # The layer moves a pane for a moment (#374): a cue calls `api.fx.animate(pane, "hit")`. One animation,
-            # transform only, `fill: none`, gone within 320 ms and 4 frames of its finish; the style attribute
-            # untouched on every frame; nothing written under <body> until 10 frames after; the box given back.
-            # The kinds table, exactly as #374 gives it: transform or filter only, each inside the 320 ms ceiling.
-            assert page.evaluate(KINDS) == {"hit": {"props": ["transform"], "ms": 240},
-                                            "pop": {"props": ["transform"], "ms": 200},
-                                            "flash": {"props": ["filter"], "ms": 320}}
-            _mark(page, "alpha", "ink-cue", False)
-            page.evaluate(MOVE, TABLE)
-            _armed(page)
-            # The pane as the desk styles it (its accent and `--w` are inline), then with a transform of its own.
-            own = page.evaluate("() => tiles.get('alpha').el.getAttribute('style')")
-            for inline in (own, (own or "") + " transform: translateY(1px);"):
-                f = _frames(page)
-                _mark(page, "alpha", "ink-cue", False)
-                page.evaluate("([r, s]) => { tiles.get(r).el.setAttribute('style', s); Ink.refresh(); }", ["alpha", inline])
-                _still(page, f)
-                moved = page.evaluate(MOVED, "alpha")
-                assert moved["went"] is True, moved
-                assert max(s[2] for s in moved["samples"]) == 1, moved["samples"]
-                assert moved["timing"]["end"] <= 320 and moved["timing"]["fill"] == "none", moved["timing"]
-                assert moved["timing"]["composite"] == "add" and moved["frames"] and all(
-                    p == ["transform"] for p in moved["frames"]), moved
-                assert moved["finished"] >= 0 and moved["gone"] - moved["finished"] <= 4, moved
-                _same(moved)
-                assert moved["seen"] == [], f"the page was written while a pane moved: {moved['seen']}"
-                assert _near({k: moved["before"]["box"][k] * 2 for k in "xywh"},
-                             {k: moved["after"]["box"][k] * 2 for k in "xywh"}), moved   # within 0.5 px
-                assert moved["fx"]["animating"] == 0, moved["fx"]
-            assert moved["fx"]["animated"] == {"hit": 2, "pop": 0, "flash": 0}, moved["fx"]
-            page.evaluate("s => tiles.get('alpha').el.setAttribute('style', s)", own)
-            count = page.evaluate(IDLE_LOOP)
-            assert count["n"] == 0 and count["renders"] == 0, f"an idle desk after a pane moved: {count}"
-
-            # Where it may not run: the pane focused, a selection inside it, already moving, an unknown kind (said
-            # once); and a focus arriving mid-animation, and `Ink.setSkin(null)` mid-animation, take it back.
-            skipped = page.evaluate("() => Ink.inspect().layer.fx.skipped")
-            page.evaluate("() => tiles.get('alpha').el.querySelector('[data-tool=\"hide\"]').focus()")
-            assert page.evaluate(TRY, ["alpha", "pop"]) == {"went": False, "live": 0}
-            page.evaluate("() => { document.activeElement.blur();"
-                          " getSelection().selectAllChildren(tiles.get('alpha').el.querySelector('.head')); }")
-            assert page.evaluate(TRY, ["alpha", "pop"]) == {"went": False, "live": 0}
-            page.evaluate("() => getSelection().removeAllRanges()")
-            assert page.evaluate(TRY, ["alpha", "wobble"]) == {"went": False, "live": 0}
-            assert page.evaluate(TRY, ["alpha", "wobble"]) == {"went": False, "live": 0}
-            assert len([s for s in said if s.startswith("ink: fx.animate")]) == 1, said
-            assert page.evaluate(TRY, ["alpha", "flash"]) == {"went": True, "live": 1}
-            assert page.evaluate(TRY, ["alpha", "pop"]) == {"went": False, "live": 1}
-            page.evaluate("() => tiles.get('alpha').el.querySelector('[data-tool=\"hide\"]').focus()")
-            gone = page.evaluate("() => ({ live: tiles.get('alpha').el.getAnimations().length,"
-                                 " style: tiles.get('alpha').el.getAttribute('style'), fx: Ink.inspect().layer.fx })")
-            assert gone["live"] == 0 and gone["style"] == own and gone["fx"]["animating"] == 0, gone
-            assert gone["fx"]["skipped"] == skipped + 3, (skipped, gone["fx"])
-            page.evaluate("() => document.activeElement.blur()")
-            assert page.evaluate(TRY, ["alpha", "hit"]) == {"went": True, "live": 1}
-            page.evaluate("() => Ink.setSkin(null)")
-            gone = page.evaluate("() => ({ live: tiles.get('alpha').el.getAnimations().length,"
-                                 " style: tiles.get('alpha').el.getAttribute('style') })")
-            assert gone == {"live": 0, "style": own}, gone
-
-
-            # The lines and letters of an element (#375): the example's `text` variant asks for them with
-            # `options.fx.text`, and its `helpers()` is the `api.fx` its hooks were handed.
-            _mark(page, "alpha", "ink-cue", False)
-            _choose(page, "example:text")
-            page.wait_for_function("() => Ink.inspect().table === 'example:text' && !!window.__example.helpers()"
-                                   " && !!window.__example.helpers().glyphs", timeout=20000)
-            _armed(page)
-            assert page.evaluate(HELPERS) == ["animate", "glyphs", "lines"]
-            # Cached per element: read once, not again for the same name and box, again for new text and a new width.
-            reads = [page.evaluate(READS, ["alpha", step]) for step in ("", "", "text", "width")]
-            assert reads[0] > 0 and reads[1] == 0 and reads[2] > 0 and reads[3] > 0, reads
-            page.evaluate("() => { const el = tiles.get('alpha').el.querySelector('.repo');"
-                          " el.textContent = 'alpha'; el.style.letterSpacing = ''; }")
-            letters = page.evaluate(LETTERS, "alpha")
-            assert [g["ch"] for g in letters["got"]] == [g["ch"] for g in letters["own"]] == list("alpha"), letters
-            assert all(max(abs(g[k] - o[k]) for k in "xywh") <= 0.5
-                       for g, o in zip(letters["got"], letters["own"])), letters
-            caps = page.evaluate(CAPS)
-            assert caps == {"n": 128, "big": 256, "blank": 0, "lines": caps["lines"], "inside": True,
-                            "gone": [0, 0]} and caps["lines"] > 1, caps
-            # Its cue reads the letters of the name of the pane it arrived in.
+        # The layer moves a pane for a moment (#374): a cue calls `api.fx.animate(pane, "hit")`. One animation,
+        # transform only, `fill: none`, gone within 320 ms and 4 frames of its finish; the style attribute
+        # untouched on every frame; nothing written under <body> until 10 frames after; the box given back.
+        # The kinds table, exactly as #374 gives it: transform or filter only, each inside the 320 ms ceiling.
+        assert page.evaluate(KINDS) == {"hit": {"props": ["transform"], "ms": 240},
+                                        "pop": {"props": ["transform"], "ms": 200},
+                                        "flash": {"props": ["filter"], "ms": 320}}
+        _mark(page, "alpha", "ink-cue", False)
+        page.evaluate(MOVE, TABLE)
+        _armed(page)
+        # The pane as the desk styles it (its accent and `--w` are inline), then with a transform of its own.
+        own = page.evaluate("() => tiles.get('alpha').el.getAttribute('style')")
+        for inline in (own, (own or "") + " transform: translateY(1px);"):
             f = _frames(page)
-            before = page.evaluate(CUED)
-            _mark(page, "alpha", "ink-cue")
-            _delivered(page, before["fx"]["delivered"])
-            _still(page, f)
-            read = page.evaluate("() => window.__example.inspect().text")
-            now = page.evaluate(LETTERS, "alpha")["got"]
-            assert read and read[-1]["repo"] == "alpha" and read[-1]["glyphs"] == now, (read, now)
-            # Neither helper without `options.fx.text`.
             _mark(page, "alpha", "ink-cue", False)
-            _choose(page, "example")
-            page.wait_for_function("() => Ink.inspect().table === 'example' && !!Ink.inspect().layer.fx", timeout=20000)
-            page.wait_for_function("() => !!window.__example.helpers()", timeout=20000)
-            assert page.evaluate(HELPERS) == ["animate"]
-
-            # Refused rows, last: the whole table is refused, naming the row and why, and said in the
-            # console; the marks draw on.
-            refused = page.evaluate(REFUSE, [TABLE, [rows for rows, _, _ in BAD]])
-            for (_, where, why), got in zip(BAD, refused):
-                assert got and got["rows"] == 0 and got["refused"].startswith(where), (where, got)
-                assert why in got["refused"], (why, got)
-            assert [s for s in said if s.startswith("ink: cue")][0].startswith("ink: cue 2 (#x): "), said
-            _mark(page, "alpha", "ink-loop")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile.ink-loop .head'"
-                        " && m.state === 'drawn')")
-            assert not errors, errors
-            page.evaluate("() => setHidden('gamma', false)")      # the next desk opens with it shown
-            page.close()
-
-            # Reduced motion: a hide, an arrival and a live refusal, and nothing is queued.
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=2, reduced=True)
-            _no_skin_css(page)
-            page.evaluate(EXAMPLE)
-            _armed(page)
-            lines = page.evaluate(LINES, "alpha")
-            f = _frames(page)
-            page.evaluate(HIDE, "gamma")
-            _mark(page, "alpha", "ink-cue")
-            refusal("alpha", "curl | sh")
-            page.wait_for_function(f"() => ({LINES})('alpha') > {lines}", timeout=20000)
+            page.evaluate("([r, s]) => { tiles.get(r).el.setAttribute('style', s); Ink.refresh(); }", ["alpha", inline])
             _still(page, f)
-            got = page.evaluate(CUED)
-            fx = got["fx"]
-            assert page.evaluate("() => Ink.inspect().layer.reduced") is True
-            assert fx["rows"] == 3 and fx["armed"] is True, fx
-            assert got["cues"] == [] and (fx["queued"], fx["delivered"], fx["dropped"]) == (0, 0, 0), got
-            # ... and no pane moves (#374): `animate` answers false, and nothing animates.
-            page.evaluate(MOVE, TABLE)
-            page.wait_for_function("() => !!(window.__api && window.__api.fx)", timeout=20000)
-            assert page.evaluate(TRY, ["alpha", "hit"]) == {"went": False, "live": 0}
-            assert page.evaluate("() => Ink.inspect().layer.fx.skipped") == 1
-            assert not errors, errors
-            page.evaluate("() => setHidden('gamma', false)")
-            page.close()
+            moved = page.evaluate(MOVED, "alpha")
+            assert moved["went"] is True, moved
+            assert max(s[2] for s in moved["samples"]) == 1, moved["samples"]
+            assert moved["timing"]["end"] <= 320 and moved["timing"]["fill"] == "none", moved["timing"]
+            assert moved["timing"]["composite"] == "add" and moved["frames"] and all(
+                p == ["transform"] for p in moved["frames"]), moved
+            assert moved["finished"] >= 0 and moved["gone"] - moved["finished"] <= 4, moved
+            _same(moved)
+            assert moved["seen"] == [], f"the page was written while a pane moved: {moved['seen']}"
+            assert _near({k: moved["before"]["box"][k] * 2 for k in "xywh"},
+                         {k: moved["after"]["box"][k] * 2 for k in "xywh"}), moved   # within 0.5 px
+            assert moved["fx"]["animating"] == 0, moved["fx"]
+        assert moved["fx"]["animated"] == {"hit": 2, "pop": 0, "flash": 0}, moved["fx"]
+        page.evaluate("s => tiles.get('alpha').el.setAttribute('style', s)", own)
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0 and count["renders"] == 0, f"an idle desk after a pane moved: {count}"
 
-            # `?ink=off`: no layer, so no effects -- nothing fetched, nothing cued, no error.
-            page, errors, asked = _open(browser, port, token, "&ink=off", panes=2)
-            _no_skin_css(page)
-            page.evaluate(EXAMPLE)
-            page.evaluate(HIDE, "gamma")
-            _mark(page, "alpha", "ink-cue")
-            page.wait_for_function("() => tiles.get('gamma').el.classList.contains('is-hidden')", timeout=10000)
-            off = page.evaluate("() => ({ layer: Ink.inspect().layer, cues: window.__example.inspect().cues })")
-            assert off == {"layer": None, "cues": []}, off
-            assert page.evaluate("() => [...document.querySelectorAll('.tile')].every(t => !t.getAnimations().length)")
-            assert _fx(asked) == [], _fx(asked)
-            assert not errors, errors
-            browser.close()
+        # Where it may not run: the pane focused, a selection inside it, already moving, an unknown kind (said
+        # once); and a focus arriving mid-animation, and `Ink.setSkin(null)` mid-animation, take it back.
+        skipped = page.evaluate("() => Ink.inspect().layer.fx.skipped")
+        page.evaluate("() => tiles.get('alpha').el.querySelector('[data-tool=\"hide\"]').focus()")
+        assert page.evaluate(TRY, ["alpha", "pop"]) == {"went": False, "live": 0}
+        page.evaluate("() => { document.activeElement.blur();"
+                      " getSelection().selectAllChildren(tiles.get('alpha').el.querySelector('.head')); }")
+        assert page.evaluate(TRY, ["alpha", "pop"]) == {"went": False, "live": 0}
+        page.evaluate("() => getSelection().removeAllRanges()")
+        assert page.evaluate(TRY, ["alpha", "wobble"]) == {"went": False, "live": 0}
+        assert page.evaluate(TRY, ["alpha", "wobble"]) == {"went": False, "live": 0}
+        assert len([s for s in said if s.startswith("ink: fx.animate")]) == 1, said
+        assert page.evaluate(TRY, ["alpha", "flash"]) == {"went": True, "live": 1}
+        assert page.evaluate(TRY, ["alpha", "pop"]) == {"went": False, "live": 1}
+        page.evaluate("() => tiles.get('alpha').el.querySelector('[data-tool=\"hide\"]').focus()")
+        gone = page.evaluate("() => ({ live: tiles.get('alpha').el.getAnimations().length,"
+                             " style: tiles.get('alpha').el.getAttribute('style'), fx: Ink.inspect().layer.fx })")
+        assert gone["live"] == 0 and gone["style"] == own and gone["fx"]["animating"] == 0, gone
+        assert gone["fx"]["skipped"] == skipped + 3, (skipped, gone["fx"])
+        page.evaluate("() => document.activeElement.blur()")
+        assert page.evaluate(TRY, ["alpha", "hit"]) == {"went": True, "live": 1}
+        page.evaluate("() => Ink.setSkin(null)")
+        gone = page.evaluate("() => ({ live: tiles.get('alpha').el.getAnimations().length,"
+                             " style: tiles.get('alpha').el.getAttribute('style') })")
+        assert gone == {"live": 0, "style": own}, gone
+
+
+        # The lines and letters of an element (#375): the example's `text` variant asks for them with
+        # `options.fx.text`, and its `helpers()` is the `api.fx` its hooks were handed.
+        _mark(page, "alpha", "ink-cue", False)
+        _choose(page, "example:text")
+        page.wait_for_function("() => Ink.inspect().table === 'example:text' && !!window.__example.helpers()"
+                               " && !!window.__example.helpers().glyphs", timeout=20000)
+        _armed(page)
+        assert page.evaluate(HELPERS) == ["animate", "glyphs", "lines"]
+        # Cached per element: read once, not again for the same name and box, again for new text and a new width.
+        reads = [page.evaluate(READS, ["alpha", step]) for step in ("", "", "text", "width")]
+        assert reads[0] > 0 and reads[1] == 0 and reads[2] > 0 and reads[3] > 0, reads
+        page.evaluate("() => { const el = tiles.get('alpha').el.querySelector('.repo');"
+                      " el.textContent = 'alpha'; el.style.letterSpacing = ''; }")
+        letters = page.evaluate(LETTERS, "alpha")
+        assert [g["ch"] for g in letters["got"]] == [g["ch"] for g in letters["own"]] == list("alpha"), letters
+        assert all(max(abs(g[k] - o[k]) for k in "xywh") <= 0.5
+                   for g, o in zip(letters["got"], letters["own"])), letters
+        caps = page.evaluate(CAPS)
+        assert caps == {"n": 128, "big": 256, "blank": 0, "lines": caps["lines"], "inside": True,
+                        "gone": [0, 0]} and caps["lines"] > 1, caps
+        # Its cue reads the letters of the name of the pane it arrived in.
+        f = _frames(page)
+        before = page.evaluate(CUED)
+        _mark(page, "alpha", "ink-cue")
+        _delivered(page, before["fx"]["delivered"])
+        _still(page, f)
+        read = page.evaluate("() => window.__example.inspect().text")
+        now = page.evaluate(LETTERS, "alpha")["got"]
+        assert read and read[-1]["repo"] == "alpha" and read[-1]["glyphs"] == now, (read, now)
+        # Neither helper without `options.fx.text`.
+        _mark(page, "alpha", "ink-cue", False)
+        _choose(page, "example")
+        page.wait_for_function("() => Ink.inspect().table === 'example' && !!Ink.inspect().layer.fx", timeout=20000)
+        page.wait_for_function("() => !!window.__example.helpers()", timeout=20000)
+        assert page.evaluate(HELPERS) == ["animate"]
+
+        # The pointer (#376): `example:pointer` asks for it with `options.fx.pointer`. A move records where the
+        # pointer is and asks for one frame, which the layer coalesces; the example's `tick` draws its square there.
+        f = _frames(page)
+        _choose(page, "example:pointer")
+        page.wait_for_function("() => Ink.inspect().table === 'example:pointer' && !!window.__example.helpers()"
+                               " && 'pointer' in window.__example.helpers()", timeout=20000)
+        _armed(page)
+        assert page.evaluate(HELPERS) == ["animate", "pointer"]
+        at = _hover(page, "alpha")
+        _still(page, f)
+        before = page.evaluate(POINTED)
+        f = _frames(page)
+        x, y = _moves(page, at)
+        page.wait_for_function("n => Ink.inspect().layer.fx.pointer.moves >= n", arg=before["fx"]["moves"] + 10,
+                               timeout=20000)
+        _still(page, f)
+        after = page.evaluate(POINTED)
+        assert after["fx"]["moves"] - before["fx"]["moves"] == 10, (before, after)
+        assert 1 <= after["renders"] - before["renders"] <= 10, (before, after)
+        assert after["fx"]["at"] == {"x": x, "y": y, "repo": "alpha"} == after["drew"]["at"], after
+        assert after["api"]["repo"] == "alpha" and after["drew"]["shown"] is True, after
+        # ... and nothing while the pointer is still: the idle loop writes nothing and draws nothing.
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0 and count["renders"] == 0, f"an idle desk with the pointer still: {count}"
+        # The pointer leaves the page: no pointer, one last frame, and the square is gone.
+        page.evaluate("() => document.documentElement.dispatchEvent(new PointerEvent('pointerleave'))")
+        page.wait_for_function("() => { const d = window.__example.inspect().pointer; return d.at === null && !d.shown; }",
+                               timeout=20000)
+        assert page.evaluate(POINTED)["api"] is None
+        # A table without the pointer takes its listeners with it: moves then draw nothing.
+        _choose(page, "example")
+        page.wait_for_function("() => Ink.inspect().table === 'example' && !!Ink.inspect().layer.fx"
+                               " && !!window.__example.helpers() && !('pointer' in window.__example.helpers())",
+                               timeout=20000)
+        _armed(page)
+        page.wait_for_function("() => !Ink.inspect().layer.busy", timeout=20000)
+        observe_quiet(page, passes=2, drive=False)
+        before = page.evaluate(POINTED)
+        _moves(page, _hover(page, "alpha"))
+        observe_quiet(page, passes=2, drive=False)
+        after = page.evaluate(POINTED)
+        assert after["renders"] == before["renders"] and after["fx"] is None, (before, after)
+
+        # Refused rows, last: the whole table is refused, naming the row and why, and said in the
+        # console; the marks draw on.
+        refused = page.evaluate(REFUSE, [TABLE, [rows for rows, _, _ in BAD]])
+        for (_, where, why), got in zip(BAD, refused):
+            assert got and got["rows"] == 0 and got["refused"].startswith(where), (where, got)
+            assert why in got["refused"], (why, got)
+        assert [s for s in said if s.startswith("ink: cue")][0].startswith("ink: cue 2 (#x): "), said
+        _mark(page, "alpha", "ink-loop")
+        _rest(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile.ink-loop .head'"
+                    " && m.state === 'drawn')")
+        assert not errors, errors
+        page.evaluate("() => setHidden('gamma', false)")      # the next desk opens with it shown
+        page.close()
+
+        # Reduced motion: a hide, an arrival and a live refusal, and nothing is queued.
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=2, reduced=True)
+        _no_skin_css(page)
+        page.evaluate(EXAMPLE)
+        _armed(page)
+        lines = page.evaluate(LINES, "alpha")
+        f = _frames(page)
+        page.evaluate(HIDE, "gamma")
+        _mark(page, "alpha", "ink-cue")
+        refusal("alpha", "curl | sh")
+        page.wait_for_function(f"() => ({LINES})('alpha') > {lines}", timeout=20000)
+        _still(page, f)
+        got = page.evaluate(CUED)
+        fx = got["fx"]
+        assert page.evaluate("() => Ink.inspect().layer.reduced") is True
+        assert fx["rows"] == 3 and fx["armed"] is True, fx
+        assert got["cues"] == [] and (fx["queued"], fx["delivered"], fx["dropped"]) == (0, 0, 0), got
+        # ... and the pointer (#376) is never read: moves ask for no frame, and `api.fx.pointer` stays null.
+        _choose(page, "example:pointer")
+        page.wait_for_function("() => Ink.inspect().table === 'example:pointer' && !!window.__example.helpers()"
+                               " && 'pointer' in window.__example.helpers()", timeout=20000)
+        _armed(page)
+        page.wait_for_function("() => !Ink.inspect().layer.busy", timeout=20000)
+        observe_quiet(page, passes=2, drive=False)
+        before = page.evaluate(POINTED)
+        _moves(page, _hover(page, "alpha"))
+        observe_quiet(page, passes=2, drive=False)
+        after = page.evaluate(POINTED)
+        assert after["renders"] == before["renders"], (before, after)
+        assert after["api"] is None and after["fx"] == {"at": None, "moves": 0}, after
+        _choose(page, "example")
+        page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=20000)
+        # ... and no pane moves (#374): `animate` answers false, and nothing animates.
+        page.evaluate(MOVE, TABLE)
+        page.wait_for_function("() => !!(window.__api && window.__api.fx)", timeout=20000)
+        assert page.evaluate(TRY, ["alpha", "hit"]) == {"went": False, "live": 0}
+        assert page.evaluate("() => Ink.inspect().layer.fx.skipped") == 1
+        assert not errors, errors
+        page.evaluate("() => setHidden('gamma', false)")
+        page.close()
+
+        # `?ink=off`: no layer, so no effects -- nothing fetched, nothing cued, no error.
+        page, errors, asked = _open(browser, port, token, "&ink=off", panes=2)
+        _no_skin_css(page)
+        page.evaluate(EXAMPLE)
+        page.evaluate(HIDE, "gamma")
+        _mark(page, "alpha", "ink-cue")
+        page.wait_for_function("() => tiles.get('gamma').el.classList.contains('is-hidden')", timeout=10000)
+        off = page.evaluate("() => ({ layer: Ink.inspect().layer, cues: window.__example.inspect().cues })")
+        assert off == {"layer": None, "cues": []}, off
+        assert page.evaluate("() => [...document.querySelectorAll('.tile')].every(t => !t.getAnimations().length)")
+        assert _fx(asked) == [], _fx(asked)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)

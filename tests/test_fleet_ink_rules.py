@@ -25,7 +25,7 @@ from agentdata.fleet import events as E, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_desk_glass import _png_pixels
 from test_fleet_ink import AT_REST, _choose, _open, _repos, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until_class
@@ -217,33 +217,31 @@ def _both(page, where):
 
 @pytest.mark.browser
 @pytest.mark.parametrize("width", WIDTHS)
-def test_every_transcript_line_sits_on_a_rule(fleet_home, tmp_path, width):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_every_transcript_line_sits_on_a_rule(fleet_home, tmp_path, width, desk_browser):
     _desk(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=2, width=width, reduced=True)
-            for look in LOOKS:
-                _look(page, look)
-                _both(page, f"{look} @ {width}px")
-                # The wheel scrolls the long transcript up by 100px: it settles on a row, and the
-                # scroll builds no frame.
-                before = page.evaluate(BUILDS)
-                box = page.evaluate(MEASURE, LONG)["box"]
-                page.mouse.move(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
-                page.mouse.wheel(0, -100)
-                page.wait_for_function(f"() => document.querySelector('.tile[data-repo=\"{LONG}\"] .transcript')"
-                                       f".scrollTop < {page.evaluate(MEASURE, LONG)['max']}", timeout=5000)
-                page.evaluate(SETTLE, LONG)
-                page.wait_for_function(AT_REST, timeout=20000)
-                m = page.evaluate(MEASURE, LONG)
-                assert m["scroll"] < m["max"], (look, width, "the wheel scrolled", m["scroll"], m["max"])
-                _check(f"{look} @ {width}px scrolled", m, _rules(page, m["box"]))
-                assert page.evaluate(BUILDS) == before, (look, width, "a scroll built a frame")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=2, width=width, reduced=True)
+        for look in LOOKS:
+            _look(page, look)
+            _both(page, f"{look} @ {width}px")
+            # The wheel scrolls the long transcript up by 100px: it settles on a row, and the
+            # scroll builds no frame.
+            before = page.evaluate(BUILDS)
+            box = page.evaluate(MEASURE, LONG)["box"]
+            page.mouse.move(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+            page.mouse.wheel(0, -100)
+            page.wait_for_function(f"() => document.querySelector('.tile[data-repo=\"{LONG}\"] .transcript')"
+                                   f".scrollTop < {page.evaluate(MEASURE, LONG)['max']}", timeout=5000)
+            page.evaluate(SETTLE, LONG)
+            page.wait_for_function(AT_REST, timeout=20000)
+            m = page.evaluate(MEASURE, LONG)
+            assert m["scroll"] < m["max"], (look, width, "the wheel scrolled", m["scroll"], m["max"])
+            _check(f"{look} @ {width}px scrolled", m, _rules(page, m["box"]))
+            assert page.evaluate(BUILDS) == before, (look, width, "a scroll built a frame")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -269,68 +267,64 @@ CARD = """([repo, on]) => { const c = document.querySelector(`.tile[data-repo="$
 
 
 @pytest.mark.browser
-def test_the_question_card_redraws_the_rules_once_for_each_move(fleet_home, tmp_path):
+def test_the_question_card_redraws_the_rules_once_for_each_move(fleet_home, tmp_path, desk_browser):
     """The card shown above the transcript moves it in a pane of the same size: the frame is built
     again once, and the lines still sit on the rules. The card leaving builds it once for each box
     the transcript takes on the way (the name's highlight and the card go in separate refreshes),
     never more, and a pane whose transcript did not move is not built again."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=2, width=1400, reduced=True)
-            _look(page, "notebook:light")
-            for event, on in (
-                    (("question_opened", {"question": "which window should this land in?", "id": "q1",
-                                          "blocking": True, "choices": ["left", "right"]}), True),
-                    (("question_answered", {"id": "q1", "question": "which window should this land in?"}), False)):
-                # The watch starts from a pane at rest, so every box the layer builds for is one it sees.
-                page.evaluate(STILL, LONG)
-                page.wait_for_function(AT_REST, timeout=20000)
-                before = page.evaluate(BUILDS)
-                page.evaluate(WATCH, LONG)
-                _emit(page, LONG, event)
-                _until_class(page, LONG, "needs-human", on)
-                page.wait_for_function(CARD, arg=[LONG, on], timeout=15000, polling=250)
-                page.evaluate(SETTLE, LONG)
-                page.wait_for_function(AT_REST, timeout=20000)
-                boxes = page.evaluate(STOP)
-                built = page.evaluate(BUILDS) - before
-                where = f"question card {'shown' if on else 'hidden'}"
-                assert len(boxes) >= 2 and built == len(boxes) - 1, (where, built, boxes)
-                if on:
-                    assert built == 1, (where, built, boxes)
-                page.evaluate(TO_BOTTOM, LONG)
-                page.evaluate(SETTLE, LONG)
-                page.wait_for_function(AT_REST, timeout=20000)
-                m = page.evaluate(MEASURE, LONG)
-                _check(where, m, _rules(page, m["box"]))
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=2, width=1400, reduced=True)
+        _look(page, "notebook:light")
+        for event, on in (
+                (("question_opened", {"question": "which window should this land in?", "id": "q1",
+                                      "blocking": True, "choices": ["left", "right"]}), True),
+                (("question_answered", {"id": "q1", "question": "which window should this land in?"}), False)):
+            # The watch starts from a pane at rest, so every box the layer builds for is one it sees.
+            page.evaluate(STILL, LONG)
+            page.wait_for_function(AT_REST, timeout=20000)
+            before = page.evaluate(BUILDS)
+            page.evaluate(WATCH, LONG)
+            _emit(page, LONG, event)
+            _until_class(page, LONG, "needs-human", on)
+            page.wait_for_function(CARD, arg=[LONG, on], timeout=15000, polling=250)
+            page.evaluate(SETTLE, LONG)
+            page.wait_for_function(AT_REST, timeout=20000)
+            boxes = page.evaluate(STOP)
+            built = page.evaluate(BUILDS) - before
+            where = f"question card {'shown' if on else 'hidden'}"
+            assert len(boxes) >= 2 and built == len(boxes) - 1, (where, built, boxes)
+            if on:
+                assert built == 1, (where, built, boxes)
+            page.evaluate(TO_BOTTOM, LONG)
+            page.evaluate(SETTLE, LONG)
+            page.wait_for_function(AT_REST, timeout=20000)
+            m = page.evaluate(MEASURE, LONG)
+            _check(where, m, _rules(page, m["box"]))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
 
 @pytest.mark.browser
-def test_without_ink_the_plain_transcript_keeps_its_dividers_and_25px_rows(fleet_home, tmp_path):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_without_ink_the_plain_transcript_keeps_its_dividers_and_25px_rows(fleet_home, tmp_path, desk_browser):
     _desk(tmp_path)
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "notebook"}}', encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=off", panes=2, width=1400, reduced=True)
-            seen = {}
-            for look in LOOKS:
-                _choose(page, look)
-                page.wait_for_function(f"() => Ink.inspect().table === '{look}' && document.body.classList.contains('ink-off')",
-                                       timeout=30000)
-                seen[look] = page.evaluate(MEASURE, LONG)["rows"]
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=off", panes=2, width=1400, reduced=True)
+        seen = {}
+        for look in LOOKS:
+            _choose(page, look)
+            page.wait_for_function(f"() => Ink.inspect().table === '{look}' && document.body.classList.contains('ink-off')",
+                                   timeout=30000)
+            seen[look] = page.evaluate(MEASURE, LONG)["rows"]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     for look, rows in seen.items():

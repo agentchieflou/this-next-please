@@ -20,8 +20,8 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_waits import WATCH
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _serve, _stop
 
 
@@ -142,20 +142,15 @@ class Lanes:
                 "rows": rows, "more": False, "at": T0}
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 STREAM = "() => ({...FleetMap.stream, rec: window.__streams[window.__streams.length - 1] || null})"
-OBSERVE_LINK = """() => { window.__linkMuts = 0;
-  new MutationObserver(r => { window.__linkMuts += r.length; }).observe(
-    document.getElementById('maplink'), { subtree: true, childList: true, attributes: true,
-                                          characterData: true }); }"""
+OBSERVE_LINK = """() => { """ + WATCH + """
+  window.__link = __deskWaits.watch(document.getElementById('maplink')); }"""
 
 
 @pytest.mark.browser
@@ -193,7 +188,7 @@ def test_the_map_follows_the_fleet_from_its_cursor_and_keeps_deleted_branches_in
         E.append("luna", [_say("luna", 100)])
         page.wait_for_function(f"""() => FleetMap.stream.frames === 1
             && window.__streams[0].tick > {ticks}""", timeout=15000)
-        assert page.evaluate("() => window.__linkMuts") == 0
+        assert page.evaluate("() => window.__link.count()") == 0
 
         # The operator opens the branches; a fake agent then talks every 100 ms, for 3 s and then
         # for as long as the map has not refetched 5 times (#583). The stream sends a pass's events

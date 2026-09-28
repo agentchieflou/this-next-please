@@ -110,6 +110,11 @@ In `marks`, above `{ selector: ".tile.needs-human .head .repo", tool: "highlight
 
 needs you: the name highlighted, and the crop wilts (the material, below).
 
+In `marks`, above `{ selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "hig …`:
+
+needs you: the open question highlighted too, and each choice not yet picked looped in pencil
+(#334, docs/desk-ink.md §The state grammar across skins).
+
 In `marks`, above `{ selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },`:
 
 running: a pen line under the name while the sprout grows.
@@ -118,6 +123,10 @@ In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "loop
 
 error: the pane boxed in marker, inside its frame (#332: round the head, the loop crossed the
 chip row and the words under it); the crop wilts and the frame is scorched.
+
+In `marks`, above `{ selector: ".tile.state-error", tool: "red", shape: "bang" },`:
+
+error: a bang in the margin as well, as on every skin (#334).
 
 In `marks`, above `{ selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },`:
 

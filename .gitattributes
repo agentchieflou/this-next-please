@@ -8,6 +8,10 @@ tests/fixtures/** -text
 # rewrite them (the Windows 3.12 leg of train 13).
 mobile/** -text
 
+# The mobile contract (#598) is published with a sha256 the phone side pins (contract/PIN in Koa): a Windows checkout
+# must hand it the same bytes as everyone else.
+contract/** -text
+
 # Shell scripts are executed, not just read: a CRLF .sh dies under Git Bash with `$'\r': command
 # not found`, and cmd.exe wants CRLF for multi-line blocks. Pin both rather than leaving it to
 # whatever core.autocrlf a checkout happens to have.

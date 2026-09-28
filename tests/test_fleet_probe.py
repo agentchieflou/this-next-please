@@ -38,7 +38,8 @@ from agentdata.fleet import opener as O, probe as PR, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, observe_quiet
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -651,30 +652,30 @@ def _wait_saved(page):
 
 
 @pytest.mark.browser
-def test_a_shell_without_webgl_says_so_and_posts_once(running):
+def test_a_shell_without_webgl_says_so_and_posts_once(running, desk_browser):
     """The honest page: no context, the browser's reason kept, one post, and no three.js fetched
     for a scene that cannot be drawn."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _server, token, port = running
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page()
-        page.add_init_script("""
+    browser = desk_browser
+    page = counted(browser.new_page())
+    page.add_init_script("""
           const real = HTMLCanvasElement.prototype.getContext;
           HTMLCanvasElement.prototype.getContext = function (kind, attrs) {
             if (/webgl/.test(String(kind))) return null;
             return real.call(this, kind, attrs);
           };
         """)
-        asked = []
-        page.on("request", lambda r: asked.append((r.method, r.url.split("?")[0])))
-        errors = []
-        page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=edge")
-        _wait_saved(page)
-        page.wait_for_timeout(300)
-        shown = page.text_content("#verdict")
-        browser.close()
+    asked = []
+    page.on("request", lambda r: asked.append((r.method, r.url.split("?")[0])))
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=edge")
+    _wait_saved(page)
+    # Over the page's own work, not a clock: anything the save left in flight or armed runs out
+    # before the posts are counted.
+    observe_quiet(page, passes=2, drive=False)
+    shown = page.text_content("#verdict")
+    close_pages(browser)
     assert errors == []
     assert [a for a in asked if a[0] == "POST"] == [("POST", f"http://127.0.0.1:{port}/api/probe")]
     assert not [a for a in asked if "vendor/three" in a[1]]
@@ -684,41 +685,41 @@ def test_a_shell_without_webgl_says_so_and_posts_once(running):
 
 
 @pytest.mark.browser
-def test_an_ide_window_goes_to_the_probe_by_itself_and_comes_back(running, tmp_path, monkeypatch):
+def test_an_ide_window_goes_to_the_probe_by_itself_and_comes_back(running, tmp_path, monkeypatch, desk_browser):
     """The whole slice, end to end, as the operator will run it: a desk open as the `pycharm`
     window, `ad-fleet probe --open pycharm` in a terminal, and nothing else. The window goes to the
     probe, draws, posts once, returns to the desk -- and the terminal prints the shell's answer.
     The desk page itself never asks for three.js: nothing has measured this shell as hardware, and
     no skin draws with ink (#248)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     monkeypatch.setattr(O, "clipboard", lambda text: False)
     Registry().add(make_project(tmp_path / "alpha"), name="alpha")
     _server, token, port = running
     printed = {}
 
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
-        asked = []
-        page.on("request", lambda r: asked.append((r.method, r.url.split("?")[0])))
-        page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm&layout=grid")
-        page.wait_for_selector(".tile", timeout=15000)
-        assert not [a for a in asked if "three" in a[1]], "the desk loaded three.js"
+    browser = desk_browser
+    page = counted(browser.new_page(viewport={"width": 1280, "height": 720}))
+    asked = []
+    page.on("request", lambda r: asked.append((r.method, r.url.split("?")[0])))
+    page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm&layout=grid")
+    page.wait_for_selector(".tile", timeout=15000)
+    assert not [a for a in asked if "three" in a[1]], "the desk loaded three.js"
 
-        terminal = threading.Thread(
-            target=lambda: printed.update(zip(("rc", "out"), cli("probe", "--open", "pycharm",
-                                                                 "--wait", "40"))),
-            daemon=True)
-        terminal.start()
-        page.wait_for_url("**/probe?**", timeout=15000)
-        assert "w=pycharm" in page.url and "back=1" in page.url
-        _wait_saved(page)
-        page.wait_for_url(lambda u: "/probe" not in u, timeout=20000)
-        page.wait_for_selector(".tile", timeout=15000)
-        page.wait_for_timeout(1200)
-        assert "/probe" not in page.url, "the desk went round again"
-        terminal.join(timeout=45)
-        browser.close()
+    terminal = threading.Thread(
+        target=lambda: printed.update(zip(("rc", "out"), cli("probe", "--open", "pycharm",
+                                                             "--wait", "40"))),
+        daemon=True)
+    terminal.start()
+    page.wait_for_url("**/probe?**", timeout=15000)
+    assert "w=pycharm" in page.url and "back=1" in page.url
+    _wait_saved(page)
+    page.wait_for_url(lambda u: "/probe" not in u, timeout=20000)
+    page.wait_for_selector(".tile", timeout=15000)
+    # The desk's own boot runs out -- the fleet, then the desk record a second ask would be read
+    # from -- and it is still here.
+    observe_quiet(page, passes=2, drive=False)
+    assert "/probe" not in page.url, "the desk went round again"
+    terminal.join(timeout=45)
+    close_pages(browser)
 
     assert [a for a in asked if a == ("POST", f"http://127.0.0.1:{port}/api/probe")] == \
         [("POST", f"http://127.0.0.1:{port}/api/probe")]
@@ -750,19 +751,17 @@ HIDDEN_UNTIL_SHOWN = """
 
 
 @pytest.mark.browser
-def test_a_browser_that_will_not_unmask_its_renderer_is_not_called_hardware(running):
+def test_a_browser_that_will_not_unmask_its_renderer_is_not_called_hardware(running, desk_browser):
     """#261: without `WEBGL_debug_renderer_info` the masked `RENDERER` is "WebKit WebGL" -- never
     empty, so it read as a GPU. The page now sends nothing it cannot vouch for."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _server, token, port = running
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page()
-        page.add_init_script(MASK_THE_RENDERER)
-        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=browser")
-        _wait_saved(page)
-        shown = page.text_content("#renderer")
-        browser.close()
+    browser = desk_browser
+    page = browser.new_page()
+    page.add_init_script(MASK_THE_RENDERER)
+    page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=browser")
+    _wait_saved(page)
+    shown = page.text_content("#renderer")
+    close_pages(browser)
     rec = PR.load()["browser"]
     assert rec["renderer"] == "" and rec["vendor"] == "", rec
     assert PR.classify(rec) in ("unknown", "software") and not PR.works(rec), rec
@@ -770,80 +769,90 @@ def test_a_browser_that_will_not_unmask_its_renderer_is_not_called_hardware(runn
 
 
 @pytest.mark.browser
-def test_a_hidden_window_waits_to_be_shown_and_then_measures(running):
+def test_a_hidden_window_waits_to_be_shown_and_then_measures(running, desk_browser):
     """#261: a VS Code view kept alive while hidden still gets the ask and comes to the probe. It
     posts nothing while hidden -- a hidden page has no frames to measure -- and measures when it
     is looked at."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _server, token, port = running
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page()
-        page.add_init_script(HIDDEN_UNTIL_SHOWN)
-        posts = []
-        page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
-        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=vscode")
-        page.wait_for_function(
-            "() => /waiting for this window/.test(document.getElementById('state').textContent)",
-            timeout=15000)
-        page.wait_for_timeout(1500)
-        assert posts == [], "a hidden window posted"
-        page.evaluate("() => __show(true)")
-        _wait_saved(page)
-        browser.close()
+    browser = desk_browser
+    page = counted(browser.new_page())
+    page.add_init_script(HIDDEN_UNTIL_SHOWN)
+    posts = []
+    page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
+    page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=vscode")
+    page.wait_for_function(
+        "() => /waiting for this window/.test(document.getElementById('state').textContent)",
+        timeout=15000)
+    # Everything the hidden page has in flight or armed runs out, and it has posted nothing.
+    observe_quiet(page, passes=2, drive=False)
+    assert posts == [], "a hidden window posted"
+    page.evaluate("() => __show(true)")
+    _wait_saved(page)
+    close_pages(browser)
     rec = PR.load()["vscode"]
     assert rec["hidden"] is False and rec["drawn"] is True and rec["frames"] >= PR.MIN_FRAMES, rec
     assert PR.classify(rec) != "incomplete"
 
 
+#: The probe's draw calls, counted as WebGL makes them: the page's own "drawing" text is in probe.html
+#: from the start, so the first frame drawn is what says the probe is drawing (#305).
+COUNT_DRAWS = """
+  window.__draws = 0;
+  for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
+    for (const name of ['drawArrays', 'drawElements']) {
+      const real = C.prototype[name];
+      C.prototype[name] = function () { window.__draws += 1; return real.apply(this, arguments); };
+    }
+  }
+"""
+
+
 @pytest.mark.browser
-def test_a_window_hidden_while_it_draws_does_not_overwrite_the_measurement(running):
+def test_a_window_hidden_while_it_draws_does_not_overwrite_the_measurement(running, desk_browser):
     """#261: hidden mid-draw, it posts what it had, marked hidden -- and last week's record stands."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _server, token, port = running
     PR.record(facts(shell="vscode"))
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page()
-        page.add_init_script(HIDDEN_UNTIL_SHOWN.replace("window.__hidden = true;",
-                                                        "window.__hidden = false;"))
-        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=vscode")
-        page.wait_for_function(
-            "() => /drawing/.test(document.getElementById('state').textContent)", timeout=15000)
-        page.wait_for_timeout(500)
-        page.evaluate("() => __show(false)")
-        _wait_saved(page)
-        state = page.text_content("#state")
-        browser.close()
+    browser = desk_browser
+    page = browser.new_page()
+    page.add_init_script(HIDDEN_UNTIL_SHOWN.replace("window.__hidden = true;",
+                                                    "window.__hidden = false;"))
+    page.add_init_script(COUNT_DRAWS)
+    page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=vscode")
+    page.wait_for_function(
+        "() => /drawing/.test(document.getElementById('state').textContent)", timeout=15000)
+    # Mid-draw: once three.js has drawn the probe's first frame, and not before.
+    page.wait_for_function("() => window.__draws > 0", timeout=15000)
+    page.evaluate("() => __show(false)")
+    _wait_saved(page)
+    state = page.text_content("#state")
+    close_pages(browser)
     assert "latest attempt only" in state and "stands (works)" in state, state
     assert PR.classify(PR.load()["vscode"]) == "hardware"
     assert PR.attempts()["vscode"]["hidden"] is True
 
 
 @pytest.mark.browser
-def test_a_refused_save_still_takes_the_ide_window_back(running):
+def test_a_refused_save_still_takes_the_ide_window_back(running, desk_browser):
     """#261: a desk replaced mid-probe (new token, 403) left a tool window on "not saved" with no
     link and no address bar. The way back is shown before the post and taken whatever it says."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _server, token, port = running
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page()
-        page.route("**/api/probe**", lambda route: route.fulfill(
-            status=403, content_type="application/json",
-            body=json.dumps({"ok": False, "error": "not authorized", "hint": "a new desk"})))
-        page.goto(f"http://127.0.0.1:{port}/probe?t={token}&w=pycharm&back=1")
-        page.wait_for_function(
-            "() => document.getElementById('verdict').textContent === 'not saved'", timeout=30000)
-        assert "not authorized" in page.text_content("#state")
-        page.wait_for_function(
-            "() => { const b = document.getElementById('back');"
-            "        return !b.hidden && /back to the desk \\(in \\d+ s\\)/.test(b.textContent); }",
-            timeout=5000)
-        href = page.get_attribute("#back", "href")
-        page.wait_for_url(lambda u: "/probe" not in u and "/?t=" in u, timeout=15000)
-        landed = page.url
-        browser.close()
+    browser = desk_browser
+    page = browser.new_page()
+    page.route("**/api/probe**", lambda route: route.fulfill(
+        status=403, content_type="application/json",
+        body=json.dumps({"ok": False, "error": "not authorized", "hint": "a new desk"})))
+    page.goto(f"http://127.0.0.1:{port}/probe?t={token}&w=pycharm&back=1")
+    page.wait_for_function(
+        "() => document.getElementById('verdict').textContent === 'not saved'", timeout=30000)
+    assert "not authorized" in page.text_content("#state")
+    page.wait_for_function(
+        "() => { const b = document.getElementById('back');"
+        "        return !b.hidden && /back to the desk \\(in \\d+ s\\)/.test(b.textContent); }",
+        timeout=5000)
+    href = page.get_attribute("#back", "href")
+    page.wait_for_url(lambda u: "/probe" not in u and "/?t=" in u, timeout=15000)
+    landed = page.url
+    close_pages(browser)
     assert "w=pycharm" in landed, landed
     # Tokenless, through `/open`: the desk that answers it may be a new one with a new token.
     assert "/open?" in href and "w=pycharm" in href, href
@@ -852,28 +861,32 @@ def test_a_refused_save_still_takes_the_ide_window_back(running):
 
 
 @pytest.mark.browser
-def test_a_desk_with_a_half_typed_reply_waits_before_it_goes(running, tmp_path, monkeypatch):
+def test_a_desk_with_a_half_typed_reply_waits_before_it_goes(running, tmp_path, monkeypatch, desk_browser):
     """#261: `goProbe` navigated the moment the ask arrived, and half a reply in a tile went with
     the page. It says what it is waiting for and goes once the box is empty -- and the ask stays
     the server's until then, so nothing else takes it meanwhile."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     Registry().add(make_project(tmp_path / "alpha"), name="alpha")
     _server, token, port = running
-    with sync_playwright() as p:
-        browser = launch_chromium(p)
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
-        page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm&layout=grid")
-        box = page.locator('.tile[data-repo="alpha"] .say')
-        box.wait_for(timeout=15000)
-        box.fill("half a reply")
-        S.measure("pycharm")
-        page.wait_for_function(
-            "() => /asked this window to go to the probe/.test(document.body.textContent)",
-            timeout=10000)
-        page.wait_for_timeout(1500)
-        assert "/probe" not in page.url, "the desk left with a reply half typed"
-        assert S._measure_asks.get("pycharm"), "the ask was taken while the desk stayed"
-        box.fill("")
-        page.wait_for_url("**/probe?**", timeout=10000)
-        browser.close()
+    browser = desk_browser
+    page = browser.new_page(viewport={"width": 1280, "height": 720})
+    page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm&layout=grid")
+    box = page.locator('.tile[data-repo="alpha"] .say')
+    box.wait_for(timeout=15000)
+    box.fill("half a reply")
+    # Each look the desk takes at the box before it goes (`goProbe`, then its once-a-second
+    # check), counted: `unsentText` is a global the page calls through its binding.
+    page.evaluate("""() => { const real = window.unsentText; window.__looks = 0;
+                           window.unsentText = function () { window.__looks += 1;
+                                                             return real.apply(this, arguments); }; }""")
+    S.measure("pycharm")
+    page.wait_for_function(
+        "() => /asked this window to go to the probe/.test(document.body.textContent)",
+        timeout=10000)
+    # The ask, and then two of the page's own checks after it, found the reply there and stayed.
+    page.wait_for_function("() => window.__looks >= 3", timeout=DESK_WAIT_MS)
+    assert "/probe" not in page.url, "the desk left with a reply half typed"
+    assert S._measure_asks.get("pycharm"), "the ask was taken while the desk stayed"
+    box.fill("")
+    page.wait_for_url("**/probe?**", timeout=10000)
+    close_pages(browser)
     assert "pycharm" not in S.desk_state()["measure"]

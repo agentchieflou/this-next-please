@@ -16,6 +16,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_events import fleet_home                        # noqa: F401 - a fixture, used by name
+from mobile_contract import contract_checked                     # noqa: F401 - autouse: every record written validates
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTRACT = os.path.join(ROOT, "docs", "fleet-notifications.md")

@@ -109,9 +109,15 @@ In `marks`, above `{ selector: ".tile .ask-choice[aria-pressed=\"true\"]", tool:
 
 answered: the choice picked, circled in pen (struck if another is picked)
 
-In `marks`, above `{ selector: ".tile.state-running .chip", tool: "pen", shape: "underline" },`:
+In `marks`, above `{ selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },`:
 
-running: the chip underlined in pen
+running: the name underlined in pen, as on every skin (#334, docs/desk-ink.md §The state grammar
+across skins; it was the chip)
+
+In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+
+error: a marker loop round the pane, inside it (pad -7, #332), and a bang in the margin (#334).
+#335 narrows the loop to the pane's `.why`.
 
 In `marks`, above `{ selector: ".tile.state-error", tool: "marker", shape: "bang" },`:
 
