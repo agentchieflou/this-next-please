@@ -1111,7 +1111,7 @@ GRAMMAR_CHECK = """async ([skins, grammar]) => {
       out.checked.push(name + ':' + variant);
       for (const [entry, g] of Object.entries(grammar)) {
         const els = [].concat(g.el).flatMap(find);
-        const ok = rows.some(r => g.tools.includes(r.tool) && g.shapes.includes(r.shape)
+        const ok = rows.some(r => g.tools.includes(r.ink || r.tool) && g.shapes.includes(r.shape)
                                   && els.some(e => e.matches(r.selector)));
         if (!ok) out.missing.push(name + ':' + variant + ' ' + entry);
       }

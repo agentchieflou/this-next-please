@@ -218,6 +218,24 @@ SKINS = {
                      "why": "charcoal stock and gel inks, the highlighter screened"},
         },
     },
+    # #389 (epic #294): a coach's chalkboard, drawn by the ink layer (`static/ink/skins/playbook.js`)
+    # on `nfl-browns`. The board is a pair like napkin's: `--paper` at the dark end, `--board-max` the
+    # lightest any pixel of it may be (#390), which the text's contrast is held at. `inks` are the ones
+    # its skin.css sets. Neither the skin nor a variant names a team or a league (#318's names
+    # decision, `tests/test_fleet_ink_playbook.py`'s trademark guard); the palette keeps its own.
+    "playbook": {
+        "name": "playbook",
+        "title": "Playbook",
+        "why": "a coach's chalkboard: X's and O's, each agent's route in orange chalk",
+        "default": "chalkboard",
+        "variants": {
+            "chalkboard": {"title": "Chalkboard", "base": "nfl-browns",
+                           "composited_panel": {"darkest": "#2B1B08", "lightest": "#40301D"},
+                           "inks": {"pencil": "#D9CBB3", "pen": "#FF3C00", "red": "#FF5A8A",
+                                    "green": "#56D364", "marker": "#FF5A8A", "highlighter": "#BF9637"},
+                           "why": "brown slate, cream and orange chalk"},
+        },
+    },
 }
 
 
@@ -226,7 +244,6 @@ SKINS = {
 # /settings can say of every palette which looks are drawn on it -- or that it is the plain page
 # only, and still one to choose. It empties as the skins land: #389 removes `nfl-browns`, #396 `greens`.
 PALETTE_ONLY: dict[str, str] = {
-    "nfl-browns": "the playbook is planned",
     "greens": "the circuit board is planned",
 }
 

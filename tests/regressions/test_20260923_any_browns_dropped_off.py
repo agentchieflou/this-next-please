@@ -29,3 +29,14 @@ def test_browns_is_a_palette_the_page_offers_by_its_title_and_can_reach():
     drawn = {spec["base"] for _, _, spec in skins.every_variant()}
     assert "nfl-browns" in drawn or getattr(skins, "PALETTE_ONLY", {}).get("nfl-browns"), (
         "nfl-browns is drawn by no variant and not listed in skins.PALETTE_ONLY with a reason")
+
+
+def test_browns_has_a_look_drawn_on_it_the_playbook():
+    """#389 gave the palette its look: a variant of the playbook is drawn on it, and the palette is
+    no longer listed as palette-only."""
+    on_browns = [f"{k['name']}:{v['name']}" for k in skins.list_skins() for v in k["variants"]
+                 if v["base"] == "nfl-browns"]
+    assert "playbook:chalkboard" in on_browns, on_browns
+    name, variant = skins.split("playbook")
+    assert skins.SKINS[name]["variants"][variant]["base"] == "nfl-browns"
+    assert "nfl-browns" not in skins.PALETTE_ONLY
