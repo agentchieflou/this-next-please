@@ -4,6 +4,35 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.17.7
+
+**On update:**
+- **The two standard commands.** There is no new dependency, no `ad-setup --patch`, no config to migrate and no
+  changed skill, so a Copilot chat needs no restart for this one. The IDE extensions are unchanged. The next
+  `ad-fleet open` replaces a desk still running the old code.
+
+Developing this repo: nothing new to install.
+
+**Skins and ink.** Three new skins, each drawn by the ink layer and plain CSS where WebGL is not measured as
+hardware; with them `nfl-browns` and `greens` each get a look, and `PALETTE_ONLY` is empty.
+- **Playbook** (#389): a coach's chalkboard on `nfl-browns` (`playbook:chalkboard`). Every agent is an O, its
+  turn a route in orange chalk, and the state grammar is written in X's and O's. It names no team or league
+  (#318). The highlighter is `#BF9637`, a shade under the issue's `#E3B341`, so the text keeps 4.5:1 through it
+  (`docs/skin-playbook.md`).
+- **Phosphor** (#394): a green phosphor screen on `matrix` (`phosphor:green`). Near-black glass with faint 3px
+  scanlines, and the notebook's marks traced by a thin, even beam. The highlighter is `#CCA13B`, for the same
+  reason (`docs/skin-phosphor.md`).
+- **Circuit board** (#396): solder mask, silkscreen and copper, `circuit:solder` on `greens` and
+  `circuit:matte` on `vanta-black`. Each pane is a component with a copper pad and trace, its number ringed as
+  pin 1, and a blocked pane is crossed. The copper is decoration only, never under a word. The highlighter is
+  `#B7851E`, not `#D29922` (`docs/skin-circuit.md`).
+
+**For developers of this repo.**
+- **The browser tier's time budget** holds all three: 6 new browser tests (#389 3, #394 1, #396 2), costed at
+  the tier's mean against Windows' 1,447 s. `test_fleet_ink_bounds.py`'s ink-on self-test is pinned to
+  `notebook:dark` rather than whichever look `every_variant()` lists last (#396).
+- **The agent relay:** merge train 25.
+
 ## 0.17.6
 
 **On update:**
