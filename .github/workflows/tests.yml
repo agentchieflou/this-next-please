@@ -52,11 +52,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - name: connect with and without an explicit bind to port 0 first
+      - name: connects from another process than the listener's
         shell: pwsh
         env:
-          CHURN_ITER: "8000"
-        run: python .github/scripts/probe603_churn.py
+          CHURN_ITER: "20000"
+        run: python .github/scripts/probe603_xproc.py
   pages:
     name: pages · ${{ matrix.variant }} · ${{ matrix.n }}
     runs-on: windows-latest
@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [shared, noiocp]
+        variant: [shared, inproc, nonetsandbox]
         n: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
