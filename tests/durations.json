@@ -651,6 +651,12 @@
   "tests/test_hygiene_ci_cache.py": {
    "default": 0.4
   },
+  "tests/test_hygiene_ci_ok.py": {
+   "default": 0.5
+  },
+  "tests/test_hygiene_ci_paths.py": {
+   "default": 4.5
+  },
   "tests/test_hygiene_flake_policy.py": {
    "default": 0.0
   },
