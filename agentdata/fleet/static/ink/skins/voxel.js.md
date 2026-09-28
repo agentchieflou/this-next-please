@@ -510,3 +510,33 @@ Above `function flash(dt) {`:
 
 The flashed cells' colours: x1.25 for 2 frames, then x0.6 until their ring heals, then their own
 shade again. True while a flash lives.
+
+## hits and rewards (#378)
+
+A refused or failed line grazes the strip, an agent that errors takes a hit, and a finished agent's
+orbs climb the strip into the stack. `docs/skin-voxel.md` §Effects is the table. The blink is the
+slabs' own colours, rewritten by `build()` on each flash edge; the knock moves the stack's blocks;
+the pieces are the pool's, so it is still three draw calls.
+
+### `const RAIL`
+
+Beside `const RAIL = 90;`, `BLINK`, `KNOCK`, `KNOCK_FOR`, `GRAZE_EVERY`, `GRAZE_NEAR`, `GRAZE_FALL`,
+`GRAZE_LIFE`, `ORBS`, `ORB`, `ORB_GAP`, `ORB_CLIMB`, `HEART_AT`, `HEART_END`, `HEART_RISE`, `HEART`:
+
+a rail gets nothing; a flash is 90 ms and a hurt is two of them (WCAG 2.3.1); one graze per pane per
+5 s; the hearts start as the last orb arrives and pop by 0.75 s, inside the 0.8 s ceiling
+
+### `function hits`
+
+Above `function hits(dt) {`:
+
+Every pane's blink and knock moved on by `dt`. The slabs are rebuilt only when a blink turns on or
+off. True while either lives.
+
+### `function hit`
+
+Above `function hit(ctx, name, el, box) {`:
+
+A hurt, graze or reward for the pane the element is in. A graze's pane box is read here, once; its
+place on the strip is the line's centre, clamped to the pane (a line scrolled out of the transcript
+still grazes inside it). The shake is `api.fx.animate`'s to decline: its answer only counts.
