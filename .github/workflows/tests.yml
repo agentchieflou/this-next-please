@@ -40,14 +40,15 @@ env:
 
 jobs:
   churn:
-    name: churn · ${{ matrix.listen }} · ${{ matrix.n }}
+    name: churn · ${{ matrix.listen }} · r${{ matrix.randomize }} · ${{ matrix.n }}
     runs-on: windows-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2, 3]
+        n: [1, 2]
         listen: [dynamic, static]
+        randomize: ["0", "1"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,6 +59,7 @@ jobs:
         env:
           CHURN_ITER: "20000"
           LISTEN: ${{ matrix.listen }}
+          RANDOMIZE: ${{ matrix.randomize }}
         run: python .github/scripts/probe603_xproc.py
   pages:
     name: pages · ${{ matrix.variant }} · ${{ matrix.n }}
@@ -66,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [shared, static]
+        variant: [shared, norandom]
         n: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4

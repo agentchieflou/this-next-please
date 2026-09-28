@@ -54,6 +54,8 @@ for _ in range(ITER):
     for _ in range(BURST):
         s = socket.socket()
         s.setblocking(False)
+        if os.environ.get("RANDOMIZE") == "1":
+            s.setsockopt(socket.SOL_SOCKET, 0x3005, 1)          # SO_RANDOMIZE_PORT, as Chromium 139+ sets it
         rc = s.connect_ex(("127.0.0.1", port))
         if rc in (0, 10035, 115, 36):
             socks.append(s)
@@ -73,4 +75,4 @@ for _ in range(ITER):
         s.close()
 h.stdin.close()
 h.wait(10)
-print(f"xproc[{os.environ.get('LISTEN', 'dynamic')}]: {ITER} listeners x {BURST} connects from another process in {time.time() - t0:.0f}s: {dict(out)}")
+print(f"xproc[{os.environ.get('LISTEN', 'dynamic')},randomize={os.environ.get('RANDOMIZE', '0')}]: {ITER} listeners x {BURST} connects from another process in {time.time() - t0:.0f}s: {dict(out)}")
