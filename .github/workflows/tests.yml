@@ -39,51 +39,35 @@ env:
   HYPOTHESIS_PROFILE: ci
 
 jobs:
-  churn:
-    name: churn · ${{ matrix.listen }} · r${{ matrix.randomize }} · ${{ matrix.n }}
+  config:
+    name: config race on the fix branch · ${{ matrix.n }}
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         n: [1, 2]
-        listen: [dynamic, static]
-        randomize: ["0", "1"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
-      - name: connects from another process than the listener's
-        shell: pwsh
-        env:
-          CHURN_ITER: "20000"
-          LISTEN: ${{ matrix.listen }}
-          RANDOMIZE: ${{ matrix.randomize }}
-        run: python .github/scripts/probe603_xproc.py
-  pages:
-    name: pages · ${{ matrix.variant }} · ${{ matrix.n }}
-    runs-on: windows-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [shared, norandom]
-        n: [1, 2, 3]
-    steps:
+          ref: claude/603-windows-connect-and-config-race
       - uses: actions/checkout@v4
+        with:
+          path: probe
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: pip install playwright
+      - run: pip install -e ".[dev]"
         shell: pwsh
-      - run: python -m playwright install chromium
+      - name: the race, 500 saves against a reading thread, five times
         shell: pwsh
-      - name: the harness's pattern, without the suite
+        run: 1..5 | ForEach-Object { python probe/.github/scripts/probe603_replace.py }
+      - name: the config tests, thirty times
         shell: pwsh
-        env:
-          VARIANT: ${{ matrix.variant }}
-          SECONDS_BUDGET: "720"
-        run: python .github/scripts/probe603_pages.py
+        run: |
+          $bad = 0
+          1..30 | ForEach-Object { python -m pytest -q -p no:cacheprovider tests/test_config.py | Select-Object -Last 1; if ($LASTEXITCODE -ne 0) { $bad++ } }
+          "runs failed: $bad"
+          if ($bad) { exit 1 }
