@@ -66,6 +66,30 @@ own tests.
   highlighter the layer actually screens onto a dark board; `#E3B341` there gives 4.06:1 at the light end.
   `#BF9637`, the same hue darkened, gives 4.70:1.
 
+## The board
+
+The `paper` hook (#390) draws the whole page as one full-viewport mesh at `api.order.paper`, a static shader built only
+when the skin arrives, on a resize and on a palette change. Its colours are the stylesheet's `--paper`, `--yard` and
+`--board-max`, read through `tokens`; the module writes no colour.
+
+- **Slate.** `--paper` lifted 3%, with a fine grain (plus or minus 2.5% luminance) and a low-frequency chalk haze
+  (plus or minus 2%).
+- **Eraser ghosts.** Three to five large soft smudges toward `--board-max`: old plays, half-erased. They are seeded
+  from the viewport's size, so every redraw at one size is the same board.
+- **Yard lines.** 1.5px in `--yard` (`#3F2D19`, 1.27:1 on the board) every 140px, five of the page's 28px baselines,
+  from the first baseline under the header.
+- **Hash marks.** 10px ticks every 28px at one third and two thirds of the viewport's width.
+- **The ceiling.** Every pixel is clamped per channel to [`--paper`, `--board-max`]. The text's contrast is declared at
+  `#40301D` (text 10.44:1, `--muted` 4.54:1), so anything the board painted lighter would break those pairs silently;
+  `tests/test_fleet_ink_playbook.py` reads every pixel of the board back at 1400x900 (all but the marks and the page's
+  traces) and holds it to the range, plus or minus 1.
+- **No words.** No yard numbers, logos or words on the board (desk-rendering rule 4), and nothing moves: no dust, no
+  drift. No chalk tray is drawn (the issue's step 4 is optional).
+
+`options.paper` stays `--paper`: it tells the layer the board is dark, so the highlighter screens. The module's
+`inspect()` gives `{builds, ghosts, top}`: how many times `paper` has run, the ghosts' centres and radii, and the first
+baseline under the header.
+
 ## Names
 
 The skin's own strings and art name neither team nor league (#318's names decision): no logos, helmets, wordmarks,

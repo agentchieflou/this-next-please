@@ -44,3 +44,23 @@ order a hand works down a pane:
 `paper: "--paper"` tells the layer the board is dark, so the highlighter screens. `hand: "chalk"`
 puts a stick of chalk in every hand (#387). The pencil's tuning is the chalk the research probe
 drew on this ground: a wider, grainier, less even stroke with short tapers.
+
+### `const PAPER_FS`
+
+The board (#390, docs/skin-playbook.md §The board): the slate's grain and haze, three to five eraser
+ghosts drawn toward `--board-max`, a yard line every five baselines from the first under the header,
+and hash marks at one and two thirds of the width. The last line clamps every channel to
+[`--paper`, `--board-max`]: the text's contrast is declared at the board's lightest end, so nothing
+may be painted lighter.
+
+### `export function paper`
+
+Built when the skin arrives, on a resize and on a palette change (layer.js `prepare`), never per
+frame: the board is static. The ghosts are seeded from the viewport's size, so a rebuild at the same
+size draws the same board. Colours come from the stylesheet through `rgbOf`, as the notebook reads
+its paper.
+
+### `export function inspect`
+
+`builds` counts the `paper` calls; `ghosts` and `top` say where the board put its smudges and its
+first yard line, for the readback test.
