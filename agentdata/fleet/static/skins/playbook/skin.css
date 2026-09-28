@@ -16,6 +16,7 @@ body[data-skin="playbook"] {
 
 body[data-skin="playbook"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
 body[data-skin="playbook"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
+body[data-skin="playbook"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
 body[data-skin="playbook"]:not(.ink-off) main { background: transparent; }
 body[data-skin="playbook"]:not(.ink-off) :is(header, footer, main) { border-color: var(--yard); }
 body[data-skin="playbook"]:not(.ink-off) .tile :is(.head, .asks, .approval, .transcript, .history, .cells,

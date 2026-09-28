@@ -20,6 +20,13 @@ here: the skin never recolours the palette (docs/themes.md).
 lighter (#390). `--yard` is the faint yard line, 1.27:1 on the board. The hand is a local cursive
 stack, no web font.
 
+### `body[data-skin="playbook"]:not(.ink-off) .tile[data-tier="compact"] .head`
+
+The O round the pane's number: a compact pane's head wraps the name onto a line of its own, and the
+ring (3px out from the number's box, in the 2.8px chalk) needs more than app.css's 2px between the
+head's rows, or it lands on the chip and the stale-session note (`test_fleet_ink_bounds.py` at
+700px), as the legal pad's, the voxel's and the circuit board's compact heads do.
+
 ### `body[data-skin="playbook"]:not(.ink-off) .head .n`
 
 The O the ink draws round the pane's number replaces the number's box.
