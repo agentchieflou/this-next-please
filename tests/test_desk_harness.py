@@ -97,6 +97,34 @@ def test_a_browser_a_test_closed_is_launched_again_for_the_next():
     assert second is not first and second.is_connected() and len(launched) == 2
 
 
+class FakeChromium:
+    """`p.chromium` for `launch_chromium`: records every launch's keyword arguments."""
+
+    def __init__(self):
+        self.launches: list[dict] = []
+
+    def launch(self, **kwargs):
+        self.launches.append(kwargs)
+        return FakeBrowser()
+
+
+def test_every_chromium_is_launched_without_windows_tcp_port_randomization():
+    """#603: Chromium 139+ sets SO_RANDOMIZE_PORT on every outbound socket on Windows, and a random
+    local port that collides fails the connect with WSAENOBUFS -- `net::ERR_NO_BUFFER_SPACE` on a
+    desk's page or one of its modules, about one page load in four thousand on the runner, and none in
+    16,912 with the feature off. The shared browser is launched with it off; a test's own switches
+    (`desk_chromium_with`) keep theirs and gain it, and a test's own `--disable-features` is extended,
+    since Chromium reads only the last one."""
+    held = {"pw": type("P", (), {"chromium": FakeChromium()})()}
+    H.ensure_browser(held)
+    assert held["pw"].chromium.launches == [
+        {"headless": True, "args": ["--disable-features=TcpPortRandomizationWin"]}]
+    assert H._with_port_randomization_off(("--enable-blink-features=CanvasDrawElement",)) == [
+        "--enable-blink-features=CanvasDrawElement", "--disable-features=TcpPortRandomizationWin"]
+    assert H._with_port_randomization_off(("--disable-features=Foo",)) == [
+        "--disable-features=Foo,TcpPortRandomizationWin"]
+
+
 def test_a_test_closes_its_own_contexts_and_no_one_elses():
     browser = FakeBrowser()
     kept = browser.new_context()

@@ -58,6 +58,29 @@ COUNT_FETCHES = """;(() => {
 """
 
 
+#: The Chromium feature every launch turns off (#603). Since Chromium 139, on Windows, every outbound TCP
+#: socket gets `SO_RANDOMIZE_PORT`: Windows picks its local port at random, and a pick that collides
+#: fails the connect at once with WSAENOBUFS -- no other port is tried. Chromium reports it as
+#: `net::ERR_NO_BUFFER_SPACE`, on the page itself or on one of its modules. The suite opens a desk per
+#: test and several connections to each, and on the Windows runner about one page load in four thousand
+#: failed that way; with this feature off, none in 16,912 (#603 has the runs). Nothing in the desk is
+#: about which local port the browser dials from, so the tests lose nothing by it.
+NO_PORT_RANDOMIZATION = "TcpPortRandomizationWin"
+
+
+def _with_port_randomization_off(args) -> list[str]:
+    """`args` with `NO_PORT_RANDOMIZATION` added to its `--disable-features`, or one added. Chromium
+    reads only the last `--disable-features` switch, so a test's own list is extended, not followed."""
+    out, merged = list(args), False
+    for i, arg in enumerate(out):
+        if arg.startswith("--disable-features="):
+            out[i] = f"{arg},{NO_PORT_RANDOMIZATION}"
+            merged = True
+    if not merged:
+        out.append(f"--disable-features={NO_PORT_RANDOMIZATION}")
+    return out
+
+
 def launch_chromium(p, args=()):
     """Chromium, from wherever this machine keeps it.
 
@@ -75,9 +98,12 @@ def launch_chromium(p, args=()):
 
     The only launcher in the suite: the harness's shared browser comes from here too (#299).
     `tests/test_fleet_desk_browser.py` re-exports it for the tests that still import it from there.
+
+    Every launch has Windows' TCP port randomization off (`NO_PORT_RANDOMIZATION`, #603).
     """
+    args = _with_port_randomization_off(args)
     try:
-        return p.chromium.launch(headless=True, args=list(args))
+        return p.chromium.launch(headless=True, args=args)
     except Exception as first:                                  # noqa: BLE001 - any launch failure
         candidates = [os.environ.get("AGENTDATA_CHROMIUM", "")]
         for root in ("/opt/pw-browsers",):
@@ -86,7 +112,7 @@ def launch_chromium(p, args=()):
                     candidates.append(os.path.join(root, entry, "chrome-linux", "chrome"))
         for path in candidates:
             if path and os.path.isfile(path):
-                return p.chromium.launch(headless=True, executable_path=path, args=list(args))
+                return p.chromium.launch(headless=True, executable_path=path, args=args)
         pytest.skip(f"no chromium to drive the page with: {first} "
                     f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')} "
                     f"HOME={os.environ.get('HOME', '')}")
