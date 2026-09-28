@@ -45,7 +45,8 @@ holds exactly the pixels in the file, and every enlargement after it is NearestF
 
 Above `const PROPS = ["produce", "cloud", "hen-a", "hen-b", "cat-sleep", "cat-stretch", "crow"];`:
 
-The art the farm's effects draw with (#380), not crops and never grown: nothing draws it yet.
+The art the farm's effects draw with (#380), not crops and never grown. The produce, the cloud and
+the hen are drawn by the effects (#381); the cat and the crow are #382's.
 
 ### `const SIZE`
 
@@ -411,3 +412,109 @@ The skin is going: the layer frees what is in its scenes, and the textures are f
 Above `export function inspect() {`:
 
 For the tests and a curious console: what this skin has on the paper.
+
+## the effects (#381)
+
+A finished agent's crop is harvested, an agent that errors gets a shower down its frame, and a pane
+put away sends a hen along the footer to the hidden count. `docs/skin-farmstead.md` §Effects is the
+table. The farm's paper is light by day and dark in the cave and the rain, so nothing an effect draws
+ever crosses the text.
+
+### `const ORDER`
+
+Beside `const ORDER = { shadow: -13, paper: -12, board: -11, crop: -10, produce: -11.5, shower: -10.5 };`:
+
+every farm material is `transparent: true`, so a pane's meshes sort as one list by these: the
+produce over the paper and under the board (the board covers it as it sinks), the shower over the
+boards. The effects group (-5) draws under every pane's frame group, so these go in the pane's own.
+
+Beside `const FRAME = 1 / 60;` to `const HEN_GLYPHS = 256;`:
+
+the effects' durations and sizes, under the canvas's 1.2 s ceiling. A piece moves on `dt`, never less
+than a 60 Hz frame's worth. The harvest waits up to `HARVEST_WAIT` frames for the bloom (32 from a
+seed); its three produce leave 120 ms apart, rise 0.25 s with a 2px drift and sink 2 art rows a frame,
+all gone by 0.56 s. The shower's 12 streaks leave 50 ms apart at 700 px/s; a streak on a tall pane
+starts lower down, so each reaches the bottom board by 1.15 s; the cloud is drawn away from 0.9 s to
+1.2 s. The hen runs 1.1 s, a frame of art every 80 ms, then is drawn away over 4 frames.
+
+### `export const options`
+
+Above `export const options = { hand: true, speed: 1, fx: { text: true } };`:
+
+`fx.text` asks the layer for the text helpers (#375): the hen reads the footer's glyphs.
+
+### `export const cues`
+
+Above `export const cues = [`:
+
+The page says when: a pane arriving done (the chip's word or the fold's), a pane arriving errored,
+and a pane leaving the glass (hidden, or gone from the registry). An agent that arrives already done
+or errored cues nothing (the layer's rule). Card closes have no row: there is nowhere in the farm to
+play them without crossing text.
+
+### `const SPRITE_FRAG`
+
+Above `const SPRITE_FRAG = \``:
+
+One sprite of the sheet at its own texels, the transparent ones discarded as the crop's are: nothing
+is blended. `uKeep` draws a piece away a row or a column of art at a time.
+
+### `export function frame`
+
+Beside `rec.group = scene;`:
+
+the pane's own frame group, which the harvest and the shower draw into. A rebuild has just emptied
+it, and so ended any effect in it: `forgetFx` drops their state (and counts their geometry freed,
+since the layer freed it).
+
+### `export function tick`
+
+Above `const step = Math.max(dt, FRAME);`:
+
+The effects, after the crops: a harvest starts once its crop is in bloom with nothing left to grow.
+True while one lives.
+
+### `function sprite`
+
+Above `function sprite(THREE, name, w, h, flip) {`:
+
+A sprite as one quad `w` x `h`, flipped left for right when `flip`. Its material is its own (it
+carries `uKeep`); its texture is the shared sheet's.
+
+### `export function cue`
+
+Above `export function cue({ THREE, scene, api }, name, el, box, how) {`:
+
+Nothing under reduced motion (the layer queues none either) or before the sheet is drawn. A pane
+folded into its project's rail (`is-grouped`: `display: none`, and still `:not(.is-hidden)`) sends no
+hen.
+
+### `function showerOn`
+
+Above `function showerOn(THREE, api, rec) {`:
+
+The cloud centred where the top and the left boards meet, and the streaks down the left board only,
+in `--farm-rain`, each ending at the bottom board. The scorch is the state's and stays.
+
+### `function henOn`
+
+Above `function henOn(THREE, scene, api, box, how) {`:
+
+The footer band's free rows: from its top to its first line of text, read with `api.fx.glyphs`
+(glyph boxes with a size: a hidden element's text has none). `api.fx.lines` would do for text, but
+its line boxes include the controls' own boxes (the `?` key at 865.2 at 1600x900, against text at
+871.2), which would leave 7 rows for a 12-row hen. Too few rows: no hen, counted in `skipped`. To
+the hidden count's left edge for a hide with the count shown; otherwise off the nearest edge.
+
+### `function run`
+
+Above `function run(hen, dt, api) {`:
+
+The hen's run, and at the count its drawing-away, a column of art a frame from its leading side.
+
+### `function fxOf`
+
+Above `function fxOf() {`:
+
+What `inspect().fx` reports: the effects alive, what each cue played, the hens that could not run,
+the geometry the effects made and have not freed, and every piece drawn now, in viewport px.

@@ -38,6 +38,8 @@ from test_fleet_gutters import _gutter_point
 from desk_waits import counted, observe_quiet, settle
 from test_fleet_ink import (_desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
                             fleet_home)
+from test_fleet_ink_cues import mark_selectors
+from test_fleet_ink_fx import _armed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -192,7 +194,8 @@ def test_the_mark_table_names_only_what_the_page_already_sets():
     """Ground rule 2: marks come from classes the page sets -- never one the skin invents."""
     app = _read(os.path.join(STATIC, "app.js"))
     html = _read(os.path.join(STATIC, "index.html"))
-    selectors = re.findall(r'selector: "((?:[^"\\]|\\.)*)"', _read(MODULE))
+    # The mark rows only: the cue rows (#381) are held to the cue contract (test_fleet_ink_cues.py).
+    selectors = mark_selectors(MODULE)
     assert len(selectors) == 11, selectors
     for sel in selectors:
         for cls in re.findall(r"\.([\w-]+)", sel):
@@ -813,6 +816,84 @@ def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path, d
 #: The pressed choice's row in farmstead's table: the answer, circled in pen.
 PRESSED = '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]'
 
+#: Every text line box a reader could be reading (#381): each non-blank text node's
+#: `Range.getClientRects()`, in a visible pane, the header or the footer, in viewport px. A string
+#: constant, so #382's easter eggs hold their sprites to the same boxes.
+TEXT_BOXES = """() => {
+  const out = [], range = document.createRange();
+  const roots = [...document.querySelectorAll('#grid > .tile:not(.is-hidden), body > header, body > footer')];
+  for (const root of roots) {
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (!n.data.trim()) continue;
+      range.selectNodeContents(n);
+      for (const b of range.getClientRects()) {
+        if (b.width > 0.5 && b.height > 0.5) out.push({ x: b.left, y: b.top, w: b.width, h: b.height });
+      }
+    }
+  }
+  return out;
+}"""
+#: The effects, recorded in the page a frame at a time (not by round trips): while any effect lives,
+#: `{frames, pieces, text}` into `window.__samples`; and each cue as a run `{kind, cue, last}` -- the
+#: layer frame its `played` count rose on, and the last frame one of its pieces was drawn.
+RECORD = """() => {
+  const textBoxes = (%s), kinds = { produce: 'harvest', cloud: 'shower', rain: 'shower', 'hen-a': 'hen', 'hen-b': 'hen' };
+  window.__samples = [];
+  window.__runs = [];
+  window.__recording = true;
+  let prev = window.__farm.inspect().fx.played;
+  const tick = () => {
+    if (!window.__recording) return;
+    const f = window.__farm.inspect().fx, frames = Ink.inspect().layer.frames;
+    for (const k of ['harvest', 'shower', 'hen']) {
+      for (let i = prev[k]; i < f.played[k]; i++) window.__runs.push({ kind: k, cue: frames, last: frames, drawn: 0 });
+    }
+    prev = f.played;
+    if (f.live) window.__samples.push({ frames, pieces: f.pieces, text: textBoxes() });
+    for (const q of f.pieces) {
+      const run = window.__runs.filter(r => r.kind === kinds[q.sprite]).pop();
+      if (run) { run.last = frames; run.drawn += 1; }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}""" % TEXT_BOXES
+#: The recording, stopped and read once.
+RECORDED = """() => { window.__recording = false;
+  return { samples: window.__samples, runs: window.__runs, fx: window.__farm.inspect().fx }; }"""
+#: A pane hidden while it is `is-grouped` (folded into its project's rail): the class and the hide in
+#: one task, with the arrange write held until the cue is delivered -- its answer runs `place()`,
+#: which takes the class back off, and on a quick server that could land before the next frame.
+GROUPED = """async (repo) => {
+  const frame = () => new Promise(done => requestAnimationFrame(() => done()));
+  const fx = () => Ink.inspect().layer.fx, before = window.__farm.inspect().fx.played, d0 = fx().delivered;
+  let release;
+  const hold = new Promise(done => { release = done; });
+  arrangeChain = arrangeChain.then(() => hold);
+  setHidden(repo, true);
+  toggle(tiles.get(repo).el, 'is-grouped', true);
+  for (let i = 0; i < 300 && fx().delivered === d0; i++) await frame();
+  const grouped = tiles.get(repo).el.classList.contains('is-grouped');
+  release();
+  return { before, grouped, delivered: fx().delivered - d0 };
+}"""
+#: The ceilings, in layer frames from each cue (#381): the harvest waits up to 32 frames for the
+#: bloom, then 0.65 s; the shower and the hen are 1.2 s. Each with 4 frames' slack.
+FX_FRAMES = {"harvest": 32 + -(-65 * 60 // 100) + 4, "shower": 72 + 4, "hen": 72 + 4}
+
+
+def _crossings(samples):
+    """Every recorded frame on which a piece's rect overlapped a text line box."""
+    bad = []
+    for s in samples:
+        for q in s["pieces"]:
+            for t in s["text"]:
+                if (q["x"] < t["x"] + t["w"] - 0.01 and t["x"] < q["x"] + q["w"] - 0.01
+                        and q["y"] < t["y"] + t["h"] - 0.01 and t["y"] < q["y"] + q["h"] - 0.01):
+                    bad.append((s["frames"], q, t))
+    return bad
+
 
 @pytest.mark.browser
 def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp_path, monkeypatch, desk_browser):
@@ -829,6 +910,8 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         browser = desk_browser
         page, errors = _page(browser, port, token, panes=3, width=1600)
         _inked(page, "farmstead:daytime", panes=3)
+        _armed(page)
+        page.evaluate(RECORD)
         E.append("alpha", [E.event("alpha", "error", {"exit_code": 2}, ticket="RDSD-1")])
         E.append("beta", [E.event("beta", "friction", {"severity": "nit", "file": "notes.md"}, ticket="RDSD-1"),
                           E.event("beta", "question_opened", {"id": "q1", "question": "Which way?",
@@ -866,6 +949,56 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         _settle(page, """Ink.inspect().layer.marks.filter(m => !m.strikeOf && m.state === 'drawn'
                          && !m.selector.includes('oldsession') && !m.selector.includes('friction')).length === 0""")
         off = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
+
+        # #381: a harvest from idle (a seed grows to a bloom, then the produce).
+        forced["live"].add("alpha")
+        forced["state"]["alpha"] = "done"
+        _state(page, "alpha", "state-done")
+        _settle(page, "window.__farm.inspect().fx.live === 0 && window.__farm.inspect().panes.alpha.shown === 'crop-bloom'")
+        # The hen: beta put away with its button runs to the hidden count.
+        page.evaluate("() => tiles.get('beta').el.querySelector('[data-tool=\"hide\"]').click()")
+        _settle(page, "window.__farm.inspect().fx.live === 0 && document.querySelector('#hiddencount:not([hidden])')")
+        count = page.evaluate("""() => { const r = document.getElementById('hiddencount').getBoundingClientRect();
+          return { x: r.left, y: r.top, w: r.width, h: r.height }; }""")
+        # A grouped pane sends no hen.
+        grouped = page.evaluate(GROUPED, "gamma")
+        _settle(page, "document.querySelector('.tile[data-repo=\"gamma\"]').classList.contains('is-hidden')")
+        recorded = page.evaluate(RECORDED)
+        # Then idle: nothing written, nothing drawn, nothing played.
+        idle = observe_quiet(page, passes=3)
+        idle["fx"] = page.evaluate(FARM)["fx"]
+        page.evaluate("() => { setHidden('beta', false); setHidden('gamma', false); }")
+        _settle(page, "document.querySelectorAll('#grid > .tile.is-hidden').length === 0")
+        # A reload (the cached desk, the replay) plays nothing, though alpha is done.
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function("() => !!window.Ink && (Ink.inspect().table || '') === 'farmstead:daytime'", timeout=20000)
+        page.evaluate(LOAD_FARM)
+        _armed(page)
+        _settle(page)
+        reloaded = page.evaluate(FARM)["fx"]
+        assert not errors, errors
+        page.close()
+
+        # Reduced motion: nothing plays, and the bloom is drawn at once.
+        page, errors = _page(browser, port, token, panes=3, width=1600, reduced=True)
+        _inked(page, "farmstead:daytime", panes=3)
+        _armed(page)
+        forced["live"].add("beta")
+        forced["state"]["beta"] = "done"
+        _state(page, "beta", "state-done")
+        _settle(page, "window.__farm.inspect().panes.beta.shown === 'crop-bloom'")
+        still = page.evaluate(FARM)
+        assert not errors, errors
+        page.close()
+
+        # Without the layer: the hide works, and nothing throws.
+        page, errors = _page(browser, port, token, "&ink=off", panes=3, width=1600)
+        page.evaluate("() => tiles.get('beta').el.querySelector('[data-tool=\"hide\"]').click()")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"beta\"]').classList.contains('is-hidden')",
+                               timeout=10000)
+        settle(page)
+        page.evaluate("() => setHidden('beta', false)")
+        settle(page, also="document.querySelectorAll('#grid > .tile.is-hidden').length === 0")
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -906,6 +1039,33 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     for repo in ("alpha", "beta", "gamma"):
         pane = off["farm"]["panes"][repo]
         assert pane["shown"] == "crop-seed" and not pane["scorched"], (repo, pane)
+
+    # #381, the effects: each cue once per event -- alpha's error a shower, gamma's done (from
+    # running) and alpha's (from idle) a harvest each, beta put away a hen -- and gamma, grouped, none.
+    runs, fx = recorded["runs"], recorded["fx"]
+    kinds = [r["kind"] for r in runs]
+    print(f"\n  effects: {[(r['kind'], r['last'] - r['cue'], r['drawn']) for r in runs]}, "
+          f"{len(recorded['samples'])} frames recorded, ceilings {FX_FRAMES}, skipped {fx['skipped']}")
+    assert sorted(kinds) == ["harvest", "harvest", "hen", "shower"], runs
+    assert fx["played"] == {"harvest": 2, "shower": 1, "hen": 1} and fx["skipped"] == 0, fx
+    assert grouped["delivered"] == 1 and grouped["grouped"] and grouped["before"] == fx["played"], grouped
+    for r in runs:
+        assert r["drawn"] > 0, f"{r['kind']} drew nothing: {r}"
+        assert r["last"] - r["cue"] <= FX_FRAMES[r["kind"]], (r, FX_FRAMES)
+    # Never behind text: no piece's rect, on any recorded frame, overlaps a line box of a visible
+    # pane, the header or the footer.
+    assert _crossings(recorded["samples"]) == [], _crossings(recorded["samples"])[:3]
+    # The hen ran to the hidden count: its last rect ends at the count's left edge.
+    hen = [q for s in recorded["samples"] for q in s["pieces"] if q["sprite"].startswith("hen")]
+    assert hen and abs(hen[-1]["x"] + hen[-1]["w"] - count["x"]) <= 1, (hen[-1:], count)
+    # Everything an effect made it freed.
+    assert fx["live"] == 0 and fx["pieces"] == [] and fx["geometries"] == 0, fx
+    assert idle["mutations"] == 0 and idle["renders"] == 0, idle
+    assert idle["fx"]["played"] == fx["played"], (fx["played"], idle["fx"]["played"])
+    # Nothing on a reload, though alpha is done; nothing under reduced motion, the bloom at once.
+    assert reloaded["played"] == {"harvest": 0, "shower": 0, "hen": 0}, reloaded
+    assert still["fx"]["played"] == {"harvest": 0, "shower": 0, "hen": 0} and still["fx"]["live"] == 0, still["fx"]
+    assert still["panes"]["beta"]["shown"] == "crop-bloom" and not still["panes"]["beta"]["growing"], still["panes"]["beta"]
 
 
 @pytest.mark.browser
