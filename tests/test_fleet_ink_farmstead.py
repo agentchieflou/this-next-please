@@ -706,13 +706,13 @@ def _force(monkeypatch):
     return forced
 
 
-def _state(page, repo, cls, timeout=30000):
-    """Wait for the PAGE to set `cls` on a pane, from what the server now says. Asked for again
+def _state(page, repo, cls, timeout=30000, gone=False):
+    """Wait for the PAGE to set `cls` on a pane (take it off, `gone`), from what the server now says. Asked for again
     until it does: a `refresh()` joins one already in flight, and that one may have left before
     the server's answer changed -- on a slow Windows runner, often enough to fail a run."""
     import time
     deadline = time.monotonic() + timeout / 1000
-    has = f"""() => document.querySelector('.tile[data-repo="{repo}"]').classList.contains('{cls}')"""
+    has = f"""() => {'!' if gone else ''}document.querySelector('.tile[data-repo="{repo}"]').classList.contains('{cls}')"""
     while True:
         page.evaluate("async () => { await refresh(); }")
         try:
@@ -985,7 +985,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         _armed(page)
         forced["live"].add("beta")
         forced["state"]["beta"] = "done"
-        _state(page, "beta", "state-done")
+        _state(page, "beta", "is-done")
         _settle(page, "window.__farm.inspect().panes.beta.shown === 'crop-bloom'")
         still = page.evaluate(FARM)
         assert not errors, errors
@@ -1099,23 +1099,190 @@ def test_the_farm_settles_in_a_bounded_number_of_frames(fleet_home, tmp_path, mo
     assert frames <= bound, (frames, bound)
 
 
+#: #382's eggs, recorded in the page a frame at a time: each frame's egg rects (`fx.eggs.rects`)
+#: and the text line boxes, from now until `stop` holds -- read once, afterwards.
+EGGS = """(stop) => { window.__eggs = (async () => {
+  const textBoxes = (%s), out = [];
+  const until = new Function('return (' + stop + ')');
+  for (let i = 0; i < 900; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    const e = window.__farm.inspect().fx.eggs;
+    out.push({ frames: Ink.inspect().layer.frames, pieces: e.rects, text: textBoxes() });
+    if (until()) break;
+  }
+  return out;
+})(); }""" % TEXT_BOXES
+#: What the skin says it has on the paper for #382: which panes have a cat and a crow, and where
+#: the fireflies are.
+EGGS_NOW = "() => window.__farm.inspect().fx.eggs"
+#: Every egg on every pane: 1 in 1, as a test may set it (`RARE` is the module's own object).
+ALL_EGGS = "() => { window.__farm.RARE.cat = 1; window.__farm.RARE.crow = 1; Ink.refresh(); }"
+
+
+def _old_desk(fleet_home, tmp_path, old, new):
+    """A farm whose `old` repos' last event is two days old (their chips say `2d`, `.stale`) and
+    whose `new` repos are fresh."""
+    from test_fleet import make_project
+    from agentdata.fleet import serve as S
+    from agentdata.fleet.registry import Registry
+    import datetime
+    then = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
+    for name in old + new:
+        path = make_project(tmp_path / name, ticket="RDSD-1")
+        Registry().add(path, name=name)
+        ts = then if name in old else None
+        E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1", ts=ts),
+                        E.event(name, "assistant_text", {"text": "working on " + name}, ticket="RDSD-1", ts=ts)])
+        # The desk's first read of the repo's state is an event of its own (`phase_changed`); for
+        # an old repo it was read then too, so the pane's last event stays two days old.
+        real = E.stamp
+        E.stamp = lambda t=None, real=real, ts=ts: real(t or ts)
+        try:
+            E.refresh(name, path, repo_state={"project": "RDSD", "phase": "idle", "active_ticket": "RDSD-1"})
+        finally:
+            E.stamp = real
+    S.arrange(order=list(old + new))
+    S.update_window("main", open=(old + new)[0], widths={n: 1 for n in old + new})
+    (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "farmstead"}}', encoding="utf-8")
+
+
+def _egg_runs(samples, repo, kind):
+    """(the frame an egg began to leave, the first frame it was gone) from a recording."""
+    left = gone = None
+    for smp in samples:
+        mine = [q for q in smp["pieces"] if q["repo"] == repo and q["kind"] == kind]
+        if left is None and mine and mine[0]["phase"] == "out":
+            left = smp["frames"]
+        if left is not None and not mine:
+            gone = smp["frames"]
+            break
+    return left, gone
+
+
 @pytest.mark.browser
-def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path, desk_browser):
+def test_an_idle_farm_writes_nothing_and_draws_nothing(fleet_home, tmp_path, monkeypatch, desk_browser):
     """desk-ink §Budgets: an idle desk with ink on it is zero DOM mutations and zero WebGL frames --
-    the frames, the crops and the bands included."""
-    _farm_desk(fleet_home, tmp_path)
+    the frames, the crops and the bands included.
+
+    #382, the eggs: seeded by repo name (the same repos on every reload), still at rest -- a cat on
+    a pane quiet for two days, a crow over a finished crop, fireflies in the cave -- and each leaves
+    on its signal within its frames; a pane that needs you gets none; no egg crosses a line of text;
+    under reduced motion they come and go at once and the fireflies are still; ink off, none."""
+    forced = _force(monkeypatch)
+    real_lock = supervisor.read_lock
+    monkeypatch.setattr(supervisor, "read_lock", lambda n, *a, **k: (
+        {"external": True} if n in forced["live"] else real_lock(n, *a, **k)))
+    forced["live"].add("beta")
+    forced["state"].update({"beta": "done", "gamma": "needs_human"})
+    _old_desk(fleet_home, tmp_path, ("alpha", "gamma"), ("beta",))
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page, errors = _page(browser, port, token, count=True)
-        _inked(page, "farmstead:daytime")
+        page, errors = _page(browser, port, token, panes=3, count=True)
+        _inked(page, "farmstead:daytime", panes=3)
+        _armed(page)
+        ages = page.evaluate("() => ['alpha', 'beta', 'gamma'].map(r => tiles.get(r).row.last_event_age_s)")
+        seeded = [page.evaluate(EGGS_NOW)]
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 3 && !!window.Ink",
+                               timeout=20000)
+        _inked(page, "farmstead:daytime", panes=3)
+        seeded.append(page.evaluate(EGGS_NOW))
+        page.evaluate(ALL_EGGS)
+        _settle(page, f"""(() => {{ const e = ({EGGS_NOW})();
+          return e.cat.includes('alpha') && e.crow.includes('beta') && !e.rects.some(r => r.phase !== 'rest'); }})()""")
+        eggs = page.evaluate(EGGS_NOW)
         count = observe_quiet(page, passes=8)
+        still = page.evaluate(EGGS_NOW)
+
+        # A fresh event wakes the cat; beta running again sends the crow off.
+        page.evaluate(EGGS, "!window.__farm.inspect().fx.eggs.cat.includes('alpha')")
+        E.append("alpha", [E.event("alpha", "assistant_text", {"text": "awake"}, ticket="RDSD-1")])
+        page.evaluate("async () => { await refresh(); }")
+        cat = page.evaluate("() => window.__eggs")
+        _settle(page)
+        # A new run: beta is no longer done.
+        forced["state"]["beta"] = "running"
+        page.evaluate(EGGS, "!window.__farm.inspect().fx.eggs.crow.includes('beta')")
+        E.append("beta", [E.event("beta", "started", {"pid": 1}, ticket="RDSD-1")])
+        _state(page, "beta", "is-done", gone=True)
+        crow = page.evaluate("() => window.__eggs")
+        _settle(page)
+
+        # The cave: six fireflies, still at rest, a step on along their paths on a frame drawn
+        # for anything else.
+        _choose(page, "farmstead:cave")
+        _inked(page, "farmstead:cave", panes=3)
+        flies = page.evaluate(EGGS_NOW)["fireflies"]
+        cave = observe_quiet(page, passes=3)
+        flies_after = page.evaluate(EGGS_NOW)["fireflies"]
+        E.append("gamma", [E.event("gamma", "assistant_text", {"text": "a line"}, ticket="RDSD-1")])
+        page.evaluate("async () => { await refresh(); }")
+        _settle(page, "Array.from(document.querySelectorAll('.tile[data-repo=\"gamma\"] .transcript li'))"
+                      ".some(li => li.textContent.includes('a line'))")
+        flies_moved = page.evaluate(EGGS_NOW)["fireflies"]
+        assert not errors, errors
+        page.close()
+
+        # Reduced motion: the crow comes and goes at once, and the fireflies are still.
+        page, errors = _page(browser, port, token, panes=3, reduced=True)
+        _inked(page, "farmstead:cave", panes=3)
+        page.evaluate(ALL_EGGS)
+        _settle(page)
+        forced["state"]["beta"] = "done"
+        page.evaluate(EGGS, "window.__farm.inspect().fx.eggs.crow.includes('beta')")
+        E.append("beta", [E.event("beta", "assistant_text", {"text": "done"}, ticket="RDSD-1")])
+        _state(page, "beta", "is-done")
+        reduced_in = page.evaluate("() => window.__eggs")
+        _settle(page)
+        flies_reduced = page.evaluate(EGGS_NOW)["fireflies"]
+        forced["state"]["beta"] = "running"
+        page.evaluate(EGGS, "!window.__farm.inspect().fx.eggs.crow.includes('beta')")
+        E.append("beta", [E.event("beta", "started", {"pid": 1}, ticket="RDSD-1")])
+        _state(page, "beta", "is-done", gone=True)
+        reduced_out = page.evaluate("() => window.__eggs")
+        _settle(page)
+        flies_reduced_after = page.evaluate(EGGS_NOW)["fireflies"]
+        assert not errors, errors
+        page.close()
+
+        # Ink off: no layer, so nothing is drawn.
+        page, errors = _page(browser, port, token, "&ink=off", panes=3)
+        settle(page)
+        off = page.evaluate("() => ({ layer: !!(window.Ink && Ink.inspect().layer), farm: 'RARE' in window })")
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
     assert count["mutations"] == 0, f"an idle farm wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle farm drew {count['renders']} frames"
+
+    # #382: the stale agent is two days quiet; the others are not.
+    assert ages[0] >= 2 * 86400 - 60 and ages[1] < 86400, ages
+    # Seeded: the same repos have eggs on every reload, with the default rarity.
+    assert [(s["cat"], s["crow"]) for s in seeded[1:]] == [(seeded[0]["cat"], seeded[0]["crow"])], seeded
+    # 1 in 1: a cat on the quiet pane, a crow on the finished one, none on the pane that needs you.
+    assert eggs["cat"] == ["alpha"] and eggs["crow"] == ["beta"], eggs
+    assert "gamma" not in eggs["cat"] + eggs["crow"], eggs
+    assert eggs["fireflies"] == [], "no fireflies but in the cave"
+    assert still["rects"] == eggs["rects"], (eggs["rects"], still["rects"])
+    # Each leaves on its signal, within its frames, and nothing crosses a line of text.
+    for name, run, kind, repo, ceiling in (("cat", cat, "cat", "alpha", -(-45 * 60 // 100) + 4),
+                                           ("crow", crow, "crow", "beta", -(-25 * 60 // 100) + 4)):
+        left, gone = _egg_runs(run, repo, kind)
+        print(f"\n  the {name} left in {None if gone is None else gone - left} frames (ceiling {ceiling})")
+        assert left is not None and gone is not None and gone - left <= ceiling, (name, left, gone)
+        assert _crossings(run) == [], (name, _crossings(run)[:3])
+    # The cave: six, still across an idle loop, moved by a frame drawn for an event.
+    assert len(flies) == 6, flies
+    assert cave["renders"] == 0 and cave["mutations"] == 0, cave
+    assert flies_after == flies, (flies, flies_after)
+    assert flies_moved != flies, "a frame drawn for an event moves them a step"
+    # Reduced motion: at once, and still.
+    for run in (reduced_in, reduced_out):
+        assert not [q for s in run for q in s["pieces"] if q["phase"] != "rest"], run[-3:]
+    assert len(flies_reduced) == 6 and flies_reduced_after == flies_reduced, (flies_reduced, flies_reduced_after)
+    assert off == {"layer": False, "farm": False}, off
 
 
 @pytest.mark.browser

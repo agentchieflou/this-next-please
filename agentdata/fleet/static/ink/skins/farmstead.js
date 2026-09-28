@@ -29,6 +29,15 @@ const HEN_RUN = 1.1;
 const HEN_STEP = 0.08;
 const HEN_GOES = 4;
 const HEN_GLYPHS = 256;
+const EGG_ORDER = -10.5;
+const STRETCH = 0.15;
+const CAT_GOES = 0.45;
+const GLIDE = 0.25;
+const FIREFLIES = 6;
+const FLY_AMP = 6;
+const FLY_STEP = 0.07;
+
+export const RARE = { cat: 3, crow: 3 };
 
 export function marks() {
   return [
@@ -69,6 +78,7 @@ let hens = [];
 const played = { harvest: 0, shower: 0, hen: 0 };
 let skipped = 0;
 let gmade = 0, gfreed = 0;
+let flies = null;
 
 function commonest(px) {
   const n = new Map();
@@ -365,6 +375,51 @@ export function paper({ THREE, scene, tokens, api }) {
     bands.push(band);
     placeBand(THREE, api, band);
   }
+  fireflies(THREE, scene, tokens, api);
+}
+
+function hash(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 13;
+  return Math.imul(h, 2246822507) >>> 0;
+}
+
+function lucky(key, n) {
+  return hash(key) % Math.max(1, Math.floor(Number(n)) || 1) === 0;
+}
+
+function fireflies(THREE, scene, tokens, api) {
+  if (flies) gfreed += 1;
+  flies = null;
+  const col = rgbOf(THREE, tokens && typeof tokens.css === "function" ? tokens.css("--farm-firefly") : "");
+  if (!col) return;
+  const u = unitOf(api, 1), size = 2 * u, { w, h } = api.viewport, pad = FLY_AMP + size + 12;
+  const covered = api.panes().map(p => p.box).concat(bands.map(b => {
+    const r = b.el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  }));
+  const geometry = quadsGeometry(THREE, [[0, 0, size, size, 0, 0, 1, 1, 0]]);
+  const material = shader(THREE, FILL_FRAG, { uColor: { value: new THREE.Vector3().fromArray(col) }, uAlpha: { value: 1 } });
+  gmade += 1;
+  flies = { geometry, material, list: [] };
+  for (let i = 0; i < 600 && flies.list.length < FIREFLIES; i++) {
+    const x = pad + (hash("fly:x" + i) / 4294967296) * Math.max(0, w - 2 * pad);
+    const y = pad + (hash("fly:y" + i) / 4294967296) * Math.max(0, h - 2 * pad);
+    if (covered.some(r => x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad)) continue;
+    const m = mesh(THREE, geometry, material, api.order.paper + 0.5);
+    scene.add(m);
+    const n = flies.list.length;
+    const f = { m, cx: x, cy: y, a: 1 + (n % 3), b: 2 + (n % 2), ph: n * 1.7, k: 0, x, y };
+    flies.list.push(f);
+    fly(f);
+  }
+}
+
+function fly(f) {
+  f.x = f.cx + FLY_AMP * Math.sin(f.a * f.k * FLY_STEP + f.ph);
+  f.y = f.cy + FLY_AMP * Math.sin(f.b * f.k * FLY_STEP);
+  at(f.m, f.x, f.y);
 }
 
 function placeBand(THREE, api, band) {
@@ -419,6 +474,8 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   rec.repo = el.dataset.repo || rec.repo;
   rec.group = scene;
   forgetFx(rec);
+  rec.eggs = rec.eggs || { cat: null, crow: null };
+  for (const e of Object.values(rec.eggs)) if (e && e.mesh) { gfreed += 1; e.mesh = null; }
   const cu = unitOf(api, SCALE.crop);
   const crop = new THREE.ShaderMaterial({
     uniforms: { uOld: { value: s.textures[rec.shown] }, uNew: { value: s.textures[rec.shown] }, uRows: { value: 16 } },
@@ -435,6 +492,12 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   recs.set(el, rec);
   place(rec, api);
   paint(rec);
+  for (const kind of ["cat", "crow"]) {
+    const e = rec.eggs[kind];
+    if (!e || e.skip) continue;
+    if (e.phase === "out") { rec.eggs[kind] = null; continue; }
+    rec.eggs[kind] = eggOn(THREE, api, rec, kind, true);
+  }
 }
 
 function cropOf(el) {
@@ -530,8 +593,95 @@ export function tick({ THREE, tokens, api }, dt) {
   }
   hens = hens.filter(h => run(h, step, api));
   if (hens.length) live = true;
+  const b = document.body.classList;
+  const quick = instant || b.contains("is-stale") || b.contains("is-replaying");
+  for (const rec of recs.values()) if (eggs(THREE, api, rec, step, quick)) live = true;
+  if (flies && !instant) for (const f of flies.list) { f.k += 1; fly(f); }
   if (changed || live) api.request();
   return more || live;
+}
+
+function wants(rec) {
+  const c = rec.el.classList, needs = c.contains("needs-human") || c.contains("state-needs_human");
+  return {
+    cat: !needs && !!rec.el.querySelector(".chip.stale") && lucky(rec.repo, RARE.cat),
+    crow: !needs && (c.contains("state-done") || c.contains("is-done")) && lucky(rec.repo + ":crow", RARE.crow),
+  };
+}
+
+function rest(api, rec, kind) {
+  const u = unitOf(api, 1), f = rec.frame, T = f.thick;
+  if (kind === "cat") return { x: f.x + f.w - T - 16 * u, y: f.y, w: 16 * u, h: T };
+  const c = rec.crop && rec.crop.visible ? rec.crop.position.x + rec.cropSize / 2 - 4 * u : f.x + f.w / 2;
+  return { x: Math.max(f.x + T, Math.min(f.x + f.w - T - 8 * u, c)), y: f.y, w: 8 * u, h: T };
+}
+
+function crosses(api, rec, r) {
+  if (!api.fx || !api.fx.lines) return false;
+  const head = rec.el.querySelector(".head");
+  if (!head) return false;
+  const p = rec.el.getBoundingClientRect(), x = p.left + r.x, y = p.top + r.y;
+  return api.fx.lines(head).some(l => x < l.x + l.w && l.x < x + r.w && y < l.y + l.h && l.y < y + r.h);
+}
+
+function eggOn(THREE, api, rec, kind, quick) {
+  const r = rest(api, rec, kind);
+  if (crosses(api, rec, r)) { skipped += 1; return { kind, skip: true }; }
+  const m = sprite(THREE, kind === "cat" ? "cat-sleep" : "crow", r.w, r.h, false);
+  m.renderOrder = EGG_ORDER;
+  rec.group.add(m);
+  const e = { kind, mesh: m, rest: r, x: r.x, y: r.y, t: 0, phase: "rest" };
+  if (kind === "crow" && !quick) { e.phase = "in"; e.x = rec.frame.x + rec.frame.w - rec.frame.thick - r.w; }
+  at(m, e.x, e.y);
+  return e;
+}
+
+function dropEgg(e) {
+  if (e && e.mesh) drop(e.mesh);
+  if (e) e.mesh = null;
+}
+
+function eggs(THREE, api, rec, dt, quick) {
+  if (!rec.group || !rec.frame || !rec.eggs || !sheet || !sheet.loaded) return false;
+  const w = wants(rec), first = !rec.hatched;
+  rec.hatched = true;
+  let moving = false;
+  for (const kind of ["cat", "crow"]) {
+    let e = rec.eggs[kind];
+    if (w[kind] && (!e || e.phase === "out")) {
+      dropEgg(e);
+      e = rec.eggs[kind] = eggOn(THREE, api, rec, kind, quick || first);
+    } else if (!w[kind] && e && e.phase !== "out") {
+      if (quick || e.skip || !e.mesh) { dropEgg(e); rec.eggs[kind] = null; continue; }
+      e.phase = "out";
+      e.t = 0;
+      if (kind === "cat") {
+        drop(e.mesh);
+        e.mesh = sprite(THREE, "cat-stretch", e.rest.w, e.rest.h, false);
+        e.mesh.renderOrder = EGG_ORDER;
+        rec.group.add(e.mesh);
+      }
+    }
+    if (!e || e.skip || !e.mesh || e.phase === "rest") continue;
+    e.t += dt;
+    const f = rec.frame, end = f.x + f.w - f.thick - e.rest.w;
+    if (e.phase === "in") {
+      const k = Math.min(1, e.t / GLIDE);
+      e.x = end + (e.rest.x - end) * k * (2 - k);
+      if (k >= 1) e.phase = "rest";
+    } else if (kind === "crow") {
+      const k = Math.min(1, e.t / GLIDE);
+      e.x = e.rest.x + (end - e.rest.x) * k * k;
+      if (k >= 1) { dropEgg(e); rec.eggs[kind] = null; continue; }
+    } else if (e.t > STRETCH) {
+      const k = Math.min(1, (e.t - STRETCH) / (CAT_GOES - STRETCH - 2 * FRAME));
+      e.x = e.rest.x + (f.x + f.w - e.rest.x) * k;
+      if (k >= 1) { dropEgg(e); rec.eggs[kind] = null; continue; }
+    }
+    at(e.mesh, e.x, e.y);
+    moving = true;
+  }
+  return moving;
 }
 
 function sprite(THREE, name, w, h, flip) {
@@ -733,6 +883,7 @@ export function dispose() {
   bands = [];
   recs.clear();
   hens = [];
+  flies = null;
   gmade = gfreed = 0;
 }
 
@@ -787,5 +938,15 @@ function fxOf() {
   for (const hen of hens) {
     hen.frames.forEach((m, i) => put(i ? "hen-b" : "hen-a", m, hen.x, hen.y, hen.w, hen.h, null));
   }
-  return { live, played: Object.assign({}, played), skipped, geometries: gmade - gfreed, pieces };
+  const eggs = { cat: [], crow: [], fireflies: flies ? flies.list.map(f => ({ x: f.x, y: f.y })) : [], rects: [] };
+  for (const rec of recs.values()) {
+    for (const e of Object.values(rec.eggs || {})) {
+      if (!e || !e.mesh || !e.mesh.parent) continue;
+      eggs[e.kind].push(rec.repo);
+      if (e.phase !== "rest") live += 1;
+      const p = rec.el.getBoundingClientRect();
+      eggs.rects.push({ kind: e.kind, repo: rec.repo, phase: e.phase, x: p.left + e.x, y: p.top + e.y, w: e.rest.w, h: e.rest.h });
+    }
+  }
+  return { live, played: Object.assign({}, played), skipped, geometries: gmade - gfreed, pieces, eggs };
 }
