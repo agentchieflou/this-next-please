@@ -4,6 +4,40 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.17.8
+
+**On update:**
+- **The two standard commands.** There is no new dependency, no `ad-setup --patch`, no config to migrate and no
+  changed skill, so a Copilot chat needs no restart for this one. The IDE extensions are unchanged. The next
+  `ad-fleet open` replaces a desk still running the old code.
+
+Developing this repo: nothing new to install.
+
+**Skins and ink.** The three skins 0.17.7 brought get their boards, their moments and a light variant; with
+them `nfl-browns`, `matrix` and `greens` are `built`.
+- **Playbook's board** (#390): one static shader under the marks, grain and haze on the slate, three to five
+  eraser ghosts of old plays, a yard line every 140px and hash marks at a third and two thirds, every channel
+  held between `--paper` and `--board-max`. It is built once and again only on a resize (`docs/skin-playbook.md`
+  §The board).
+- **Playbook's moments** (#391): a penalty flag thrown to the margin while a pane waits, chalk goalposts and
+  end-zone hatching when one is done, and a chalk ball that hops twice to rest beside an error. At rest on load
+  and while the desk is stale, nothing on a rail, and all at rest at once under reduced motion (§The moments).
+- **Playbook · Play sheet** (#392): a light variant on `sand` (`playbook:playsheet`), a printed play sheet in
+  graphite and a burnt-orange pen, print-paper fibre and no ghosts. The highlighter `#F5D94A` is multiplied, not
+  screened, and the text keeps 7.7:1 through it.
+- **Phosphor's code rain** (#395): each transcript line drops one 5x7 dot glyph down the pane's margin into a
+  stack that a turn's end drains; an error tears the column. One draw call for every pane; nothing rains on a
+  rail, and lines settle at once while the desk is stale or replays (`docs/skin-phosphor.md`).
+- **Circuit board's signals** (#397): a pulse along the trace per transcript line, amber and green status LEDs
+  in the margin, and a soot scorch under an error's reason. Frames only while a pulse travels or the scorch
+  moves (`docs/skin-circuit.md` §Signals).
+
+**For developers of this repo.**
+- **The browser tier's time budget** holds all five: 4 new browser tests (#390 1, #391 1, #392 1, #395 1);
+  #397 folds its checks into #396's grammar test and adds one plain test. The night notebook's highlighter
+  read waits while the question card is re-drawn instead of throwing (#391, #397).
+- **The agent relay:** merge train 26.
+
 ## 0.17.7
 
 **On update:**
