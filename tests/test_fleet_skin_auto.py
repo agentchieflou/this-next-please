@@ -59,11 +59,15 @@ def test_posting_auto_saves_it_verbatim_and_gives_the_terminal_the_default_varia
         cfg = C.load()["theme"]
         assert cfg["skin"] == "legalpad:canary" and cfg["default"] == "eye-relief-day", cfg
 
-        # a fixed choice saves as before, and the look it came from beside it (docs/themes.md §Genres)
+        # a fixed choice saves as before, with the look it came from and its side pinned beside it
+        # (docs/themes.md §Genres): a pick by name is one side, never the system's
         _post(port, token, {"skin": "notebook:dark"})
-        assert C.load()["theme"] == {"skin": "notebook:dark", "default": "dark", "look": "notebook"}
+        assert C.load()["theme"] == {"skin": "notebook:dark", "default": "dark", "look": "notebook", "mode": "dark"}
         _post(port, token, {"skin": "glass"})
-        assert C.load()["theme"] == {"skin": "glass:smoke", "default": "dark", "look": "glass"}
+        assert C.load()["theme"] == {"skin": "glass:smoke", "default": "dark", "look": "glass", "mode": "dark"}
+        _post(port, token, {"theme": "sand", "skin": "none"})
+        assert C.load()["theme"] == {"skin": "none", "default": "sand", "look": "palette:sand", "mode": "light"}
+        assert "auto" not in S.theme_state(), "a palette asked for by name is served, not its other side"
     finally:
         _stop(server)
 

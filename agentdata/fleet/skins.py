@@ -401,9 +401,9 @@ SKINS = {
                                  "green": "#2A733E", "marker": "#B3261E", "highlighter": "#AC956B"},
                         "why": "a bright grey day, rain falling across the panes"},
             # The cloud's dark side, on `slate`: cloud cover at dusk.
-            "dusk": {"title": "Dusk", "base": "slate", "composited_panel": "#2B3037",
+            "dusk": {"title": "Dusk", "base": "slate", "composited_panel": "#2D323A",
                      "inks": {"pencil": "#B0B8C2", "pen": "#8FB3D1", "red": "#F0645C",
-                              "green": "#5FC77A", "marker": "#F0645C", "highlighter": "#AC8838"},
+                              "green": "#5FC77A", "marker": "#F0645C", "highlighter": "#A58337"},
                      "why": "cloud cover at dusk, drifting behind the panes"},
         },
     },

@@ -354,7 +354,7 @@ passes the `--focus` test on both sides' panels and states.
 | `weather:cloudy` | Cloudy | `overcast` | `#E6E9EC` | `#F2F4F6` | 11.4:1 | grey-white cloud cover drifting behind the panes |
 | `weather:starry` | Starry night | `vanta-black` | `#000000` | `#0B0E16` | 11.5:1 | a night sky: stars that twinkle, a meteor now and then |
 | `weather:showers` | Showers | `overcast` | `#E6E9EC` | `#D1D7DD` … `#E8EBEE` | 8.7:1 at the worse end | a bright grey day, rain falling across the panes |
-| `weather:dusk` | Dusk | `slate` | `#252A30` | `#2B3037` | 9.4:1 | cloud cover at dusk, drifting behind the panes |
+| `weather:dusk` | Dusk | `slate` | `#252A30` | `#2D323A` | 9.1:1 | cloud cover at dusk, drifting behind the panes |
 
 ### Every palette's look
 

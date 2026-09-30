@@ -88,7 +88,7 @@ body[data-skin="weather"][data-skin-variant="showers"] {
 
 body[data-skin="weather"][data-skin-variant="dusk"] {
   --wx-kind: 2;
-  --paper: #2B3037;
+  --paper: #2D323A;
   --wx-sky-top: #2A3340;
   --wx-sky-bottom: #3A4552;
   --wx-cloud: #4A5666;
@@ -100,7 +100,7 @@ body[data-skin="weather"][data-skin-variant="dusk"] {
   --ink-red: #F0645C;
   --ink-green: #5FC77A;
   --ink-marker: #F0645C;
-  --ink-highlighter: #AC8838;
+  --ink-highlighter: #A58337;
 }
 
 body[data-skin="weather"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }

@@ -2889,8 +2889,17 @@ def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
             cfg["theme"]["skin"] = chosen["full"]
             cfg["theme"]["default"] = chosen["base"]
     if "theme" in body or "skin" in body:
-        # A pick by its concrete names (an older page, `ad-theme`): the look follows it.
-        cfg["theme"]["look"] = skins.look_of(cfg["theme"].get("default") or "none", cfg["theme"].get("skin") or "none")
+        # A pick by its concrete names (an older page, `ad-theme`): the look follows it, and the
+        # side is pinned to the one picked, as `theme_state` reads a hand-written palette -- a
+        # page that asked for `dark` by name is served `dark`, never its other side by the
+        # system's appearance; `<skin>:auto` and `none` keep following.
+        default_name, skin_name = cfg["theme"].get("default") or "none", cfg["theme"].get("skin") or "none"
+        cfg["theme"]["look"] = skins.look_of(default_name, skin_name)
+        try:
+            cfg["theme"]["mode"] = skins.FOLLOW if (skin_name.endswith(":" + skins.AUTO) or default_name == "none") \
+                else skins.side_of(default_name)
+        except Exception:                    # noqa: BLE001 - a palette name nothing knows: follows
+            cfg["theme"]["mode"] = skins.FOLLOW
     C.save(cfg)
     return True, last
 

@@ -1003,14 +1003,19 @@ def test_every_skin_variant_actually_repaints_the_page(desk, desk_browser):
               if (c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') return c; }
               return ''; })(),
             sheets: Array.from(document.head.querySelectorAll('link[data-skin]')).length,
+            // A skin drawn by the ink layer paints nothing on the plain page (#257), so two of its
+            // variants on one palette share the tile's fill: its `--paper`, which every such
+            // stylesheet sets per variant, tells them apart.
+            paper: getComputedStyle(document.body).getPropertyValue('--paper').trim(),
         })""")
         assert body["skin"] == skin_name, (full, body)
         assert body["variant"] == variant, (full, body)
         assert body["sheets"] == 1, "one stylesheet per skin, never two stacked"
-        seen[full] = body["tile"]
+        seen[full] = body["tile"] + " " + body["paper"]
 
-    # Each variant of a skin must paint its panel differently from its siblings; two variants
-    # that compute to the same colour means one of them is not in the stylesheet at all.
+    # Each variant of a skin must paint its panel (or, for a skin the ink layer draws, its
+    # `--paper`) differently from its siblings; two variants that compute to the same colours
+    # means one of them is not in the stylesheet at all.
     for skin_name, skin in K.SKINS.items():
         panels = {v: seen[f"{skin_name}:{v}"] for v in skin["variants"]}
         assert len(set(panels.values())) == len(panels), \
