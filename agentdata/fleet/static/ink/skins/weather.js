@@ -60,9 +60,6 @@ function numOf(tokens, name, fallback) {
 
 const NOISE = `
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), u.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), u.x), u.y); }
-float fbm(vec2 p){ float a = 0.5, s = 0.0; for (int k = 0; k < 5; k++) { s += a * vn(p); p = p * 2.03 + 17.1; a *= 0.5; } return s; }
 `;
 
 const VERT = "void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }";
@@ -71,14 +68,15 @@ const SKY_FS = `
 uniform float uKind; uniform float uTime; uniform float uDpr; uniform vec2 uView;
 uniform vec3 uTop; uniform vec3 uBottom; uniform vec3 uCloud; uniform float uCloudA; uniform vec3 uShade;
 uniform vec3 uSun; uniform vec3 uRay; uniform float uRayA; uniform vec3 uStar; uniform vec3 uMeteor;
-uniform vec3 uFlashC; uniform float uFlash; uniform float uClear;
+uniform vec3 uFlashC; uniform float uFlash; uniform float uClear; uniform sampler2D uNoise;
 ${NOISE}
+float fbm(vec2 p){ return texture2D(uNoise, p).r; }
 void main(){
   vec2 p = vec2(gl_FragCoord.x, uView.y * uDpr - gl_FragCoord.y) / uDpr;
   vec2 q = p / max(uView, vec2(1.0));
   vec3 c = mix(uTop, uBottom, smoothstep(0.0, 1.0, q.y));
   if (uKind < 0.5) {
-    float band = fbm(vec2(p.x * 0.0015 + uTime * 0.01, p.y * 0.004));
+    float band = fbm(vec2(p.x * 0.0015 + uTime * 0.01, p.y * 0.004) * 0.35);
     c = mix(c, uTop * 0.82, smoothstep(0.45, 0.75, band) * 0.6);
     c = mix(c, uFlashC, uFlash * (0.55 + 0.45 * (1.0 - q.y)));
   } else if (uKind < 1.5) {
@@ -90,10 +88,10 @@ void main(){
     c = mix(c, uRay, beam * (1.0 + 0.6 * uClear));
     c = mix(c, uSun, (1.0 - smoothstep(0.0, 0.13, r)) * 0.9 + (1.0 - smoothstep(0.0, 0.45, r)) * 0.25);
   } else if (uKind < 2.5) {
-    vec2 w = vec2(p.x + uTime * 9.0, p.y * 1.6) * 0.0022;
+    vec2 w = vec2(p.x + uTime * 9.0, p.y * 1.6) * 0.0022 * 0.35;
     float n = fbm(w);
     float cover = smoothstep(0.42, 0.62, n);
-    float under = smoothstep(0.42, 0.62, fbm(w + vec2(0.0, 0.05)));
+    float under = smoothstep(0.42, 0.62, fbm(w + vec2(0.0, 0.02)));
     c = mix(c, uShade, clamp(under - cover, 0.0, 1.0) * 0.5 * uCloudA);
     c = mix(c, uCloud, cover * uCloudA);
   } else {
@@ -139,15 +137,40 @@ float sheet(vec2 p, float col, float speed, float len, float lean, float seed){
 void main(){
   vec2 p = vec2(gl_FragCoord.x, uView.y * uDpr - gl_FragCoord.y) / uDpr;
   float a = sheet(p, 5.0, 620.0, 26.0, 0.10, 1.0) * 1.0
-          + sheet(p, 7.0, 440.0, 18.0, 0.08, 4.0) * 0.6
-          + sheet(p, 9.0, 300.0, 12.0, 0.06, 8.0) * 0.35;
+          + sheet(p, 8.0, 380.0, 16.0, 0.07, 4.0) * 0.55;
   a = clamp(a, 0.0, 1.0) * uDropA;
   vec3 c = mix(uDrop, uFlashC, uFlash);
   gl_FragColor = vec4(c, a + uFlash * 0.12);
 }`;
 
+const NOISE_PX = 256;
+
+function noiseTexture(THREE) {
+  const n = NOISE_PX, data = new Uint8Array(n * n * 4);
+  const h = (x, y) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
+  const vn = (x, y, s) => {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const at = (a, b) => h(((a % s) + s) % s, ((b % s) + s) % s);
+    const top = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy)) * ux;
+    const bot = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1)) * ux;
+    return top + (bot - top) * uy;
+  };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    let a = 0.5, sum = 0, scale = 4;
+    for (let k = 0; k < 5; k++) { sum += a * vn(x / n * scale, y / n * scale, scale); scale *= 2; a *= 0.5; }
+    const i = (y * n + x) * 4, v = Math.round(sum * 255);
+    data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 const W = {
-  sky: null, rain: null, rainU: null, over: [], tokens: null, api: null, kind: 0, time: 0, ticks: 0,
+  sky: null, rain: null, rainU: null, over: [], noise: null, sig: "", tokens: null, api: null, kind: 0, time: 0, ticks: 0,
   flash: 0, clear: 0, frames: 0, played: {}, reduced: false,
 };
 
@@ -176,9 +199,16 @@ function kindOf(tokens) {
   return k >= 0 && k < KINDS.length ? k : 0;
 }
 
+const READ = ["--wx-kind", "--wx-sky-top", "--wx-sky-bottom", "--wx-cloud", "--wx-cloud-alpha", "--wx-cloud-shade",
+              "--wx-sun", "--wx-ray", "--wx-ray-alpha", "--wx-star", "--wx-meteor", "--wx-flash", "--wx-drop",
+              "--wx-drop-alpha"];
+
 function look(THREE) {
   const t = W.tokens;
-  if (!t || !W.sky) return;
+  if (!t || !W.sky) return false;
+  const sig = READ.map(n => t.css(n)).join("|") + "|" + W.over.filter(m => m.parent).length;
+  const changed = sig !== W.sig;
+  W.sig = sig;
   W.kind = kindOf(t);
   const u = W.sky.material.uniforms;
   u.uKind.value = W.kind;
@@ -203,6 +233,7 @@ function look(THREE) {
   W.over = W.over.filter(m => m.parent);
   for (const m of W.over) m.visible = W.kind === 0;
   void THREE;
+  return changed;
 }
 
 function timing() {
@@ -236,6 +267,7 @@ export function ground(ctx) {
     vertexShader: VERT, fragmentShader: SKY_FS, depthTest: false, depthWrite: false,
     uniforms: { uTime: { value: 0 }, uDpr: { value: dpr }, uView: { value: new THREE.Vector2(w, h) },
                 uFlashC: v3(), uFlash: { value: 0 }, uKind: { value: 0 }, uTop: v3(), uBottom: v3(),
+                uNoise: { value: W.noise || (W.noise = noiseTexture(THREE)) },
                 uCloud: v3(), uCloudA: { value: 0.6 }, uShade: v3(), uSun: v3(), uRay: v3(),
                 uRayA: { value: 0.3 }, uStar: v3(), uMeteor: v3(), uClear: { value: 0 } },
   }), api.order.ground);
@@ -294,21 +326,25 @@ export function tick(ctx, dt) {
   if (!W.sky) return false;
   const step = Math.min(Math.max(dt, 0), 0.1);
   W.ticks += 1;
+  let moved = !W.reduced;
   if (!W.reduced) {
     W.time += step;
     if (W.flash > 0) W.flash = Math.max(0, W.flash - step / FLASH_S);
     if (W.clear > 0) W.clear = Math.max(0, W.clear - step / CLEAR_S);
-  } else {
+  } else if (W.flash || W.clear) {
     W.flash = W.clear = 0;
+    moved = true;
   }
-  look(THREE);
+  const changed = look(THREE);
   timing();
-  W.api.request();
+  if (moved || changed) W.api.request();
   return !W.reduced;
 }
 
 export function dispose() {
-  W.sky = W.rain = W.rainU = null;
+  if (W.noise) W.noise.dispose();
+  W.sky = W.rain = W.rainU = W.noise = null;
+  W.sig = "";
   W.over = [];
   W.flash = W.clear = 0;
   W.frames = 0;

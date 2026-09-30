@@ -23,7 +23,10 @@ with a hand, the weather does with a sky.
 ## The sky
 
 With ink on, three.js shades one quad the size of the viewport behind everything (`ground`), a
-gradient from `--wx-sky-top` to `--wx-sky-bottom` and, by `--wx-kind`, the weather in it:
+gradient from `--wx-sky-top` to `--wx-sky-bottom` and, by `--wx-kind`, the weather in it. The
+noise the sky is made of is a 256px tileable texture built once on the CPU and sampled, not
+computed per pixel, so a frame is cheap on a machine without a GPU (CI's software GL renders one
+in about the time a farm frame takes):
 
 | Kind | Look | Palette | What the sky does |
 | --- | --- | --- | --- |
@@ -45,8 +48,8 @@ its panel is one colour, checked by `theme.check` on every ink. The rain is the 
 
 The rain is drawn twice by one shader with one set of uniforms: a sheet between the panes (`paper`)
 and a quad over each pane's sheet (`frame`), because the layer paints every frame after the paper.
-Three sheets of streaks fall at three speeds, the nearest fastest and longest, each column of each
-sheet with its own phase and gap, at `--wx-drop` and at most `--wx-drop-alpha` at a streak's core.
+Two sheets of streaks fall at two speeds, the nearer faster and longer, each column of each sheet
+with its own phase and gap, at `--wx-drop` and at most `--wx-drop-alpha` at a streak's core.
 The canvas is behind the page, so the rain falls under the words and over the sheet: weather on the
 desk, not a tint of it.
 
@@ -73,7 +76,8 @@ see the cue arrived.
 The weather is the one genre that moves while it is on ([themes.md](themes.md) §Genres): `tick`
 advances the sky's clock by the frame's time, asks for a frame, and answers `true` for another. The
 layer stops asking under `prefers-reduced-motion` (its `instant()`), and the module then holds the
-clock at zero and draws the weather once and still: streaks fixed in the air, the sun at rest, the
+clock at zero, asks for no frame unless the look itself changed, and draws the weather once and
+still: streaks fixed in the air, the sun at rest, the
 clouds parked, the stars lit. Under `body.ink-off` there is no canvas and no weather: the plain page
 in the look's palette, with the mark table drawn as plain CSS.
 

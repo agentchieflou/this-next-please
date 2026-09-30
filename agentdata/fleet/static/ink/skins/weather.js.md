@@ -58,12 +58,16 @@ paper skin carries.
 
 ### `const NOISE`, `const VERT`
 
-The hash, value noise and five-octave fbm every weather is made of, shared by both shaders, and the
-one vertex shader.
+The hash the stars and the rain are made of, shared by both shaders, and the one vertex shader. The
+value noise the sky is made of is not computed per pixel: it is a texture (`noiseTexture`), sampled.
 
 ### `const SKY_FS`
 
-The sky: a top-to-bottom gradient and, by `uKind`, the weather in it. 0: a heavier cloud band in the
+The sky: a top-to-bottom gradient and, by `uKind`, the weather in it. `fbm` here is one read of the
+noise texture `uNoise`, tileable, so a cloud that drifts is the same texture read a little further
+along, and a frame costs a few texture reads per pixel rather than forty hashes. That matters on a
+machine without a GPU (CI's software GL): the first draft computed five octaves of value noise per
+pixel, twice, and a render took seconds there. 0: a heavier cloud band in the
 grey, and the lightning `uFlash` mixed toward `uFlashC`, stronger at the top. 1: the sun's disc at
 (0.86, 0.14) of the viewport and rays that are the product of two slow sines of the angle about it,
 brightened by `uClear` when the clearing cue plays. 2: cloud cover from fbm drifting at nine pixels
@@ -73,16 +77,24 @@ the nine-second cycle, its tail behind it, gone in 0.7 s.
 
 ### `const RAIN_FS`
 
-Three sheets of streaks (`sheet`): a column width, a fall speed, a streak length and a lean per
+Two sheets of streaks (`sheet`): a column width, a fall speed, a streak length and a lean per
 sheet, each column's phase and gap hashed from its index and the sheet's seed, and a third of the
 columns empty. The alpha is capped at `uDropA` and the colour is `uDrop`, mixed toward the flash
 while lightning plays; the flash also lifts the whole sheet by 0.12. Drawn on `gl_FragCoord`, so a
 quad anywhere on the page shows the same rain as the sheet under it.
 
+### `const NOISE_PX`, `function noiseTexture`
+
+The sky's noise, built once on the CPU when the sky is first made: a 256px square of tileable
+five-octave value noise (the hash and the smoothstep of the first draft's shader, in JavaScript),
+uploaded as a `DataTexture` with repeat wrapping and linear filtering. About ten milliseconds once,
+against seconds per frame computed in the shader on software GL. Disposed with the module.
+
 ### `const W`
 
 The module's state: the sky mesh, the rain sheet, the rain's shared uniforms, the rain quads over
-the panes, the clock, the tick and frame counts, the two cues' levels, and what has played.
+the panes, the noise texture, the last look's signature, the clock, the tick and frame counts, the
+two cues' levels, and what has played.
 
 ### `function rainUniforms`, `function rainMaterial`
 
@@ -90,11 +102,14 @@ One uniforms object every rain material shares. The layer disposes a pane's grou
 materials when the pane is rebuilt (`layer.js` `empty`), so a material is never shared between the
 sheet and a pane's quad -- only what it reads, which disposing a material leaves alone.
 
-### `function remember`, `function kindOf`, `function look`, `function timing`
+### `const READ`, `function remember`, `function kindOf`, `function look`, `function timing`
 
+`READ` is every property `look` reads, in one place, so a change to any of them is one signature.
 `remember` keeps the tokens and the api for the tick. `look` reads every `--wx-*` into the sky's
-uniforms and the rain's, shows the rain sheet and the pane quads on the rainy day only, and drops
-the quads of panes the layer has removed. `timing` writes the clock and the cues' levels.
+uniforms and the rain's, shows the rain sheet and the pane quads on the rainy day only, drops the
+quads of panes the layer has removed, and answers whether anything it read changed since the last
+tick (the signature: the properties' values and how many pane quads are on). `timing` writes the
+clock and the cues' levels.
 
 ### `export function ground`
 
@@ -119,9 +134,12 @@ only) or the clearing (the sunny day only) and asks for a frame.
 ### `export function tick`
 
 Advances the clock by the frame's time (capped at 100 ms, as the layer caps it), lets the two cues
-fall back, re-reads the look in case the variant changed, writes the uniforms, asks for a frame and
-answers `true` for another -- `false` under reduced motion, where the clock stays at zero and the
-weather is drawn once and still.
+fall back, re-reads the look in case the variant changed, writes the uniforms, and answers `true`
+for another frame -- `false` under reduced motion, where the clock stays at zero and the weather is
+drawn once and still. It asks the layer for a frame (`api.request`) only when the clock moved or
+the look changed: the first draft asked on every tick, and under reduced motion the layer answered
+each ask with a frame and a render, so a desk that was meant to hold still re-drew the sky about
+six times a second on software GL and every screenshot in the suite waited behind it.
 
 ### `export function dispose`, `export function inspect`
 
