@@ -598,7 +598,7 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
             }, { once: true });""")
         desk.goto(f"http://127.0.0.1:{port}/?t={token}&ink=on", wait_until="domcontentloaded")
         desk.wait_for_function("""() => document.querySelectorAll('#grid .tile.is-solo').length === 1
-            && !!window.Ink && !document.body.classList.contains('is-stale')""", timeout=15000)
+            && typeof window.Ink?.inspect === 'function' && !document.body.classList.contains('is-stale')""", timeout=15000)
         assert desk.evaluate("() => window.__atLoad") == ["dark", sides["dark"]]
         # #342 with #339: the default variant's pane mark does not read on the dark side, so the
         # pane is sent none and its strip is each side's own `--focus`.

@@ -78,7 +78,7 @@ SAMPLER = WATCH + """
 
 # The desk has had its first `/api/fleet` answer and its stream's first `theme` frame.
 SETTLED = """() => typeof lastFleet !== 'undefined' && !!lastFleet && themeEvents > 0
-             && !document.body.classList.contains('is-stale') && !!window.Ink"""
+             && !document.body.classList.contains('is-stale') && typeof window.Ink?.inspect === 'function'"""
 
 
 @pytest.fixture()

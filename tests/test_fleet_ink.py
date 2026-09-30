@@ -133,7 +133,12 @@ def _open(browser, port, token, extra="", *, panes=2, width=1400, height=900, re
           count=False):
     """A desk page, waited on until every pane has its width and the ink module has run. `panes`
     is how many have a width. Every desk page counts its fetches and timers (`desk_page`), for
-    `desk_waits.settle`; `count` is kept for the callers that still ask for it."""
+    `desk_waits.settle`; `count` is kept for the callers that still ask for it.
+
+    The module has run when `window.Ink` has the layer's `inspect`: until ink.js runs, `window.Ink`
+    is Chromium's own `Ink` interface (the delegated ink trail API, a function with no `inspect`),
+    so `!!window.Ink` was true from the first frame, and the first `Ink.inspect()` after it threw
+    on a page whose module was still on its way (the margin test at 700px, Windows shard 2/4)."""
     page = desk_page(browser, width=width, height=height, reduced=reduced)
     errors, asked = [], []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -142,7 +147,7 @@ def _open(browser, port, token, extra="", *, panes=2, width=1400, height=900, re
     page.wait_for_function(
         f"""() => document.querySelectorAll('#grid .tile.is-solo').length === {panes}
              && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-             && !!window.Ink && windowWrites === 0
+             && typeof window.Ink?.inspect === 'function' && windowWrites === 0
              && !document.body.classList.contains('is-stale')""", timeout=15000)
     return page, errors, asked
 
@@ -1009,7 +1014,7 @@ def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home,
             page.on("request", lambda r: asked.append(r.url))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm{extra}",
                       wait_until="domcontentloaded")
-            page.wait_for_function("() => !!window.Ink && !!document.querySelector('.tile .repo')",
+            page.wait_for_function("() => typeof window.Ink?.inspect === 'function' && !!document.querySelector('.tile .repo')",
                                    timeout=15000)
             got = page.evaluate("""async () => ({ verdict: Ink.verdict, enabled: Ink.enabled,
               off: document.body.classList.contains('ink-off'),
@@ -1378,7 +1383,7 @@ def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("request", lambda r: asked.append(r.url))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&ink=on", wait_until="domcontentloaded")
-        page.wait_for_function("() => !!window.Ink && document.querySelectorAll('.tile.is-solo').length === 2",
+        page.wait_for_function("() => typeof window.Ink?.inspect === 'function' && document.querySelectorAll('.tile.is-solo').length === 2",
                                timeout=15000)
         out = page.evaluate("""async t => ({ drawn: (await Ink.setSkin(t)).drawn, verdict: Ink.verdict,
           off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink') })""",

@@ -507,7 +507,7 @@ def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid{extra}",
                       wait_until="domcontentloaded")
             page.wait_for_function(
-                """() => !!window.Ink && document.body.dataset.skin === 'glass'
+                """() => typeof window.Ink?.inspect === 'function' && document.body.dataset.skin === 'glass'
                          && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')
                          && !!(document.head.querySelector('link[data-skin]') || {}).sheet""",
                 timeout=15000)
@@ -551,7 +551,7 @@ def test_with_ink_the_trace_is_a_mark_in_its_panes_lane_and_follows_its_data(fle
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on",
                   wait_until="domcontentloaded")
         page.wait_for_function(
-            """() => !!window.Ink && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')""",
+            """() => typeof window.Ink?.inspect === 'function' && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')""",
             timeout=20000)
         assert page.evaluate("() => Ink.inspect().layer") is None, \
             "no skin draws with ink yet, so there is no layer and the SVG is the trace"
@@ -639,7 +639,7 @@ def test_nothing_on_the_page_asks_for_a_2d_context(fleet_home, tmp_path, desk_br
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid{extra}",
                       wait_until="domcontentloaded")
             page.wait_for_function(
-                "() => !!window.Ink && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')",
+                "() => typeof window.Ink?.inspect === 'function' && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')",
                 timeout=20000)
             if extra:
                 page.wait_for_function(

@@ -141,7 +141,7 @@ def _open(browser, port, token, extra="&ink=on", *, panes, width=1600, height=90
     page.wait_for_function(
         f"""() => document.querySelectorAll('#grid .tile[data-repo]').length === {panes}
              && [...document.querySelectorAll('#grid .tile[data-repo]')].every(t => !!t.dataset.tier)
-             && !!window.Ink && document.body.dataset.skin === '{family}' && windowWrites === 0
+             && typeof window.Ink?.inspect === 'function' && document.body.dataset.skin === '{family}' && windowWrites === 0
              && !document.body.classList.contains('is-stale')""", timeout=20000)
     if family != "voxel":
         return page, errors
@@ -569,7 +569,7 @@ def _strip_px(page, repo):
 def _reload(page, panes):
     page.reload(wait_until="domcontentloaded")
     page.wait_for_function(f"""() => document.querySelectorAll('#grid .tile[data-repo]').length === {panes}
-        && !!window.Ink && document.body.dataset.skin === 'voxel'""", timeout=20000)
+        && typeof window.Ink?.inspect === 'function' && document.body.dataset.skin === 'voxel'""", timeout=20000)
     page.evaluate(IMPORT)
     _armed(page)
     _rest(page, f"({VOXEL})().panes.length === {panes}")

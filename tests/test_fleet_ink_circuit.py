@@ -348,7 +348,7 @@ def test_the_board_draws_the_grammar_and_its_signals_and_ink_off_is_plain(
         _emit(page, "alpha", *[("assistant_text", {"text": f"backlog line {i}"}) for i in range(30)])
         _motion(page, True)
         page.reload(wait_until="domcontentloaded")
-        page.wait_for_function("""() => !!window.Ink && Ink.inspect().table === 'circuit:matte'
+        page.wait_for_function("""() => typeof window.Ink?.inspect === 'function' && Ink.inspect().table === 'circuit:matte'
             && !document.body.classList.contains('is-replaying') && !document.body.classList.contains('is-stale')""",
                                timeout=20000)
         page.evaluate("async () => { window.__circuit = await import(q('/static/ink/skins/circuit.js')); }")

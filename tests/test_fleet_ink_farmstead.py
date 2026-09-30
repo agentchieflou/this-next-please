@@ -316,7 +316,7 @@ def _page(browser, port, token, extra="&ink=on", *, panes=2, width=1400, height=
     page.wait_for_function(
         f"""() => document.querySelectorAll('#grid .tile.is-solo').length === {panes}
              && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-             && !!window.Ink && windowWrites === 0
+             && typeof window.Ink?.inspect === 'function' && windowWrites === 0
              && !document.body.classList.contains('is-stale')""", timeout=20000)
     return page, errors
 
@@ -971,7 +971,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         _settle(page, "document.querySelectorAll('#grid > .tile.is-hidden').length === 0")
         # A reload (the cached desk, the replay) plays nothing, though alpha is done.
         page.reload(wait_until="domcontentloaded")
-        page.wait_for_function("() => !!window.Ink && (Ink.inspect().table || '') === 'farmstead:daytime'", timeout=20000)
+        page.wait_for_function("() => typeof window.Ink?.inspect === 'function' && (Ink.inspect().table || '') === 'farmstead:daytime'", timeout=20000)
         page.evaluate(LOAD_FARM)
         _armed(page)
         _settle(page)
