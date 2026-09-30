@@ -15,22 +15,20 @@ holds each weather's colours as custom properties. What is asserted:
 * `theme.check` holds every variant on every end of its paper;
 * the two palettes are greyer than the blue the rainy day was first drawn on;
 * the module carries no colour, no markup, no static import, and fits `SKIN_BUDGET`;
-* in a browser (`?ink=on`): the rain ticks on its own and stops under reduced motion, an error's
-  arrival is a flash of lightning on the rainy day only, and another weather puts the rain away.
+* in a browser (`?ink=on`, from `test_fleet_ink.py`'s grammar test, which calls
+  `weather_in_a_browser` here): the rain ticks on its own and stops under reduced motion, an
+  error's arrival is a flash of lightning on the rainy day only, and another weather puts the rain
+  away.
 """
 from __future__ import annotations
 import gzip
 import os
 import re
 
-import pytest
-
 from agentdata import theme
 from agentdata.fleet import serve as S, skins
 
-from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
-    SKIN_BUDGET, _choose, _desk_of, _mark, _open, _serve, _stop, fleet_home)
-from desk_harness import close_pages
+from test_fleet_ink import SKIN_BUDGET, _choose, _mark, _open
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -143,51 +141,57 @@ def test_the_module_reads_every_colour_it_draws_from_the_stylesheet():
 
 
 # ================================================================================ with a browser
+#
+# Folded into `tests/test_fleet_ink.py::test_a_skin_is_a_module_the_page_loads_when_it_is_chosen`
+# rather than a browser test of its own, as #397 folded the circuit board's: the browser tier's
+# time budget (decision 20, `tests/test_suite_hygiene.py`) is the operator's number, and the tier
+# stood 0.1 s under it with one more test. The checks are this file's; the page is that test's.
 
 
-@pytest.mark.browser
-def test_the_rain_falls_on_its_own_stops_under_reduced_motion_and_lightning_strikes_an_error(
-        fleet_home, tmp_path, desk_browser):
-    _desk_of(tmp_path)
-    (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "weather:rainy"}}', encoding="utf-8")
-    server, token, port = _serve()
-    try:
-        page, errors, _ = _open(desk_browser, port, token, "&ink=on")
-        page.wait_for_function("() => Ink.inspect().table === 'weather:rainy'", timeout=10000)
-        page.evaluate(LOAD)
-        page.wait_for_function("() => window.__wx.inspect().ticks > 5 && window.__wx.inspect().time > 0", timeout=15000)
-        first = page.evaluate(WX)
-        assert first["kind"] == "rainy" and first["rain"] and first["over"] == 2, first
-        assert first["time"] > 0 and not first["reduced"], first
-        layer = page.evaluate("() => Ink.inspect().layer")
-        assert layer["skin"]["hooks"] == ["ground", "paper", "frame", "tick", "dispose"], layer["skin"]
-        assert layer["skin"]["errors"] == [] and layer["mode"] == 2, "a dark paper under the marks: screen"
-        # An error's arrival is lightning: a flash that is gone within the event's 320 ms.
-        _mark(page, "alpha", "state-error")
-        page.wait_for_function("() => window.__wx.inspect().played.lightning === 1", timeout=10000)
-        page.wait_for_function("() => window.__wx.inspect().flash === 0", timeout=10000)
-        # Another weather puts the rain away and keeps the sky moving.
-        _choose(page, "weather:starry")
-        page.wait_for_function("() => Ink.inspect().table === 'weather:starry'", timeout=10000)
-        page.evaluate(LOAD)
-        page.wait_for_function("() => window.__wx.inspect().kind === 'starry'", timeout=10000)
-        starry = page.evaluate(WX)
-        assert not starry["rain"] and starry["over"] == 0, starry
-        _mark(page, "beta", "state-error")
-        page.wait_for_function("() => (window.__wx.inspect().played.lightning || 0) >= 1", timeout=10000)
-        assert page.evaluate(WX)["flash"] == 0, "lightning is the rainy day's alone"
-        assert not errors, errors
-        page.close()
+def weather_in_a_browser(browser, port, token) -> dict:
+    """On a served desk with the ink on: the rain ticks on its own, an error's arrival is
+    lightning on the rainy day only, another weather puts the rain away, and under reduced motion
+    the weather is drawn once and holds still. Returns what it saw, for the caller's assert."""
+    seen = {}
+    page, errors, _ = _open(browser, port, token, "&ink=on")
+    _choose(page, "weather:rainy")
+    page.wait_for_function("() => Ink.inspect().table === 'weather:rainy'", timeout=10000)
+    page.evaluate(LOAD)
+    page.wait_for_function("() => window.__wx.inspect().ticks > 5 && window.__wx.inspect().time > 0", timeout=15000)
+    first = page.evaluate(WX)
+    assert first["kind"] == "rainy" and first["rain"] and first["over"] == 2, first
+    assert first["time"] > 0 and not first["reduced"], first
+    layer = page.evaluate("() => Ink.inspect().layer")
+    assert layer["skin"]["hooks"] == ["ground", "paper", "frame", "tick", "dispose"], layer["skin"]
+    assert layer["skin"]["errors"] == [] and layer["mode"] == 2, "a dark paper under the marks: screen"
+    # An error's arrival is lightning: a flash that is gone within the event's 320 ms.
+    _mark(page, "alpha", "state-error")
+    page.wait_for_function("() => window.__wx.inspect().played.lightning === 1", timeout=10000)
+    page.wait_for_function("() => window.__wx.inspect().flash === 0", timeout=10000)
+    # Another weather puts the rain away and keeps the sky moving.
+    _choose(page, "weather:starry")
+    page.wait_for_function("() => Ink.inspect().table === 'weather:starry'", timeout=10000)
+    page.evaluate(LOAD)
+    page.wait_for_function("() => window.__wx.inspect().kind === 'starry'", timeout=10000)
+    starry = page.evaluate(WX)
+    assert not starry["rain"] and starry["over"] == 0, starry
+    _mark(page, "beta", "state-error")
+    page.wait_for_function("() => (window.__wx.inspect().played.lightning || 0) >= 1", timeout=10000)
+    assert page.evaluate(WX)["flash"] == 0, "lightning is the rainy day's alone"
+    seen["errors"] = list(errors)
+    page.close()
 
-        # Reduced motion: the weather is drawn once and holds still.
-        page, errors, _ = _open(desk_browser, port, token, "&ink=on", reduced=True)
-        page.wait_for_function("() => Ink.inspect().table === 'weather:starry'", timeout=10000)
-        page.evaluate(LOAD)
-        page.wait_for_function("() => window.__wx.inspect().ticks >= 1", timeout=10000)
-        held = page.evaluate(WX)
-        assert held["reduced"] and held["time"] == 0, held
-        assert page.evaluate("() => Ink.inspect().layer.reduced") is True
-        assert not errors, errors
-        close_pages(desk_browser)
-    finally:
-        _stop(server)
+    # Reduced motion: the weather is drawn once and holds still.
+    page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+    page.wait_for_function("() => Ink.inspect().table === 'weather:starry'", timeout=10000)
+    page.evaluate(LOAD)
+    page.wait_for_function("() => window.__wx.inspect().ticks >= 1", timeout=10000)
+    held = page.evaluate(WX)
+    assert held["reduced"] and held["time"] == 0, held
+    assert page.evaluate("() => Ink.inspect().layer.reduced") is True
+    seen["errors"] += errors
+    seen["held"] = held
+    _choose(page, "none")
+    page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
+    page.close()
+    return seen
