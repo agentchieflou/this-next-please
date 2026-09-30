@@ -91,7 +91,7 @@ def shard_of(run: str):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def test_the_windows_rows_are_three_shards_and_a_packaging_job_all_on_3_14():
+def test_the_windows_rows_are_four_shards_and_a_packaging_job_all_on_3_14():
     job = _job()
     assert job["timeout-minutes"] <= 20, "the Windows caps came back down to 20 minutes"
     for s in job["steps"]:
@@ -112,7 +112,7 @@ def test_the_windows_rows_are_three_shards_and_a_packaging_job_all_on_3_14():
         if sharded:
             shards.append(sharded[0])
             assert e["name"] == f"windows · python {PYTHON} · shard {sharded[0][0]}/{sharded[0][1]}"
-    assert sorted(shards) == [(k, 3) for k in range(1, 4)], f"every shard K/3 exactly once, and nothing else: {shards}"
+    assert sorted(shards) == [(k, 4) for k in range(1, 5)], f"every shard K/4 exactly once, and nothing else: {shards}"
 
     packaging = [e for e in expanded if not any(shard_of(s["run"]) for s in pytest_runs(e))]
     assert [e["name"] for e in packaging] == [PACKAGING]
@@ -124,7 +124,7 @@ def test_the_shards_check_out_as_git_for_windows_does_and_packaging_leaves_line_
     matrix still runs both ways (tests/test_shell.py holds the pair)."""
     by_name = {e["name"]: e["row"]["autocrlf"] for e in expand(_job())}
     assert by_name.pop(PACKAGING) == "false"
-    assert set(by_name.values()) == {"true"} and len(by_name) == 3, by_name
+    assert set(by_name.values()) == {"true"} and len(by_name) == 4, by_name
     first = _job()["steps"][0]
     assert first["run"] == "git config --global core.autocrlf ${{ matrix.autocrlf }}", "set before the checkout"
 

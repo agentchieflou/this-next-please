@@ -56,7 +56,7 @@ def test_every_tier_runs_on_both_oses():
         assert f"ubuntu · python 3.14 · browser · shard {shard}" in names
         assert f"suite · shuffled · browser · shard {shard}" in names
     assert {"suite · shuffled · seed 1", "suite · shuffled · seed 20260904"} <= names
-    assert {f"windows · python 3.14 · shard {k}/3" for k in (1, 2, 3)} <= names
+    assert {f"windows · python 3.14 · shard {k}/4" for k in (1, 2, 3, 4)} <= names
 
 
 def test_removing_a_chromium_install_from_a_job_that_selects_a_browser_test_is_caught():

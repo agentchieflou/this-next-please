@@ -181,14 +181,14 @@ weighting and the plugin in a throwaway project serially and under `-n 2`; the `
 
 **The Windows shards** (#311). The one serial Windows 3.14 job outgrew every cap it was given (its pytest step
 took 28-32 minutes of 35), so Windows is four parallel jobs on 3.14, each capped at 20 minutes: three
-`--shard=K/3` jobs that select exactly what the old step did (`not slow and not measured and not scale`), checked
+`--shard=K/4` jobs that select exactly what the old step did (`not slow and not measured and not scale`), checked
 out with `core.autocrlf true` (Git for Windows' default), and a `packaging and shells` job with `core.autocrlf
 false` (#591: 3.14 is the only Python). A shard is whole files, so each module still runs
 contiguously in one process, which is what #227 needs. The `windows` times in `tests/durations.json` put each
 shard near 9.3 minutes; a file the table does not know weighs the median, so a
 new or renamed file can unbalance the shards until the table is refreshed (§Step budgets). What each job runs is
 decided by its matrix row and each step's `if:`, and `tests/test_hygiene_windows_shards.py` checks that locally:
-it expands the rows as Actions does, evaluates every `if:`, and checks that every shard K/3 exists once, that
+it expands the rows as Actions does, evaluates every `if:`, and checks that every shard K/4 exists once, that
 every job is 3.14 and installs and requires Chromium, that the shards check out with `autocrlf true` and
 packaging and shells with `false`, that each shell, encoding and floor step runs in exactly one job, and that each
 job reports its own junit
@@ -941,8 +941,8 @@ Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh 
 
 | Tier | ubuntu · 3.14 | windows · 3.14 |
 |---|---|---|
-| `default` | parallel + parallel, named files + serial + serial, named files + shuffled + shuffled (2 seeds) | 3 shards, serial |
-| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 3 shards, serial |
+| `default` | parallel + parallel, named files + serial + serial, named files + shuffled + shuffled (2 seeds) | 4 shards, serial |
+| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 4 shards, serial |
 | `measured` | serial + shuffled + shuffled (2 seeds) | serial |
 | `scale` | serial + shuffled + shuffled (2 seeds) | serial |
 | `slow` | serial + shuffled + shuffled (2 seeds) | serial |
@@ -960,9 +960,10 @@ Per job, as the checks are named:
 | `ubuntu-latest · python 3.14` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files | gated |
 | `ubuntu · python 3.14 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — | — |
 | `ubuntu · python 3.14 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — | — |
-| `windows · python 3.14 · shard 1/3` | serial | serial | — | — | — | gated | — | — | — | — |
-| `windows · python 3.14 · shard 2/3` | serial | serial | — | — | — | gated | — | — | — | — |
-| `windows · python 3.14 · shard 3/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 1/4` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 2/4` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 3/4` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 4/4` | serial | serial | — | — | — | gated | — | — | — | — |
 | `windows · python 3.14 · packaging and shells` | — | — | serial | serial | serial | — | serial | serial | serial | gated |
 | `lint · bash 4.4 and pwsh 7 floors` | serial, named files | — | — | — | — | — | — | — | — | — |
 | `coverage · per-module floors` | serial | — | serial | serial | serial | gated | — | — | serial | gated |
@@ -986,7 +987,7 @@ tier markers the matrix does not list (#315). The table below is the prose per j
 | `changes · which groups a filter would run (report only)` | which groups of `.github/ci-paths.json` the PR's diff (or the push's range) touches, and in its job summary which jobs a path filter *would* skip (#593). Report only: every job `needs:` it and none reads its outputs, so nothing is skipped until #596. A path no group names, a push, a dispatch and an empty diff all mean everything |
 | `ubuntu-latest · python 3.14` | the suite on the floor, which is also the laptop's Python (#591): the bulk on every core without the browser tier, then `measured` + `scale` with the machine to themselves, then `slow` serially. It first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236), and keeps Chromium for the `browser` tests that are also `measured` or `slow`, the measurements and the demo (#312) |
 | `ubuntu · python 3.14 · browser · shard K/2` (K = 1, 2) | the browser tier (`browser and not slow and not measured and not scale`), once per run, in two whole-file shards under `-n 2`, with Chromium (#312) |
-| `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf true` (Git for Windows' default; #591) |
+| `windows · python 3.14 · shard K/4` (K = 1..4) | the tiers the ubuntu legs run in parallel, as four whole-file shards (#311; three until the tier outgrew them), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf true` (Git for Windows' default; #591) |
 | `windows · python 3.14 · packaging and shells` | `measured` + `scale` with the machine to themselves, the `slow` tier, and the pwsh 7 / Git Bash / cmd smoke, completion, encoding and 5.1-refusal steps, `core.autocrlf false` |
 | `floor · pip refuses the wheel on 3.13` | `Requires-Python: >=3.14` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |
@@ -1038,14 +1039,17 @@ from `tests/durations.json`, stays inside it. The tenth stays as it was. Decisio
 Windows only**: Linux is reported against its would-be budget, never gated.
 
 - **The budget** is `BROWSER_BUDGET_S` in `tests/test_suite_hygiene.py`: per OS, the summed time of every tier that
-  carries `browser` in `tests/durations.json` on green run 36330617129 @ a8549e1, the 3.14-only job set (Linux
-  1,538.4 s, Windows 1,378.3 s), plus 5%, rounded down: **1,615 s and 1,447 s**. 5% is about 70 s of test time on
-  each OS, about 17 browser tests at the tier's mean, spread over the shards: on that run the slowest Windows shard's
-  `pytest` step took 12.1 minutes of its 20-minute job cap, and the Linux browser shards 6.3 and 6.8 of their 15.
+  carries `browser` in `tests/durations.json` on run 36551490090 @ fe601d2 (main's own run, every test timed; its
+  one red was a one-second timing assertion), the 3.14-only job set (Linux 1,703.1 s, Windows 1,545.4 s, 368 ids),
+  plus 5%, rounded down: **1,788 s and 1,622 s**. 5% is about 85 s of test time on Linux and 77 s on Windows, about
+  18 browser tests at the tier's mean, spread over the shards. The first budget (green run 36330617129 @ a8549e1,
+  356 ids: 1,615 s and 1,447 s) was outgrown by fe601d2, when the Windows tier measured 1,545.4 s and the slowest of
+  the three Windows shards' `pytest` steps took 13m58s of its 15; the operator raised it with the fourth Windows
+  shard, which puts each shard at about 9.4 minutes on the same table.
 - **Windows is gated; Linux is reported** (decision 24). `BROWSER_GATED` in `tests/test_suite_hygiene.py` is
   `{"windows"}`. Linux's browser time varies about 9% between green runs (two with the same 356 ids measured
   1,410.6 s and 1,538.4 s), wider than the 5% headroom, while Windows moved 0.9%. So Linux keeps its would-be budget
-  of 1,615 s, and the check prints its projected time against it, but a Linux overrun fails nothing. Windows stays
+  of 1,788 s, and the check prints its projected time against it, but a Linux overrun fails nothing. Windows stays
   at measured + 5%.
 - **The cost of a new test** is its file's measured time per browser test (`tests/browser_counts.json` holds the
   counts of the measured run), or the tier's mean for a file the run did not measure. A removed test gives its time
