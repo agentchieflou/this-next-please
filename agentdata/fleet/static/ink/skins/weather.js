@@ -67,10 +67,6 @@ float fbm(vec2 p){ float a = 0.5, s = 0.0; for (int k = 0; k < 5; k++) { s += a 
 
 const VERT = "void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }";
 
-// The sky, behind everything: a gradient, and the weather that lives in it. Kind 1 is the sun with
-// its rays turning; 2 is cloud cover drifting; 3 is the stars, twinkling, and a meteor now and then.
-// The rain's sky (0) is the gradient, a little darker under a heavier cloud band, and it is the one
-// that lights up white when the lightning cue fires.
 const SKY_FS = `
 uniform float uKind; uniform float uTime; uniform float uDpr; uniform vec2 uView;
 uniform vec3 uTop; uniform vec3 uBottom; uniform vec3 uCloud; uniform float uCloudA; uniform vec3 uShade;
@@ -125,11 +121,6 @@ void main(){
   gl_FragColor = vec4(c, 1.0);
 }`;
 
-// The rain, across the panes: streaks that fall in three sheets at three speeds, the near sheet
-// fastest and longest. The colour is the stylesheet's `--wx-drop` at `--wx-drop-alpha` at a streak's
-// core, which is the light end of the panel `skins.py` declares -- the paper under a streak is the
-// most the words are ever read on. Drawn under the words (the canvas is behind the page) and over
-// the sheet, so it reads as weather on the desk rather than a tint of it.
 const RAIN_FS = `
 uniform float uTime; uniform float uDpr; uniform vec2 uView; uniform vec3 uDrop; uniform float uDropA;
 uniform vec3 uFlashC; uniform float uFlash;
@@ -160,9 +151,6 @@ const W = {
   flash: 0, clear: 0, frames: 0, played: {}, reduced: false,
 };
 
-// The rain's uniforms are one object every rain material shares: the sheet between the panes
-// (`paper`) and the quad over each pane (`frame`), which the layer disposes with the pane's group,
-// so a material is never shared -- only what it reads.
 function rainUniforms(THREE, api) {
   if (!W.rainU) {
     const { w, h, dpr } = api.viewport;
@@ -256,9 +244,6 @@ export function ground(ctx) {
   timing();
 }
 
-// The sheet the marks are read on is each pane's (`frame`), so the layer's own flat paper is not
-// wanted: this hook is what keeps it off. The rain between the panes is drawn here; the rain over
-// each pane's sheet is the frame's own quad, since the layer paints every frame after the paper.
 export function paper(ctx) {
   remember(ctx);
   const { THREE, scene, api } = ctx;

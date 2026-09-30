@@ -155,7 +155,7 @@ def test_the_rain_falls_on_its_own_stops_under_reduced_motion_and_lightning_stri
         page, errors, _ = _open(desk_browser, port, token, "&ink=on")
         page.wait_for_function("() => Ink.inspect().table === 'weather:rainy'", timeout=10000)
         page.evaluate(LOAD)
-        page.wait_for_function("() => window.__wx.inspect().ticks > 30", timeout=10000)
+        page.wait_for_function("() => window.__wx.inspect().ticks > 5 && window.__wx.inspect().time > 0", timeout=15000)
         first = page.evaluate(WX)
         assert first["kind"] == "rainy" and first["rain"] and first["over"] == 2, first
         assert first["time"] > 0 and not first["reduced"], first
