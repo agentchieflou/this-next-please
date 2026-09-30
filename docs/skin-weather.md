@@ -14,7 +14,7 @@ with a hand, the weather does with a sky.
 
 | File | Is |
 | --- | --- |
-| `agentdata/fleet/static/ink/skins/weather.js` | the mark table (the grammar, drawn without a hand), the sky shader with a weather per kind, the rain shader, each pane's sheet, the two cues and the tick |
+| `agentdata/fleet/static/ink/skins/weather.js` | the mark table (the grammar, drawn without a hand), the sky shader with a weather per kind, the rain shader, each pane's sheet, the two cues, the rain's own signs (`expresses`) and the tick |
 | `agentdata/fleet/static/skins/weather/skin.css` | each weather's colours and numbers as custom properties, and the stand-aside; nothing it paints (#257) |
 | `agentdata/fleet/skins.py` (`weather`, `GENRES["weather"]`) | the four variants, their palettes, each paper and the rain's pair, the inks `theme.check` holds |
 | `agentdata/theme.py` (`SLATE`, `OVERCAST`) | the two palettes, greyer than `blues` by `theme.saturation` |
@@ -74,6 +74,26 @@ Two cues (`cues`, [desk-ink.md](desk-ink.md) §Effects), each one-shot and done 
 Under reduced motion neither plays (`api.reduced`), and the played count still rises, so a test can
 see the cue arrived.
 
+## The rain's own signs
+
+On *Rainy day* and *Showers* the states are weather, not marks ([desk-ink.md](desk-ink.md) §The state
+grammar across skins, `expresses`): the operator's ask, *animations in weather should be weather
+related*. Each pane's rain quad has uniforms of its own, eased toward what the pane's classes want
+over 320 ms (at once under reduced motion):
+
+| Sign | Entries | On | What the rain does |
+| --- | --- | --- | --- |
+| `squall` | `needs_name`, `needs_q`, `needs_card` | `.needs-human` | the rain over that pane thickens: a third sheet of streaks, faster, longer and leaning harder, never past the streak alpha |
+| `puddle` | `running` | `.state-running` | the pane runs with water: four rings spread from hashed points inside it and fade as they go, each on its own phase, in `--wx-drop` |
+| `lightning` | `error_bang` | `.state-error` arrives | the cue above; and **thunder**, a 1.6 s roll of low noise, when the page's chime is on (`#chime` pressed, the operator's own switch for sound; `played.thunder` counts it). The reason stays outlined in marker, a mark |
+| `drying` | `done` | `.is-done`, `.state-done` | the rain fades off that pane's sheet, and its puddles with it |
+
+The sun, the cloud and the stars keep every row of the grammar. Under `body.ink-off` the rainy
+variants hand the plain page the grammar's rows too, since there is no rain to speak with. The
+squall and the puddles never pass `--wx-drop-alpha`, so the pair's wet end (`composited_panel`)
+is the same and every word holds through them. `inspect().panes[repo]` gives `{squall, ripple,
+dry}`, each 0 to 1.
+
 ## Motion
 
 The weather is the one genre that moves while it is on ([themes.md](themes.md) §Genres): `tick`
@@ -90,8 +110,9 @@ The state grammar ([desk-ink.md](desk-ink.md) §The state grammar across skins),
 (`hand: false`) at an even pressure, a shade quicker than the notebook: an idle pane's dashed
 outline in pencil, the running name underlined in pen with the line growing per transcript line,
 the needs-you name and question in highlighter with the card looped in marker, an error's reason
-outlined in marker and its bang in red, a done check in green. What the operator reads is the same
-in every genre; what moves around it is the weather's.
+outlined in marker and its bang in red, a done check in green -- on the sun, the cloud and the
+stars. On the rain those states are the rain's own signs (above), and only the reason's outline,
+the answered choice, the stale note, a finding and the header's count stay marks.
 
 ## Names
 

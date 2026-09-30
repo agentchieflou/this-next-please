@@ -216,9 +216,9 @@ A genre is what its looks have in common, and what moves on them is the genre's,
 
 | Genre | Looks | What moves |
 |---|---|---|
-| Weather | Rainy day (Showers by day, Rainy day by night), Clear sky (Sunny day, Starry night), Cloudy (Cloudy, Dusk) ([skin-weather.md](skin-weather.md)) | the sky: rain across the panes, the sun's rays turning, cloud cover drifting, stars and a meteor; lightning on an error |
+| Weather | Rainy day (Showers by day, Rainy day by night), Clear sky (Sunny day, Starry night), Cloudy (Cloudy, Dusk) ([skin-weather.md](skin-weather.md)) | the sky: rain across the panes, the sun's rays turning, cloud cover drifting, stars and a meteor; on the rain, the states as weather: a squall on the pane that needs you, puddles on the one that runs, lightning (thunder with the chime on) on an error, drying when done |
 | Paper | Notebook, Legal pad, Napkin notes and · Kraft, Graph paper | a hand writing the state grammar in pencil, pen, marker and highlighter |
-| Football | Playbook (Play sheet by day, Chalkboard by night) | routes in chalk, a flag, goalposts, a ball that hops to an error |
+| Football | Gridiron (Day game by day, Night game by night); · Playbook (Play sheet by day, Chalkboard by night) | the field's own signs: a line of scrimmage, a first-down line that advances a yard line per turn line, a penalty flag, a fumble, a touchdown ([skin-gridiron.md](skin-gridiron.md)); on the playbook, routes in chalk and the same three moments |
 | Worlds | Farmstead and · Rainy day; Voxel (Daylight by day, Overworld by night), · Nether and · The End | crops that grow and are harvested, hens, showers; stacks of cubes |
 | Screens | Glass, · Azure and · Noir; Phosphor (Paper white by day, Green by night); Circuit board (White mask by day, Solder by night) and · Matte | a glint, code rain down a margin, a pulse along a trace |
 | Colors | Matte, Glass, Cyber: any colour, on either side (§Colors below) | nothing on matte and cyber; the glass's glint on glass |
@@ -271,6 +271,7 @@ carries the palette.
 | `legalpad` | A yellow legal pad drawn by the ink layer (#251): canary stock, blue rules on the page's 28px baseline, a double red margin down every pane and a gummed band across the top; state is drawn on it in pencil, pen, marker and an orange-pink highlighter ([desk-ink.md](desk-ink.md) §The legal pad). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: every state is a shape as well as an ink -- an outline, a loop, a strike, a check, a bang. |
 | `napkin` | Napkin notes drawn by the ink layer (#252): quilted two-ply stock, a felt tip that bleeds along the emboss, and a coffee ring under a pane idle a long time ([skin-napkin.md](skin-napkin.md)). Plain CSS where WebGL is not measured as hardware. | *Composited contrast*: the text is checked on the stock and on the coffee ring's rim, the darker end of its panel. |
 | `notebook` | The first skin drawn with ink (#249, #250): white stock with blue rules and a red margin by day, charcoal stock and gel inks by night, and state drawn in pencil, pen, marker and highlighter ([skin-notebook.md](skin-notebook.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: the highlighter is multiplied into the day page and screened onto the night one, and every state is a shape as well as an ink. |
+| `gridiron` | The field itself, drawn by the ink layer: turf in mown stripes with yard lines and hash marks, every pane a stretch of it, and the football genre's states as the field's own signs -- a line of scrimmage, a first-down line that advances with every turn line, a penalty flag, a fumble, a touchdown ([skin-gridiron.md](skin-gridiron.md)). Plain CSS where WebGL is not measured as hardware. Names no team or league (#318). | *Color & Redundancy*: every state is a shape as well as a colour -- a line that moves, a flag, a ball, posts -- beside the page's own chip and word. |
 | `playbook` | A coach's chalkboard drawn by the ink layer (#389): brown slate, every agent an O, its turn a route in orange chalk, and the state grammar in X's and O's ([skin-playbook.md](skin-playbook.md)). Plain CSS where WebGL is not measured as hardware. Names no team or league (#318). | *Color & Redundancy*: every state is a shape as well as an ink -- a route, a dashed option route, a bar and an X, a check. |
 | `phosphor` | A green phosphor screen drawn by the ink layer (#394): near-black glass with faint 3px scanlines, and the state grammar traced by a thin, even beam ([skin-phosphor.md](skin-phosphor.md)). Plain CSS where WebGL is not measured as hardware. | *Composited contrast*: the glass is a pair, near-black and its scanline, and the text and every ink are checked at both ends. |
 | `weather` | A sky drawn by the ink layer: rain that falls across the panes on a grey-blue afternoon, the sun's rays turning behind them, cloud cover drifting, or stars that twinkle with a meteor now and then; lightning on an error, a clearing when a pane is done ([skin-weather.md](skin-weather.md)). Plain CSS where WebGL is not measured as hardware. | *Motion*: the one genre that moves on its own, and holds still under reduced motion. |
@@ -339,6 +340,8 @@ passes the `--focus` test on both sides' panels and states.
 | `napkin:late` | Late shift | `dark` | `#14171A` | `#362E28` … `#23262B` | 10.7:1 at the worse end | a dark napkin from the late counter, and a gel pen |
 | `notebook:light` | Notebook *(default)* | `eye-relief-day` | `#F2ECDC` | `#FBFBF6` | 11.0:1 | white stock, blue rules, a red margin |
 | `notebook:dark` | Night notebook | `dark` | `#14171A` | `#1B1E25` | 13.4:1 | charcoal stock and gel inks, the highlighter screened |
+| `gridiron:nightgame` | Night game *(default)* | `greens` | `#0B1F14` | `#0E3418` … `#183D1F` | 9.2:1 at the worse end | turf under the lights: chalk lines, a yellow first-down line |
+| `gridiron:daygame` | Day game | `eye-relief-day` | `#F2ECDC` | `#C2DDB5` … `#D6EACB` | 7.8:1 at the worse end | a pale field by day: graphite and an amber pen |
 | `playbook:chalkboard` | Chalkboard *(default)* | `nfl-browns` | `#311D00` | `#2B1B08` … `#40301D` | 10.4:1 at the worse end | brown slate, cream and orange chalk |
 | `playbook:playsheet` | Play sheet | `sand` | `#EFE6D2` | `#E9DFC9` … `#F7F1E3` | 9.6:1 at the worse end | a printed play sheet: graphite and a burnt-orange pen |
 | `phosphor:green` | Green *(default)* | `matrix` | `#020A03` | `#010603` … `#0A1F10` | 11.5:1 at the worse end | phosphor on glass |
@@ -346,7 +349,7 @@ passes the `--focus` test on both sides' panels and states.
 | `circuit:solder` | Solder *(default)* | `greens` | `#0B1F14` | `#0D2618` … `#1C3A28` | 9.4:1 at the worse end | green solder mask, white silkscreen and bare copper |
 | `circuit:matte` | Matte | `vanta-black` | `#000000` | `#0A0A0A` … `#1A1A1A` | 10.4:1 at the worse end | a matte-black board, for a room with the lights off |
 | `circuit:silk` | White mask | `overcast` | `#E6E9EC` | `#E9ECEF` … `#F6F8FA` | 10.6:1 at the worse end | a white solder mask, grey silkscreen and bare copper |
-| `weather:rainy` | Rainy day *(default)* | `slate` | `#252A30` | `#2B3037` … `#3B434D` | 7.1:1 at the worse end | grey sky, rain falling across the panes, a flash of lightning on an error |
+| `weather:rainy` | Rainy day *(default)* | `slate` | `#252A30` | `#2B3037` … `#3B434D` | 7.1:1 at the worse end | grey sky, rain falling across the panes; a squall, puddles, lightning and thunder, drying as the rain's own signs |
 | `weather:sunny` | Sunny day | `sand` | `#EFE6D2` | `#F6EEDC` | 11.0:1 | a warm sky, the sun's rays turning slowly behind the panes |
 | `weather:cloudy` | Cloudy | `overcast` | `#E6E9EC` | `#F2F4F6` | 11.4:1 | grey-white cloud cover drifting behind the panes |
 | `weather:starry` | Starry night | `vanta-black` | `#000000` | `#0B0E16` | 11.5:1 | a night sky: stars that twinkle, a meteor now and then |
@@ -367,7 +370,7 @@ every `PALETTE_ONLY` palette is.
 |---|---|---|---|
 | `nfl-browns` | Playbook · Chalkboard | a coach's chalkboard: O's, routes, a flag (Playbook, #389-#392) | `built` |
 | `matrix` | Voxel · Overworld, Phosphor · Green | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `built` |
-| `greens` | Circuit board · Solder | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `built` |
+| `greens` | Circuit board · Solder, Gridiron · Night game | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397); the field under the lights | `built` |
 | `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
 | `sand` | Voxel · Daylight, Farmstead · Daytime, Napkin notes · Kraft, Playbook · Play sheet, Weather · Sunny day | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
 | `vanta-black` | Glass · Noir, Voxel · The End, Circuit board · Matte, Weather · Starry night | an observatory: a star field, a meteor now and then (Weather · Starry night); a constellation when done, at least 97% true-black pixels | `built` |
@@ -376,7 +379,7 @@ every `PALETTE_ONLY` palette is.
 | `slate` | Weather · Rainy day, Weather · Dusk | a rainy afternoon: rain across the panes, lightning on an error (Weather · Rainy day) | `built` |
 | `overcast` | Circuit board · White mask, Weather · Cloudy, Weather · Showers | cloud cover drifting behind the panes (Weather · Cloudy) | `built` |
 | `dark` | Glass · Smoke, Legal pad · Night pad, Napkin notes · Late shift, Notebook · Night notebook | none: the neutral ground the paper skins share | `built` |
-| `eye-relief-day` | Glass · Frost, Graph paper · Engineering, Legal pad · Canary, Napkin notes · Diner, Notebook · Notebook, Phosphor · Paper white | none: the neutral ground the paper skins share | `built` |
+| `eye-relief-day` | Glass · Frost, Graph paper · Engineering, Gridiron · Day game, Legal pad · Canary, Napkin notes · Diner, Notebook · Notebook, Phosphor · Paper white | none: the neutral ground the paper skins share | `built` |
 | `random` | palette only | none: generated per project, so no skin can be designed for an unknown ground | `palette only` |
 
 Every concept keeps the same rules, whichever palette it is drawn on:

@@ -25,6 +25,16 @@ static/skins/weather/skin.css (`--paper`, `--wx-*` and `--ink-<tool>`), read thr
 paint time and on every tick, so a variant change repaints without a rebuild.
 ```
 
+### `export const expresses`, `const RAINED`
+
+The rain's own signs for the grammar's entries (docs/desk-ink.md §The state grammar across skins),
+on the two rainy variants only: a squall over the pane that needs you, puddles rippling on the one
+that runs, lightning (and thunder, with the chime on) on an error, the rain drying off a pane that
+is done. A strict JSON literal, read by `tests/test_fleet_ink_cues.py` (`expresses_of`) and by the
+grammar test. `RAINED` is the rows those signs replace, handed to the plain page (`body.ink-off`)
+where there is no rain to speak with; with the ink on, a rainy variant leaves them out. The sun,
+the cloud and the stars keep every row.
+
 ### `export function marks`
 
 The grammar's rows, drawn without a hand. The idle pane keeps a dashed pencil outline (the sheet
@@ -45,9 +55,10 @@ the sheet, so its blend mode is multiply on the light weathers and screen on the
 Two moments (docs/skin-weather.md §The moments): lightning when a pane arrives in error, a clearing
 when one arrives done. Both arrive-only; the desk's leave is nothing to the weather.
 
-### `const FLASH_S`, `CLEAR_S`, `METEOR_EVERY`, `KINDS`
+### `const FLASH_S`, `CLEAR_S`, `EASE_S`, `THUNDER_S`, `METEOR_EVERY`, `KINDS`
 
-The two cues fall back over 320 ms, the event budget. A meteor every nine seconds, the cycle the
+The two cues fall back over 320 ms, the event budget, and a pane's squall, ripple and drying ease
+in and out over the same; thunder rolls for 1.6 s. A meteor every nine seconds, the cycle the
 shader hashes its start from. `KINDS` is the order `--wx-kind` numbers the weathers in, held to
 `skins.py` by the test.
 
@@ -77,7 +88,10 @@ the nine-second cycle, its tail behind it, gone in 0.7 s.
 
 ### `const RAIN_FS`
 
-Two sheets of streaks (`sheet`): a column width, a fall speed, a streak length and a lean per
+Per pane, on top of the shared numbers: `uSquall` thickens the rain (a third sheet, faster, longer,
+leaning harder), `uDry` fades it, and `uRipple` draws four puddles -- rings that spread from
+hashed points inside `uBox` (the pane's viewport rectangle) and fade as they go, each on its own
+phase of the clock, so a running pane's sheet runs with water. Two sheets of streaks (`sheet`): a column width, a fall speed, a streak length and a lean per
 sheet, each column's phase and gap hashed from its index and the sheet's seed, and a third of the
 columns empty. The alpha is capped at `uDropA` and the colour is `uDrop`, mixed toward the flash
 while lightning plays; the flash also lifts the whole sheet by 0.12. Drawn on `gl_FragCoord`, so a
@@ -96,11 +110,26 @@ The module's state: the sky mesh, the rain sheet, the rain's shared uniforms, th
 the panes, the noise texture, the last look's signature, the clock, the tick and frame counts, the
 two cues' levels, and what has played.
 
-### `function rainUniforms`, `function rainMaterial`
+### `function rainUniforms`, `function paneUniforms`, `function rainMaterial`
 
-One uniforms object every rain material shares. The layer disposes a pane's group with its
-materials when the pane is rebuilt (`layer.js` `empty`), so a material is never shared between the
-sheet and a pane's quad -- only what it reads, which disposing a material leaves alone.
+One uniforms object every rain material shares, and per pane a copy that keeps the shared value
+objects (so `look` reaches every quad) and owns its squall, ripple, drying, seed and box.
+The layer disposes a pane's group with its materials when the pane is rebuilt (`layer.js`
+`empty`), so a material is never shared between the sheet and a pane's quad -- only what it
+reads, which disposing a material leaves alone.
+
+### `function wants`, `function ease`, `function weatherOn`
+
+What a pane's classes ask of its rain (needs you: a squall; running: puddles; done: dry) and the
+easing toward it each tick, at once under reduced motion; `weatherOn` also keeps each pane's box
+current, since panes move and the shader draws on viewport coordinates.
+
+### `function chimeOn`, `function thunder`
+
+Thunder is a chime: it plays only while the page's `#chime` toggle is pressed, the operator's own
+switch for sound, and never otherwise. A 1.6 s burst of white noise shaped by a falling envelope
+and a low-pass filter sliding from 240 Hz to 80 Hz, on a fresh AudioContext closed when it ends,
+as `app.js` `chime()` does. Answers whether it played.
 
 ### `const READ`, `function remember`, `function kindOf`, `function look`, `function timing`
 
@@ -124,17 +153,22 @@ own flat paper off the sky: a table with `paper` and no `paper` hook is given on
 
 Each pane: a rim one pixel out in `--wx-rim`, the sheet in `--paper` over it, and a rain quad the
 pane's size over the sheet, visible on the rainy day, since the layer paints every frame after the
-paper and the rain has to fall across the sheet, not under it.
+paper and the rain has to fall across the sheet, not under it. The quad has the pane's own
+uniforms, started at what the pane's classes want so a rebuild (a resize, a palette change) shows
+no motion.
 
 ### `export function cue`
 
-Counts the cue, then, unless reduced motion holds the sky still, sets the flash (the rainy day
-only) or the clearing (the sunny day only) and asks for a frame.
+Counts the cue; lightning on the rain also rolls thunder when the chime is on (counted as
+`played.thunder`, sound being the operator's toggle, not motion's); then, unless reduced motion
+holds the sky still, sets the flash (the rainy day only) or the clearing (the sunny day only) and
+asks for a frame.
 
 ### `export function tick`
 
 Advances the clock by the frame's time (capped at 100 ms, as the layer caps it), lets the two cues
-fall back, re-reads the look in case the variant changed, writes the uniforms, and answers `true`
+fall back, re-reads the look in case the variant changed, eases every pane's rain toward what its classes
+want (the rain only), writes the uniforms, and answers `true`
 for another frame -- `false` under reduced motion, where the clock stays at zero and the weather is
 drawn once and still. It asks the layer for a frame (`api.request`) only when the clock moved or
 the look changed: the first draft asked on every tick, and under reduced motion the layer answered
@@ -144,4 +178,5 @@ six times a second on software GL and every screenshot in the suite waited behin
 ### `export function dispose`, `export function inspect`
 
 Forget the meshes and the uniforms; say the kind, the clock, the counts, the cues' levels, whether
-the rain sheet and how many pane quads are showing, and what has played, for the tests.
+the rain sheet and how many pane quads are showing, what has played, whether the chime is on, and each pane's
+squall, ripple and drying levels, for the tests.

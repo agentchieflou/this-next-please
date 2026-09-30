@@ -54,6 +54,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from desk_harness import close_pages
 from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
+from test_fleet_ink_cues import expresses_of
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401 - fixtures are used by name
 from hig_audit import PLAIN_AT_REST, PLAIN_RINGS, TEXT_RUNS, every_look, ring_collisions
 
@@ -284,15 +285,27 @@ SEEN = """() => ({ table: Ink.inspect().table, busy: Ink.inspect().layer && Ink.
   marks: Ink.inspect().layer ? Ink.inspect().layer.marks.map(m => [m.lane, m.selector, m.shape, m.state, m.drawn]) : null })"""
 
 
+def expressed(look):
+    """The grammar entries the look's module expresses with its own materials rather than marks
+    (docs/desk-ink.md §The state grammar across skins), read as the grammar test reads them."""
+    skin, _, variant = look.partition(":")
+    path = os.path.join(os.path.dirname(os.path.abspath(S.__file__)), "static", "ink", "skins", skin + ".js")
+    ex = expresses_of(path) if os.path.exists(path) else {}
+    return set({**ex.get("*", {}), **ex.get(variant, {})})
+
+
 def choose(page, look):
     """Choose a look and wait, on conditions only, for its table, its sheet, every pane marked and
     the paper at rest. While the table is not the look yet, the page is asked to look again: an
     answer already in flight when the choice was written carries the previous skin."""
     skin = look.split(":")[0]
     _choose(page, look)
-    # Every skin marks an error and a done (voxel marks a running agent on its stack alone).
+    # Every skin marks an error and a done (voxel marks a running agent on its stack alone), unless
+    # its genre expresses one with its materials instead: the fumble, the touchdown, the drying.
+    ex = expressed(look)
+    marked = [r for r, entry in ((BROKE, "error_bang"), (FIN, "done")) if entry not in ex]
     panes = " && ".join(f"ms.some(m => m.lane === 'pane:{r}' && !m.strikeOf && m.state === 'drawn')"
-                        for r in (BROKE, FIN))
+                        for r in marked) or "true"
     try:
         page.wait_for_function(f"""() => {{
       if (Ink.inspect().table !== '{look}') {{ refresh(); return false; }}
@@ -357,7 +370,7 @@ def problems(look, width, marks):
 def finished_problems(look, width, marks):
     """#340: the finished agent is marked, a `check` on its pane. The sweep's own claim, apart from
     `problems`, which callers also hand a single pane's marks."""
-    if any(m["repo"] == FIN and m["shape"] == "check" for m in marks):
+    if any(m["repo"] == FIN and m["shape"] == "check" for m in marks) or "done" in expressed(look):
         return []
     return [(f"{look} @ {width}px", f"the finished agent ({FIN}) has no check")]
 
@@ -370,7 +383,7 @@ def ink_area(marks, repo):
 def loudness_problems(look, width, marks):
     """#335: the pane blocked on the operator's answer carries at least the errored pane's ink."""
     asks, broke = ink_area(marks, ASKS), ink_area(marks, BROKE)
-    if asks >= broke:
+    if asks >= broke or "needs_card" in expressed(look):
         return []
     return [(f"{look} @ {width}px", "the pane waiting on an answer is quieter than the error",
              {"needs you": asks, "error": broke})]

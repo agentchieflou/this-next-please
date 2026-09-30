@@ -186,6 +186,12 @@ In `try { layer.stop(); } catch (e) { }`:
 
 it is going anyway
 
+Beside `if (fromSkin) { skinKey = ""; follow(); }`:
+
+a skin's `marks(variant)` may answer differently once `body.ink-off` is set (a genre that expresses
+a state with its materials hands the plain sheet the grammar's rows instead, docs/desk-ink.md §The
+state grammar across skins), so the module is asked again for the plain page
+
 ### `function materials`
 
 Above `function materials(hooks) {`:

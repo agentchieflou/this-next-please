@@ -480,7 +480,7 @@
       "tests": 1
     },
     "tests/test_fleet_ink_cues.py": {
-      "tests": 14
+      "tests": 16
     },
     "tests/test_fleet_ink_farmstead.py": {
       "tests": 19
@@ -493,6 +493,9 @@
     },
     "tests/test_fleet_ink_graph.py": {
       "tests": 9
+    },
+    "tests/test_fleet_ink_gridiron.py": {
+      "tests": 6
     },
     "tests/test_fleet_ink_legalpad.py": {
       "tests": 13
@@ -516,7 +519,7 @@
       "tests": 3
     },
     "tests/test_fleet_ink_weather.py": {
-      "tests": 6
+      "tests": 7
     },
     "tests/test_fleet_instant.py": {
       "tests": 13

@@ -49,16 +49,21 @@ def test_posting_auto_saves_it_verbatim_and_gives_the_terminal_the_default_varia
         assert cfg["skin"] == "notebook:auto" and cfg["default"] == "eye-relief-day", cfg
         assert res["skin"] == "notebook:auto" and set(res["auto"]) == {"light", "dark"}, res
 
-        # a skin with one appearance cannot follow: its default variant, as an unknown variant is
+        # every skin has a light and a dark side now (docs/themes.md §Sides), so every skin can
+        # follow; the terminal still gets the default variant's palette
         _post(port, token, {"skin": "legalpad:auto"})
+        cfg = C.load()["theme"]
+        assert cfg["skin"] == "legalpad:auto" and cfg["default"] == "eye-relief-day", cfg
+        # an unknown variant is the default variant
+        _post(port, token, {"skin": "legalpad:nothing"})
         cfg = C.load()["theme"]
         assert cfg["skin"] == "legalpad:canary" and cfg["default"] == "eye-relief-day", cfg
 
-        # a fixed choice saves exactly as before
+        # a fixed choice saves as before, and the look it came from beside it (docs/themes.md §Genres)
         _post(port, token, {"skin": "notebook:dark"})
-        assert C.load()["theme"] == {"skin": "notebook:dark", "default": "dark"}
+        assert C.load()["theme"] == {"skin": "notebook:dark", "default": "dark", "look": "notebook"}
         _post(port, token, {"skin": "glass"})
-        assert C.load()["theme"] == {"skin": "glass:smoke", "default": "dark"}
+        assert C.load()["theme"] == {"skin": "glass:smoke", "default": "dark", "look": "glass"}
     finally:
         _stop(server)
 
@@ -113,14 +118,17 @@ def test_the_served_page_carries_both_sides_and_the_browser_picks(fleet_home):
         _stop(server)
 
 
-def test_themes_lists_the_pair_only_where_a_skin_has_one(fleet_home):
+def test_themes_lists_the_pair_of_every_skin(fleet_home):
+    """Every skin has a light and a dark side (docs/themes.md §Sides), so every skin lists its
+    pair; the plain page has none."""
     listed = {k["name"]: k for k in K.list_skins()}
     for family, (light, dark) in PAIRS.items():
         assert listed[family]["auto"] == {"light": light, "dark": dark}
         # each side is a real variant with a light and a dark palette respectively
         assert {light, dark} <= {v["name"] for v in listed[family]["variants"]}
-    for family in ("legalpad", "napkin", "voxel", "none"):
-        assert "auto" not in listed[family], family
+    for family in ("legalpad", "napkin", "voxel", "gridiron"):
+        assert listed[family]["auto"] == K.SKINS[family]["sides"], family
+    assert "auto" not in listed["none"]
 
 
 def test_a_pane_no_project_coloured_wears_no_state_on_either_side_of_an_auto_skin(fleet_home, tmp_path):

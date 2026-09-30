@@ -1,0 +1,65 @@
+body[data-skin="gridiron"] {
+  --paper: #0E3418;
+  --turf-max: #183D1F;
+  --yard: #183D1F;
+  --gi-first: #FFD54A;
+  --gi-scrimmage: #6FB3FF;
+  --ink-pencil: #D6E0D3;
+  --ink-pen: #FFD54A;
+  --ink-red: #F85149;
+  --ink-marker: #F85149;
+  --ink-green: #7EE787;
+  --ink-highlighter: #B68820;
+  --pitch: 28px;
+  --gutter: 36px;
+  color-scheme: dark;
+}
+
+body[data-skin="gridiron"][data-skin-variant="daygame"] {
+  --paper: #D6EACB;
+  --turf-max: #C2DDB5;
+  --yard: #C2DDB5;
+  --gi-first: #8A6D1F;
+  --gi-scrimmage: #2F5F9E;
+  --ink-pencil: #5C5A52;
+  --ink-pen: #8A6D1F;
+  --ink-red: #A82D2D;
+  --ink-marker: #A82D2D;
+  --ink-green: #2A733E;
+  --ink-highlighter: #B9A674;
+  --pitch: 28px;
+  --gutter: 36px;
+  color-scheme: light;
+}
+
+body[data-skin="gridiron"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
+body[data-skin="gridiron"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
+body[data-skin="gridiron"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
+body[data-skin="gridiron"]:not(.ink-off) main { background: transparent; }
+body[data-skin="gridiron"]:not(.ink-off) :is(header, footer, main) { border-color: var(--yard); }
+body[data-skin="gridiron"]:not(.ink-off) .tile :is(.head, .asks, .approval, .transcript, .history, .cells,
+                                                   .scope, .assumed, .readonly, .runline, .why, button,
+                                                   input, .payload) {
+  background: transparent;
+}
+body[data-skin="gridiron"]:not(.ink-off) .tile .smenu { background: var(--paper); }
+body[data-skin="gridiron"]:not(.ink-off) .tile .transcript {
+  display: flex; flex-direction: column; flex-basis: 0; scroll-snap-type: y mandatory;
+}
+body[data-skin="gridiron"]:not(.ink-off) .tile .transcript > li {
+  flex: none; padding-top: 0; padding-bottom: 0; line-height: var(--pitch); border-bottom: 0; scroll-snap-align: end;
+  overflow-y: clip;
+}
+body[data-skin="gridiron"]:not(.ink-off) .tile .transcript > li:first-child { margin-top: auto; }
+body[data-skin="gridiron"]:not(.ink-off) .tile .transcript > li > * { position: relative; top: 2px; }
+body[data-skin="gridiron"]:not(.ink-off) :is(button, input, select, .segment) { background: transparent; }
+body[data-skin="gridiron"]:not(.ink-off) :is(.asks, .approval) { border-color: var(--yard); }
+
+body[data-skin="gridiron"]:not(.ink-off) .tile .oldsession { color: var(--ink-pencil); background: transparent; border: 0; }
+body[data-skin="gridiron"]:not(.ink-off) .tile .transcript > li.friction > .k { color: var(--text); }
+body[data-skin="gridiron"]:not(.ink-off) .tile .transcript > li.friction > .v { color: var(--ink-pencil); }
+body[data-skin="gridiron"] #bellcount { display: inline-block; min-width: 1ch; margin-left: 1.6em; font-weight: 600; }
+body[data-skin="gridiron"]:not(.ink-off) #bellcount { color: var(--ink-pencil); }
+
+body[data-skin="gridiron"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="gridiron"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }

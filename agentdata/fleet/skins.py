@@ -265,6 +265,31 @@ SKINS = {
                           "why": "a printed play sheet: graphite and a burnt-orange pen"},
         },
     },
+    # The gridiron (docs/skin-gridiron.md): the field itself, drawn by the ink layer
+    # (`static/ink/skins/gridiron.js`). Every pane is a stretch of turf, so its panel is the pair of
+    # the turf's mown stripes -- the darker stripe and the lighter, which is also the yard line's
+    # stock -- checked at both ends. The genre's states are expressed, not marked: a first-down line
+    # that advances, a flag, a fumble, a touchdown (`expresses` in the module, desk-ink.md §The
+    # state grammar across skins); the inks remain for what is still written.
+    "gridiron": {
+        "name": "gridiron",
+        "title": "Gridiron",
+        "why": "the field itself: turf, yard lines, a first-down line that advances with every turn",
+        "default": "nightgame",
+        "sides": {"light": "daygame", "dark": "nightgame"},
+        "variants": {
+            "nightgame": {"title": "Night game", "base": "greens",
+                          "composited_panel": {"darkest": "#0E3418", "lightest": "#183D1F"},
+                          "inks": {"pencil": "#D6E0D3", "pen": "#FFD54A", "red": "#F85149",
+                                   "green": "#7EE787", "marker": "#F85149", "highlighter": "#B68820"},
+                          "why": "turf under the lights: chalk lines, a yellow first-down line"},
+            "daygame": {"title": "Day game", "base": "eye-relief-day",
+                        "composited_panel": {"darkest": "#C2DDB5", "lightest": "#D6EACB"},
+                        "inks": {"pencil": "#5C5A52", "pen": "#8A6D1F", "red": "#A82D2D",
+                                 "green": "#2A733E", "marker": "#A82D2D", "highlighter": "#B9A674"},
+                        "why": "a pale field by day: graphite and an amber pen"},
+        },
+    },
     # #394: drawn by the ink layer (`static/ink/skins/phosphor.js`). The pane is the glass itself,
     # between its near-black and its scanline, so the panel is that pair, checked at both ends;
     # `inks` are the ones skin.css writes as `--ink-<tool>`, and `tests/test_fleet_ink_phosphor.py`
@@ -700,8 +725,8 @@ GENRES: dict[str, dict] = {
                 "skins": ["weather"]},
     "paper": {"title": "Paper", "why": "stock, rules and a hand that writes",
               "skins": ["notebook", "legalpad", "napkin", "graph"]},
-    "football": {"title": "Football", "why": "a coach's board: routes, X's and O's",
-                 "skins": ["playbook"]},
+    "football": {"title": "Football", "why": "the field itself, or a coach's board: routes, X's and O's",
+                 "skins": ["gridiron", "playbook"]},
     "worlds": {"title": "Worlds", "why": "a place with its own hour and weather",
                "skins": ["farmstead", "voxel"]},
     "screens": {"title": "Screens", "why": "glass, phosphor and a circuit board",
