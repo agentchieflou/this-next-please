@@ -231,7 +231,15 @@ def test_a_dropped_ticket_opens_a_card_that_says_why_it_is_thin(fleet_home, tmp_
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-        page.wait_for_selector(".tile:visible", timeout=15000)
+        # The card is laid in the tile only once the pane is on the glass (`onTheGlass`: an open,
+        # solo pane whose tier has been measured as wider than a rail); before `data-tier` lands
+        # the pane reads as a rail and the card goes to the board's rail slot instead. A visible
+        # tile is earlier than that on a loaded runner (CI's shuffled browser shard, twice), so the
+        # drop waits for the tier, as `test_fleet_ink._open` does.
+        page.wait_for_function("""() => {
+              const tile = document.querySelector('.tile[data-repo="luna"]');
+              return !!tile && tile.classList.contains('is-solo') && !!tile.dataset.tier && tile.dataset.tier !== 'rail';
+            }""", timeout=15000)
 
         page.evaluate("""() => {
               const tile = document.querySelector('.tile[data-repo="luna"]');
