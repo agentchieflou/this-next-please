@@ -34,7 +34,7 @@ def test_settings_round_trip_preserves_window_and_shell(fleet_home, tmp_path, de
         page, errors, _ = _open(browser, port, token, extra="&w=pycharm")
         # Click settings
         page.locator("#setbtn").click()
-        page.wait_for_function("() => document.querySelectorAll('#skin option').length > 3", timeout=15000)
+        page.wait_for_function("() => document.querySelectorAll('#look option').length > 3", timeout=15000)
         # Click back
         page.locator("#backbtn").click()
         page.wait_for_function(

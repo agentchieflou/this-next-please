@@ -123,8 +123,8 @@ def test_the_settings_control_is_a_link_to_its_own_page(fleet_home, tmp_path, de
 
         link.click()
         page.wait_for_url(re.compile(r"/settings"), timeout=10000)
-        page.wait_for_selector("#theme", timeout=10000)
-        assert page.locator("#skin").is_visible(), "the pickers did not arrive with the page"
+        page.wait_for_selector("#look", timeout=10000)
+        assert page.locator("#look").is_visible(), "the look picker did not arrive with the page"
 
         # #407: the map is the same kind of door, and it must keep the window the desk was
         # opened in -- a map reached from PyCharm's tool window that forgets `shell` reads the

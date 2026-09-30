@@ -122,7 +122,7 @@ def _setup(fleet_home, tmp_path, skin="voxel:nether"):
 
 def _to_settings_and_choose(page, skin):
     page.locator("#setbtn").click()
-    page.wait_for_function("() => document.querySelectorAll('#skin option').length > 3", timeout=15000)
+    page.wait_for_function("() => document.querySelectorAll('#look option').length > 3", timeout=15000)
     got = page.evaluate("s => post('theme', { skin: s })", skin)
     assert got.get("ok", True), got
 

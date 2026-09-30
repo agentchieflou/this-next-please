@@ -20,11 +20,12 @@ from __future__ import annotations
 import gzip
 import os
 import re
+import time
 
 import pytest
 
 from agentdata import theme
-from agentdata.fleet import events as E, serve as S, skins, supervisor
+from agentdata.fleet import events as E, notify as N, serve as S, skins, supervisor
 
 from desk_waits import assert_idle
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
@@ -193,6 +194,25 @@ def _gone(marks, lane, sel_part):
     struck ones stay as `struck` under their strike."""
     return all(m["state"] == "struck" or m["strikeOf"]
                for m in marks if m["lane"] == lane and sel_part in m["selector"])
+
+
+def _swept(page):
+    """The notifier has looked at every event this test wrote. The desk's stream sweeps the agents'
+    streams every `serve.NOTIFY_EVERY_S`, so an error emitted a moment before a page is opened is
+    announced on that page up to five seconds later: once inside `assert_idle`'s window, as a
+    `notify` frame that wrote the bell, a badge and a note on a desk that was meant to be idle
+    (Windows shard 1/4). Once the sweep's cursors have reached every event, no frame is left to
+    come, whichever page's stream did the sweeping; a frame this page took is settled before the
+    idle passes are counted."""
+    deadline = time.time() + 15
+    while True:
+        seen = N.read_state().get("seen", {})
+        behind = [n for n in ("alpha", "beta")
+                  if (E.read(n) or [{}])[-1].get("seq", 0) > int(seen.get(n) or 0)]
+        if not behind:
+            break
+        assert time.time() < deadline, ("the notifier never caught up", behind, seen)
+        time.sleep(0.25)
 
 
 @pytest.mark.browser
@@ -374,6 +394,7 @@ def test_without_ink_the_playbook_is_plain_and_an_idle_board_is_still(fleet_home
         page, errors, _ = _open(desk_browser, port, token, "&ink=on", width=1000, height=620)
         _playbook(page)
         _rest(page, "Ink.inspect().layer.marks.filter(m => m.shape === 'ring').length === 2")
+        _swept(page)
         assert_idle(page)
         assert not errors, errors
         close_pages(desk_browser)
@@ -650,6 +671,7 @@ def test_the_flag_the_touchdown_and_the_fumble(fleet_home, tmp_path, alive, desk
         _playbook(page)
         page.evaluate(LOAD_PLAYBOOK)
         _rest(page, "!!window.__pb.inspect().panes.alpha && window.__pb.inspect().panes.alpha.ball === 'resting'")
+        _swept(page)
         assert_idle(page)
         assert page.evaluate("() => window.__pb.inspect().strokes") > 0
         assert page.evaluate("() => window.__r.info.memory.geometries") > before

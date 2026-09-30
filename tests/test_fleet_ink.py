@@ -1213,6 +1213,12 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
         page, errors, _ = _open(browser, port, token)
         seen["grammar"] = page.evaluate(GRAMMAR_CHECK, [_grammar_skins(), GRAMMAR])
         assert not errors, errors
+        page.close()
+        # The weather genre in a browser (tests/test_fleet_ink_weather.py), folded in here as
+        # #397 folded the circuit board's: the browser tier's time budget is the operator's.
+        from test_fleet_ink_weather import weather_in_a_browser
+        seen["weather"] = weather_in_a_browser(browser, port, token)
+        assert not seen["weather"]["errors"], seen["weather"]["errors"]
         close_pages(browser)
     finally:
         _stop(server)

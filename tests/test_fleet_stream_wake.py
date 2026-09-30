@@ -348,10 +348,10 @@ def test_another_window_follows_a_skin_chosen_in_settings(fleet_home, tmp_path, 
         desk.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
         desk.wait_for_function(SETTLED + " && document.body.dataset.skin === 'voxel'", timeout=15000)
         settings.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
-        settings.wait_for_function("() => document.getElementById('skin').value === 'voxel:nether'",
+        settings.wait_for_function("() => document.getElementById('look').value === 'voxel:nether'",
                                    timeout=15000)
         t0 = time.monotonic()
-        settings.select_option("#skin", "farmstead:daytime")
+        settings.select_option("#look", "farmstead:daytime")
         desk.wait_for_function("() => document.body.dataset.skin === 'farmstead'", timeout=15000)
         ms = 1000 * (time.monotonic() - t0)
         print(f"\n  the desk followed a skin chosen in /settings after {ms:.0f} ms")

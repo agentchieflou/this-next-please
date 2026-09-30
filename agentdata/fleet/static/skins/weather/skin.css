@@ -1,0 +1,73 @@
+body[data-skin="weather"] {
+  --wx-kind: 0;
+  --paper: #2B3037;
+  --wx-sky-top: #303740;
+  --wx-sky-bottom: #1C2026;
+  --wx-drop: #8FA9C2;
+  --wx-drop-alpha: 0.16;
+  --wx-flash: #E9F0F8;
+  --wx-cloud: #3A4552;
+  --wx-cloud-alpha: 0.55;
+  --wx-rim: #3B4756;
+  --ink-pencil: #AAB6C4;
+  --ink-pen: #8FB3D1;
+  --ink-red: #F0645C;
+  --ink-green: #5FC77A;
+  --ink-marker: #F0645C;
+  --ink-highlighter: #635618;
+}
+
+body[data-skin="weather"][data-skin-variant="sunny"] {
+  --wx-kind: 1;
+  --paper: #F6EEDC;
+  --wx-sky-top: #BFDCF0;
+  --wx-sky-bottom: #F3E6C8;
+  --wx-sun: #FFE9A6;
+  --wx-ray: #FFF3CC;
+  --wx-ray-alpha: 0.35;
+  --wx-rim: #D9C9A6;
+  --ink-pencil: #5A5247;
+  --ink-pen: #B9631E;
+  --ink-red: #B3261E;
+  --ink-green: #2E7D4F;
+  --ink-marker: #B3261E;
+  --ink-highlighter: #F2D24E;
+}
+
+body[data-skin="weather"][data-skin-variant="cloudy"] {
+  --wx-kind: 2;
+  --paper: #F2F4F6;
+  --wx-sky-top: #C9D0D8;
+  --wx-sky-bottom: #E1E5EA;
+  --wx-cloud: #F7F9FB;
+  --wx-cloud-alpha: 0.85;
+  --wx-cloud-shade: #AFB8C2;
+  --wx-rim: #C5CCD4;
+  --ink-pencil: #555C64;
+  --ink-pen: #3E5F80;
+  --ink-red: #B3261E;
+  --ink-green: #2A733E;
+  --ink-marker: #B3261E;
+  --ink-highlighter: #E9D64F;
+}
+
+body[data-skin="weather"][data-skin-variant="starry"] {
+  --wx-kind: 3;
+  --paper: #0B0E16;
+  --wx-sky-top: #02030A;
+  --wx-sky-bottom: #0D1220;
+  --wx-star: #F4F6FF;
+  --wx-meteor: #DCE8FF;
+  --wx-rim: #1E2431;
+  --ink-pencil: #B9BCC4;
+  --ink-pen: #9FC4F0;
+  --ink-red: #F85149;
+  --ink-green: #3FB950;
+  --ink-marker: #F85149;
+  --ink-highlighter: #B59A2A;
+}
+
+body[data-skin="weather"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+body[data-skin="weather"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="weather"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
+body[data-skin="weather"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }

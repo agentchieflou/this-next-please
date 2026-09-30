@@ -39,7 +39,7 @@ def test_settings_and_the_desk_after_it_paint_the_chosen_skin_first(browser, fle
 
         page.locator("#setbtn").click()
         page.wait_for_url(re.compile(r"/settings"), timeout=15000)
-        page.wait_for_function("() => document.querySelectorAll('#skin option').length > 3", timeout=15000)
+        page.wait_for_function("() => document.querySelectorAll('#look option').length > 3", timeout=15000)
         first = next(f for f in _frames(page)["frames"] if f["skin"] is not None)
         assert (first["skin"], first["bg"]) == ("voxel", nether), f"/settings first frame: {first}"
 

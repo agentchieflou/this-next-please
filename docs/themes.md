@@ -16,6 +16,8 @@ _The terminal a human opens tells them where they are._
 | `matrix` | `#020A03` | `#3DF07A` | `#2CAD57` | `#00FF41` | black ground, glowing phosphor borders and accents | phosphor on black; the falling code screen |
 | `blues` | `#0B1B33` | `#D6E4F7` | `#9BAABE` | `#4DA3FF` | midnight navy panels, cobalt accent stripe | deep ocean navy and slate |
 | `sand` | `#EFE6D2` | `#3A3126` | `#60574A` | `#B9631E` | desert sand panels, copper accent stripe | warm desert solarized parchment (light theme) |
+| `slate` | `#252A30` | `#D3DAE3` | `#B0B8C2` | `#8FB3D1` | grey-blue panels, a pale blue accent stripe | a rainy afternoon: grey-blue, low saturation, the desk in the wet |
+| `overcast` | `#E6E9EC` | `#2E343B` | `#53585E` | `#4F6E8C` | pale grey panels, a steel-blue accent stripe (light theme) | a cloudy day: pale grey light with no sun in it |
 | `random` | generated | generated | derived | generated | seeded per project | a fresh, stable colour per project or per day; seeded |
 | `none` | — | — | — | — | follows `prefers-color-scheme` | the terminal exactly as you had it (the default) |
 
@@ -182,6 +184,37 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 - **Composited Contrast**: The effective composited panel contrast must pass WCAG floors (text ≥ 4.5:1, status roles ≥ 3:1). A skin whose pane is not one colour — glass, over its mesh — declares the **darkest and lightest** colour the pane composites to (`skins.composited_range`, from the variant's own `mesh` and `fill`) and is checked at both; a test reads the stylesheet to prove the blobs and the fill it paints are the numbers it declared, and a browser test samples the rendered pane to prove the pixels stay inside that range and vary across it.
 - **A skin that repaints a surface repaints its scrollbar** (#181). `app.css` draws every scrollbar from two custom properties mixed from the palette — `--scroll-thumb` and `--scroll-thumb-hover`, the track always the surface beneath — and writes them into both `scrollbar-color` and the legacy `::-webkit-scrollbar` rules, so the two mechanisms cannot disagree. A skin overrides the **thumb** on `body[data-skin]` and only recolours it (glass a pale or dark translucent thumb, voxel stone, farmstead wood); it never declares `scrollbar-color` of its own, and a test reads the stylesheets to make sure.
 
+### Genres
+
+The settings page offers **one control**, the look, grouped by genre (`skins.GENRES`, `skins.genres()`,
+served as `genres` on `/api/themes`). A look is a skin variant, which brings its palette with it as
+above, or, under *Plain*, a palette on its own: the plain page in that colour, which is what choosing
+a palette with no skin always was. The palette and skin pickers it replaces offered pairings nobody
+had measured; a look is one row of the worlds table, checked.
+
+A genre is what its looks have in common, and what moves on them is the genre's, not the notebook's:
+
+| Genre | Looks | What moves |
+|---|---|---|
+| Weather | Rainy day, Sunny day, Cloudy, Starry night, Auto ([skin-weather.md](skin-weather.md)) | the sky: rain across the panes, the sun's rays turning, cloud cover drifting, stars and a meteor; lightning on an error |
+| Paper | Notebook, Legal pad, Napkin notes, Graph paper | a hand writing the state grammar in pencil, pen, marker and highlighter |
+| Football | Playbook · Chalkboard, Playbook · Play sheet | routes in chalk, a flag, goalposts, a ball that hops to an error |
+| Worlds | Farmstead · Daytime, Cave and Rainy day; Voxel · Overworld, Nether and The End | crops that grow and are harvested, hens, showers; stacks of cubes |
+| Screens | Glass, Phosphor, Circuit board | a glint, code rain down a margin, a pulse along a trace |
+| Plain | every palette by title, System first | nothing: the plain HIG page |
+
+A look's title is its variant's alone where its skin is the only one of its genre (Weather · *Rainy
+day*), else `skin · variant` (Worlds · *Voxel · Nether*). The value posted back is the skin's
+`<skin>:<variant>` or `palette:<name>` (`skins.parse_look`), and `POST /api/theme` takes either as it
+always did. A new genre is a row in `GENRES`; a skin in no genre is not offered, which
+`tests/test_fleet_skins.py` holds. A team's colourway, when one lands, is a palette a Football look
+is drawn on, one variant per colourway, under the names rule below.
+
+**Ambient motion is a genre's own decision.** The weather genre moves while it is on: rain falls, rays
+turn, clouds drift, stars twinkle, at one frame per tick, and holds still under
+`prefers-reduced-motion` (drawn once, at time zero) and under `body.ink-off`. Every other genre keeps
+the rule below: motion only on an event.
+
 ### Available Skins
 
 | Skin | Inspiration & Materials | HIG Rule Applied |
@@ -196,6 +229,7 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | `notebook` | The first skin drawn with ink (#249, #250): white stock with blue rules and a red margin by day, charcoal stock and gel inks by night, and state drawn in pencil, pen, marker and highlighter ([skin-notebook.md](skin-notebook.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: the highlighter is multiplied into the day page and screened onto the night one, and every state is a shape as well as an ink. |
 | `playbook` | A coach's chalkboard drawn by the ink layer (#389): brown slate, every agent an O, its turn a route in orange chalk, and the state grammar in X's and O's ([skin-playbook.md](skin-playbook.md)). Plain CSS where WebGL is not measured as hardware. Names no team or league (#318). | *Color & Redundancy*: every state is a shape as well as an ink -- a route, a dashed option route, a bar and an X, a check. |
 | `phosphor` | A green phosphor screen drawn by the ink layer (#394): near-black glass with faint 3px scanlines, and the state grammar traced by a thin, even beam ([skin-phosphor.md](skin-phosphor.md)). Plain CSS where WebGL is not measured as hardware. | *Composited contrast*: the glass is a pair, near-black and its scanline, and the text and every ink are checked at both ends. |
+| `weather` | A sky drawn by the ink layer: rain that falls across the panes on a grey-blue afternoon, the sun's rays turning behind them, cloud cover drifting, or stars that twinkle with a meteor now and then; lightning on an error, a clearing when a pane is done ([skin-weather.md](skin-weather.md)). Plain CSS where WebGL is not measured as hardware. | *Motion*: the one genre that moves on its own, and holds still under reduced motion. |
 | `circuit` | A circuit board drawn by the ink layer (#396): solder mask with a fine fibreglass weave, each pane a component with a copper pad and trace along its top edge, its number ringed as pin 1, and the state grammar in silkscreen and copper ([skin-circuit.md](skin-circuit.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: every state is a shape as well as an ink, and the copper is decoration only, never under a word. |
 
 A variant re-colours the surfaces, and its palette colours the states: a chip's word and glyph, a crop
@@ -229,9 +263,9 @@ unknown variant falls back to the default rather than taking the page down.
 
 **Auto: following the system's appearance (#342).** A skin with a light and a dark variant can also
 be chosen as `<skin>:auto`, "Auto" in the settings picker, and the desk then follows the system's
-light or dark appearance, switching live without a reload. Four skins can follow: `notebook`
-(`light` / `dark`), `glass` (`frost` / `smoke`), `graph` (`engineering` / `blueprint`) and `farmstead`
-(`daytime` / `cave`). Legalpad and napkin are light only and voxel is dark only, so their `auto`
+light or dark appearance, switching live without a reload. Five skins can follow: `notebook`
+(`light` / `dark`), `glass` (`frost` / `smoke`), `graph` (`engineering` / `blueprint`), `farmstead`
+(`daytime` / `cave`) and `weather` (`sunny` / `starry`). Legalpad and napkin are light only and voxel is dark only, so their `auto`
 means the default variant, as an unknown variant does, and is saved as that variant.
 
 - **What is saved:** `theme.skin` is `<skin>:auto`, verbatim. Each side renders exactly what
@@ -271,6 +305,10 @@ means the default variant, as an unknown variant does, and is saved as that vari
 | `phosphor:green` | Green *(default)* | `matrix` | `#020A03` | `#010603` … `#0A1F10` | 11.5:1 at the worse end | phosphor on glass |
 | `circuit:solder` | Solder *(default)* | `greens` | `#0B1F14` | `#0D2618` … `#1C3A28` | 9.4:1 at the worse end | green solder mask, white silkscreen and bare copper |
 | `circuit:matte` | Matte | `vanta-black` | `#000000` | `#0A0A0A` … `#1A1A1A` | 10.4:1 at the worse end | a matte-black board, for a room with the lights off |
+| `weather:rainy` | Rainy day *(default)* | `slate` | `#252A30` | `#2B3037` … `#3B434D` | 7.1:1 at the worse end | grey sky, rain falling across the panes, a flash of lightning on an error |
+| `weather:sunny` | Sunny day | `sand` | `#EFE6D2` | `#F6EEDC` | 11.0:1 | a warm sky, the sun's rays turning slowly behind the panes |
+| `weather:cloudy` | Cloudy | `overcast` | `#E6E9EC` | `#F2F4F6` | 11.4:1 | grey-white cloud cover drifting behind the panes |
+| `weather:starry` | Starry night | `vanta-black` | `#000000` | `#0B0E16` | 11.5:1 | a night sky: stars that twinkle, a meteor now and then |
 
 ### Every palette's look
 
@@ -288,10 +326,12 @@ every `PALETTE_ONLY` palette is.
 | `matrix` | Voxel · Overworld, Phosphor · Green | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `built` |
 | `greens` | Circuit board · Solder | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `built` |
 | `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
-| `sand` | Farmstead · Daytime, Napkin notes · Kraft, Playbook · Play sheet | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
-| `vanta-black` | Glass · Noir, Voxel · The End, Circuit board · Matte | an observatory: a star field, a meteor per line, a constellation when done, at least 97% true-black pixels | `parked` |
+| `sand` | Farmstead · Daytime, Napkin notes · Kraft, Playbook · Play sheet, Weather · Sunny day | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
+| `vanta-black` | Glass · Noir, Voxel · The End, Circuit board · Matte, Weather · Starry night | an observatory: a star field, a meteor now and then (Weather · Starry night); a constellation when done, at least 97% true-black pixels | `built` |
 | `reds` | Voxel · Nether | a darkroom: a safelight, prints in the tray, a print hung when done | `parked` |
 | `blues` | Glass · Azure, Farmstead · Rainy day, Graph paper · Blueprint | sonar: one ping ring per line | `parked` |
+| `slate` | Weather · Rainy day | a rainy afternoon: rain across the panes, lightning on an error (Weather · Rainy day) | `built` |
+| `overcast` | Weather · Cloudy | cloud cover drifting behind the panes (Weather · Cloudy) | `built` |
 | `dark` | Glass · Smoke, Notebook · Night notebook | none: the neutral ground the paper skins share | `built` |
 | `eye-relief-day` | Glass · Frost, Graph paper · Engineering, Legal pad · Canary, Napkin notes · Diner, Notebook · Notebook | none: the neutral ground the paper skins share | `built` |
 | `random` | `palette only` | none: generated per project, so no skin can be designed for an unknown ground | `palette only` |
@@ -299,6 +339,8 @@ every `PALETTE_ONLY` palette is.
 Every concept keeps the same rules, whichever palette it is drawn on:
 
 - **Motion only on an event**: one-shot, at most 320 ms, never looping. Reduced motion draws the end state.
+  The weather genre is the one exception (§Genres): its sky moves while it is on, and holds still under
+  reduced motion.
 - **The render contract**: a skin is drawn over the same DOM and never changes it ([desk-ink.md](desk-ink.md)).
 - **`theme.check` pairs** at both ends of a composited panel and plain, and 4.5:1 for any ink that colours text or
   that text is read through.
