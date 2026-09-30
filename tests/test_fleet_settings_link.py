@@ -29,7 +29,7 @@ def test_the_settings_round_trip_keeps_the_window_and_the_shell(fleet_home, tmp_
 
         # Click settings
         page.locator("#setbtn").click()
-        page.wait_for_function("() => document.querySelectorAll('#skin option').length > 3", timeout=15000)
+        page.wait_for_function("() => document.querySelectorAll('#look option').length > 3", timeout=15000)
 
         # Click back
         page.locator("#backbtn").click()
@@ -80,7 +80,7 @@ def test_only_the_window_the_shell_and_ink_travel(fleet_home, tmp_path, desk_bro
 
         # Navigate to /settings with the same params
         page.goto(set_href, wait_until="domcontentloaded")
-        page.wait_for_function("() => document.querySelectorAll('#skin option').length > 3", timeout=15000)
+        page.wait_for_function("() => document.querySelectorAll('#look option').length > 3", timeout=15000)
 
         back_href = page.locator("#backbtn").get_attribute("href")
         back_params = parse_qs(urlparse(back_href).query)
@@ -109,7 +109,7 @@ def test_desk_with_no_w_round_trips_to_the_exact_url_and_rehome_preserves_carrie
         assert set_parsed.query == f"t={token}"
 
         page.locator("#setbtn").click()
-        page.wait_for_function("() => document.querySelectorAll('#skin option').length > 3", timeout=15000)
+        page.wait_for_function("() => document.querySelectorAll('#look option').length > 3", timeout=15000)
         back_href = page.locator("#backbtn").get_attribute("href")
         back_parsed = urlparse(back_href)
         assert back_parsed.path == "/"

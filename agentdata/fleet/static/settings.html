@@ -19,19 +19,17 @@
   <!-- ------------------------------------------------------------------ appearance -->
   <section class="setblock">
     <h2>Appearance</h2>
-    <p class="why">A <strong>palette</strong> is colour only, so it is shared with this project's
-      terminal prompt and tab &mdash; it writes the same <code>~/.agentdata/config.json</code> that
-      <code>ad-theme set</code> writes. A <strong>skin</strong> is how this page is rendered, which a
-      terminal cannot follow; it rides on a base palette and loads one stylesheet on demand.</p>
+    <p class="why">A <strong>look</strong> is how the desk is drawn: its sky or its paper, what
+      moves on it, and the colours it brings. Looks are grouped by <strong>genre</strong> &mdash; the
+      weather, paper, a coach's board &mdash; and every look names the palette it is drawn on, which
+      is written to the same <code>~/.agentdata/config.json</code> that <code>ad-theme set</code>
+      writes, so this project's terminal prompt and tab follow it. A look under <em>Plain</em> is a
+      palette on its own: the plain page in that colour.</p>
     <div class="setrow">
-      <label for="theme">palette</label>
-      <select id="theme" title="palette — shared with this project&#39;s terminal"><option value="none">system</option></select>
+      <label for="look">look</label>
+      <select id="look" title="look — how the desk is drawn; the palette it brings is shared with this project&#39;s terminal"><option value="palette:none">System</option></select>
     </div>
     <p class="why" id="palette-looks"></p>
-    <div class="setrow">
-      <label for="skin">skin</label>
-      <select id="skin" title="skin — how the page is rendered; the terminal keeps the palette"><option value="none">no skin</option></select>
-    </div>
     <p class="why">The <strong>tiers</strong> are the widths at which a pane on the desk changes what
       it draws: a rail, then compact, then full. They start at the numbers CI measures against; set
       the laptop's here once you have tried them on the real monitors, and every open desk redraws

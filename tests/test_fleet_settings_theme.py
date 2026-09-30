@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import pytest
 
 from agentdata import theme as T
+from agentdata.fleet import skins as K
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
@@ -41,8 +42,8 @@ ORDER = """
   let heard; const first = new Promise(r => heard = r);
   function filled() {
     return new Promise(r => { (function look() {
-      const t = document.getElementById('theme');
-      if (t && t.options.length > 1) r(); else requestAnimationFrame(look);
+      const t = document.getElementById('look');
+      if (t && t.options.length > 3) r(); else requestAnimationFrame(look);
     })(); });
   }
   const ES = window.EventSource;
@@ -132,7 +133,7 @@ HOLD_FIRST_ANSWER = """() => {
   };
 }"""
 
-FILLED = "() => document.querySelectorAll('#skin option').length > 3"
+FILLED = "() => document.querySelectorAll('#look option').length > 3"
 BG = "() => document.documentElement.style.getPropertyValue('--bg')"
 
 
@@ -289,11 +290,11 @@ def test_the_settings_page_keeps_its_palette_whichever_answer_lands_first(browse
         _settings(page, port, token)
         page.wait_for_function("() => window.__applied === true", timeout=15000)
         got = page.evaluate("""() => ({ bg: document.documentElement.style.getPropertyValue('--bg'),
-            skin: document.body.dataset.skin || '', theme: document.getElementById('theme').value,
-            picked: document.getElementById('skin').value })""")
+            skin: document.body.dataset.skin || '', theme: (window.themeNow || {}).theme,
+            picked: document.getElementById('look').value })""")
         print(f"\n  {order} first, {theme}: {got}")
         assert got["bg"] == want["css"]["--bg"], (order, got)
-        assert got["skin"] == want["skin_family"] and got["picked"] == want["skin"], got
+        assert got["skin"] == want["skin_family"] and got["picked"] == K.look_of(want["theme"], want["skin"]), got
         assert got["theme"] == want["theme"], got
         assert not errors, errors
         page.close()
@@ -314,12 +315,12 @@ def test_choosing_a_skin_repaints_settings_before_the_server_answers(browser, fl
     try:
         page, errors = _page(browser, HOLD)
         _settings(page, port, token)
-        page.select_option("#skin", "voxel:nether")
+        page.select_option("#look", "voxel:nether")
         page.wait_for_function("() => window.__held === 1", timeout=15000)
         got = page.evaluate("""() => ({ skin: document.body.dataset.skin || '',
             variant: document.body.dataset.skinVariant || '',
             bg: document.documentElement.style.getPropertyValue('--bg'),
-            theme: document.getElementById('theme').value,
+            theme: (window.themeNow || {}).theme,
             took: performance.getEntriesByType('measure').filter(m => m.name.startsWith('theme:skin'))
                               .map(m => m.duration) })""")
         print(f"\n  painted while the POST is held: {got}")
@@ -329,7 +330,7 @@ def test_choosing_a_skin_repaints_settings_before_the_server_answers(browser, fl
         assert S.theme_state()["skin"] == "none", "nothing was written yet"
 
         page.evaluate("() => window.__release()")
-        page.wait_for_function("() => document.getElementById('theme').disabled === true", timeout=15000)
+        page.wait_for_function("() => document.getElementById('look').value === 'voxel:nether'", timeout=15000)
         page.wait_for_function("() => !!document.getElementById('saved') "
                                "&& !document.getElementById('saved').hidden", timeout=15000)
         assert S.theme_state()["skin"] == "voxel:nether"
@@ -357,11 +358,11 @@ def test_a_frame_heard_while_the_write_is_held_does_not_undo_the_pick(browser, f
         if answer == "refused":
             page.route(_is_theme_post, _refuse)
         _settings(page, port, token)
-        page.select_option("#skin", "voxel:nether")
+        page.select_option("#look", "voxel:nether")
         page.wait_for_function("() => window.__held === 1 && window.__late === true", timeout=15000)
         got = page.evaluate("""() => ({ skin: document.body.dataset.skin || '',
             bg: document.documentElement.style.getPropertyValue('--bg'),
-            picked: document.getElementById('skin').value })""")
+            picked: document.getElementById('look').value })""")
         print(f"\n  {answer}: after the late frame, POST held: {got}")
         assert got == {"skin": "voxel", "bg": want["css"]["--bg"], "picked": "voxel:nether"}, got
 
@@ -370,11 +371,11 @@ def test_a_frame_heard_while_the_write_is_held_does_not_undo_the_pick(browser, f
             page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
             end = ("voxel", want["css"]["--bg"], "voxel:nether")
         else:
-            page.wait_for_function("() => document.getElementById('skin').classList.contains('bad')",
+            page.wait_for_function("() => document.getElementById('look').classList.contains('bad')",
                                    timeout=15000)
-            end = ("", "", "none")
+            end = ("", "", "palette:none")
         got = page.evaluate("""() => [document.body.dataset.skin || '',
-            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('skin').value]""")
+            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('look').value]""")
         assert tuple(got) == end, (answer, got)
         assert not errors, errors
         page.close()
@@ -404,17 +405,17 @@ def test_a_refused_skin_goes_back_and_says_why(browser, fleet_home, tmp_path):
         page, errors = _page(browser, HOLD)
         page.route(_is_theme_post, _refuse)
         _settings(page, port, token)
-        page.wait_for_function("() => document.getElementById('skin').value === 'voxel:nether'",
+        page.wait_for_function("() => document.getElementById('look').value === 'voxel:nether'",
                                timeout=15000)
-        page.select_option("#skin", "farmstead:daytime")
+        page.select_option("#look", "farmstead:daytime")
         page.wait_for_function("() => window.__held === 1 && document.body.dataset.skin === 'farmstead'",
                                timeout=15000)
         page.evaluate("() => window.__release()")
         page.wait_for_function("() => document.body.dataset.skin === 'voxel'", timeout=15000)
-        got = page.evaluate("""() => { const s = document.getElementById('skin');
+        got = page.evaluate("""() => { const s = document.getElementById('look');
             return { variant: document.body.dataset.skinVariant || '',
                      bg: document.documentElement.style.getPropertyValue('--bg'),
-                     picked: s.value, theme: document.getElementById('theme').value,
+                     picked: s.value, theme: (window.themeNow || {}).theme,
                      bad: s.classList.contains('bad'), said: s.title }; }""")
         print(f"\n  refused: {got}")
         assert got["variant"] == "nether" and got["bg"] == was["css"]["--bg"], got
@@ -440,7 +441,7 @@ def test_leaving_settings_waits_for_the_write(browser, fleet_home, tmp_path, ans
         _settings(page, port, token)
         seen = []
         page.on("request", lambda r: seen.append((r.method, urlparse(r.url).path, r.resource_type)))
-        page.select_option("#skin", "farmstead:daytime")
+        page.select_option("#look", "farmstead:daytime")
         page.wait_for_function("() => window.__held === 1", timeout=15000)
         page.locator("#backbtn").click()
         page.evaluate("() => window.__release && window.__release()")
@@ -468,7 +469,7 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
     try:
         page, errors = _page(browser)
         _settings(page, port, token)
-        page.select_option("#skin", "farmstead:daytime")
+        page.select_option("#look", "farmstead:daytime")
         page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
         page.wait_for_function("() => document.readyState === 'complete'", timeout=15000)
         # The sampler records a frame, not a moment: on a loaded runner the pick can land with no
@@ -495,16 +496,16 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
         # #483: two quick picks; the first answer lands after the second has been applied.
         page.evaluate("() => { document.getElementById('saved').hidden = true; }")
         page.evaluate(HOLD_FIRST_ANSWER)
-        page.select_option("#skin", "glass:smoke")
+        page.select_option("#look", "glass:smoke")
         page.wait_for_function("() => window.__held === true", timeout=15000)
-        page.select_option("#skin", "voxel:overworld")
+        page.select_option("#look", "voxel:overworld")
         page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
         assert S.theme_state()["skin"] == "voxel:overworld", "the server wrote the picks in order"
         page.evaluate("() => window.__release()")
         page.wait_for_function("() => window.__firstRead === true", timeout=15000)
         page.wait_for_function("() => pendingTheme === null", timeout=15000)
         got = page.evaluate("""() => [document.body.dataset.skin || '', document.body.dataset.skinVariant || '',
-            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('skin').value]""")
+            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('look').value]""")
         print(f"\n  two quick picks, the first answer last: {got}")
         assert tuple(got) == ("voxel", "overworld", last["css"]["--bg"], "voxel:overworld"), got
         assert not errors, errors
@@ -540,7 +541,7 @@ def test_choosing_and_leaving_at_once_never_paints_the_old_skin(browser, fleet_h
             page.locator("#setbtn").click()
             page.wait_for_url(re.compile(r"/settings"), timeout=15000)
             page.wait_for_function(FILLED, timeout=15000)
-            page.select_option("#skin", skin)
+            page.select_option("#look", skin)
             page.locator("#backbtn").click()
             page.wait_for_url(re.compile(r"/\?"), timeout=15000)
             page.wait_for_function(SETTLED, timeout=15000)

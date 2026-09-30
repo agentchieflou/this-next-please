@@ -122,7 +122,7 @@ def test_piped_theme_list_contains_no_escape_bytes(capsys, monkeypatch):
     # No ANSI escape sequences
     assert "\x1b" not in out
     # Must be valid TOON table
-    assert "themes[11]{name,title,ground,accent,light,why}:" in out
+    assert "themes[13]{name,title,ground,accent,light,why}:" in out
     for t in theme.list_themes():
         assert t.name in out
 
@@ -447,7 +447,8 @@ def test_theme_check_rule_10_focus_is_never_a_state():
 
 
 def test_theme_escapes_are_byte_identical_to_golden():
-    """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b."""
+    """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b
+    (`slate` and `overcast`, the weather genre's palettes, captured as they landed)."""
     golden = {
         'blues': '\x1b]4;0;#0B1B33\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#D6E4F7\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#D6E4F7\x1b\\\x1b]11;#0B1B33\x1b\\\x1b]12;#4DA3FF\x1b\\',
         'dark': '\x1b]4;0;#14171A\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#E3E7EA\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#E3E7EA\x1b\\\x1b]11;#14171A\x1b\\\x1b]12;#58A6FF\x1b\\',
@@ -460,6 +461,8 @@ def test_theme_escapes_are_byte_identical_to_golden():
         'reds': '\x1b]4;0;#400000\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#F2D9D9\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#F2D9D9\x1b\\\x1b]11;#400000\x1b\\\x1b]12;#FF5C5C\x1b\\',
         'sand': '\x1b]4;0;#EFE6D2\x1b\\\x1b]4;1;#B3261E\x1b\\\x1b]4;2;#2E7D4F\x1b\\\x1b]4;3;#A8651B\x1b\\\x1b]4;4;#2B6CB0\x1b\\\x1b]4;5;#7B2CBF\x1b\\\x1b]4;6;#0E8A8A\x1b\\\x1b]4;7;#3A3126\x1b\\\x1b]4;8;#8C867A\x1b\\\x1b]4;9;#D32F2F\x1b\\\x1b]4;10;#388E3C\x1b\\\x1b]4;11;#F57C00\x1b\\\x1b]4;12;#1976D2\x1b\\\x1b]4;13;#8E24AA\x1b\\\x1b]4;14;#0097A7\x1b\\\x1b]4;15;#1A1A1A\x1b\\\x1b]10;#3A3126\x1b\\\x1b]11;#EFE6D2\x1b\\\x1b]12;#B9631E\x1b\\',
         'vanta-black': '\x1b]4;0;#000000\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#C8C8C8\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#C8C8C8\x1b\\\x1b]11;#000000\x1b\\\x1b]12;#E6E6E6\x1b\\',
+        'slate': '\x1b]4;0;#252A30\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#D3DAE3\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#D3DAE3\x1b\\\x1b]11;#252A30\x1b\\\x1b]12;#8FB3D1\x1b\\',
+        'overcast': '\x1b]4;0;#E6E9EC\x1b\\\x1b]4;1;#B3261E\x1b\\\x1b]4;2;#2E7D4F\x1b\\\x1b]4;3;#A8651B\x1b\\\x1b]4;4;#2B6CB0\x1b\\\x1b]4;5;#7B2CBF\x1b\\\x1b]4;6;#0E8A8A\x1b\\\x1b]4;7;#2E343B\x1b\\\x1b]4;8;#8C867A\x1b\\\x1b]4;9;#D32F2F\x1b\\\x1b]4;10;#388E3C\x1b\\\x1b]4;11;#F57C00\x1b\\\x1b]4;12;#1976D2\x1b\\\x1b]4;13;#8E24AA\x1b\\\x1b]4;14;#0097A7\x1b\\\x1b]4;15;#1A1A1A\x1b\\\x1b]10;#2E343B\x1b\\\x1b]11;#E6E9EC\x1b\\\x1b]12;#4F6E8C\x1b\\',
     }
     for t in theme.list_themes():
         assert theme.escapes(t) == golden[t.name]

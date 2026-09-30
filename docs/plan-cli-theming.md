@@ -78,6 +78,8 @@ are derived from them in code and listed in `docs/themes.md` once tuned.
 | `matrix` | `#020A03` | `#3DF07A` | `#00FF41` | `fail` is red `#FF3B3B`, contrasting with green text | phosphor on black; the falling code screen |
 | `blues` | `#0B1B33` | `#D6E4F7` | `#4DA3FF` | `info` is cyan `#5EE1E6` so running never hides in navy ground | deep ocean navy and slate |
 | `sand` | `#EFE6D2` | `#3A3126` | `#B9631E` | `light: true`, status colours darkened | warm desert solarized parchment |
+| `slate` | `#252A30` | `#D3DAE3` | `#8FB3D1` | grey-blue, HSV saturation under 0.25: the weather genre's rainy day | a rainy afternoon: grey-blue, low saturation, the desk in the wet |
+| `overcast` | `#E6E9EC` | `#2E343B` | `#4F6E8C` | `light: true`, pale grey: the weather genre's cloudy day | a cloudy day: pale grey light with no sun in it |
 | `random` | generated | generated | generated | status hues fixed; the roll is checked before use | a fresh, stable colour per project or per day; `pin` keeps one |
 | `none` | — | — | — | — | the terminal exactly as you had it (the default) |
 

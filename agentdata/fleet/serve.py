@@ -3369,8 +3369,11 @@ class Handler(BaseHTTPRequestHandler):
             # always opened reading "system / no skin" over whatever the config actually said.
             # It is the stream's `theme` payload, css included (#346): a `current` without css was
             # painted as "no palette" and wiped the one the stream had just applied.
+            # `genres` is the one picker (docs/themes.md §Genres): every look the page offers,
+            # grouped, each with the value it posts back. `themes` and `skins` stay for the
+            # page's css and for readers that knew the two-picker shape.
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
-                               "palette_only": skins.PALETTE_ONLY,
+                               "genres": skins.genres(), "palette_only": skins.PALETTE_ONLY,
                                "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})

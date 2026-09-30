@@ -296,7 +296,7 @@ def test_one_control_per_meaning_in_the_toolbar(desk, desk_browser):
         segments: document.querySelectorAll('#layoutgroup .segment, [data-layout]').length,
         legacy: !!document.querySelector('select#layout'),
         settings: !!document.getElementById('setbtn'),
-        pickers: !!document.getElementById('skin') || !!document.getElementById('theme'),
+        pickers: !!document.getElementById('look') || !!document.getElementById('skin') || !!document.getElementById('theme'),
         clipped: document.querySelector('.toolbar').scrollWidth > document.querySelector('.toolbar').clientWidth,
     })""")
     close_pages(browser)

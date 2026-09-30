@@ -285,6 +285,42 @@ SKINS = {
                       "why": "a matte-black board, for a room with the lights off"},
         },
     },
+    # The weather genre (docs/themes.md §Genres): one sky per variant, drawn by the ink layer
+    # (`static/ink/skins/weather.js`), and the pane a sheet of paper laid on it. The rain is the one
+    # weather that falls across the paper (the streaks are drawn over the sheet, under the words),
+    # so its panel is a pair: the paper at the dark end and the paper under a streak at its peak
+    # alpha at the light end, `theme.mix(paper, --wx-drop, --wx-drop-alpha)`; the sun, the cloud
+    # and the stars stay behind an opaque sheet, so theirs is one colour. `inks` are the ones its
+    # skin.css writes as `--ink-<tool>`; `tests/test_fleet_ink_weather.py` holds the two together
+    # and recomputes the pair. Each weather is drawn on the palette that is its light: the rain on
+    # `slate`, the sun on `sand`, the cloud cover on `overcast`, the night on `vanta-black`.
+    "weather": {
+        "name": "weather",
+        "title": "Weather",
+        "why": "a sky over the desk: rain that falls across the panes, sun, cloud cover or stars",
+        "default": "rainy",
+        "auto": {"light": "sunny", "dark": "starry"},
+        "variants": {
+            "rainy": {"title": "Rainy day", "base": "slate",
+                      "composited_panel": {"darkest": "#2B3037", "lightest": "#3B434D"},
+                      "drop": ("#8FA9C2", 0.16),
+                      "inks": {"pencil": "#AAB6C4", "pen": "#8FB3D1", "red": "#F0645C",
+                               "green": "#5FC77A", "marker": "#F0645C", "highlighter": "#635618"},
+                      "why": "grey sky, rain falling across the panes, a flash of lightning on an error"},
+            "sunny": {"title": "Sunny day", "base": "sand", "composited_panel": "#F6EEDC",
+                      "inks": {"pencil": "#5A5247", "pen": "#B9631E", "red": "#B3261E",
+                               "green": "#2E7D4F", "marker": "#B3261E", "highlighter": "#F2D24E"},
+                      "why": "a warm sky, the sun's rays turning slowly behind the panes"},
+            "cloudy": {"title": "Cloudy", "base": "overcast", "composited_panel": "#F2F4F6",
+                       "inks": {"pencil": "#555C64", "pen": "#3E5F80", "red": "#B3261E",
+                                "green": "#2A733E", "marker": "#B3261E", "highlighter": "#E9D64F"},
+                       "why": "grey-white cloud cover drifting behind the panes"},
+            "starry": {"title": "Starry night", "base": "vanta-black", "composited_panel": "#0B0E16",
+                       "inks": {"pencil": "#B9BCC4", "pen": "#9FC4F0", "red": "#F85149",
+                                "green": "#3FB950", "marker": "#F85149", "highlighter": "#B59A2A"},
+                       "why": "a night sky: stars that twinkle, a meteor now and then"},
+        },
+    },
 }
 
 
@@ -472,3 +508,100 @@ def panels_on(base: str) -> list[str]:
             if panel not in out:
                 out.append(panel)
     return out
+
+
+# ---------- Genres: the one picker (docs/themes.md §Genres) ----------
+#
+# The settings page offers ONE control, "look", grouped by genre. A look is a skin variant (which
+# brings its palette with it, as above) or, in the `plain` genre, a palette on its own -- the plain
+# HIG page in that palette, which is what choosing a palette with no skin always was. A genre is
+# what its looks have in common: the weather genre's looks are skies and its animation is weather;
+# the football genre's are a coach's board and its animation is routes. Every skin names its genre
+# here, once; a skin in no genre is not offered (`tests/test_fleet_skins.py`).
+GENRES: dict[str, dict] = {
+    "weather": {"title": "Weather", "why": "a sky over the desk, and weather that moves",
+                "skins": ["weather"]},
+    "paper": {"title": "Paper", "why": "stock, rules and a hand that writes",
+              "skins": ["notebook", "legalpad", "napkin", "graph"]},
+    "football": {"title": "Football", "why": "a coach's board: routes, X's and O's",
+                 "skins": ["playbook"]},
+    "worlds": {"title": "Worlds", "why": "a place with its own hour and weather",
+               "skins": ["farmstead", "voxel"]},
+    "screens": {"title": "Screens", "why": "glass, phosphor and a circuit board",
+                "skins": ["glass", "phosphor", "circuit"]},
+    "plain": {"title": "Plain", "why": "a palette alone: the plain page, shared with the terminal",
+              "skins": []},
+}
+
+#: The value of a plain-genre look: `palette:<name>`; `palette:none` is the system's own colours.
+PALETTE_LOOK = "palette:"
+
+
+def genre_of(skin_name: str) -> str:
+    """The genre a skin is listed in, or `""`."""
+    for name, genre in GENRES.items():
+        if skin_name in genre["skins"]:
+            return name
+    return ""
+
+
+def look_title(skin_name: str, variant: str | None) -> str:
+    """How a look is named in the picker: the variant's title alone when its skin is the only one
+    of its genre (Weather · Rainy day would say weather twice) or when the two titles are one
+    word (Notebook · Notebook), else `skin · variant`; the skin's title alone when it has one
+    variant; `skin · Auto` for the pair that follows the system."""
+    skin = SKINS[skin_name]
+    alone = len(GENRES.get(genre_of(skin_name), {}).get("skins", [])) == 1
+    if variant == AUTO:
+        return ("Auto" if alone else f"{skin['title']} · Auto")
+    if variant is None or len(skin["variants"]) == 1:
+        return skin["title"]
+    title = skin["variants"][variant]["title"]
+    return title if alone or title == skin["title"] else f"{skin['title']} · {title}"
+
+
+def parse_look(value: str) -> dict:
+    """What `/api/theme` is posted for a look the picker chose: `{"skin": full}` for a skin
+    variant, `{"theme": name, "skin": "none"}` for a plain palette. Pure, so the page and the
+    tests agree on it."""
+    v = str(value or "").strip()
+    if v.startswith(PALETTE_LOOK):
+        return {"theme": v[len(PALETTE_LOOK):] or "none", "skin": "none"}
+    return {"skin": v or "none"}
+
+
+def genres() -> list[dict]:
+    """The picker, as data: every genre in `GENRES` order with its looks, each a value the page
+    posts back (`parse_look`), its title, its why and the palette it brings. The default variant
+    of a skin leads its skin's looks, `Auto` closes them. The plain genre's looks are the palettes
+    by title, `none` (the system's colours) first."""
+    from .. import theme as T
+    out = []
+    for name, genre in GENRES.items():
+        looks = []
+        for skin_name in genre["skins"]:
+            skin = SKINS.get(skin_name)
+            if not skin:
+                continue
+            for v in variants(skin_name):
+                looks.append({"value": v["full"], "title": look_title(skin_name, v["name"]),
+                              "why": v["why"], "skin": skin_name, "variant": v["name"], "base": v["base"]})
+            if skin.get("auto"):
+                looks.append({"value": f"{skin_name}:{AUTO}", "title": look_title(skin_name, AUTO),
+                              "why": f"follows the system: {skin['auto']['light']} when light, "
+                                     f"{skin['auto']['dark']} when dark",
+                              "skin": skin_name, "variant": AUTO, "base": skin["variants"][skin["default"]]["base"]})
+        if name == "plain":
+            for t in sorted(T.list_themes(), key=lambda t: t.name != "none"):
+                looks.append({"value": PALETTE_LOOK + t.name, "title": t.title if t.name != "none" else "System",
+                              "why": t.why, "skin": "", "variant": "", "base": t.name})
+        out.append({"name": name, "title": genre["title"], "why": genre["why"], "looks": looks})
+    return out
+
+
+def look_of(theme_name: str, skin_name: str) -> str:
+    """The picker value that shows what is worn: the skin's full name while one is on, else the
+    palette as a plain look."""
+    if skin_name and skin_name != "none":
+        return skin_name
+    return PALETTE_LOOK + (theme_name or "none")

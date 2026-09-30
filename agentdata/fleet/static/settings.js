@@ -32,53 +32,22 @@ function problem(el, message) {
 }
 
 function loadThemes() {
-  var themeSel = document.getElementById("theme");
-  var skinSel = document.getElementById("skin");
+  var lookSel = document.getElementById("look");
   return fetch(q("/api/themes")).then(function (r) { return r.json(); }).then(function (data) {
-    while (themeSel.options.length > 1) themeSel.remove(1);
-    (data.themes || []).forEach(function (t) {
-      if (t.name === "none") return;
-      var option = document.createElement("option");
-      option.value = t.name;
-      text(option, t.title || t.name);
-      var looks = looksOn(data, t.name), why = (data.palette_only || {})[t.name];
-      attr(option, "title", (t.why || t.title || t.name) + "  ·  " + (looks.length
-        ? "drawn by " + looks.join(", ") : "palette only" + (why ? ": " + why : "")));
-      themeSel.appendChild(option);
-    });
-    themeSel.addEventListener("change", function () { choose(themeSel, { theme: themeSel.value }); });
-
-    while (skinSel.options.length > 1) skinSel.remove(1);
-    (data.skins || []).forEach(function (k) {
-      if (k.name === "none") return;
-      var vs = k.variants || [];
-      if (vs.length < 2) {
-        var single = document.createElement("option");
-        single.value = vs.length ? vs[0].full : k.name;
-        text(single, k.title || k.name);
-        single.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
-        skinSel.appendChild(single);
-        return;
-      }
+    while (lookSel.options.length) lookSel.remove(0);
+    (data.genres || []).forEach(function (g) {
       var group = document.createElement("optgroup");
-      group.label = k.title || k.name;
-      vs.forEach(function (v) {
+      group.label = g.title || g.name;
+      (g.looks || []).forEach(function (l) {
         var option = document.createElement("option");
-        option.value = v.full;
-        text(option, v.title || v.name);
-        option.title = (v.why || "") + "  ·  palette: " + v.base;
+        option.value = l.value;
+        text(option, l.title || l.value);
+        option.title = (l.why || "") + (l.base && l.base !== "none" ? "  ·  palette: " + l.base : "");
         group.appendChild(option);
       });
-      if (k.auto) {
-        var follow = document.createElement("option");
-        follow.value = k.name + ":auto";
-        text(follow, "Auto");
-        follow.title = "follows the system: " + k.auto.light + " when light, " + k.auto.dark + " when dark";
-        group.appendChild(follow);
-      }
-      skinSel.appendChild(group);
+      lookSel.appendChild(group);
     });
-    skinSel.addEventListener("change", function () { choose(skinSel, { skin: skinSel.value }); });
+    lookSel.addEventListener("change", function () { choose(lookSel, parseLook(lookSel.value)); });
     themeData = data;
     if (themeNow) {
       reflectTheme(themeNow);
@@ -92,6 +61,18 @@ function loadThemes() {
 var themeNow = null;
 var themeData = null;
 var themeSeq = 0;
+var PALETTE_LOOK = "palette:";
+
+function parseLook(value) {
+  var v = String(value || "");
+  if (v.indexOf(PALETTE_LOOK) === 0) return { theme: v.slice(PALETTE_LOOK.length) || "none", skin: "none" };
+  return { skin: v || "none" };
+}
+
+function lookOf(cur) {
+  if (cur && cur.skin && cur.skin !== "none") return cur.skin;
+  return PALETTE_LOOK + ((cur && cur.theme) || "none");
+}
 
 function paletteCss(name) {
   var found = null;
@@ -122,45 +103,50 @@ function autoFor(full) {
   return out;
 }
 
+function lookTitle(value) {
+  var found = "";
+  ((themeData && themeData.genres) || []).forEach(function (g) {
+    (g.looks || []).forEach(function (l) { if (l.value === value) found = (g.title || g.name) + " · " + l.title; });
+  });
+  return found;
+}
+
 function looksOn(data, name) {
   var looks = [];
-  ((data && data.skins) || []).forEach(function (k) {
-    (k.variants || []).forEach(function (v) { if (v.base === name) looks.push(lookName(k, v)); });
+  ((data && data.genres) || []).forEach(function (g) {
+    (g.looks || []).forEach(function (l) {
+      if (l.skin && l.variant !== "auto" && l.base === name) looks.push((g.title || g.name) + " · " + l.title);
+    });
   });
   return looks;
 }
 
-function lookName(k, v) { return (k.title || k.name) + " · " + (v.title || v.name); }
+function paletteTitle(name) {
+  var found = name;
+  ((themeData && themeData.themes) || []).forEach(function (t) { if (t.name === name) found = t.title || name; });
+  return found;
+}
 
-function looksLine(skin, palette) {
+function looksLine(cur) {
+  var skin = cur && cur.skin, palette = (cur && cur.theme) || "none";
   if (skin && skin !== "none") {
-    var from = skin;
-    ((themeData && themeData.skins) || []).forEach(function (k) {
-      (k.variants || []).forEach(function (v) {
-        if (v.full === skin || (k.name === skin && v.name === k.default)) from = lookName(k, v);
-      });
-      if (k.auto && skin === k.name + ":auto") from = (k.title || k.name) + " · Auto";
-    });
-    return "from " + from;
+    var base = skinBase(skin) || palette;
+    return lookTitle(skin) + " — palette " + paletteTitle(base) + ", shared with this project's terminal";
   }
+  if (palette === "none") return "the system's own colours, and the plain page";
   var looks = looksOn(themeData, palette);
-  if (looks.length) return "drawn by " + looks.join(", ");
   var why = ((themeData && themeData.palette_only) || {})[palette];
-  return "palette only: the plain page" + (why ? " — " + why : "");
+  return "palette " + paletteTitle(palette) + " on the plain page, shared with this project's terminal" +
+    (looks.length ? " — also drawn by " + looks.join(", ") : (why ? " — " + why : ""));
 }
 
 function choose(select, body) {
-  var themeSel = document.getElementById("theme");
   var was = themeNow;
   var mark;
-  if ("skin" in body) {
+  if (body.skin && body.skin !== "none") {
     mark = gesture("theme:skin");
-    var full = body.skin || "none";
-    if (full === "none") {
-      var keep = themeSel ? themeSel.value : "none";
-      applySkin("none");
-      reflectTheme({ theme: keep, skin: "none", css: paletteCss(keep) || {} });
-    } else if (autoFor(full)) {
+    var full = body.skin;
+    if (autoFor(full)) {
       var auto = autoFor(full), home = skinBase(full.split(":")[0]);
       applyThemeState({ skin: full, auto: auto });
       reflectTheme({ theme: home || auto.light.theme, skin: full, css: paletteCss(home) || {}, auto: auto });
@@ -169,12 +155,13 @@ function choose(select, body) {
       var css = base ? paletteCss(base) : null;
       if (css) applyTheme(css, base);
       applySkin(full);
-      reflectTheme({ theme: base || (themeSel && themeSel.value), skin: full, css: css || {} });
+      reflectTheme({ theme: base || (was && was.theme), skin: full, css: css || {} });
     }
   } else {
     mark = gesture("theme:palette");
     var name = body.theme || "none";
     var pcss = name === "none" ? null : paletteCss(name);
+    applySkin("none");
     if (pcss) applyTheme(pcss, name); else applyTheme(null, "none");
     reflectTheme({ theme: pcss ? name : "none", skin: "none", css: pcss || {} });
   }
@@ -217,21 +204,13 @@ function reflectTheme(cur) {
   if (!cur) return;
   themeNow = cur;
   if (cur.seq > themeSeq) themeSeq = cur.seq;
-  var themeSel = document.getElementById("theme");
-  var skinSel = document.getElementById("skin");
-  if (themeSel && cur.theme) themeSel.value = cur.theme;
-  if (skinSel) skinSel.value = cur.skin || "none";
-  [themeSel, skinSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selectedIndex = 0; });
-  if (themeSel) {
-    var bound = !!(cur.skin && cur.skin !== "none");
-    if (bound && !themeSel.disabled && document.activeElement === themeSel && skinSel) skinSel.focus();
-    themeSel.disabled = bound;
-    themeSel.title = bound
-      ? "the palette comes from the skin — choose “no skin” to pick one yourself"
-      : "palette — shared with this project's terminal";
+  var lookSel = document.getElementById("look");
+  if (lookSel) {
+    lookSel.value = lookOf(cur);
+    if (lookSel.selectedIndex < 0) lookSel.value = PALETTE_LOOK + "none";
+    [lookSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selectedIndex = 0; });
   }
-  if (themeData) text(document.getElementById("palette-looks"),
-                      looksLine(cur.skin, themeSel ? themeSel.value : cur.theme));
+  if (themeData) text(document.getElementById("palette-looks"), looksLine(cur));
 }
 
 var modelList = null;

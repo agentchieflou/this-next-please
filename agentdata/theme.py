@@ -692,6 +692,53 @@ SAND = Theme(
 )
 
 
+# Two greyed palettes for the weather genre (docs/themes.md §Genres): the sky's colour, not a
+# saturated ground, so the rain and the cloud cover read as weather rather than as a tint.
+SLATE = Theme(
+    name="slate",
+    title="Slate",
+    why="a rainy afternoon: grey-blue, low saturation, the desk in the wet",
+    ground="#252A30",
+    text="#D3DAE3",
+    accent="#8FB3D1",
+    cursor="#8FB3D1",
+    ansi=_make_ansi("#252A30", "#D3DAE3", "#8FB3D1"),
+    status={
+        "ok": "#5FC77A",
+        "warn": "#D9A83A",
+        "fail": "#F0645C",
+        "skip": "#8E97A3",
+        "info": "#6CB8E6",
+        "error": "#F0645C",
+    },
+    light=False,
+    layout="night-owl",
+    muted="#B0B8C2",
+)
+
+OVERCAST = Theme(
+    name="overcast",
+    title="Overcast",
+    why="a cloudy day: pale grey light with no sun in it",
+    ground="#E6E9EC",
+    text="#2E343B",
+    accent="#4F6E8C",
+    cursor="#4F6E8C",
+    ansi=_make_ansi("#E6E9EC", "#2E343B", "#4F6E8C", light=True),
+    status={
+        "ok": "#2A733E",
+        "warn": "#8A6320",
+        "fail": "#B3261E",
+        "skip": "#66707B",
+        "info": "#2A5F9E",
+        "error": "#B3261E",
+    },
+    light=True,
+    layout="atomic",
+    muted="#53585E",
+)
+
+
 BUILTINS: dict[str, Theme] = {
     "greens": GREENS,
     "reds": REDS,
@@ -704,6 +751,8 @@ BUILTINS: dict[str, Theme] = {
     "matrix": MATRIX,
     "blues": BLUES,
     "sand": SAND,
+    "slate": SLATE,
+    "overcast": OVERCAST,
 }
 
 
