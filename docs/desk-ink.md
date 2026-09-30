@@ -197,7 +197,7 @@ its border box inset 1px (#331), so a row that pads outward is cut away rather t
   say it. Since #334 it underlines the name, as every skin does, and gives the compact head the same room.
 
 `tests/test_fleet_ink_bounds.py` is the HIG guard (#340; #332 took one look per module): every variant of every
-skin (`skins.every_variant()`, 21 today), switched in one page per param, at 1400px and 700px, ink on and ink off,
+skin (`skins.every_variant()`, 33 today), switched in one page per param, at 1400px and 700px, ink on and ink off,
 with a blocking question, a running turn, an error and a stale done. Ink on: no stroke more than 2px outside its pane, none outside the viewport, none cut away
 whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
 element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word

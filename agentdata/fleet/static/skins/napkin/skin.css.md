@@ -33,6 +33,14 @@ machine with none of these falls back to its own `cursive`.
 Diner is the default, and `data-skin-variant="diner"` says the same numbers again, so a bare
 `napkin` in the config and a `napkin:diner` render alike.
 
+
+### `body[data-skin="napkin"][data-skin-variant="late"]`
+
+The napkin's dark side, on `dark`: a dark napkin from the counter after closing, its seam a shade
+darker than the paper and the coffee ring stronger, since it has to show on the dark stock; the
+pair is recomputed by the napkin's test as every napkin's is. `color-scheme: dark` so the form
+controls follow.
+
 ### `body[data-skin="napkin"] .tile .head .repo, body[data-skin="napkin"] #bellcoun …`
 
 Above `body[data-skin="napkin"] .tile .head .repo,`:

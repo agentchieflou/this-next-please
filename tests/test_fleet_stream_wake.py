@@ -351,7 +351,7 @@ def test_another_window_follows_a_skin_chosen_in_settings(fleet_home, tmp_path, 
         settings.wait_for_function("() => document.getElementById('look').value === 'voxel:nether'",
                                    timeout=15000)
         t0 = time.monotonic()
-        settings.select_option("#look", "farmstead:daytime")
+        settings.select_option("#look", "farmstead")
         desk.wait_for_function("() => document.body.dataset.skin === 'farmstead'", timeout=15000)
         ms = 1000 * (time.monotonic() - t0)
         print(f"\n  the desk followed a skin chosen in /settings after {ms:.0f} ms")

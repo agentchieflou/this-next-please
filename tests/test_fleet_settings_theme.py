@@ -321,7 +321,7 @@ def test_choosing_a_skin_repaints_settings_before_the_server_answers(browser, fl
             variant: document.body.dataset.skinVariant || '',
             bg: document.documentElement.style.getPropertyValue('--bg'),
             theme: (window.themeNow || {}).theme,
-            took: performance.getEntriesByType('measure').filter(m => m.name.startsWith('theme:skin'))
+            took: performance.getEntriesByType('measure').filter(m => m.name.startsWith('theme:look'))
                               .map(m => m.duration) })""")
         print(f"\n  painted while the POST is held: {got}")
         assert (got["skin"], got["variant"]) == ("voxel", "nether"), got
@@ -398,7 +398,7 @@ def _is_theme_post(url: str) -> bool:
 @pytest.mark.browser
 def test_a_refused_skin_goes_back_and_says_why(browser, fleet_home, tmp_path):
     _desk_of(tmp_path, ("alpha",))
-    _config(fleet_home, skin="voxel:nether")
+    _config(fleet_home, skin="voxel:nether", mode="light")
     was = S.theme_state()
     server, token, port = _serve()
     try:
@@ -407,7 +407,7 @@ def test_a_refused_skin_goes_back_and_says_why(browser, fleet_home, tmp_path):
         _settings(page, port, token)
         page.wait_for_function("() => document.getElementById('look').value === 'voxel:nether'",
                                timeout=15000)
-        page.select_option("#look", "farmstead:daytime")
+        page.select_option("#look", "farmstead")
         page.wait_for_function("() => window.__held === 1 && document.body.dataset.skin === 'farmstead'",
                                timeout=15000)
         page.evaluate("() => window.__release()")
@@ -432,7 +432,7 @@ def test_a_refused_skin_goes_back_and_says_why(browser, fleet_home, tmp_path):
 @pytest.mark.parametrize("answer", ["ok", "refused"])
 def test_leaving_settings_waits_for_the_write(browser, fleet_home, tmp_path, answer):
     _desk_of(tmp_path, ("alpha",))
-    _config(fleet_home, skin="voxel:nether")
+    _config(fleet_home, skin="voxel:nether", mode="light")
     server, token, port = _serve()
     try:
         page, errors = _page(browser, HOLD)
@@ -441,7 +441,7 @@ def test_leaving_settings_waits_for_the_write(browser, fleet_home, tmp_path, ans
         _settings(page, port, token)
         seen = []
         page.on("request", lambda r: seen.append((r.method, urlparse(r.url).path, r.resource_type)))
-        page.select_option("#look", "farmstead:daytime")
+        page.select_option("#look", "farmstead")
         page.wait_for_function("() => window.__held === 1", timeout=15000)
         page.locator("#backbtn").click()
         page.evaluate("() => window.__release && window.__release()")
@@ -463,13 +463,15 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
     until the second has been answered, leave the page on the second pick. The config holds a pick
     number from a clock that was ahead (`AHEAD`), which the page numbers above."""
     _desk_of(tmp_path, ("alpha",))
-    last = _state_of(fleet_home, skin="voxel:overworld")
-    _config(fleet_home, skin="voxel:nether", seq=AHEAD)
+    last = _state_of(fleet_home, skin="voxel:daylight")
+    # The side is pinned light, so every pair look resolves to its light variant (docs/themes.md
+    # §Genres): Farmstead to Daytime, Glass to Frost, Voxel to Daylight.
+    _config(fleet_home, skin="voxel:nether", seq=AHEAD, mode="light")
     server, token, port = _serve()
     try:
         page, errors = _page(browser)
         _settings(page, port, token)
-        page.select_option("#look", "farmstead:daytime")
+        page.select_option("#look", "farmstead")
         page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
         page.wait_for_function("() => document.readyState === 'complete'", timeout=15000)
         # The sampler records a frame, not a moment: on a loaded runner the pick can land with no
@@ -496,18 +498,18 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
         # #483: two quick picks; the first answer lands after the second has been applied.
         page.evaluate("() => { document.getElementById('saved').hidden = true; }")
         page.evaluate(HOLD_FIRST_ANSWER)
-        page.select_option("#look", "glass:smoke")
+        page.select_option("#look", "glass")
         page.wait_for_function("() => window.__held === true", timeout=15000)
-        page.select_option("#look", "voxel:overworld")
+        page.select_option("#look", "voxel")
         page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
-        assert S.theme_state()["skin"] == "voxel:overworld", "the server wrote the picks in order"
+        assert S.theme_state()["skin"] == "voxel:daylight", "the server wrote the picks in order"
         page.evaluate("() => window.__release()")
         page.wait_for_function("() => window.__firstRead === true", timeout=15000)
         page.wait_for_function("() => pendingTheme === null", timeout=15000)
         got = page.evaluate("""() => [document.body.dataset.skin || '', document.body.dataset.skinVariant || '',
             document.documentElement.style.getPropertyValue('--bg'), document.getElementById('look').value]""")
         print(f"\n  two quick picks, the first answer last: {got}")
-        assert tuple(got) == ("voxel", "overworld", last["css"]["--bg"], "voxel:overworld"), got
+        assert tuple(got) == ("voxel", "daylight", last["css"]["--bg"], "voxel"), got
         assert not errors, errors
         page.close()
     finally:
@@ -527,21 +529,22 @@ def test_choosing_and_leaving_at_once_never_paints_the_old_skin(browser, fleet_h
     """
     PR.record(_facts(shell="browser"))
     _desk_of(tmp_path, ("alpha", "beta", "gamma"))
-    run = ["farmstead:daytime", "glass:smoke", "voxel:overworld"]
-    bgs = {s: _state_of(fleet_home, skin=s)["css"]["--bg"] for s in run}
-    _config(fleet_home, skin="voxel:nether")
+    # Each look on its light side (the config pins it), and the variant that side resolves to.
+    run = {"farmstead": "farmstead:daytime", "glass": "glass:frost", "voxel": "voxel:daylight"}
+    bgs = {s: _state_of(fleet_home, skin=s)["css"]["--bg"] for s in run.values()}
+    _config(fleet_home, skin="voxel:nether", mode="light")
     server, token, port = _serve()
     try:
         page, errors = _page(browser)
         _desk(page, port, token)
         old = "voxel"
-        for skin in run:
+        for look, skin in run.items():
             family = skin.split(":")[0]
             page.wait_for_function("() => !!Ink.inspect().table", timeout=15000)
             page.locator("#setbtn").click()
             page.wait_for_url(re.compile(r"/settings"), timeout=15000)
             page.wait_for_function(FILLED, timeout=15000)
-            page.select_option("#look", skin)
+            page.select_option("#look", look)
             page.locator("#backbtn").click()
             page.wait_for_url(re.compile(r"/\?"), timeout=15000)
             page.wait_for_function(SETTLED, timeout=15000)

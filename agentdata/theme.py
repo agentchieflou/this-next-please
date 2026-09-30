@@ -818,7 +818,193 @@ def get(name: str, *, seed: Any = None) -> Theme:
         return random_theme(seed)
     if key in BUILTINS:
         return BUILTINS[key]
-    raise ThemeError(f"unknown theme '{name}'", hint=f"choose from: {', '.join(BUILTINS.keys())}, random")
+    said = parse_name(key)
+    if said and "flip" in said:
+        return flip(get(said["flip"]))
+    if said:
+        return from_hue("#" + said["hex"], said["mode"], said["side"])
+    raise ThemeError(f"unknown theme '{name}'",
+                     hint=f"choose from: {', '.join(BUILTINS.keys())}, random, colors:<mode>:<hex>:<side>, flip:<name>")
+
+
+# ---------- Generated palettes: any hue, three modes, either side (#621's follow-up) ----------
+#
+# The Colors genre (docs/themes.md §Colors): the operator names a colour, as a hex value or from a
+# colour picker, and a whole palette is built from it -- in three modes, `matte` (muted, soft),
+# `glass` (lit, for the frost) and `cyber` (high contrast) -- on the light or the dark side. The
+# same engine gives every built-in palette its other side (`flip`), so every look has a light and
+# a dark mode, and derives a paper skin's inks for a paper (`inks_on`). Nothing here is judged by
+# eye: every generated palette passes `check`, and a test sweeps the hue circle in every mode on
+# both sides to hold that. A generated palette has a NAME the terminal resolves on its own
+# (`get`): `colors:<mode>:<hex6>:<side>` and `flip:<palette>`, so `theme.default` needs no other
+# key in config.json and `ad-theme` follows the desk as it always did.
+
+MODES = ("matte", "glass", "cyber")
+SIDES = ("light", "dark")
+COLORS_PREFIX = "colors:"
+FLIP_PREFIX = "flip:"
+HEX6 = re.compile(r"^#?([0-9A-Fa-f]{6})$")
+
+#: The fixed status hues, in degrees: ok green, warn amber, fail red, info blue. `skip` is the
+#: hue's own grey. The hue gap between ok and fail is rule 3's 30 degrees many times over, and a
+#: chosen hue never moves them: a state colour carries meaning and never changes role.
+STATUS_HUES = {"ok": 140.0, "warn": 42.0, "fail": 4.0, "info": 212.0}
+
+
+def _hsl(h: float, s: float, l: float) -> str:
+    """A hex colour from hue (degrees), saturation and lightness, all clamped."""
+    r, g, b = colorsys.hls_to_rgb((h % 360.0) / 360.0, max(0.0, min(1.0, l)), max(0.0, min(1.0, s)))
+    return rgb_to_hex((r, g, b))
+
+
+def _hsl_of(h: str) -> tuple[float, float, float]:
+    """(hue degrees, saturation, lightness) of a hex colour, HSL."""
+    hh, ll, ss = colorsys.rgb_to_hls(*hex_to_rgb(h))
+    return hh * 360.0, ss, ll
+
+
+def _fit(h: float, s: float, l: float, against, ratio: float, *, toward: float, cap: float = 19.0) -> str:
+    """The colour at hue `h`, saturation `s` and lightness `l`, its lightness stepped `toward` 0 or
+    1 until it reads at `ratio` on every colour in `against` (and under `cap` on each), by 0.01.
+    Lightness alone moves: the hue is the operator's and the saturation the mode's. Answers the
+    last step when none reads, which `check` then judges."""
+    best = _hsl(h, s, l)
+    for step in range(101):
+        ll = l + (toward - l) * step / 100.0
+        cand = _hsl(h, s, ll)
+        rs = [contrast_ratio(cand, a) for a in against]
+        if all(r >= ratio for r in rs):
+            if all(r <= cap for r in rs):
+                return cand
+            best = cand
+            if all(r > cap for r in rs):
+                return best
+        best = cand
+    return best
+
+
+#: Per mode, per side: the ground's saturation scale and lightness, the text's saturation scale,
+#: lightness and floor, the accent's saturation and lightness, and the statuses' saturation.
+_MODE = {
+    "matte": {"dark": dict(gs=0.30, gl=0.13, ts=0.12, tl=0.86, acs=0.45, acl=0.66, ss=0.42),
+              "light": dict(gs=0.30, gl=0.93, ts=0.12, tl=0.16, acs=0.45, acl=0.38, ss=0.48)},
+    "glass": {"dark": dict(gs=0.55, gl=0.11, ts=0.10, tl=0.90, acs=0.85, acl=0.64, ss=0.62),
+              "light": dict(gs=0.45, gl=0.95, ts=0.10, tl=0.13, acs=0.85, acl=0.40, ss=0.62)},
+    "cyber": {"dark": dict(gs=0.70, gl=0.05, ts=0.80, tl=0.86, acs=1.00, acl=0.58, ss=0.95),
+              "light": dict(gs=0.60, gl=0.97, ts=0.80, tl=0.14, acs=1.00, acl=0.40, ss=0.90)},
+}
+
+
+def from_hue(colour: str, mode: str = "matte", side: str = "dark", *, title: str | None = None) -> Theme:
+    """A checked palette built from one colour (#621's follow-up, the Colors genre).
+
+    `colour` is any hex value; its hue and saturation seed the ground, the text and the accent.
+    `mode` is `matte` (muted, soft: a low-saturation ground, calm text), `glass` (lit: the ground
+    keeps more of the colour, the accent glows, for the frost) or `cyber` (high contrast: a
+    near-black or near-white ground with the colour saturated, the accent the complement, text
+    near the 19:1 cap). `side` is `light` or `dark`. Every lightness is fitted (`_fit`) so
+    `check` passes for any hue: the text at 4.5:1 and under 19:1 on the ground, the four fixed
+    status hues at 3:1 on it, the accent at 3:1, and the cursor left to `to_css`'s neutral focus
+    since a chosen hue could be a state's. The name is the palette's own address:
+    `colors:<mode>:<HEX6>:<side>`, which `get` resolves."""
+    m = HEX6.match(str(colour or "").strip())
+    if not m:
+        raise ThemeError(f"not a colour: {colour!r}", hint="six hex digits, as #3A7BD5")
+    hex6 = m.group(1).upper()
+    if mode not in MODES:
+        raise ThemeError(f"unknown mode {mode!r}", hint=f"one of {', '.join(MODES)}")
+    if side not in SIDES:
+        raise ThemeError(f"unknown side {side!r}", hint="light or dark")
+    h, s, _l = _hsl_of("#" + hex6)
+    s = max(s, 0.08)                         # a grey seed still tints, faintly
+    k = _MODE[mode][side]
+    light = side == "light"
+    ground = _hsl(h, s * k["gs"], k["gl"])
+    if mode == "cyber":
+        text_h, acc_h = h, (h + 180.0) % 360.0
+    else:
+        text_h, acc_h = h, h
+    text = _fit(text_h, s * k["ts"], k["tl"], (ground,), 7.0, toward=1.0 if not light else 0.0)
+    accent = _fit(acc_h, min(1.0, s * k["acs"] + (0.15 if mode != "matte" else 0.0)), k["acl"],
+                  (ground,), 3.0, toward=1.0 if not light else 0.0)
+    # Every status at 4.5:1 on the ground, not rule 2's 3:1: at 4.5 the ground itself is the word
+    # on the state (rule 7) and the state is its own word in it (rule 8), on any hue.
+    status = {}
+    for role, sh in STATUS_HUES.items():
+        base_l = (0.62 if not light else 0.33)
+        status[role] = _fit(sh, k["ss"], base_l, (ground,), 4.5, toward=1.0 if not light else 0.0)
+    status["skip"] = _fit(h, min(0.18, s * 0.3), 0.55 if not light else 0.40, (ground,), 4.5,
+                          toward=1.0 if not light else 0.0)
+    status["error"] = status["fail"]
+    t = Theme(
+        name=f"{COLORS_PREFIX}{mode}:{hex6}:{side}",
+        title=title or f"Colors · {mode.title()} #{hex6} ({side})",
+        why=f"built from #{hex6} in {mode} mode, the {side} side",
+        ground=ground, text=text, accent=accent, cursor=None,
+        ansi=_make_ansi(ground, text, accent, light=light),
+        status=status, light=light, layout="night-owl" if not light else "atomic",
+    )
+    check(t)
+    return t
+
+
+def flip(t: Theme) -> Theme:
+    """The other side of a built-in palette (#621's follow-up): every look has a light and a dark
+    mode, and a palette that was drawn for one side is given the other by the same engine, seeded
+    from its own accent (its hue) in `matte` mode. Named `flip:<palette>`, which `get` resolves, so
+    `theme.default` can hold it for the terminal. `none` is its own flip (it follows the system)."""
+    if t.name == "none" or not t.accent:
+        return t
+    if t.name.startswith(FLIP_PREFIX):
+        return get(t.name[len(FLIP_PREFIX):])
+    side = "dark" if t.light else "light"
+    made = from_hue(t.accent, "matte", side, title=f"{t.title} ({side})")
+    return Theme(name=FLIP_PREFIX + t.name, title=made.title, why=f"{t.title}'s {side} side, built from its accent",
+                 ground=made.ground, text=made.text, accent=made.accent, cursor=made.cursor, ansi=made.ansi,
+                 status=made.status, light=made.light, layout=made.layout, muted=made.muted)
+
+
+def inks_on(t: Theme, paper: str, dark: bool | None = None, *, papers=()) -> dict[str, str]:
+    """A paper skin's six inks for `paper` on the palette `t`, each holding rule 5 (#248, #329):
+    pencil from the muted text, pen from the accent, red and the marker from `--human`, green from
+    `--done`, each moved toward the text until it reads at 3:1 on the paper (and on every end in
+    `papers`, when the panel is a pair); the highlighter the palette's `--waiting` moved toward the
+    ground until the text keeps 4.5:1 through it on every end (`highlight_under`). What a generated
+    look (Colors) draws its marks with, and a guide when a variant is added by hand."""
+    css = to_css(t)
+    dark = is_dark(paper) if dark is None else dark
+    ends = [paper] + [e for e in papers if e != paper]
+    def mark(colour: str) -> str:
+        for step in range(51):
+            cand = mix(colour, t.text, step / 50) if step else colour
+            if all(contrast_ratio(cand, e) >= 3.0 for e in ends):
+                return cand
+        return t.text
+    inks = {"pencil": mark(css["--muted"]), "pen": mark(css["--accent"]), "red": mark(css["--human"]),
+            "green": mark(css["--done"]), "marker": mark(css["--human"])}
+    hl = css["--waiting"]
+    for step in range(101):
+        cand = mix(hl, t.ground, step / 100) if step else hl
+        if all(contrast_ratio(t.text, highlight_under(e, cand, dark)) >= 4.5 for e in ends):
+            inks["highlighter"] = cand
+            break
+    else:
+        inks["highlighter"] = t.ground
+    return inks
+
+
+def parse_name(name: str) -> dict | None:
+    """What a generated palette's name says: `{"mode", "hex", "side"}` for `colors:...`,
+    `{"flip": palette}` for `flip:...`, else None."""
+    key = str(name or "").strip().lower()
+    if key.startswith(COLORS_PREFIX):
+        parts = key[len(COLORS_PREFIX):].split(":")
+        if len(parts) == 3 and parts[0] in MODES and HEX6.match(parts[1]) and parts[2] in SIDES:
+            return {"mode": parts[0], "hex": parts[1].lstrip("#").upper(), "side": parts[2]}
+        return None
+    if key.startswith(FLIP_PREFIX):
+        return {"flip": key[len(FLIP_PREFIX):]}
+    return None
 
 
 def list_themes() -> list[Theme]:

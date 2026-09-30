@@ -473,7 +473,9 @@ its colour), turned about z only.
 Above `function colourOf(c, i, j, ring) {`:
 
 A piece wears the edge or the panel at x0.84-1.0, never the ground: on the ground the page's muted
-and human words fall under 3:1 (the test holds every word colour against every piece colour).
+and human words fall under 3:1 (the test holds every word colour against every piece colour). In a
+light world (Daylight) the panel is lightened instead, x1.0-1.16 clamped at white: a darkened
+piece of a pale slab would carry the page's dark words under 4.5:1, a lighter one never does.
 
 ### `function destOf`
 

@@ -1508,6 +1508,25 @@ def theme_state() -> dict:
     cfg = C.load()
     default_name = cfg.get("theme", {}).get("default") or "none"
     skin_name = cfg.get("theme", {}).get("skin") or "none"
+    # The look and the side (docs/themes.md §Genres): `theme.look` is what the picker chose and
+    # `theme.mode` which side the toggle pinned (`""` follows the system). They resolve to the
+    # concrete `theme.skin` and `theme.default`, which every other reader keeps using -- unless
+    # those two disagree with the look, which is `ad-theme set` having written the palette by
+    # hand since: then the concrete values are the truth and the look is read back from them.
+    look = str(cfg.get("theme", {}).get("look") or "")
+    mode = str(cfg.get("theme", {}).get("mode") or "")
+    mode = mode if mode in skins.MODES else skins.FOLLOW
+    resolved = skins.resolve(look, mode) if look else None
+    if resolved and (resolved["skin"] != skin_name or resolved["theme"] != default_name):
+        resolved = None
+    if not resolved:
+        look = skins.look_of(default_name, skin_name)
+        # A concrete skin or palette written by hand is one side: the toggle shows it pinned.
+        try:
+            mode = skins.FOLLOW if (skin_name.endswith(":" + skins.AUTO) or default_name == "none") \
+                else skins.side_of(default_name)
+        except Exception:                    # noqa: BLE001 - a palette name nothing knows: follows
+            mode = skins.FOLLOW
 
     # A skin is a rendering, not a palette: it is drawn against the one it declares as its base
     # (#154). Choosing `glass` while the palette is still "follow the system" put a skin designed
@@ -1536,9 +1555,11 @@ def theme_state() -> dict:
     # follows the system's appearance without asking. `theme` and `css` stay the default variant's:
     # the terminal's palette, which cannot follow, and what a reader that knows nothing of `auto` uses.
     auto = {}
-    for side, v in ((skin_info or {}).get("auto") or {}).items():
-        st = theme_or_none(v["base"])
-        auto[side] = {"variant": v["variant"], "skin": v["full"], "theme": st.name, "css": tokens(st)}
+    sides = (resolved or {}).get("auto") or {side: {"variant": v["variant"], "skin": v["full"], "theme": v["base"]}
+                                             for side, v in ((skin_info or {}).get("auto") or {}).items()}
+    for side, v in sides.items():
+        st = theme_or_none(v["theme"])
+        auto[side] = {"variant": v["variant"], "skin": v["skin"], "theme": st.name, "css": tokens(st)}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
         proj_map = {}
@@ -1558,6 +1579,8 @@ def theme_state() -> dict:
     return {
         "theme": default_name,
         "skin": skin_name,
+        "look": look,
+        "mode": mode,
         # Split out as well as joined: the page fetches one stylesheet per skin and switches the
         # variant with an attribute, so it needs the two halves without having to parse the name.
         "skin_family": skin_info["name"] if skin_info else "",
@@ -2801,12 +2824,29 @@ def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
         return False, last
     if seq is not None:
         cfg["theme"]["seq"] = last = seq
+    from . import skins
+
+    if "look" in body or "mode" in body:
+        # The picker's look and the toggle's side (docs/themes.md §Genres): resolved here to the
+        # concrete skin and palette every reader uses, and written beside them.
+        look = str(body.get("look") or cfg["theme"].get("look") or "").strip()
+        if not look:
+            look = skins.look_of(cfg["theme"].get("default") or "none", cfg["theme"].get("skin") or "none")
+        mode = str(body.get("mode", cfg["theme"].get("mode") or "") or "").strip().lower()
+        if mode not in skins.MODES:
+            raise ServeError(f"mode {mode!r} is not a side", "light, dark, or empty to follow the system",
+                             code="bad_request")
+        resolved = skins.resolve(look, mode, pick="look" in body)
+        cfg["theme"]["look"] = resolved["look"]
+        cfg["theme"]["mode"] = resolved["mode"]
+        cfg["theme"]["skin"] = resolved["skin"]
+        cfg["theme"]["default"] = resolved["theme"]
+        C.save(cfg)
+        return True, last
     if "theme" in body:
         theme_val = str(body["theme"]).strip()
         cfg["theme"]["default"] = theme_val if theme_val else "none"
     if "skin" in body:
-        from . import skins
-
         skin_val = str(body["skin"]).strip()
         cfg["theme"]["skin"] = skin_val if skin_val else "none"
         # Choosing a skin chooses its ground with it, and writes that palette to the config the
@@ -2816,6 +2856,9 @@ def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
         if chosen:
             cfg["theme"]["skin"] = chosen["full"]
             cfg["theme"]["default"] = chosen["base"]
+    if "theme" in body or "skin" in body:
+        # A pick by its concrete names (an older page, `ad-theme`): the look follows it.
+        cfg["theme"]["look"] = skins.look_of(cfg["theme"].get("default") or "none", cfg["theme"].get("skin") or "none")
     C.save(cfg)
     return True, last
 

@@ -47,3 +47,17 @@ body[data-skin="circuit"]:not(.ink-off) #bellcount { color: var(--ink-pen); }
 
 body[data-skin="circuit"]:not(.ink-off) header { will-change: transform; }
 body[data-skin="circuit"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+
+body[data-skin="circuit"][data-skin-variant="silk"] {
+  --paper: #E9ECEF;
+  --board-max: #F6F8FA;
+  --weave: #F0F2F5;
+  --copper: #B8792E;
+  --ink-pencil: #53585E;
+  --ink-pen: #466282;
+  --ink-red: #B3261E;
+  --ink-marker: #B3261E;
+  --ink-green: #2A733E;
+  --ink-highlighter: #9B7B45;
+  color-scheme: light;
+}

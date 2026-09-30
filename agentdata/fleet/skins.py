@@ -55,7 +55,7 @@ SKINS = {
         "title": "Glass",
         "why": "frosted acrylic translucent panels with a subtle accent glow",
         "default": "smoke",
-        "auto": {"light": "frost", "dark": "smoke"},
+        "sides": {"light": "frost", "dark": "smoke"},
         "variants": {
             "smoke": {"title": "Smoke", "base": "dark",
                       "mesh": [("#58A6FF", 0.35), ("#3FB950", 0.35), ("#D29922", 0.30)],
@@ -88,6 +88,7 @@ SKINS = {
         "title": "Voxel",
         "why": "chunky bevelled slab controls and pixel status blocks inspired by voxel worlds",
         "default": "overworld",
+        "sides": {"light": "daylight", "dark": "overworld"},
         "variants": {
             # `inks` (#256): the voxel's mark table drawn on its slab, whose face is the composited
             # panel. Each is the palette's own token (`theme.to_css` of `base`) -- marker and red
@@ -109,6 +110,11 @@ SKINS = {
                     "why": "endstone and void",
                     "inks": {"marker": "#F85149", "red": "#F85149", "green": "#3FB950",
                              "pencil": "#929292", "highlighter": "#C59020", "pen": "#58A6FF"}},
+            # The light side (every look has one): the overworld at noon, on sand.
+            "daylight": {"title": "Daylight", "base": "sand", "composited_panel": "#E4D9BF",
+                         "why": "the overworld at noon: sandstone, grass and a pale sky",
+                         "inks": {"marker": "#B3261E", "red": "#B3261E", "green": "#2E7D4F",
+                                  "pencil": "#60574A", "highlighter": "#BA874B", "pen": "#B9631E"}},
         },
     },
     "farmstead": {
@@ -116,7 +122,7 @@ SKINS = {
         "title": "Farmstead",
         "why": "warm paper, wood trim and rustic crop-stage markers inspired by pixel farming",
         "default": "daytime",
-        "auto": {"light": "daytime", "dark": "cave"},
+        "sides": {"light": "daytime", "dark": "cave"},
         "variants": {
             "daytime": {"title": "Daytime", "base": "sand", "composited_panel": "#E8DDC3",
                         "inks": {"pencil": "#74695A", "highlighter": "#E2B45C"},
@@ -138,7 +144,7 @@ SKINS = {
         "title": "Graph paper",
         "why": "a 28px grid, a mechanical pencil, ruled marks and every agent's hour plotted on it",
         "default": "engineering",
-        "auto": {"light": "engineering", "dark": "blueprint"},
+        "sides": {"light": "engineering", "dark": "blueprint"},
         "variants": {
             "engineering": {"title": "Engineering", "base": "eye-relief-day",
                             "composited_panel": "#F3F6EC", "grid": "#A8C3A0",
@@ -163,11 +169,17 @@ SKINS = {
         "why": "a yellow legal pad: canary stock, blue rules, a double red margin and a glued top, "
                "drawn on in pencil, pen and highlighter",
         "default": "canary",
+        "sides": {"light": "canary", "dark": "night"},
         "variants": {
             "canary": {"title": "Canary", "base": "eye-relief-day", "composited_panel": "#FCF3A6",
                        "inks": {"pencil": "#5E5A52", "pen": "#1F3F9A", "red": "#A82D2D",
                                 "green": "#2A733E", "marker": "#A82D2D", "highlighter": "#FF8FA3"},
                        "why": "canary stock, and an orange-pink highlighter that still reads on it"},
+            # The dark side: the same pad under a desk lamp late, on `dark`; inks by `theme.inks_on`.
+            "night": {"title": "Night pad", "base": "dark", "composited_panel": "#2B2A1E",
+                      "inks": {"pencil": "#A5A9AC", "pen": "#58A6FF", "red": "#F85149",
+                               "green": "#3FB950", "marker": "#F85149", "highlighter": "#D29922"},
+                      "why": "the pad under a desk lamp, late: olive stock and gel inks"},
         },
     },
     # #252: drawn by the ink layer (`static/ink/skins/napkin.js`). The text is read on the quilted
@@ -180,6 +192,7 @@ SKINS = {
         "title": "Napkin notes",
         "why": "quilted two-ply napkin, a felt tip that bleeds along the emboss, and a coffee ring",
         "default": "diner",
+        "sides": {"light": "diner", "dark": "late"},
         "variants": {
             "diner": {"title": "Diner", "base": "eye-relief-day",
                       "paper": "#FBF9F4", "seam": "#F1EFEA", "coffee": ("#8A5A2E", 0.14),
@@ -193,6 +206,14 @@ SKINS = {
                       "inks": {"pencil": "#57524A", "pen": "#243F86", "red": "#A3271C",
                                "green": "#2A6A3F", "marker": "#9E2A1E", "highlighter": "#F5D94A"},
                       "why": "an unbleached napkin, for a warmer page"},
+            # The dark side: the counter after closing, on `dark`; the pair is recomputed by the
+            # napkin's test as every napkin's is, the ring over the seam at the dark end.
+            "late": {"title": "Late shift", "base": "dark",
+                     "paper": "#23262B", "seam": "#1E2126", "coffee": ("#8A5A2E", 0.22),
+                     "composited_panel": {"darkest": "#362E28", "lightest": "#23262B"},
+                     "inks": {"pencil": "#A5A9AC", "pen": "#58A6FF", "red": "#F85149",
+                              "green": "#3FB950", "marker": "#F85149", "highlighter": "#D29922"},
+                     "why": "a dark napkin from the late counter, and a gel pen"},
         },
     },
     # The first skin drawn with ink (#249, #250; docs/desk-ink.md §The notebook). Its panel is the
@@ -206,7 +227,7 @@ SKINS = {
         "title": "Notebook",
         "why": "a graph-ruled notebook drawn live in pencil, pen, marker and highlighter",
         "default": "light",
-        "auto": {"light": "light", "dark": "dark"},
+        "sides": {"light": "light", "dark": "dark"},
         "variants": {
             "light": {"title": "Notebook", "base": "eye-relief-day", "composited_panel": "#FBFBF6",
                       "inks": {"pencil": "#50545C", "pen": "#22398F", "red": "#C8352B",
@@ -228,6 +249,7 @@ SKINS = {
         "title": "Playbook",
         "why": "a coach's chalkboard: X's and O's, each agent's route in orange chalk",
         "default": "chalkboard",
+        "sides": {"light": "playsheet", "dark": "chalkboard"},
         "variants": {
             "chalkboard": {"title": "Chalkboard", "base": "nfl-browns",
                            "composited_panel": {"darkest": "#2B1B08", "lightest": "#40301D"},
@@ -253,12 +275,20 @@ SKINS = {
         "title": "Phosphor",
         "why": "a green phosphor screen: scanlines and a beam that draws",
         "default": "green",
+        "sides": {"light": "paper", "dark": "green"},
         "variants": {
             "green": {"title": "Green", "base": "matrix",
                       "composited_panel": {"darkest": "#010603", "lightest": "#0A1F10"},
                       "inks": {"pencil": "#3FA866", "pen": "#00FF41", "red": "#FF3B3B",
                                "green": "#A8FFC0", "marker": "#FF3B3B", "highlighter": "#CCA13B"},
                       "why": "phosphor on glass"},
+            # The light side: the screen turned to paper, dark glyphs on pale glass, on
+            # `eye-relief-day`; the pair is the scanline at the dark end and the glass at the light.
+            "paper": {"title": "Paper white", "base": "eye-relief-day",
+                      "composited_panel": {"darkest": "#E4E0CC", "lightest": "#F4F1E4"},
+                      "inks": {"pencil": "#5C5A52", "pen": "#8A6D1F", "red": "#A82D2D",
+                               "green": "#2A733E", "marker": "#A82D2D", "highlighter": "#AC975D"},
+                      "why": "the screen turned to paper: dark glyphs on pale glass"},
         },
     },
     # #396: drawn by the ink layer (`static/ink/skins/circuit.js`). The pane is the board, so the
@@ -272,17 +302,26 @@ SKINS = {
         "title": "Circuit board",
         "why": "solder mask, silkscreen and copper: each agent a component on the board",
         "default": "solder",
+        "sides": {"light": "silk", "dark": "solder"},
         "variants": {
-            "solder": {"title": "Solder", "base": "greens",
+            "solder": {"title": "Solder", "base": "greens", "copper": "#6B4A2A",
                        "composited_panel": {"darkest": "#0D2618", "lightest": "#1C3A28"},
                        "inks": {"pencil": "#E4EDE6", "pen": "#D9A066", "red": "#F85149",
                                 "green": "#7EE787", "marker": "#F85149", "highlighter": "#B7851E"},
                        "why": "green solder mask, white silkscreen and bare copper"},
-            "matte": {"title": "Matte", "base": "vanta-black",
+            "matte": {"title": "Matte", "base": "vanta-black", "copper": "#6B4A2A",
                       "composited_panel": {"darkest": "#0A0A0A", "lightest": "#1A1A1A"},
                       "inks": {"pencil": "#D8D8D8", "pen": "#D9A066", "red": "#F85149",
                                "green": "#3FB950", "marker": "#F85149", "highlighter": "#B7851E"},
                       "why": "a matte-black board, for a room with the lights off"},
+            # The light side: a white solder mask, on `overcast`; the mask at the dark end and its
+            # weave at the light.
+            "silk": {"title": "White mask", "base": "overcast",
+                     "composited_panel": {"darkest": "#E9ECEF", "lightest": "#F6F8FA"},
+                     "copper": "#B8792E",
+                     "inks": {"pencil": "#53585E", "pen": "#466282", "red": "#B3261E",
+                              "green": "#2A733E", "marker": "#B3261E", "highlighter": "#9B7B45"},
+                     "why": "a white solder mask, grey silkscreen and bare copper"},
         },
     },
     # The weather genre (docs/themes.md §Genres): one sky per variant, drawn by the ink layer
@@ -299,7 +338,16 @@ SKINS = {
         "title": "Weather",
         "why": "a sky over the desk: rain that falls across the panes, sun, cloud cover or stars",
         "default": "rainy",
-        "auto": {"light": "sunny", "dark": "starry"},
+        "sides": {"light": "sunny", "dark": "starry"},
+        # The weather's looks are named by hand: a rainy day's light side is rain, not sun.
+        "looks": {
+            "rain": {"title": "Rainy day", "light": "showers", "dark": "rainy",
+                     "why": "rain falling across the panes, a flash of lightning on an error"},
+            "clear": {"title": "Clear sky", "light": "sunny", "dark": "starry",
+                      "why": "the sun's rays turning by day, stars and a meteor by night"},
+            "cloud": {"title": "Cloudy", "light": "cloudy", "dark": "dusk",
+                      "why": "cloud cover drifting behind the panes"},
+        },
         "variants": {
             "rainy": {"title": "Rainy day", "base": "slate",
                       "composited_panel": {"darkest": "#2B3037", "lightest": "#3B434D"},
@@ -319,9 +367,32 @@ SKINS = {
                        "inks": {"pencil": "#B9BCC4", "pen": "#9FC4F0", "red": "#F85149",
                                 "green": "#3FB950", "marker": "#F85149", "highlighter": "#B59A2A"},
                        "why": "a night sky: stars that twinkle, a meteor now and then"},
+            # The rain's light side, on `overcast`: the streak darkens the paper here, so the pair's
+            # dark end is the paper under a streak and its light end the paper.
+            "showers": {"title": "Showers", "base": "overcast",
+                        "composited_panel": {"darkest": "#D1D7DD", "lightest": "#E8EBEE"},
+                        "drop": ("#5B6E85", 0.16),
+                        "inks": {"pencil": "#53585E", "pen": "#4F6E8C", "red": "#B3261E",
+                                 "green": "#2A733E", "marker": "#B3261E", "highlighter": "#AC956B"},
+                        "why": "a bright grey day, rain falling across the panes"},
+            # The cloud's dark side, on `slate`: cloud cover at dusk.
+            "dusk": {"title": "Dusk", "base": "slate", "composited_panel": "#2B3037",
+                     "inks": {"pencil": "#B0B8C2", "pen": "#8FB3D1", "red": "#F0645C",
+                              "green": "#5FC77A", "marker": "#F0645C", "highlighter": "#AC8838"},
+                     "why": "cloud cover at dusk, drifting behind the panes"},
         },
     },
 }
+
+
+def _sides() -> None:
+    """Every skin follows the system through its `sides` (#342's `auto`, now on all of them): the
+    same dict under the key the readers of `auto` know."""
+    for skin in SKINS.values():
+        skin["auto"] = dict(skin["sides"])
+
+
+_sides()
 
 
 # The palettes no variant above is drawn on yet, each with the reason (#393). Every built-in palette
@@ -510,14 +581,18 @@ def panels_on(base: str) -> list[str]:
     return out
 
 
-# ---------- Genres: the one picker (docs/themes.md §Genres) ----------
+# ---------- Genres, looks and sides: the one picker and the one toggle (docs/themes.md §Genres) ----------
 #
-# The settings page offers ONE control, "look", grouped by genre. A look is a skin variant (which
-# brings its palette with it, as above) or, in the `plain` genre, a palette on its own -- the plain
-# HIG page in that palette, which is what choosing a palette with no skin always was. A genre is
-# what its looks have in common: the weather genre's looks are skies and its animation is weather;
-# the football genre's are a coach's board and its animation is routes. Every skin names its genre
-# here, once; a skin in no genre is not offered (`tests/test_fleet_skins.py`).
+# The settings page offers ONE control, "look", grouped by genre, and ONE toggle, the side: light or
+# dark. A look is a skin's own pair (`notebook`), a flavour of a skin (`glass:azure`, `weather:rain`)
+# or, in the `plain` genre, a palette on its own (`palette:sand`); every look has a light and a dark
+# side, and the toggle picks which is drawn. A skin declares its `sides` -- one light variant, one
+# dark -- and its looks follow: the pair itself, then every other variant as a flavour that keeps
+# its own side and borrows the pair's for the other, unless the skin names its looks by hand
+# (`looks`), as the weather does: a rainy day's light side is rain, not sun. A palette's other
+# side is `theme.flip` unless `PALETTE_SIDES` pairs it with a built-in. A genre is what its looks
+# have in common; every skin names its genre here, once; a skin in no genre is not offered
+# (`tests/test_fleet_skins.py`).
 GENRES: dict[str, dict] = {
     "weather": {"title": "Weather", "why": "a sky over the desk, and weather that moves",
                 "skins": ["weather"]},
@@ -536,6 +611,24 @@ GENRES: dict[str, dict] = {
 #: The value of a plain-genre look: `palette:<name>`; `palette:none` is the system's own colours.
 PALETTE_LOOK = "palette:"
 
+#: The two sides of a look, and the mode that follows the system (the empty string, config's
+#: "unset"): `theme.mode` is one of these.
+LIGHT, DARK, FOLLOW = "light", "dark", ""
+MODES = (LIGHT, DARK, FOLLOW)
+
+#: Built-in palettes that are one another's sides. Every other palette's other side is
+#: `theme.flip` of it, named `flip:<palette>`, which `theme.get` resolves.
+PALETTE_SIDES: dict[str, str] = {
+    "eye-relief": "eye-relief-day", "eye-relief-day": "eye-relief",
+    "slate": "overcast", "overcast": "slate",
+}
+
+
+def side_of(base: str) -> str:
+    """Which side a palette is: `light` when its `light` flag is set, else `dark`."""
+    from .. import theme as T
+    return LIGHT if T.get(base).light else DARK
+
 
 def genre_of(skin_name: str) -> str:
     """The genre a skin is listed in, or `""`."""
@@ -545,63 +638,161 @@ def genre_of(skin_name: str) -> str:
     return ""
 
 
-def look_title(skin_name: str, variant: str | None) -> str:
-    """How a look is named in the picker: the variant's title alone when its skin is the only one
-    of its genre (Weather · Rainy day would say weather twice) or when the two titles are one
-    word (Notebook · Notebook), else `skin · variant`; the skin's title alone when it has one
-    variant; `skin · Auto` for the pair that follows the system."""
+def look_title(skin_name: str, title: str) -> str:
+    """How a look is named in the picker: its own title alone when its skin is the only one of
+    its genre (Weather · Rainy day would say weather twice) or when the two titles are one word
+    (Notebook · Notebook), else `skin · title`."""
     skin = SKINS[skin_name]
     alone = len(GENRES.get(genre_of(skin_name), {}).get("skins", [])) == 1
-    if variant == AUTO:
-        return ("Auto" if alone else f"{skin['title']} · Auto")
-    if variant is None or len(skin["variants"]) == 1:
-        return skin["title"]
-    title = skin["variants"][variant]["title"]
     return title if alone or title == skin["title"] else f"{skin['title']} · {title}"
 
 
-def parse_look(value: str) -> dict:
-    """What `/api/theme` is posted for a look the picker chose: `{"skin": full}` for a skin
-    variant, `{"theme": name, "skin": "none"}` for a plain palette. Pure, so the page and the
-    tests agree on it."""
+def looks(skin_name: str) -> list[dict]:
+    """A skin's looks, in picker order, each `{name, value, title, why, light, dark}` with a
+    variant per side: the pair first (`value` the bare skin name), then each flavour."""
+    skin = SKINS.get(skin_name)
+    if not skin:
+        return []
+    sides = skin["sides"]
+    if skin.get("looks"):
+        return [{"name": name, "value": f"{skin_name}:{name}", "title": look_title(skin_name, spec["title"]),
+                 "why": spec["why"], LIGHT: spec[LIGHT], DARK: spec[DARK]}
+                for name, spec in skin["looks"].items()]
+    out = [{"name": "", "value": skin_name, "title": skin["title"], "why": skin["why"],
+            LIGHT: sides[LIGHT], DARK: sides[DARK]}]
+    for v in variants(skin_name):
+        if v["name"] in sides.values():
+            continue
+        own = side_of(v["base"])
+        other = DARK if own == LIGHT else LIGHT
+        # A flavour has a side of its own (Nether is a night world): choosing it pins that side,
+        # and the toggle still gives the other, the pair's.
+        out.append({"name": v["name"], "value": f"{skin_name}:{v['name']}",
+                    "title": look_title(skin_name, v["title"]), "why": v["why"],
+                    own: v["name"], other: sides[other], "own": own})
+    return out
+
+
+def find_look(value: str) -> tuple[str, dict] | None:
+    """The skin and the look a value names: `<skin>`, `<skin>:<look>`, or, for a config written
+    before looks existed, `<skin>:<variant>` (the look that variant is a side of, the pair first)
+    and `<skin>:auto` (the pair). None for a palette look or an unknown skin."""
     v = str(value or "").strip()
-    if v.startswith(PALETTE_LOOK):
-        return {"theme": v[len(PALETTE_LOOK):] or "none", "skin": "none"}
-    return {"skin": v or "none"}
+    if not v or v.startswith(PALETTE_LOOK):
+        return None
+    skin_name, _, rest = v.partition(":")
+    if skin_name not in SKINS:
+        return None
+    own = looks(skin_name)
+    for lk in own:
+        if lk["value"] == v:
+            return skin_name, lk
+    if rest in SKINS[skin_name]["variants"]:
+        for lk in own:
+            if rest in (lk[LIGHT], lk[DARK]):
+                return skin_name, lk
+    return skin_name, own[0]
+
+
+def palette_sides(name: str) -> dict[str, str]:
+    """A palette's light and dark palettes: itself on its side, and its pair or its flip on the
+    other. `none` follows the system on its own, so it is both."""
+    from .. import theme as T
+    name = str(name or "none")
+    if name == "none":
+        return {LIGHT: "none", DARK: "none"}
+    try:
+        t = T.get(name)
+    except T.ThemeError:
+        return {LIGHT: "none", DARK: "none"}
+    own = LIGHT if t.light else DARK
+    other = DARK if own == LIGHT else LIGHT
+    said = T.parse_name(name)
+    if said and "flip" in said:
+        pair = said["flip"]
+    else:
+        pair = PALETTE_SIDES.get(name) or (T.FLIP_PREFIX + name)
+    return {own: name, other: pair}
+
+
+def resolve(look: str, mode: str = FOLLOW, *, pick: bool = False) -> dict:
+    """What a look is drawn as on a side (docs/themes.md §Genres): `skin` (the variant's full name,
+    `none` for a palette look, `<skin>:auto` while following the system), `theme` (the palette
+    the terminal gets), and `auto`, the two sides `{side: {variant, skin, theme}}` when `mode` is
+    `FOLLOW`, else None. With `pick`, a fresh choice of a look that is one side of its own (a
+    flavour, a palette) pins that side while `mode` follows; pressing Auto afterwards (no `pick`)
+    lets it follow. A look nothing knows resolves to the system's colours."""
+    mode = mode if mode in MODES else FOLLOW
+    found = find_look(look)
+    if found:
+        skin_name, lk = found
+        if pick and mode == FOLLOW and lk.get("own"):
+            mode = lk["own"]
+        sides = {side: {"variant": lk[side], "skin": f"{skin_name}:{lk[side]}",
+                        "theme": SKINS[skin_name]["variants"][lk[side]]["base"]} for side in (LIGHT, DARK)}
+        if mode in (LIGHT, DARK):
+            return {"look": lk["value"], "mode": mode, "skin": sides[mode]["skin"], "theme": sides[mode]["theme"],
+                    "auto": None}
+        return {"look": lk["value"], "mode": FOLLOW, "skin": f"{skin_name}:{AUTO}", "theme": sides[DARK]["theme"],
+                "auto": sides}
+    from .. import theme as T
+    name = str(look or "").strip()
+    name = name[len(PALETTE_LOOK):] if name.startswith(PALETTE_LOOK) else "none"
+    sides_p = palette_sides(name)
+    if name == "none":
+        return {"look": PALETTE_LOOK + "none", "mode": mode, "skin": "none", "theme": "none", "auto": None}
+    sides = {side: {"variant": "", "skin": "none", "theme": sides_p[side]} for side in (LIGHT, DARK)}
+    if pick and mode == FOLLOW and name in sides_p.values() and not str(name).startswith(T.FLIP_PREFIX):
+        # A palette is one side: choosing it pins that side, as a flavour does.
+        mode = LIGHT if sides_p[LIGHT] == name else DARK
+    if mode in (LIGHT, DARK):
+        return {"look": PALETTE_LOOK + name, "mode": mode, "skin": "none", "theme": sides[mode]["theme"], "auto": None}
+    return {"look": PALETTE_LOOK + name, "mode": FOLLOW, "skin": "none", "theme": name, "auto": sides}
+
+
+def parse_look(value: str) -> dict:
+    """What `/api/theme` is posted for a look the picker chose: `{"look": value}`. Pure, so the page
+    and the tests agree on it."""
+    v = str(value or "").strip()
+    return {"look": v or PALETTE_LOOK + "none"}
 
 
 def genres() -> list[dict]:
     """The picker, as data: every genre in `GENRES` order with its looks, each a value the page
-    posts back (`parse_look`), its title, its why and the palette it brings. The default variant
-    of a skin leads its skin's looks, `Auto` closes them. The plain genre's looks are the palettes
-    by title, `none` (the system's colours) first."""
+    posts back (`parse_look`), its title, its why, and the variant and palette on each side. The
+    plain genre's looks are the palettes by title, `none` (the system's colours) first."""
     from .. import theme as T
     out = []
     for name, genre in GENRES.items():
-        looks = []
+        rows = []
         for skin_name in genre["skins"]:
             skin = SKINS.get(skin_name)
             if not skin:
                 continue
-            for v in variants(skin_name):
-                looks.append({"value": v["full"], "title": look_title(skin_name, v["name"]),
-                              "why": v["why"], "skin": skin_name, "variant": v["name"], "base": v["base"]})
-            if skin.get("auto"):
-                looks.append({"value": f"{skin_name}:{AUTO}", "title": look_title(skin_name, AUTO),
-                              "why": f"follows the system: {skin['auto']['light']} when light, "
-                                     f"{skin['auto']['dark']} when dark",
-                              "skin": skin_name, "variant": AUTO, "base": skin["variants"][skin["default"]]["base"]})
+            for lk in looks(skin_name):
+                rows.append({"value": lk["value"], "title": lk["title"], "why": lk["why"], "skin": skin_name,
+                             "look": lk["name"], "own": lk.get("own") or "",
+                             "sides": {side: {"variant": lk[side], "skin": f"{skin_name}:{lk[side]}",
+                                              "base": skin["variants"][lk[side]]["base"]} for side in (LIGHT, DARK)}})
         if name == "plain":
             for t in sorted(T.list_themes(), key=lambda t: t.name != "none"):
-                looks.append({"value": PALETTE_LOOK + t.name, "title": t.title if t.name != "none" else "System",
-                              "why": t.why, "skin": "", "variant": "", "base": t.name})
-        out.append({"name": name, "title": genre["title"], "why": genre["why"], "looks": looks})
+                sides = palette_sides(t.name)
+                rows.append({"value": PALETTE_LOOK + t.name, "title": t.title if t.name != "none" else "System",
+                             "why": t.why, "skin": "", "look": "",
+                             "own": "" if t.name == "none" else (LIGHT if t.light else DARK),
+                             "sides": {side: {"variant": "", "skin": "none", "base": sides[side]} for side in (LIGHT, DARK)}})
+        out.append({"name": name, "title": genre["title"], "why": genre["why"], "looks": rows})
     return out
 
 
-def look_of(theme_name: str, skin_name: str) -> str:
-    """The picker value that shows what is worn: the skin's full name while one is on, else the
-    palette as a plain look."""
+def look_of(theme_name: str, skin_name: str, look: str = "") -> str:
+    """The picker value that shows what is worn: `theme.look` when config holds one, else the
+    look the skin's variant is a side of, else the palette as a plain look."""
+    if look:
+        return look
     if skin_name and skin_name != "none":
+        found = find_look(skin_name)
+        if found:
+            return found[1]["value"]
         return skin_name
     return PALETTE_LOOK + (theme_name or "none")

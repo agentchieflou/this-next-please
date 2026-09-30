@@ -67,6 +67,42 @@ body[data-skin="weather"][data-skin-variant="starry"] {
   --ink-highlighter: #B59A2A;
 }
 
+body[data-skin="weather"][data-skin-variant="showers"] {
+  --wx-kind: 0;
+  --paper: #E8EBEE;
+  --wx-sky-top: #9FB0C0;
+  --wx-sky-bottom: #C9D2DB;
+  --wx-drop: #5B6E85;
+  --wx-drop-alpha: 0.16;
+  --wx-flash: #FFFFFF;
+  --wx-cloud: #7E8C9A;
+  --wx-cloud-alpha: 0.50;
+  --wx-rim: #B9C3CD;
+  --ink-pencil: #53585E;
+  --ink-pen: #4F6E8C;
+  --ink-red: #B3261E;
+  --ink-green: #2A733E;
+  --ink-marker: #B3261E;
+  --ink-highlighter: #AC956B;
+}
+
+body[data-skin="weather"][data-skin-variant="dusk"] {
+  --wx-kind: 2;
+  --paper: #2B3037;
+  --wx-sky-top: #2A3340;
+  --wx-sky-bottom: #3A4552;
+  --wx-cloud: #4A5666;
+  --wx-cloud-alpha: 0.80;
+  --wx-cloud-shade: #1F252C;
+  --wx-rim: #3B4756;
+  --ink-pencil: #B0B8C2;
+  --ink-pen: #8FB3D1;
+  --ink-red: #F0645C;
+  --ink-green: #5FC77A;
+  --ink-marker: #F0645C;
+  --ink-highlighter: #AC8838;
+}
+
 body[data-skin="weather"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
 body[data-skin="weather"]:not(.ink-off) header { will-change: transform; }
 body[data-skin="weather"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }

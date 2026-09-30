@@ -151,6 +151,7 @@ function surfaces(tokens) {
     panel: own("--voxel-panel", tokens.panel),
     edge: own("--voxel-edge", shade(tokens.bg, 0.4)),
     accent: tokens.accent,
+    dark: tokens.dark,
   };
 }
 
@@ -502,7 +503,7 @@ function rnd(n) {
 }
 
 function colourOf(c, i, j, ring) {
-  return ring ? c.edge : shade(c.panel, Math.min(1, jitter(i, j)));
+  return ring ? c.edge : shade(c.panel, c.dark ? Math.min(1, jitter(i, j)) : Math.max(1, 2 - jitter(i, j)));
 }
 
 function add(list) {

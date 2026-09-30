@@ -1,9 +1,9 @@
 # Weather: a sky over the desk, and weather that moves
 
 _The weather genre ([themes.md](themes.md) §Genres). A skin that draws with the ink layer
-([desk-ink.md](desk-ink.md)). Chosen like any look: `theme.skin` is `weather` (or `weather:rainy`,
-`weather:sunny`, `weather:cloudy`, `weather:starry`, `weather:auto`), from the settings page or
-`POST /api/theme {skin}`. Each weather is drawn on the palette that is its light: the rain on `slate`
+([desk-ink.md](desk-ink.md)). Chosen like any look: `theme.look` is `weather:rain`, `weather:clear`
+or `weather:cloud` with `theme.mode` the side, resolving to `theme.skin` `weather:<variant>`, from
+the settings page or `POST /api/theme {look}`. Each weather is drawn on the palette that is its light: the rain on `slate`
 and the cloud cover on `overcast`, two grey palettes brought for it; the sun on `sand`; the night on
 `vanta-black`._
 
@@ -34,9 +34,12 @@ in about the time a farm frame takes):
 | 1 | Sunny day | `sand` | the sun at the top right in `--wx-sun`, and rays in `--wx-ray` at `--wx-ray-alpha` that turn slowly about it |
 | 2 | Cloudy | `overcast` | cloud cover in `--wx-cloud` at `--wx-cloud-alpha`, shaded underneath in `--wx-cloud-shade`, drifting left to right at nine pixels a second |
 | 3 | Starry night | `vanta-black` | stars in `--wx-star`, one in about every fourth 22px cell, each twinkling at its own rate; a meteor in `--wx-meteor` every nine seconds, gone in 0.7 |
+| 0 | Showers | `overcast` | the rainy day's light side: the same rain in daylight greys, the streak darkening the pale paper |
+| 2 | Dusk | `slate` | the cloudy look's dark side: cloud cover at dusk over the rainy day's greys |
 
-`weather:auto` follows the system's appearance: Sunny day when it is light, Starry night when it is
-dark (#342).
+The picker offers three looks, each with a light and a dark side (themes.md §Genres): *Rainy day*
+(Showers by day, Rainy day by night), *Clear sky* (Sunny day, Starry night) and *Cloudy* (Cloudy,
+Dusk); the side toggle picks, and *Auto* follows the system's appearance (#342).
 
 ## The paper
 

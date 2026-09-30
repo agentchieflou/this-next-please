@@ -35,3 +35,16 @@ body[data-skin="phosphor"]:not(.ink-off) #bellcount { color: var(--ink-pen); }
 
 body[data-skin="phosphor"]:not(.ink-off) header { will-change: transform; }
 body[data-skin="phosphor"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+
+body[data-skin="phosphor"][data-skin-variant="paper"] {
+  --paper: #F4F1E4;
+  --scan: #E4E0CC;
+  --board-max: #F4F1E4;
+  --ink-pencil: #5C5A52;
+  --ink-pen: #8A6D1F;
+  --ink-red: #A82D2D;
+  --ink-marker: #A82D2D;
+  --ink-green: #2A733E;
+  --ink-highlighter: #AC975D;
+  color-scheme: light;
+}

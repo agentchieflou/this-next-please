@@ -33,3 +33,14 @@ body[data-skin="legalpad"]:not(.ink-off) #bell { background: transparent; paddin
 
 body[data-skin="legalpad"]:not(.ink-off) header { will-change: transform; }
 body[data-skin="legalpad"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+
+body[data-skin="legalpad"][data-skin-variant="night"] {
+  --paper: #2B2A1E;
+  --rule: #4A5F7A;
+  --margin: #B5453F;
+  --glue: #7A2E24;
+  --ink-pencil: #A5A9AC;
+  --ink-pen: #58A6FF;
+  --ink-highlighter: #D29922;
+  color-scheme: dark;
+}

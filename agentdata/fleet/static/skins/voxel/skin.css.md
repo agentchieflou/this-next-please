@@ -63,6 +63,14 @@ cleared so it does not draw over them (over the page's inline accent, #215, henc
 margin (26px, #330), where the check and the bang are written clear of the number and the name;
 a rail keeps its 17px. What is written on the header and the footer is written in the band's ink.
 
+
+### `body[data-skin="voxel"][data-skin-variant="daylight"]`
+
+The world's light side (docs/themes.md §Genres: every look has one), on `sand`: sandstone ground,
+a pale slab, and an edge lighter than the slab, a sunlit bevel, since a piece of a pale slab that
+wore a darker edge would carry the page's dark words under 4.5:1 (`voxel.js` `colourOf` lightens
+pieces in a light world for the same reason). The band inks are dark on the pale planks.
+
 ### `body[data-skin="voxel"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"])`
 
 Above `body[data-skin="voxel"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding …`:

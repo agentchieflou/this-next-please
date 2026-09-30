@@ -33,6 +33,8 @@ function problem(el, message) {
 
 function loadThemes() {
   var lookSel = document.getElementById("look");
+  var modeBtn = document.getElementById("mode");
+  var followBtn = document.getElementById("mode-follow");
   return fetch(q("/api/themes")).then(function (r) { return r.json(); }).then(function (data) {
     while (lookSel.options.length) lookSel.remove(0);
     (data.genres || []).forEach(function (g) {
@@ -42,12 +44,18 @@ function loadThemes() {
         var option = document.createElement("option");
         option.value = l.value;
         text(option, l.title || l.value);
-        option.title = (l.why || "") + (l.base && l.base !== "none" ? "  ·  palette: " + l.base : "");
+        option.title = (l.why || "") + sidesNote(l);
         group.appendChild(option);
       });
       lookSel.appendChild(group);
     });
     lookSel.addEventListener("change", function () { choose(lookSel, parseLook(lookSel.value)); });
+    if (modeBtn) modeBtn.addEventListener("click", function () {
+      choose(modeBtn, { mode: sideOn(themeNow) === "dark" ? "light" : "dark" });
+    });
+    if (followBtn) followBtn.addEventListener("click", function () {
+      if ((themeNow && themeNow.mode) || "") choose(followBtn, { mode: "" });
+    });
     themeData = data;
     if (themeNow) {
       reflectTheme(themeNow);
@@ -64,12 +72,11 @@ var themeSeq = 0;
 var PALETTE_LOOK = "palette:";
 
 function parseLook(value) {
-  var v = String(value || "");
-  if (v.indexOf(PALETTE_LOOK) === 0) return { theme: v.slice(PALETTE_LOOK.length) || "none", skin: "none" };
-  return { skin: v || "none" };
+  return { look: String(value || "") || PALETTE_LOOK + "none" };
 }
 
 function lookOf(cur) {
+  if (cur && cur.look) return cur.look;
   if (cur && cur.skin && cur.skin !== "none") return cur.skin;
   return PALETTE_LOOK + ((cur && cur.theme) || "none");
 }
@@ -80,27 +87,56 @@ function paletteCss(name) {
   return found;
 }
 
-function skinBase(full) {
-  var base = null;
-  ((themeData && themeData.skins) || []).forEach(function (k) {
-    if (k.name === full && k.base) base = k.base;
-    (k.variants || []).forEach(function (v) { if (v.full === full) base = v.base; });
+function lookRow(value) {
+  var found = null;
+  ((themeData && themeData.genres) || []).forEach(function (g) {
+    (g.looks || []).forEach(function (l) { if (l.value === value) found = l; });
   });
-  return base;
+  return found;
 }
 
-function autoFor(full) {
-  var parts = String(full || "").split(":"), out = null;
-  if (parts[1] !== "auto") return null;
-  ((themeData && themeData.skins) || []).forEach(function (k) {
-    if (k.name !== parts[0] || !k.auto) return;
-    out = {};
-    ["light", "dark"].forEach(function (side) {
-      var skin = k.name + ":" + k.auto[side], base = skinBase(skin);
-      out[side] = { variant: k.auto[side], skin: skin, theme: base, css: paletteCss(base) || {} };
+function sidesNote(l) {
+  var sides = l.sides || {};
+  var light = (sides.light || {}).base || "none", dark = (sides.dark || {}).base || "none";
+  if (light === "none" && dark === "none") return "";
+  return "  ·  light: " + light + "  ·  dark: " + dark;
+}
+
+function sideOn(cur) {
+  var mode = (cur && cur.mode) || "";
+  if (mode === "light" || mode === "dark") return mode;
+  return DARK && DARK.matches ? "dark" : "light";
+}
+
+function looksOn(name) {
+  var looks = [];
+  ((themeData && themeData.genres) || []).forEach(function (g) {
+    (g.looks || []).forEach(function (l) {
+      if (!l.skin) return;
+      var sides = l.sides || {};
+      if ((sides.light && sides.light.base === name) || (sides.dark && sides.dark.base === name)) {
+        looks.push((g.title || g.name) + " · " + l.title);
+      }
     });
   });
-  return out;
+  return looks;
+}
+
+function resolveLook(value, mode, pick) {
+  var row = lookRow(value);
+  if (!row) return null;
+  var sides = {};
+  ["light", "dark"].forEach(function (side) {
+    var v = (row.sides || {})[side] || {};
+    var base = v.base || "none";
+    sides[side] = { variant: v.variant || "", skin: v.skin || "none", theme: base, css: paletteCss(base) || {} };
+  });
+  if (pick && !mode && row.own) mode = row.own;
+  if (mode === "light" || mode === "dark") {
+    return { look: value, mode: mode, skin: sides[mode].skin, theme: sides[mode].theme, css: sides[mode].css };
+  }
+  var family = row.skin ? row.skin + ":auto" : "none";
+  return { look: value, mode: "", skin: family, theme: sides.dark.theme, css: sides.dark.css, auto: sides };
 }
 
 function lookTitle(value) {
@@ -111,62 +147,40 @@ function lookTitle(value) {
   return found;
 }
 
-function looksOn(data, name) {
-  var looks = [];
-  ((data && data.genres) || []).forEach(function (g) {
-    (g.looks || []).forEach(function (l) {
-      if (l.skin && l.variant !== "auto" && l.base === name) looks.push((g.title || g.name) + " · " + l.title);
-    });
-  });
-  return looks;
-}
-
 function paletteTitle(name) {
   var found = name;
   ((themeData && themeData.themes) || []).forEach(function (t) { if (t.name === name) found = t.title || name; });
+  if (found === name && name.indexOf("flip:") === 0) found = paletteTitle(name.slice(5)) + "'s other side";
   return found;
 }
 
 function looksLine(cur) {
-  var skin = cur && cur.skin, palette = (cur && cur.theme) || "none";
-  if (skin && skin !== "none") {
-    var base = skinBase(skin) || palette;
-    return lookTitle(skin) + " — palette " + paletteTitle(base) + ", shared with this project's terminal";
+  var value = lookOf(cur), side = sideOn(cur), mode = (cur && cur.mode) || "";
+  var how = (mode ? "pinned to its " : "following the system, now its ") + side + " side";
+  if (value === PALETTE_LOOK + "none") return "the system's own colours, and the plain page";
+  var palette = (cur && cur.theme) || "none";
+  var row = lookRow(value);
+  if (row && (row.sides || {})[side]) palette = row.sides[side].base || palette;
+  if (value.indexOf(PALETTE_LOOK) === 0) {
+    var drawn = looksOn(palette);
+    return "palette " + paletteTitle(palette) + " on the plain page, " + how + ", shared with this project's terminal" +
+      (drawn.length ? " — also drawn by " + drawn.join(", ") : "");
   }
-  if (palette === "none") return "the system's own colours, and the plain page";
-  var looks = looksOn(themeData, palette);
-  var why = ((themeData && themeData.palette_only) || {})[palette];
-  return "palette " + paletteTitle(palette) + " on the plain page, shared with this project's terminal" +
-    (looks.length ? " — also drawn by " + looks.join(", ") : (why ? " — " + why : ""));
+  return lookTitle(value) + ", " + how + " — palette " + paletteTitle(palette) + ", shared with this project's terminal";
 }
 
-function choose(select, body) {
+function choose(control, body) {
   var was = themeNow;
-  var mark;
-  if (body.skin && body.skin !== "none") {
-    mark = gesture("theme:skin");
-    var full = body.skin;
-    if (autoFor(full)) {
-      var auto = autoFor(full), home = skinBase(full.split(":")[0]);
-      applyThemeState({ skin: full, auto: auto });
-      reflectTheme({ theme: home || auto.light.theme, skin: full, css: paletteCss(home) || {}, auto: auto });
-    } else {
-      var base = skinBase(full);
-      var css = base ? paletteCss(base) : null;
-      if (css) applyTheme(css, base);
-      applySkin(full);
-      reflectTheme({ theme: base || (was && was.theme), skin: full, css: css || {} });
-    }
-  } else {
-    mark = gesture("theme:palette");
-    var name = body.theme || "none";
-    var pcss = name === "none" ? null : paletteCss(name);
-    applySkin("none");
-    if (pcss) applyTheme(pcss, name); else applyTheme(null, "none");
-    reflectTheme({ theme: pcss ? name : "none", skin: "none", css: pcss || {} });
+  var mark = gesture(body.look ? "theme:look" : "theme:mode");
+  var value = body.look || lookOf(was);
+  var mode = body.mode !== undefined ? body.mode : ((was && was.mode) || "");
+  var now = resolveLook(value, mode, !!body.look);
+  if (now) {
+    applyThemeState(now);
+    reflectTheme(now);
   }
   settle(mark);
-  problem(select, "");
+  problem(control, "");
   heardDuringWrite = null;
   body.seq = themeSeq = Math.max(Date.now(), themeSeq + 1);
   var write = pendingTheme = post("theme", body).then(function (res) {
@@ -177,18 +191,18 @@ function choose(select, body) {
     if (res && res.ok !== false) {
       applyThemeState(res);
       reflectTheme(res);
-      problem(select, "");
+      problem(control, "");
       saidSaved();
       return;
     }
     putBack(heard || was);
-    problem(select, ((res && res.error) || "refused") + (res && res.hint ? " — " + res.hint : ""));
+    problem(control, ((res && res.error) || "refused") + (res && res.hint ? " — " + res.hint : ""));
   }, function () {
     if (pendingTheme !== write) return;
     var heard = heardDuringWrite;
     heardDuringWrite = null;
     putBack(heard || was);
-    problem(select, "the server did not answer — nothing was saved");
+    problem(control, "the server did not answer — nothing was saved");
   });
   write.then(function () { if (pendingTheme === write) pendingTheme = null; });
   return write;
@@ -209,6 +223,18 @@ function reflectTheme(cur) {
     lookSel.value = lookOf(cur);
     if (lookSel.selectedIndex < 0) lookSel.value = PALETTE_LOOK + "none";
     [lookSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selectedIndex = 0; });
+  }
+  var side = sideOn(cur), mode = cur.mode || "";
+  var modeBtn = document.getElementById("mode");
+  if (modeBtn) {
+    text(modeBtn, side === "dark" ? "Dark" : "Light");
+    attr(modeBtn, "aria-checked", side === "dark" ? "true" : "false");
+    modeBtn.classList.toggle("active", !!mode);
+  }
+  var followBtn = document.getElementById("mode-follow");
+  if (followBtn) {
+    attr(followBtn, "aria-pressed", mode ? "false" : "true");
+    followBtn.classList.toggle("active", !mode);
   }
   if (themeData) text(document.getElementById("palette-looks"), looksLine(cur));
 }

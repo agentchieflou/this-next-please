@@ -37,8 +37,9 @@ CSS = os.path.join(STATIC, "skins", "weather", "skin.css")
 
 TOOLS = ("pencil", "pen", "red", "green", "marker", "highlighter")
 
-#: The variants in the order the module's `--wx-kind` numbers them.
-KINDS = ("rainy", "sunny", "cloudy", "starry")
+#: Each variant's sky, the number the module's `--wx-kind` switches its shader on: rain 0, sun 1,
+#: cloud 2, stars 3. Showers is the rain's light side and dusk the cloud's dark one.
+KINDS = {"rainy": 0, "sunny": 1, "cloudy": 2, "starry": 3, "showers": 0, "dusk": 2}
 
 LOAD = "async () => { window.__wx = await import(q('/static/ink/skins/weather.js')); }"
 WX = "() => window.__wx ? window.__wx.inspect() : null"
@@ -66,12 +67,18 @@ def test_the_weather_is_a_skin_of_the_weather_genre_the_settings_page_offers():
     assert skins.genre_of("weather") == "weather"
     assert [v["name"] for v in skins.variants("weather")] == list(KINDS)
     assert {v: skins.SKINS["weather"]["variants"][v]["base"] for v in KINDS} == {
-        "rainy": "slate", "sunny": "sand", "cloudy": "overcast", "starry": "vanta-black"}
+        "rainy": "slate", "sunny": "sand", "cloudy": "overcast", "starry": "vanta-black",
+        "showers": "overcast", "dusk": "slate"}
     assert skins.get_skin("weather:auto")["auto"]["light"]["full"] == "weather:sunny"
     assert skins.get_skin("weather:auto")["auto"]["dark"]["full"] == "weather:starry"
+    # Three looks, each with a light and a dark side of its own weather (docs/themes.md §Genres).
     genre = next(g for g in skins.genres() if g["name"] == "weather")
-    assert [l["title"] for l in genre["looks"]] == ["Rainy day", "Sunny day", "Cloudy", "Starry night", "Auto"]
-    assert [l["value"] for l in genre["looks"]] == [f"weather:{v}" for v in KINDS] + ["weather:auto"]
+    assert [l["title"] for l in genre["looks"]] == ["Rainy day", "Clear sky", "Cloudy"]
+    assert [l["value"] for l in genre["looks"]] == ["weather:rain", "weather:clear", "weather:cloud"]
+    assert {l["value"]: (l["sides"]["light"]["variant"], l["sides"]["dark"]["variant"]) for l in genre["looks"]} == {
+        "weather:rain": ("showers", "rainy"), "weather:clear": ("sunny", "starry"), "weather:cloud": ("cloudy", "dusk")}
+    assert skins.resolve("weather:rain", "light")["skin"] == "weather:showers"
+    assert skins.resolve("weather:cloud", "dark")["skin"] == "weather:dusk"
     for name in ("slate", "overcast"):
         assert name not in skins.PALETTE_ONLY
 
@@ -80,16 +87,20 @@ def test_the_stylesheet_paints_the_numbers_skins_py_declares():
     """Each weather's paper and inks, declared once in skins.py (where `theme.check` reads them)
     and named by skin.css (where the page and the module read them); `--wx-kind` is the variant's
     place in the module's order. The rain's light end is the paper under a streak."""
-    for kind, variant in enumerate(KINDS):
+    for variant, kind in KINDS.items():
         spec = skins.SKINS["weather"]["variants"][variant]
         props = _css_block(variant)
         assert int(props["wx-kind"]) == kind, variant
         panel = spec["composited_panel"]
         if isinstance(panel, dict):
-            assert props["paper"].upper() == panel["darkest"].upper(), variant
+            # The rain's pair: the paper at one end, the paper under a streak at its peak alpha at
+            # the other -- the light end on the dark rainy day, the dark end on the bright showers.
             drop, alpha = spec["drop"]
             assert props["wx-drop"].upper() == drop.upper() and float(props["wx-drop-alpha"]) == alpha, variant
-            assert theme.mix(panel["darkest"], drop, alpha).upper() == panel["lightest"].upper(), variant
+            paper, streaked = (panel["darkest"], panel["lightest"]) if theme.is_dark(props["paper"]) \
+                else (panel["lightest"], panel["darkest"])
+            assert props["paper"].upper() == paper.upper(), variant
+            assert theme.mix(paper, drop, alpha).upper() == streaked.upper(), variant
         else:
             assert props["paper"].upper() == panel.upper(), variant
             assert "drop" not in spec, (variant, "only the rain falls across the paper")

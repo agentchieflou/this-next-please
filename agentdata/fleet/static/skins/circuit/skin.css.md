@@ -10,6 +10,14 @@ The reasoning beside the circuit board's stylesheet (#396). The server strips an
 2.02:1 on the solder) is decoration only and never under a word. Each `--ink-<tool>` is the variant's ink in
 `skins.py`; `tests/test_fleet_ink_circuit.py` reads them back.
 
+
+### `body[data-skin="circuit"][data-skin-variant="silk"]`
+
+The board's light side, on `overcast`: a white solder mask (`--paper`) whose weave lies between it
+and `--board-max`, copper a shade darker than the dark boards' so it still reads on white, and
+the inks darkened (the pen to 4.5:1 at both ends, since a silkscreen word is text). `color-scheme:
+light` so the form controls follow.
+
 ### The stand-aside
 
 As the notebook's: the panes square, their cards and controls clear, the margin the mark table's `check`, `bang`
