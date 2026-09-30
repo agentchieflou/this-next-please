@@ -231,7 +231,7 @@ HIC_OF_ENGINE = """() => {
 #: A desk page is ready: three panes, each with its tier, the ink module run, nothing in flight.
 DESK_READY = """() => document.querySelectorAll('#grid .tile.is-solo').length === 3
      && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-     && !!window.Ink && windowWrites === 0
+     && typeof window.Ink?.inspect === 'function' && windowWrites === 0
      && !document.body.classList.contains('is-stale')"""
 
 

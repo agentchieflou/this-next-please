@@ -180,7 +180,7 @@ def _napkin_page(browser, port, token, fleet_home, panes, *, ink=True, reduced=F
     page.wait_for_function(
         f"""() => document.querySelectorAll('#grid .tile.is-solo').length === {panes}
              && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-             && !!window.Ink && windowWrites === 0
+             && typeof window.Ink?.inspect === 'function' && windowWrites === 0
              && (Ink.inspect().table || '').startsWith('napkin')
              && (!Ink.enabled || !!Ink.inspect().layer)""", timeout=20000)
     page.evaluate("async () => { window.__napkin = await import(q('/static/ink/skins/napkin.js')); }")

@@ -471,22 +471,25 @@ def test_the_browser_check_sees_a_module_and_a_fixture_without_the_marker():
 # ------------------------------------------------------------------ the browser tier's time budget
 #
 # Decision 20 (P-2, #587) turned decision 13's "no new browser test function" into a time budget.
-# The budget is the browser tier's summed test time in `tests/durations.json`, measured on green
-# run 36330617129 @ a8549e1, the 3.14-only job set (356 browser ids, the same 356 `main` collects
-# there), plus 5%, rounded down to the second. Why 5%: on that run the slowest Windows shard's
-# `pytest` step took 12.1 of its job's 20 minutes, its browser tests 7.8 of those; the two Linux
-# browser shards took 6.3 and 6.8 of their step's 15. 5% is about 70 s of test time on each OS
-# (about 17 browser tests at the tier's mean), spread over the shards, which absorb it without
-# nearing a cap. Raising a number here is the operator's call, never a card's
+# The budget is the browser tier's summed test time in `tests/durations.json`, measured on run
+# 36551490090 @ fe601d2 (main's own run; its one red was a one-second timing assertion, every test
+# timed), the 3.14-only job set (368 browser ids, the same 368 `main` collects there), plus 5%,
+# rounded down to the second. It was first set on green run 36330617129 @ a8549e1 (356 ids: Linux
+# 1,538.4 s, Windows 1,378.3 s, budgets 1,615 and 1,447); by fe601d2 the Windows tier had grown to
+# 1,545.4 s, over that budget, and the three Windows shards to within a minute of their 15-minute
+# step cap, so the operator raised the numbers here with the fourth Windows shard (tests.yml). Why
+# 5%: about 85 s of test time on Linux and 77 s on Windows (about 18 browser tests at the tier's
+# mean), spread over the shards, which absorb it without nearing a cap: with four shards each is
+# about 9.4 minutes of its 15. Raising a number here is the operator's call, never a card's
 # (docs/testing-this-repo.md, *The browser tier's time budget*).
 #
 # Decision 24: the budget is enforced on Windows only. Two green Linux runs with the same 356 ids
 # measured 1,410.6 s and 1,538.4 s, 9% apart and wider than the 5% headroom, while Windows moved
 # 0.9%. Linux keeps its would-be budget, and its projected time is printed against it, but it
 # fails nothing.
-BROWSER_MEASURED_S = {"linux": 1538.4, "windows": 1378.3}
+BROWSER_MEASURED_S = {"linux": 1703.1, "windows": 1545.4}
 BROWSER_HEADROOM = 0.05
-BROWSER_BUDGET_S = {"linux": 1615, "windows": 1447}
+BROWSER_BUDGET_S = {"linux": 1788, "windows": 1622}
 BROWSER_GATED = frozenset({"windows"})
 DURATIONS = os.path.join(REPO_ROOT, "tests", "durations.json")
 BROWSER_COUNTS = os.path.join(REPO_ROOT, "tests", "browser_counts.json")

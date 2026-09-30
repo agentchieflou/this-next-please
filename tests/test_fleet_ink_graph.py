@@ -133,7 +133,7 @@ def _open(browser, port, token, extra="&ink=on", *, panes=2, width=1500, height=
     page.wait_for_function(
         f"""() => document.querySelectorAll('#grid .tile.is-solo').length === {panes}
              && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-             && !!window.Ink && (Ink.inspect().table || '').startsWith({table!r})
+             && typeof window.Ink?.inspect === 'function' && (Ink.inspect().table || '').startsWith({table!r})
              && !document.body.classList.contains('is-stale')""", timeout=20000)
     return page, errors
 

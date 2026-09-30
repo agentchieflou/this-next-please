@@ -389,14 +389,18 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # #311: shards of whole files, serial within a shard until #313. One serial 3.14 job outgrew
     # every cap it was given (15, 20, 25, 40 minutes; the pytest step alone took 28-32 minutes of
-    # its 35 in runs 36258816693 and 36242056205), so the Windows leg is now four jobs in parallel:
-    #   - three `--shard=K/3` jobs (tests/shard.py, #310): the old step's selection, each file
+    # its 35 in runs 36258816693 and 36242056205), so the Windows leg is now five jobs in parallel:
+    #   - four `--shard=K/4` jobs (tests/shard.py, #310): the old step's selection, each file
     #     whole in one shard, packed by the `windows` times in tests/durations.json, so a module
     #     still runs contiguously in one process as #227 needs;
     #   - packaging and shells: the measured and scale tiers with the machine to themselves, the
     #     slow tier (the lifecycle's real venvs; one browser+slow test), and every shell step.
     # #591: 3.14 only. The old floor's two shards were the only rows checked out with
-    # core.autocrlf=true, so the three shards took that over and packaging and shells keeps false.
+    # core.autocrlf=true, so the shards took that over and packaging and shells keeps false.
+    # Three shards became four when the tier outgrew them: on main @ fe601d2 the slowest shard's pytest
+    # step took 13m58s of its 15 (run 36551490090), and a branch that added four skin variants ran
+    # one past the cap. On that run's times (tests/durations.json) three shards cost 12.5 minutes at
+    # the worst, four cost 9.4; the caps stay where they were.
     # Every job's cap is 20 and each pytest step keeps its own. tests/test_hygiene_windows_shards.py
     # expands these rows the way Actions does and checks what each job runs; only a run shows how
     # long it takes.
@@ -410,9 +414,10 @@ jobs:
         # defaults (true, the setting behind train 13's line-ending bug); packaging and shells
         # leaves line endings alone (false), so the matrix still runs both ways.
         include:
-          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 1/3", shard: "1/3", extras: "", key: "3.14-shard-1"}
-          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 2/3", shard: "2/3", extras: "", key: "3.14-shard-2"}
-          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 3/3", shard: "3/3", extras: "", key: "3.14-shard-3"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 1/4", shard: "1/4", extras: "", key: "3.14-shard-1"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 2/4", shard: "2/4", extras: "", key: "3.14-shard-2"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 3/4", shard: "3/4", extras: "", key: "3.14-shard-3"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 4/4", shard: "4/4", extras: "", key: "3.14-shard-4"}
           - {python: "3.14", autocrlf: "false", require_browser: "1", part: "packaging and shells", shard: "", extras: "3.14", key: "3.14-packaging"}
     steps:
       # A Windows checkout's line endings depend on core.autocrlf, and the fixtures' bytes are the
@@ -443,8 +448,9 @@ jobs:
       # suite had (process-level state in `serve`, reset by per-module autouse fixtures that
       # `--dist load` interleaves straight through), and it is #227; #313 revisits it.
       #
-      # #311: step cap 15. The `windows` times in tests/durations.json put each shard at about
-      # 9.3 minutes (the serial step's last runs: 28-32 minutes in run 36258816693).
+      # #311: step cap 15. The `windows` times in tests/durations.json (run 36551490090) put each of
+      # the four shards at about 9.4 minutes (the serial step's last runs: 28-32 minutes in run
+      # 36258816693; the three shards' worst, 12.5 measured and 13m58s run).
       - name: pytest
         if: matrix.shard != ''
         shell: pwsh

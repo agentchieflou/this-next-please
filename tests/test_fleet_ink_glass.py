@@ -77,7 +77,7 @@ def _open(browser, port, token, extra="&ink=on", *, reduced=False, count=False):
     page.wait_for_function(
         """() => document.querySelectorAll('#grid .tile.is-solo').length === 3
              && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-             && !!window.Ink && windowWrites === 0
+             && typeof window.Ink?.inspect === 'function' && windowWrites === 0
              && !document.body.classList.contains('is-stale')""", timeout=30000)
     return page, errors, asked
 
