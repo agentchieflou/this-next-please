@@ -122,7 +122,10 @@ function applyTheme(cssVars, themeName) {
   var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
                 "--focus", "--running", "--waiting", "--human", "--done", "--idle",
                 "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle",
-                "--running-text", "--waiting-text", "--human-text", "--done-text", "--idle-text"];
+                "--running-text", "--waiting-text", "--human-text", "--done-text", "--idle-text",
+                "--colors-mesh-1", "--colors-mesh-2", "--colors-mesh-3", "--colors-fill", "--colors-card",
+                "--colors-edge", "--colors-card-edge", "--colors-glint", "--colors-shadow",
+                "--colors-ink", "--colors-ink-soft", "--colors-highlighter"];
   if (cssVars && themeName && themeName !== "none") {
     tokens.forEach(function (k) {
       if (cssVars[k]) {

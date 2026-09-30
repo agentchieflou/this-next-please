@@ -473,11 +473,13 @@ def test_the_picker_offers_every_look_by_genre_and_the_line_names_the_palette(fl
         picker = _settled(page, theme="reds", skin="voxel:nether", picked="voxel:nether", mode="dark")
         assert picker["looks"] == _line_for("voxel:nether", "dark"), "the line names the look, its side and its palette"
 
-        # A palette is one side too, and pins it.
-        with _answered(page, {"look": "palette:reds"}):
-            page.select_option("#look", "palette:reds")
-        _settled(page, theme="reds", skin="none", picked="palette:reds", mode="dark",
-                 looks=_line_for("palette:reds", "dark"))
+        # A palette is one side too, and pins it. (Reds, greens and blues are Colors presets now,
+        # not plain looks: docs/themes.md §Colors.)
+        assert "palette:reds" not in tips and "palette:greens" not in tips and "palette:blues" not in tips
+        with _answered(page, {"look": "palette:matrix"}):
+            page.select_option("#look", "palette:matrix")
+        _settled(page, theme="matrix", skin="none", picked="palette:matrix", mode="dark",
+                 looks=_line_for("palette:matrix", "dark"))
 
         # A palette no look is drawn on is chosen like any other: posted, saved, worn, and said.
         palettes = {t["name"]: t for t in S.themes()}

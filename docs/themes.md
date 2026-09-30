@@ -221,7 +221,8 @@ A genre is what its looks have in common, and what moves on them is the genre's,
 | Football | Playbook (Play sheet by day, Chalkboard by night) | routes in chalk, a flag, goalposts, a ball that hops to an error |
 | Worlds | Farmstead and · Rainy day; Voxel (Daylight by day, Overworld by night), · Nether and · The End | crops that grow and are harvested, hens, showers; stacks of cubes |
 | Screens | Glass, · Azure and · Noir; Phosphor (Paper white by day, Green by night); Circuit board (White mask by day, Solder by night) and · Matte | a glint, code rain down a margin, a pulse along a trace |
-| Plain | every palette by title, System first | nothing: the plain HIG page |
+| Colors | Matte, Glass, Cyber: any colour, on either side (§Colors below) | nothing on matte and cyber; the glass's glint on glass |
+| Plain | every palette by title, System first (reds, greens and blues are Colors presets now) | nothing: the plain HIG page |
 
 A look's title is its own alone where its skin is the only one of its genre (Weather · *Rainy day*),
 else `skin · title` (Worlds · *Voxel · Nether*). The value posted back is the look's (`skins.parse_look`).
@@ -233,6 +234,30 @@ colourway, under the names rule below.
 turn, clouds drift, stars twinkle, at one frame per tick, and holds still under
 `prefers-reduced-motion` (drawn once, at time zero) and under `body.ink-off`. Every other genre keeps
 the rule below: motion only on an event.
+
+### Colors
+
+The Colors genre is three looks and no skin of its own: **Matte**, **Glass** and **Cyber**, each
+built from **any colour** the operator names, as six hex digits in the settings page's field or
+from its colour picker (`theme.colour` in config.json), on either side. Reds, greens and blues,
+once plain looks, are its presets: one press seeds the colour. A palette is built, never chosen from
+a list: `theme.from_hue(colour, mode, side)` seeds the ground, the text and the accent from the
+colour's hue and saturation, holds the four status hues where they always are (a state colour
+carries meaning and never changes role), and fits every lightness until `check` passes -- text at
+4.5:1 and under 19:1, every status at 4.5:1 so the ground is its word, the accent at 3:1 -- and a
+test sweeps the hue circle in every mode on both sides, 1,944 palettes, through `check`.
+
+| Mode | Ground | Text and accent | Skin |
+|---|---|---|---|
+| Matte | the hue at low saturation, L 0.13 (dark) or 0.93 (light) | calm: the hue faintly, the accent at moderate saturation | none: the plain page |
+| Glass | the hue at half saturation | the accent lit, for the frost | `glass:hue`: the glass skin over a mesh of three blobs, the hue and 50° either side, with the fill, the card, the edges and the highlighter served as `--colors-*` tokens (`skins.colors_css`) that the `hue` block reads; the palette's muted text and every status are fitted on both ends of the frost |
+| Cyber | near-black (L 0.05) or near-white (L 0.97), the hue saturated | the text saturated near the 19:1 cap, the accent the complement at full saturation | none: the plain page |
+
+A generated palette has a name the terminal resolves on its own, `colors:<mode>:<HEX6>:<side>`
+(`theme.get`, `theme.parse_name`), so `theme.default` holds it and `ad-theme` follows the desk as
+it always did; `flip:<palette>` is the same engine giving a built-in its other side. The page never
+paints a Colors pick ahead of the server's answer: it has no engine of its own, and the answer
+carries the palette.
 
 ### Available Skins
 
@@ -297,6 +322,7 @@ passes the `--focus` test on both sides' panels and states.
 | `glass:azure` | Azure | `blues` | `#0B1B33` | `#11213B` … `#1D3F56` | 8.6:1 at the worse end | cold blue depth, the darkest of the three |
 | `glass:noir` | Noir | `vanta-black` | `#000000` | `#0A0A0A` … `#202020` | 9.7:1 at the worse end | near-black, for a room with the lights off |
 | `glass:frost` | Frost | `eye-relief-day` | `#F2ECDC` | `#DED4B8` … `#F3EDDD` | 7.7:1 at the worse end | the light one: warm paper under the same frost |
+| `glass:hue` | Hue *(hidden: the Colors genre's)* | `colors:glass:3A7BD5:dark` (the default colour) | `#121A26` | `#171E2A` … `#274247` | 8.5:1 at the worse end | the Colors genre's glass: a mesh lit from the colour the operator chose |
 | `voxel:overworld` | Overworld *(default)* | `matrix` | `#020A03` | `#1E221E` | 10.7:1 | grass, stone and daylight |
 | `voxel:nether` | Nether | `reds` | `#400000` | `#2A1512` | 12.9:1 | netherrack and firelight |
 | `voxel:end` | The End | `vanta-black` | `#000000` | `#16121C` | 11.0:1 | endstone and void |

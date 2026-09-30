@@ -56,6 +56,30 @@ function loadThemes() {
     if (followBtn) followBtn.addEventListener("click", function () {
       if ((themeNow && themeNow.mode) || "") choose(followBtn, { mode: "" });
     });
+    var colourInput = document.getElementById("colour"), hexInput = document.getElementById("colour-hex");
+    if (colourInput) colourInput.addEventListener("change", function () {
+      choose(colourInput, { colour: String(colourInput.value || "").toUpperCase() });
+    });
+    if (hexInput) hexInput.addEventListener("change", function () {
+      var said = String(hexInput.value || "").trim().replace(/^([0-9a-f]{6})$/i, "#$1").toUpperCase();
+      if (/^#[0-9A-F]{6}$/.test(said)) choose(hexInput, { colour: said });
+      else problem(hexInput, "six hex digits, as #3A7BD5");
+    });
+    var presets = document.getElementById("colour-presets");
+    if (presets) {
+      while (presets.firstChild) presets.removeChild(presets.firstChild);
+      Object.keys(data.colour_presets || {}).forEach(function (name) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "segment preset";
+        b.dataset.colour = data.colour_presets[name];
+        b.style.borderLeft = "10px solid " + data.colour_presets[name];
+        text(b, paletteTitle(name));
+        b.title = name + " " + data.colour_presets[name] + " — a colour to start from";
+        b.addEventListener("click", function () { choose(b, { colour: data.colour_presets[name] }); });
+        presets.appendChild(b);
+      });
+    }
     themeData = data;
     if (themeNow) {
       reflectTheme(themeNow);
@@ -151,7 +175,15 @@ function paletteTitle(name) {
   var found = name;
   ((themeData && themeData.themes) || []).forEach(function (t) { if (t.name === name) found = t.title || name; });
   if (found === name && name.indexOf("flip:") === 0) found = paletteTitle(name.slice(5)) + "'s other side";
+  if (found === name && name.indexOf("colors:") === 0) {
+    var parts = name.split(":");
+    found = "Colors · " + parts[1].charAt(0).toUpperCase() + parts[1].slice(1) + " #" + parts[2] + " (" + parts[3] + ")";
+  }
   return found;
+}
+
+function isColors(value) {
+  return String(value || "").indexOf("colors:") === 0;
 }
 
 function looksLine(cur) {
@@ -175,9 +207,12 @@ function choose(control, body) {
   var value = body.look || lookOf(was);
   var mode = body.mode !== undefined ? body.mode : ((was && was.mode) || "");
   var now = resolveLook(value, mode, !!body.look);
-  if (now) {
+  if (now && !isColors(value)) {
     applyThemeState(now);
     reflectTheme(now);
+  } else if (now) {
+    reflectTheme({ look: value, mode: now.mode, colour: body.colour || (was && was.colour),
+                   theme: was && was.theme, skin: was && was.skin, css: was && was.css });
   }
   settle(mark);
   problem(control, "");
@@ -235,6 +270,14 @@ function reflectTheme(cur) {
   if (followBtn) {
     attr(followBtn, "aria-pressed", mode ? "false" : "true");
     followBtn.classList.toggle("active", !mode);
+  }
+  var row = document.getElementById("colour-row");
+  if (row) {
+    row.hidden = !isColors(lookOf(cur));
+    var colour = String(cur.colour || (themeData && themeData.colour) || "#3A7BD5").toUpperCase();
+    var colourInput = document.getElementById("colour"), hexInput = document.getElementById("colour-hex");
+    if (colourInput && colourInput.value.toUpperCase() !== colour) colourInput.value = colour;
+    if (hexInput && hexInput.value.toUpperCase() !== colour) { hexInput.value = colour; problem(hexInput, ""); }
   }
   if (themeData) text(document.getElementById("palette-looks"), looksLine(cur));
 }

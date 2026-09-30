@@ -128,9 +128,11 @@ def test_the_glass_stylesheet_paints_the_numbers_skins_py_declares():
 
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     for variant, spec in skins.SKINS["glass"]["variants"].items():
-        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\}' % variant, css, re.S)
+        block = re.search(r'body(?:\[data-skin="glass"\])?\[data-skin-variant="%s"\]\s*\{(.*?)\}' % variant, css, re.S)
         assert block, f"glass:{variant} is not drawn"
-        body = block.group(1)
+        # The Colors genre's `hue` reads every number from a `--colors-*` token, with the default
+        # colour's numbers as the fallbacks: those are what skins.py holds, so they are read here.
+        body = re.sub(r"var\(--colors-[\w-]+,\s*", "", block.group(1))
         # The blobs are the variant's `--glass-mesh-N` (#254), which the one gradient on the page
         # and the three.js ground (`ink/skins/glass.js`) both paint from.
         blobs = [_rgba(m) for m in re.findall(
@@ -152,7 +154,7 @@ def test_the_glass_mesh_is_one_gradient_and_three_js_paints_it_at_the_same_place
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     assert "radial-gradient" not in css, "the stylesheet paints a ground: that is the module's"
     for variant in skins.SKINS["glass"]["variants"]:
-        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{([^}]*)\}' % variant, css)
+        block = re.search(r'body(?:\[data-skin="glass"\])?\[data-skin-variant="%s"\]\s*\{([^}]*)\}' % variant, css)
         assert block, variant
         assert all(f"--glass-mesh-{i}:" in block.group(1) for i in (1, 2, 3)), variant
     js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
@@ -173,7 +175,8 @@ def test_glass_draws_with_the_inks_skins_py_checks():
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     for variant, spec in skins.SKINS["glass"]["variants"].items():
         assert set(spec["inks"]) == set(skins.GLASS_INKS), variant
-        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\n\}' % variant, css, re.S).group(1)
+        block = re.search(r'body(?:\[data-skin="glass"\])?\[data-skin-variant="%s"\]\s*\{(.*?)\n\}' % variant, css, re.S).group(1)
+        block = re.sub(r"var\(--colors-[\w-]+,\s*", "", block)
         said = dict(re.findall(r"--ink-(\w+):\s*var\((--[\w-]+)\)", block))
         assert said == spec.get("ink_tokens", {}), (variant, said)
         # A variant's own literal (#329: the highlighter each one is read through) is the one
@@ -194,7 +197,9 @@ def test_a_variant_names_a_palette_that_exists():
     same as correct, so it is caught here instead."""
     known = {t.name for t in theme.list_themes()}
     for skin_name, variant, spec in skins.every_variant():
-        assert spec["base"] in known, f"{skin_name}:{variant} names an unknown palette {spec['base']!r}"
+        # A generated palette (the Colors genre's `hue`) is known by its name's grammar.
+        assert spec["base"] in known or theme.parse_name(spec["base"]), \
+            f"{skin_name}:{variant} names an unknown palette {spec['base']!r}"
 
 
 def test_every_palette_has_a_look_or_says_why_it_has_none():

@@ -35,6 +35,13 @@
       <button type="button" id="mode-follow" class="segment" aria-pressed="true"
               title="follow the system&#39;s appearance: light by day, dark at night">Auto</button>
     </div>
+    <div class="setrow" id="colour-row" hidden>
+      <label for="colour">colour</label>
+      <input type="color" id="colour" value="#3A7BD5" title="the colour the Colors looks are built from">
+      <input type="text" id="colour-hex" value="#3A7BD5" maxlength="7" size="8" spellcheck="false"
+             title="the same colour as six hex digits">
+      <span id="colour-presets" class="why"></span>
+    </div>
     <p class="why" id="palette-looks"></p>
     <p class="why">The <strong>tiers</strong> are the widths at which a pane on the desk changes what
       it draws: a rail, then compact, then full. They start at the numbers CI measures against; set

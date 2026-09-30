@@ -113,7 +113,12 @@ look.
 
 ### `function paletteTitle`
 
-A palette's title from the data; a `flip:` palette is named after the one it flips.
+A palette's title from the data; a `flip:` palette is named after the one it flips, and a
+`colors:` palette after its mode, its colour and its side.
+
+### `function isColors`
+
+Whether a look value is the Colors genre's (`colors:<mode>`).
 
 ### `function looksLine`
 
@@ -124,8 +129,10 @@ line from the data.
 
 ### `function choose`
 
-One pick, from the picker or the toggle: paint it optimistically (`resolveLook`), reflect it, then
-`post("theme", body)` numbered above `themeSeq`. On an answer that is not a refusal, apply and
+One pick, from the picker, the toggle, the colour input or a preset: paint it optimistically
+(`resolveLook`), reflect it, then `post("theme", body)` numbered above `themeSeq`. A Colors look is
+not painted ahead of the answer: its palette is built by the server from the colour, and the page
+has no engine of its own; the controls reflect the pick and the answer paints it. On an answer that is not a refusal, apply and
 reflect what the server resolved; on a refusal or no answer, put back what was worn (or what the
 stream said meanwhile, `heardDuringWrite`) and say why on the control.
 
@@ -133,7 +140,8 @@ stream said meanwhile, `heardDuringWrite`) and say why on the control.
 
 Writes the state into the controls: the picker's value (`lookOf`, never blank), the toggle's word
 (Light or Dark, the side in effect), its `aria-checked` and `active` (pinned), the Auto button's
-`aria-pressed`, and the line under them.
+`aria-pressed`, the colour row (shown for a Colors look, its picker and hex field set to the
+colour in force) and the line under them.
 
 ## models
 

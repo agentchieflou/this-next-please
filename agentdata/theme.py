@@ -895,6 +895,37 @@ _MODE = {
 }
 
 
+def _over(top, alpha: float, under):
+    """`top` at `alpha` painted over an opaque `under`, in 0-1 rgb (`skins._over` says the same)."""
+    return tuple(t * alpha + u * (1 - alpha) for t, u in zip(top, under))
+
+
+def glass_range(ground: str, mesh: list, fill: tuple) -> tuple[str, str]:
+    """The darkest and lightest colour a translucent `fill` composites to over `ground` and `mesh`:
+    each blob alone at its peak and each pair at half, as `skins.composited_range` models it (the
+    same arithmetic, kept here so a glass palette can fit its muted text on the frost without this
+    module importing the fleet)."""
+    from itertools import combinations
+    unders = [hex_to_rgb(ground)] + [_over(hex_to_rgb(c), a, hex_to_rgb(ground)) for c, a in mesh]
+    for (c1, a1), (c2, a2) in combinations(mesh, 2):
+        unders.append(_over(hex_to_rgb(c2), a2 / 2, _over(hex_to_rgb(c1), a1 / 2, hex_to_rgb(ground))))
+    outs = sorted((_over(hex_to_rgb(fill[0]), fill[1], u) for u in unders), key=rel_luminance)
+    return rgb_to_hex(outs[0]), rgb_to_hex(outs[-1])
+
+
+def glass_numbers(ground: str, text: str, colour: str, light: bool) -> dict:
+    """A Colors glass palette's mesh (three blobs: the hue and 50 degrees either side), fill and
+    card, from its ground, text and seed colour (docs/themes.md §Colors)."""
+    h, s_, _l = _hsl_of(colour)
+    s_ = max(s_, 0.25)
+    blob_l = 0.42 if light else 0.62
+    mesh = [(_hsl(h, min(1.0, s_ * 0.95), blob_l), 0.35),
+            (_hsl(h + 50, min(1.0, s_ * 0.85), blob_l), 0.30),
+            (_hsl(h - 50, min(1.0, s_ * 0.85), blob_l), 0.30)]
+    fill_c = mix(ground, text, 0.06)
+    return {"mesh": mesh, "fill": (fill_c, 0.36), "card": (fill_c, 0.46)}
+
+
 def from_hue(colour: str, mode: str = "matte", side: str = "dark", *, title: str | None = None) -> Theme:
     """A checked palette built from one colour (#621's follow-up, the Colors genre).
 
@@ -936,13 +967,29 @@ def from_hue(colour: str, mode: str = "matte", side: str = "dark", *, title: str
     status["skip"] = _fit(h, min(0.18, s * 0.3), 0.55 if not light else 0.40, (ground,), 4.5,
                           toward=1.0 if not light else 0.0)
     status["error"] = status["fail"]
+    muted = None
+    if mode == "glass":
+        # The frost's lightest end is lighter than the ground (on the dark side) and its darkest
+        # darker (on the light one), and the muted text is read on both: fit it there, and the
+        # text and every status too (rules 1, 2 and 6 hold at both ends of the pair).
+        numbers = glass_numbers(ground, text, "#" + hex6, light)
+        ends = [ground, *glass_range(ground, numbers["mesh"], numbers["fill"])]
+        text = _fit(text_h, s * k["ts"], k["tl"], ends, 7.0, toward=1.0 if not light else 0.0)
+        accent = _fit(acc_h, min(1.0, s * k["acs"] + 0.15), k["acl"], ends, 3.0, toward=1.0 if not light else 0.0)
+        for role in list(status):
+            status[role] = _fit(*_hsl_of(status[role]), ends, 4.5, toward=1.0 if not light else 0.0)
+        for step in range(100, -1, -1):
+            cand = mix(text, ground, step / 100.0)
+            if all(contrast_ratio(cand, e) >= 4.6 for e in ends + [mix(ground, accent, 0.18)]):
+                muted = cand
+                break
     t = Theme(
         name=f"{COLORS_PREFIX}{mode}:{hex6}:{side}",
         title=title or f"Colors · {mode.title()} #{hex6} ({side})",
         why=f"built from #{hex6} in {mode} mode, the {side} side",
         ground=ground, text=text, accent=accent, cursor=None,
         ansi=_make_ansi(ground, text, accent, light=light),
-        status=status, light=light, layout="night-owl" if not light else "atomic",
+        status=status, light=light, layout="night-owl" if not light else "atomic", muted=muted,
     )
     check(t)
     return t

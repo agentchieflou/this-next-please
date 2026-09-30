@@ -395,6 +395,105 @@ def _sides() -> None:
 _sides()
 
 
+# ---------- Colors: any hue, three modes (docs/themes.md §Colors) ----------
+#
+# The Colors genre has three looks, `colors:matte`, `colors:glass` and `colors:cyber`, and no skin
+# of its own: each is a palette `theme.from_hue` builds from the colour the operator typed or
+# picked (`theme.colour` in config.json), on either side. Matte and cyber are the plain page in
+# that palette. Glass is the glass skin drawn on it, its mesh lit from the hue: the `hue` variant
+# below reads its blobs, fill and inks from `--colors-*` tokens the server serves with the palette
+# (`colors_css`), so one stylesheet block draws every colour. The variant is hidden from the
+# picker (it is the Colors genre's, not a Screens look) and its numbers here are the default
+# colour's, which the stylesheet's fallbacks repeat, so a page with no tokens paints that.
+
+DEFAULT_COLOUR = "#3A7BD5"
+
+COLORS: dict[str, dict] = {
+    "matte": {"title": "Matte", "skin": "none",
+              "why": "muted and soft: the plain page in the colour's calm"},
+    "glass": {"title": "Glass", "skin": "glass:hue",
+              "why": "glossy: frosted panes over a mesh lit from the colour"},
+    "cyber": {"title": "Cyber", "skin": "none",
+              "why": "high contrast: a near-black or near-white ground and the colour at full saturation"},
+}
+COLORS_LOOK = "colors:"
+
+#: The palettes folded into Colors: still palettes (skins are drawn on them, and `ad-theme` names
+#: them), no longer plain looks of their own. The settings page offers each as a Colors preset.
+PLAIN_HIDDEN = {"reds", "greens", "blues"}
+COLOUR_PRESETS = {"reds": "#FF5C5C", "greens": "#3FB950", "blues": "#4DA3FF"}
+
+
+def _rgba(colour: str, alpha: float) -> str:
+    """`#RRGGBB` at `alpha` as `#RRGGBBAA`, what `page_theme` lets through and glass.js parses."""
+    return f"{colour.upper()}{round(alpha * 255):02X}"
+
+
+def colors_glass(t) -> dict:
+    """The glass skin's numbers for a Colors palette: three mesh blobs at the hue and 50 degrees
+    either side, the fill and the card from the ground, the edge, glint, shadow and header inks by
+    side, the composited pair (`composited_range`) and the inks `theme.check` holds on both ends
+    (`GLASS_INKS`, the highlighter fitted by `theme.inks_on`)."""
+    from .. import theme as T
+    said = T.parse_name(t.name) or {}
+    dark = not t.light
+    numbers = T.glass_numbers(t.ground, t.text, "#" + said.get("hex", DEFAULT_COLOUR.lstrip("#")), t.light)
+    mesh, fill, card = numbers["mesh"], numbers["fill"], numbers["card"]
+    darkest, lightest = composited_range(t.ground, mesh, fill)
+    css = T.to_css(t)
+    inks = {tool: css[token] for tool, token in GLASS_INKS.items()}
+    fitted = T.inks_on(t, darkest, dark, papers=[darkest, lightest])
+    inks["highlighter"] = fitted["highlighter"]
+    return {
+        "mesh": mesh, "fill": fill, "card": card,
+        "composited_panel": {"darkest": darkest, "lightest": lightest},
+        "inks": inks,
+        "edge": ("#FFFFFF", 0.18) if dark else ("#000000", 0.10),
+        "card_edge": ("#FFFFFF", 0.26) if dark else ("#000000", 0.14),
+        "glint": ("#FFFFFF", 0.28 if dark else 0.65),
+        "shadow": ("#000000", 0.35 if dark else 0.12),
+        "ink": t.text, "ink_soft": (t.text, 0.72),
+    }
+
+
+def colors_css(t) -> dict[str, str]:
+    """The `--colors-*` tokens served beside a Colors glass palette's own, which the `hue` variant's
+    stylesheet block reads as its `--glass-*` and `--ink-highlighter`."""
+    g = colors_glass(t)
+    out = {f"--colors-mesh-{i + 1}": _rgba(c, a) for i, (c, a) in enumerate(g["mesh"])}
+    out["--colors-fill"] = _rgba(*g["fill"])
+    out["--colors-card"] = _rgba(*g["card"])
+    out["--colors-edge"] = _rgba(*g["edge"])
+    out["--colors-card-edge"] = _rgba(*g["card_edge"])
+    out["--colors-glint"] = _rgba(*g["glint"])
+    out["--colors-shadow"] = _rgba(*g["shadow"])
+    out["--colors-ink"] = g["ink"]
+    out["--colors-ink-soft"] = _rgba(*g["ink_soft"])
+    out["--colors-highlighter"] = g["inks"]["highlighter"]
+    return out
+
+
+def colors_theme_name(mode: str, colour: str, side: str) -> str:
+    from .. import theme as T
+    m = T.HEX6.match(str(colour or "").strip())
+    hex6 = m.group(1).upper() if m else DEFAULT_COLOUR.lstrip("#")
+    return f"{T.COLORS_PREFIX}{mode}:{hex6}:{side}"
+
+
+def _hue_variant() -> None:
+    """Glass's `hue` variant (hidden): the default colour's numbers, so the contrast test and the
+    stylesheet's fallbacks have one row to hold to."""
+    from .. import theme as T
+    t = T.get(colors_theme_name("glass", DEFAULT_COLOUR, "dark"))
+    g = colors_glass(t)
+    SKINS["glass"]["variants"]["hue"] = {
+        "title": "Hue", "base": t.name, "hidden": True,
+        "mesh": g["mesh"], "fill": g["fill"], "inks": g["inks"],
+        "composited_panel": g["composited_panel"],
+        "why": "the Colors genre's glass: a mesh lit from the colour the operator chose",
+    }
+
+
 # The palettes no variant above is drawn on yet, each with the reason (#393). Every built-in palette
 # but `none` is a variant's `base` or is listed here, never both (`tests/test_fleet_skins.py`), so
 # /settings can say of every palette which looks are drawn on it -- or that it is the plain page
@@ -453,6 +552,9 @@ def composited_panels(spec: dict) -> list[str]:
     if isinstance(panel, dict):
         return [panel["darkest"], panel["lightest"]]
     return [panel] if panel else []
+
+
+_hue_variant()
 
 
 def split(name: str) -> tuple[str, str]:
@@ -604,6 +706,8 @@ GENRES: dict[str, dict] = {
                "skins": ["farmstead", "voxel"]},
     "screens": {"title": "Screens", "why": "glass, phosphor and a circuit board",
                 "skins": ["glass", "phosphor", "circuit"]},
+    "colors": {"title": "Colors", "why": "any colour you name, in three modes, on either side",
+               "skins": []},
     "plain": {"title": "Plain", "why": "a palette alone: the plain page, shared with the terminal",
               "skins": []},
 }
@@ -661,7 +765,7 @@ def looks(skin_name: str) -> list[dict]:
     out = [{"name": "", "value": skin_name, "title": skin["title"], "why": skin["why"],
             LIGHT: sides[LIGHT], DARK: sides[DARK]}]
     for v in variants(skin_name):
-        if v["name"] in sides.values():
+        if v["name"] in sides.values() or v.get("hidden"):
             continue
         own = side_of(v["base"])
         other = DARK if own == LIGHT else LIGHT
@@ -715,7 +819,7 @@ def palette_sides(name: str) -> dict[str, str]:
     return {own: name, other: pair}
 
 
-def resolve(look: str, mode: str = FOLLOW, *, pick: bool = False) -> dict:
+def resolve(look: str, mode: str = FOLLOW, *, pick: bool = False, colour: str = DEFAULT_COLOUR) -> dict:
     """What a look is drawn as on a side (docs/themes.md §Genres): `skin` (the variant's full name,
     `none` for a palette look, `<skin>:auto` while following the system), `theme` (the palette
     the terminal gets), and `auto`, the two sides `{side: {variant, skin, theme}}` when `mode` is
@@ -723,6 +827,18 @@ def resolve(look: str, mode: str = FOLLOW, *, pick: bool = False) -> dict:
     flavour, a palette) pins that side while `mode` follows; pressing Auto afterwards (no `pick`)
     lets it follow. A look nothing knows resolves to the system's colours."""
     mode = mode if mode in MODES else FOLLOW
+    value = str(look or "").strip()
+    if value.startswith(COLORS_LOOK) and value[len(COLORS_LOOK):] in COLORS:
+        # A Colors look: the palette is built from the colour on each side, and the glass mode
+        # wears the glass skin's `hue` variant on it.
+        cmode = value[len(COLORS_LOOK):]
+        skin = COLORS[cmode]["skin"]
+        sides = {side: {"variant": skin.partition(":")[2], "skin": skin,
+                        "theme": colors_theme_name(cmode, colour, side)} for side in (LIGHT, DARK)}
+        if mode in (LIGHT, DARK):
+            return {"look": value, "mode": mode, "skin": skin, "theme": sides[mode]["theme"], "auto": None}
+        return {"look": value, "mode": FOLLOW, "skin": f"{skin.partition(':')[0]}:{AUTO}" if skin != "none" else "none",
+                "theme": sides[DARK]["theme"], "auto": sides}
     found = find_look(look)
     if found:
         skin_name, lk = found
@@ -757,14 +873,22 @@ def parse_look(value: str) -> dict:
     return {"look": v or PALETTE_LOOK + "none"}
 
 
-def genres() -> list[dict]:
+def genres(colour: str = DEFAULT_COLOUR) -> list[dict]:
     """The picker, as data: every genre in `GENRES` order with its looks, each a value the page
     posts back (`parse_look`), its title, its why, and the variant and palette on each side. The
-    plain genre's looks are the palettes by title, `none` (the system's colours) first."""
+    Colors genre's looks are its three modes, built from `colour`; the plain genre's are the
+    palettes by title, `none` (the system's colours) first, less those folded into Colors."""
     from .. import theme as T
     out = []
     for name, genre in GENRES.items():
         rows = []
+        if name == "colors":
+            for cmode, spec in COLORS.items():
+                skin = spec["skin"]
+                rows.append({"value": COLORS_LOOK + cmode, "title": spec["title"], "why": spec["why"],
+                             "skin": "", "look": cmode, "own": "",
+                             "sides": {side: {"variant": skin.partition(":")[2], "skin": skin,
+                                              "base": colors_theme_name(cmode, colour, side)} for side in (LIGHT, DARK)}})
         for skin_name in genre["skins"]:
             skin = SKINS.get(skin_name)
             if not skin:
@@ -776,6 +900,8 @@ def genres() -> list[dict]:
                                               "base": skin["variants"][lk[side]]["base"]} for side in (LIGHT, DARK)}})
         if name == "plain":
             for t in sorted(T.list_themes(), key=lambda t: t.name != "none"):
+                if t.name in PLAIN_HIDDEN:
+                    continue
                 sides = palette_sides(t.name)
                 rows.append({"value": PALETTE_LOOK + t.name, "title": t.title if t.name != "none" else "System",
                              "why": t.why, "skin": "", "look": "",
@@ -788,8 +914,12 @@ def genres() -> list[dict]:
 def look_of(theme_name: str, skin_name: str, look: str = "") -> str:
     """The picker value that shows what is worn: `theme.look` when config holds one, else the
     look the skin's variant is a side of, else the palette as a plain look."""
+    from .. import theme as T
     if look:
         return look
+    said = T.parse_name(theme_name or "")
+    if said and said.get("mode") in COLORS:
+        return COLORS_LOOK + said["mode"]
     if skin_name and skin_name != "none":
         found = find_look(skin_name)
         if found:

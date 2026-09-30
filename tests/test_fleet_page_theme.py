@@ -104,17 +104,27 @@ def test_the_served_tokens_are_the_ones_applytheme_writes():
     common = open(os.path.join(S.STATIC, "common.js"), encoding="utf-8").read()
     body = re.search(r"function applyTheme\(.*?var tokens = \[(.*?)\];", common, re.S).group(1)
     tokens = set(re.findall(r'"(--[a-z0-9-]+)"', body))
+    # The `--colors-*` tokens ride only with a Colors glass palette (docs/themes.md §Colors): a
+    # built-in is served the rest, and that palette is served the whole list.
+    extras = {t for t in tokens if t.startswith("--colors-")}
     seen = 0
     for name in T.BUILTINS:
         css = T.to_css(T.get(name))
         if not css:
             continue
         seen += 1
-        assert set(css) == tokens, name
+        assert set(css) == tokens - extras, name
         style = re.search(r'style="([^"]*)"',
                           S.page_theme(_ts(name, css=css), TOKEN, desk=False, gate_on=False)["html"])
-        assert {d.split(":")[0] for d in style.group(1).split(";")} == tokens, name
+        assert {d.split(":")[0] for d in style.group(1).split(";")} == tokens - extras, name
     assert seen > 3
+    from agentdata.fleet import skins as K
+    glass = T.get(K.colors_theme_name("glass", "#D5583A", "light"))
+    css = {**T.to_css(glass), **K.colors_css(glass)}
+    assert set(css) == tokens, "a Colors glass palette is served every token applyTheme writes"
+    style = re.search(r'style="([^"]*)"',
+                      S.page_theme(_ts(glass.name, "glass:hue", css=css), TOKEN, desk=False, gate_on=False)["html"])
+    assert {d.split(":")[0] for d in style.group(1).split(";")} == tokens, "and every one passes the filter"
 
 
 def _get(port, path, token, gz=False):

@@ -1500,6 +1500,16 @@ def theme_or_none(name: str, seed: str = ""):
         return T.get("none")
 
 
+def colour_of(cfg: dict) -> str:
+    """`theme.colour`, the Colors genre's seed (docs/themes.md §Colors): six hex digits, else the
+    default."""
+    from .. import theme as T
+    from . import skins
+    said = str((cfg.get("theme") or {}).get("colour") or "").strip()
+    m = T.HEX6.match(said)
+    return "#" + m.group(1).upper() if m else skins.DEFAULT_COLOUR
+
+
 def theme_state() -> dict:
     """The theme and skin configuration shared across windows."""
     from .. import config as C
@@ -1516,9 +1526,13 @@ def theme_state() -> dict:
     look = str(cfg.get("theme", {}).get("look") or "")
     mode = str(cfg.get("theme", {}).get("mode") or "")
     mode = mode if mode in skins.MODES else skins.FOLLOW
-    resolved = skins.resolve(look, mode) if look else None
-    if resolved and (resolved["skin"] != skin_name or resolved["theme"] != default_name):
+    colour = colour_of(cfg)
+    resolved = skins.resolve(look, mode, colour=colour) if look else None
+    concrete = {k for k in ("skin", "default") if cfg.get("theme", {}).get(k)}
+    if resolved and concrete and (resolved["skin"] != skin_name or resolved["theme"] != default_name):
         resolved = None
+    if resolved:
+        skin_name, default_name = resolved["skin"], resolved["theme"]
     if not resolved:
         look = skins.look_of(default_name, skin_name)
         # A concrete skin or palette written by hand is one side: the toggle shows it pinned.
@@ -1540,14 +1554,24 @@ def theme_state() -> dict:
     # pairing nothing has checked the contrast of. Bound this way the set of reachable combinations
     # is exactly the set of variants, and `tests/test_fleet_skins.py` checks all of them.
     skin_info = skins.get_skin(skin_name) if skin_name and skin_name != "none" else None
-    if skin_info:
+    if skin_info and not resolved:
+        # A look resolved above already named the palette its side is drawn on -- a Colors glass
+        # palette is built from the colour, not the `hue` variant's default -- so this holds for
+        # a skin written by hand only.
         default_name = skin_info.get("base") or default_name
         skin_name = skin_info["full"]
 
     def tokens(t):
         # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
-        # the tokens are one set per palette, the same under every skin on it.
-        return T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
+        # the tokens are one set per palette, the same under every skin on it. A Colors glass
+        # palette's panels are its own pair, and its `--colors-*` tokens ride with it.
+        if not t or t.name == "none":
+            return {}
+        said = T.parse_name(t.name) or {}
+        if said.get("mode") == "glass":
+            g = skins.colors_glass(t)
+            return {**T.to_css(t, panels=skins.composited_panels(g)), **skins.colors_css(t)}
+        return T.to_css(t, panels=skins.panels_on(t.name))
 
     t = theme_or_none(default_name)
     css_vars = tokens(t)
@@ -1581,6 +1605,7 @@ def theme_state() -> dict:
         "skin": skin_name,
         "look": look,
         "mode": mode,
+        "colour": colour,
         # Split out as well as joined: the page fetches one stylesheet per skin and switches the
         # variant with an attribute, so it needs the two halves without having to parse the name.
         "skin_family": skin_info["name"] if skin_info else "",
@@ -2826,9 +2851,16 @@ def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
         cfg["theme"]["seq"] = last = seq
     from . import skins
 
-    if "look" in body or "mode" in body:
-        # The picker's look and the toggle's side (docs/themes.md §Genres): resolved here to the
-        # concrete skin and palette every reader uses, and written beside them.
+    if "colour" in body:
+        from .. import theme as T
+        m = T.HEX6.match(str(body.get("colour") or "").strip())
+        if not m:
+            raise ServeError("colour is six hex digits", "as #3A7BD5", code="bad_request")
+        cfg["theme"]["colour"] = "#" + m.group(1).upper()
+    if "look" in body or "mode" in body or "colour" in body:
+        # The picker's look, the toggle's side and the Colors genre's colour (docs/themes.md
+        # §Genres): resolved here to the concrete skin and palette every reader uses, and written
+        # beside them.
         look = str(body.get("look") or cfg["theme"].get("look") or "").strip()
         if not look:
             look = skins.look_of(cfg["theme"].get("default") or "none", cfg["theme"].get("skin") or "none")
@@ -2836,7 +2868,7 @@ def _write_theme(C, body: dict, seq: int | None = None) -> tuple[bool, int]:
         if mode not in skins.MODES:
             raise ServeError(f"mode {mode!r} is not a side", "light, dark, or empty to follow the system",
                              code="bad_request")
-        resolved = skins.resolve(look, mode, pick="look" in body)
+        resolved = skins.resolve(look, mode, pick="look" in body, colour=colour_of(cfg))
         cfg["theme"]["look"] = resolved["look"]
         cfg["theme"]["mode"] = resolved["mode"]
         cfg["theme"]["skin"] = resolved["skin"]
@@ -3415,8 +3447,11 @@ class Handler(BaseHTTPRequestHandler):
             # `genres` is the one picker (docs/themes.md §Genres): every look the page offers,
             # grouped, each with the value it posts back. `themes` and `skins` stay for the
             # page's css and for readers that knew the two-picker shape.
+            from .. import config as C
+            cfg = C.load()
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
-                               "genres": skins.genres(), "palette_only": skins.PALETTE_ONLY,
+                               "genres": skins.genres(colour_of(cfg)), "palette_only": skins.PALETTE_ONLY,
+                               "colour": colour_of(cfg), "colour_presets": skins.COLOUR_PRESETS,
                                "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})
