@@ -255,7 +255,7 @@
       "tests": 28
     },
     "tests/test_config.py": {
-      "tests": 14
+      "tests": 15
     },
     "tests/test_confluence.py": {
       "tests": 13

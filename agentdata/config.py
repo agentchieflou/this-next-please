@@ -10,6 +10,7 @@ import json
 import os
 import re
 import threading
+import time
 from typing import Any
 from . import textio
 
@@ -79,8 +80,29 @@ def load(p: str | None = None) -> dict:
     return data
 
 
+#: How long `save` keeps trying to swap the file in while a reader holds it open (Windows refuses
+#: `os.replace` with "Access is denied" for the length of another handle's `open`), and the pause
+#: between tries. A desk's stream thread reads config.json between a page's picks; a pick that
+#: lands mid-read used to come back as a 500 ("the server did not write the pick", train 25).
+REPLACE_WAIT_S = 2.0
+REPLACE_STEP_S = 0.02
+
+
+def _replace(tmp: str, p: str) -> None:
+    deadline = time.monotonic() + REPLACE_WAIT_S
+    while True:
+        try:
+            os.replace(tmp, p)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(REPLACE_STEP_S)
+
+
 def save(cfg: dict, p: str | None = None) -> str:
-    """Atomic write (tmp + os.replace). Refuses credential-looking keys."""
+    """Atomic write (tmp + os.replace, retried while a reader holds the file). Refuses
+    credential-looking keys."""
     p = p or path()
     assert_no_secrets(cfg)
     cfg["version"] = VERSION
@@ -91,7 +113,7 @@ def save(cfg: dict, p: str | None = None) -> str:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, sort_keys=True)
         f.write("\n")
-    os.replace(tmp, p)
+    _replace(tmp, p)
     return display_path(p)
 
 
