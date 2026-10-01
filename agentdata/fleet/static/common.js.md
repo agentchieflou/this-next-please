@@ -77,6 +77,10 @@ whatever it moves.
 
 ### `function applyTheme`
 
+The list also carries the `--colors-*` tokens a Colors glass palette is served with (docs/themes.md
+§Colors): the glass skin's `hue` variant reads its mesh, fill, edges and highlighter from them, so
+one stylesheet block draws every colour; on any other palette they are absent and are removed.
+
 Above `function applyTheme(cssVars, themeName) {`:
 
 A PALETTE is colour only, so it is 1:1 with the terminal: the same hex reaches this page's custom

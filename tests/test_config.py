@@ -60,6 +60,32 @@ def test_save_atomic_and_refuses_secrets(tmp_path, monkeypatch):
     C.save({"sources": {"teradata": {"envs": {"prod": {"password": ""}}}}})  # empty is fine
 
 
+def test_save_waits_out_a_reader_holding_the_file_on_windows(tmp_path, monkeypatch):
+    """Windows refuses `os.replace` over a file another handle has open ("Access is denied"), and
+    a desk's stream thread reads config.json between a page's picks: `save` keeps trying for a
+    moment instead of answering the pick with a 500 (train 25), and still raises once the wait is
+    spent."""
+    p = tmp_path / "cfg.json"
+    monkeypatch.setenv(C.CONFIG_ENV, str(p))
+    real, calls = os.replace, []
+
+    def held_twice(src, dst):
+        calls.append(dst)
+        if len(calls) <= 2:
+            raise PermissionError(13, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(C.os, "replace", held_twice)
+    monkeypatch.setattr(C, "REPLACE_STEP_S", 0.001)
+    C.save({"jira": {"base_url": "https://x.atlassian.net"}})
+    assert len(calls) == 3 and json.loads(p.read_text())["jira"]["base_url"] == "https://x.atlassian.net"
+    monkeypatch.setattr(C.os, "replace", lambda src, dst: (_ for _ in ()).throw(PermissionError(13, "Access is denied")))
+    monkeypatch.setattr(C, "REPLACE_WAIT_S", 0.01)
+    with pytest.raises(PermissionError):
+        C.save({"jira": {"base_url": "https://y.atlassian.net"}})
+    assert json.loads(p.read_text())["jira"]["base_url"] == "https://x.atlassian.net", "the last good file stands"
+
+
 def test_project_facts(tmp_path):
     md = tmp_path / "AGENTS.md"
     md.write_text("# P\n- env: prod              # ad-td --env\n- te2_exe: C:/Tools/TE/TabularEditor.exe\n"

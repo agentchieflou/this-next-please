@@ -44,3 +44,15 @@ body[data-skin="voxel"]:not(.ink-off) footer .keys { color: var(--voxel-band-ink
 
 body[data-skin="voxel"]:not(.ink-off) header { will-change: transform; }
 body[data-skin="voxel"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+
+body[data-skin="voxel"][data-skin-variant="daylight"] {
+  --voxel-ground: #B49A6A;
+  --voxel-panel: #E4D9BF;
+  --voxel-edge: #F0E8D3;
+  --voxel-band-ink: #2E2A24;
+  --voxel-band-ink-soft: #5B5347;
+  --scroll-thumb: #B3A88E;
+  --scroll-thumb-hover: #9E9378;
+  --ink-highlighter: #BA874B;
+  --ink-pen: #B9631E;
+}

@@ -35,6 +35,13 @@ Above `--hand: "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Neue", "Co
 
 A hand, where the page writes one: a local cursive face, never a download.
 
+
+### `body[data-skin="legalpad"][data-skin-variant="night"]`
+
+The pad's dark side, on `dark`: olive stock under a desk lamp, the rules a deeper blue, the margin
+and the glue darker reds, and gel inks that read on it (`theme.inks_on`). `color-scheme: dark` so
+the form controls follow.
+
 ### `body[data-skin="legalpad"]:not(.ink-off) header`
 
 Above `body[data-skin="legalpad"]:not(.ink-off) header { margin-top: 10px; }`:

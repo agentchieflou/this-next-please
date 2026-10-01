@@ -60,6 +60,21 @@ body[data-skin-variant="frost"] {
   --glass-mesh-3: rgba(42, 115, 62, 0.25);
 }
 
+body[data-skin="glass"][data-skin-variant="hue"] {
+  --ink-highlighter: var(--colors-highlighter, #96814E);
+  --glass-fill: var(--colors-fill, rgba(31, 38, 50, 0.36));
+  --glass-card: var(--colors-card, rgba(31, 38, 50, 0.46));
+  --glass-edge: var(--colors-edge, rgba(255, 255, 255, 0.18));
+  --glass-card-edge: var(--colors-card-edge, rgba(255, 255, 255, 0.26));
+  --glass-glint: var(--colors-glint, rgba(255, 255, 255, 0.28));
+  --glass-shadow: var(--colors-shadow, rgba(0, 0, 0, 0.35));
+  --glass-ink: var(--colors-ink, #E4E5E7);
+  --glass-ink-soft: var(--colors-ink-soft, rgba(228, 229, 231, 0.72));
+  --glass-mesh-1: var(--colors-mesh-1, rgba(98, 148, 218, 0.35));
+  --glass-mesh-2: var(--colors-mesh-2, rgba(149, 105, 212, 0.30));
+  --glass-mesh-3: var(--colors-mesh-3, rgba(105, 212, 185, 0.30));
+}
+
 body[data-skin="glass"] {
   --scroll-thumb: rgba(255, 255, 255, 0.22);
   --scroll-thumb-hover: rgba(255, 255, 255, 0.36);

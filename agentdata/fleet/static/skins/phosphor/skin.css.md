@@ -23,6 +23,13 @@ The words stay in the desk's `--mono`: no handwriting, and no web font.
 ones `skins.py` declares, and `tests/test_fleet_ink_phosphor.py` holds the two to one number.
 `--gutter` is the pane's left margin, where the check and the bang are drawn.
 
+
+### `body[data-skin="phosphor"][data-skin-variant="paper"]`
+
+The screen's light side, on `eye-relief-day`: the glass turned to paper, dark glyphs on pale
+glass. `--paper` is the light end and `--scan` the scanline's, the dark end of the pair, and every
+ink is the palette's own darkened to read on both (`theme.inks_on`).
+
 ### `body[data-skin="phosphor"]:not(.ink-off) .tile`
 
 The stand-aside, as the notebook's: where the beam draws, a pane is a region of the glass, not a

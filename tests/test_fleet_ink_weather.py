@@ -15,9 +15,12 @@ holds each weather's colours as custom properties. What is asserted:
 * `theme.check` holds every variant on every end of its paper;
 * the two palettes are greyer than the blue the rainy day was first drawn on;
 * the module carries no colour, no markup, no static import, and fits `SKIN_BUDGET`;
+* the rain's own signs (`expresses`, docs/skin-weather.md §The rain's own signs) are on the two
+  rainy variants alone;
 * in a browser (`?ink=on`, from `test_fleet_ink.py`'s grammar test, which calls
   `weather_in_a_browser` here): the rain ticks on its own and stops under reduced motion, an
-  error's arrival is a flash of lightning on the rainy day only, and another weather puts the rain
+  error's arrival is a flash of lightning on the rainy day only, with thunder once the chime is
+  on, a running pane's rain ripples and a done pane's dries, and another weather puts the rain
   away.
 """
 from __future__ import annotations
@@ -29,6 +32,7 @@ from agentdata import theme
 from agentdata.fleet import serve as S, skins
 
 from test_fleet_ink import SKIN_BUDGET, _choose, _mark, _open
+from test_fleet_ink_cues import expresses_of
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -37,8 +41,9 @@ CSS = os.path.join(STATIC, "skins", "weather", "skin.css")
 
 TOOLS = ("pencil", "pen", "red", "green", "marker", "highlighter")
 
-#: The variants in the order the module's `--wx-kind` numbers them.
-KINDS = ("rainy", "sunny", "cloudy", "starry")
+#: Each variant's sky, the number the module's `--wx-kind` switches its shader on: rain 0, sun 1,
+#: cloud 2, stars 3. Showers is the rain's light side and dusk the cloud's dark one.
+KINDS = {"rainy": 0, "sunny": 1, "cloudy": 2, "starry": 3, "showers": 0, "dusk": 2}
 
 LOAD = "async () => { window.__wx = await import(q('/static/ink/skins/weather.js')); }"
 WX = "() => window.__wx ? window.__wx.inspect() : null"
@@ -66,12 +71,18 @@ def test_the_weather_is_a_skin_of_the_weather_genre_the_settings_page_offers():
     assert skins.genre_of("weather") == "weather"
     assert [v["name"] for v in skins.variants("weather")] == list(KINDS)
     assert {v: skins.SKINS["weather"]["variants"][v]["base"] for v in KINDS} == {
-        "rainy": "slate", "sunny": "sand", "cloudy": "overcast", "starry": "vanta-black"}
+        "rainy": "slate", "sunny": "sand", "cloudy": "overcast", "starry": "vanta-black",
+        "showers": "overcast", "dusk": "slate"}
     assert skins.get_skin("weather:auto")["auto"]["light"]["full"] == "weather:sunny"
     assert skins.get_skin("weather:auto")["auto"]["dark"]["full"] == "weather:starry"
+    # Three looks, each with a light and a dark side of its own weather (docs/themes.md §Genres).
     genre = next(g for g in skins.genres() if g["name"] == "weather")
-    assert [l["title"] for l in genre["looks"]] == ["Rainy day", "Sunny day", "Cloudy", "Starry night", "Auto"]
-    assert [l["value"] for l in genre["looks"]] == [f"weather:{v}" for v in KINDS] + ["weather:auto"]
+    assert [l["title"] for l in genre["looks"]] == ["Rainy day", "Clear sky", "Cloudy"]
+    assert [l["value"] for l in genre["looks"]] == ["weather:rain", "weather:clear", "weather:cloud"]
+    assert {l["value"]: (l["sides"]["light"]["variant"], l["sides"]["dark"]["variant"]) for l in genre["looks"]} == {
+        "weather:rain": ("showers", "rainy"), "weather:clear": ("sunny", "starry"), "weather:cloud": ("cloudy", "dusk")}
+    assert skins.resolve("weather:rain", "light")["skin"] == "weather:showers"
+    assert skins.resolve("weather:cloud", "dark")["skin"] == "weather:dusk"
     for name in ("slate", "overcast"):
         assert name not in skins.PALETTE_ONLY
 
@@ -80,16 +91,20 @@ def test_the_stylesheet_paints_the_numbers_skins_py_declares():
     """Each weather's paper and inks, declared once in skins.py (where `theme.check` reads them)
     and named by skin.css (where the page and the module read them); `--wx-kind` is the variant's
     place in the module's order. The rain's light end is the paper under a streak."""
-    for kind, variant in enumerate(KINDS):
+    for variant, kind in KINDS.items():
         spec = skins.SKINS["weather"]["variants"][variant]
         props = _css_block(variant)
         assert int(props["wx-kind"]) == kind, variant
         panel = spec["composited_panel"]
         if isinstance(panel, dict):
-            assert props["paper"].upper() == panel["darkest"].upper(), variant
+            # The rain's pair: the paper at one end, the paper under a streak at its peak alpha at
+            # the other -- the light end on the dark rainy day, the dark end on the bright showers.
             drop, alpha = spec["drop"]
             assert props["wx-drop"].upper() == drop.upper() and float(props["wx-drop-alpha"]) == alpha, variant
-            assert theme.mix(panel["darkest"], drop, alpha).upper() == panel["lightest"].upper(), variant
+            paper, streaked = (panel["darkest"], panel["lightest"]) if theme.is_dark(props["paper"]) \
+                else (panel["lightest"], panel["darkest"])
+            assert props["paper"].upper() == paper.upper(), variant
+            assert theme.mix(paper, drop, alpha).upper() == streaked.upper(), variant
         else:
             assert props["paper"].upper() == panel.upper(), variant
             assert "drop" not in spec, (variant, "only the rain falls across the paper")
@@ -118,6 +133,13 @@ def test_the_rainy_and_cloudy_palettes_are_greyer_than_the_blue_the_rain_first_f
         assert theme.saturation(t.ground) < theme.saturation(blues.ground), (name, t.ground)
         assert theme.saturation(t.ground) <= theme.ACHROMATIC, (name, "a sky is grey, not a colour")
     assert theme.get("slate").light is False and theme.get("overcast").light is True
+
+
+def test_the_rain_alone_expresses_the_grammar_with_weather():
+    signs = {"needs_name": "squall", "needs_q": "squall", "needs_card": "squall", "running": "puddle",
+             "error_bang": "lightning", "done": "drying"}
+    assert expresses_of(MODULE) == {"rainy": signs, "showers": signs}
+    assert {v for v, k in KINDS.items() if k == 0} == set(expresses_of(MODULE)), "every rainy kind, no other"
 
 
 def test_the_module_carries_no_colour_no_markup_and_fits_its_budget():
@@ -164,10 +186,29 @@ def weather_in_a_browser(browser, port, token) -> dict:
     layer = page.evaluate("() => Ink.inspect().layer")
     assert layer["skin"]["hooks"] == ["ground", "paper", "frame", "tick", "dispose"], layer["skin"]
     assert layer["skin"]["errors"] == [] and layer["mode"] == 2, "a dark paper under the marks: screen"
-    # An error's arrival is lightning: a flash that is gone within the event's 320 ms.
+    # The rain's own signs: with the ink on, the rainy table has no highlighter, bang or check row.
+    rows = page.evaluate("() => Ink.inspect().layer.marks.map(m => [m.tool, m.shape])")
+    assert rows and not [r for r in rows if r[0] == "highlighter" or r[1] in ("bang", "check")], rows
+    # A running pane's rain ripples; a done pane's dries; a pane that needs you gets a squall.
+    _mark(page, "beta", "state-running")
+    page.wait_for_function("() => (window.__wx.inspect().panes.beta || {}).ripple === 1", timeout=10000)
+    _mark(page, "beta", "state-done")
+    page.wait_for_function("() => (window.__wx.inspect().panes.beta || {}).dry === 1", timeout=10000)
+    _mark(page, "alpha", "needs-human")
+    page.wait_for_function("() => (window.__wx.inspect().panes.alpha || {}).squall === 1", timeout=10000)
+    # An error's arrival is lightning: a flash that is gone within the event's 320 ms; no thunder
+    # while the chime is off.
     _mark(page, "alpha", "state-error")
     page.wait_for_function("() => window.__wx.inspect().played.lightning === 1", timeout=10000)
     page.wait_for_function("() => window.__wx.inspect().flash === 0", timeout=10000)
+    assert "thunder" not in page.evaluate(WX)["played"], "thunder is the chime's"
+    # The chime on: the next lightning rolls thunder.
+    page.click("#chime")
+    page.wait_for_function("() => window.__wx.inspect().chime === true", timeout=5000)
+    _mark(page, "beta", "state-error")
+    page.wait_for_function("() => window.__wx.inspect().played.lightning === 2", timeout=10000)
+    assert page.evaluate(WX)["played"].get("thunder") == 1, page.evaluate(WX)["played"]
+    page.click("#chime")
     # Another weather puts the rain away and keeps the sky moving.
     _choose(page, "weather:starry")
     page.wait_for_function("() => Ink.inspect().table === 'weather:starry'", timeout=10000)
@@ -175,7 +216,7 @@ def weather_in_a_browser(browser, port, token) -> dict:
     page.wait_for_function("() => window.__wx.inspect().kind === 'starry'", timeout=10000)
     starry = page.evaluate(WX)
     assert not starry["rain"] and starry["over"] == 0, starry
-    _mark(page, "beta", "state-error")
+    _mark(page, "alpha", "state-error")
     page.wait_for_function("() => (window.__wx.inspect().played.lightning || 0) >= 1", timeout=10000)
     assert page.evaluate(WX)["flash"] == 0, "lightning is the rainy day's alone"
     seen["errors"] = list(errors)

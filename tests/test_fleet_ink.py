@@ -1082,6 +1082,8 @@ GRAMMAR = {
 # One detached pane per state, cloned from the page's own `#tile` template and put in its state the
 # way `app.js` does (classes, attributes, `hidden`; never markup). The element each GRAMMAR entry
 # names is found in them by its selector, and each module's rows are matched against that element.
+# An entry a module `expresses` for the variant (its genre's own sign, docs/desk-ink.md §The state
+# grammar across skins) passes without a row; `expressed` lists what each skin:variant expresses.
 GRAMMAR_CHECK = """async ([skins, grammar]) => {
   const tpl = document.getElementById('tile').content.firstElementChild;
   const pane = (cls, ask) => {
@@ -1108,7 +1110,7 @@ GRAMMAR_CHECK = """async ([skins, grammar]) => {
                  pane(['state-idle'], 'answered'),
                  pane(['state-running']), pane(['state-error']), pane(['state-done', 'is-done'])];
   const find = sel => panes.map(p => p.matches(sel) ? p : p.querySelector(sel)).filter(Boolean);
-  const out = { missing: [], checked: [], found: {} };
+  const out = { missing: [], checked: [], found: {}, expressed: {} };
   for (const [entry, g] of Object.entries(grammar)) {
     out.found[entry] = [].concat(g.el).flatMap(find).length;
   }
@@ -1117,12 +1119,14 @@ GRAMMAR_CHECK = """async ([skins, grammar]) => {
     for (const variant of variants) {
       if (typeof mod.options === 'function') mod.options(variant);
       const rows = mod.marks(variant);
+      const ex = Object.assign({}, (mod.expresses || {})['*'], (mod.expresses || {})[variant]);
       out.checked.push(name + ':' + variant);
+      for (const entry of Object.keys(ex)) if (entry in grammar) (out.expressed[name + ':' + variant] ||= []).push(entry);
       for (const [entry, g] of Object.entries(grammar)) {
         const els = [].concat(g.el).flatMap(find);
         const ok = rows.some(r => g.tools.includes(r.ink || r.tool) && g.shapes.includes(r.shape)
                                   && els.some(e => e.matches(r.selector)));
-        if (!ok) out.missing.push(name + ':' + variant + ' ' + entry);
+        if (!ok && !ex[entry]) out.missing.push(name + ':' + variant + ' ' + entry);
       }
     }
   }
@@ -1145,6 +1149,7 @@ def test_the_state_grammar_in_desk_ink_is_the_one_the_skins_are_held_to():
     section = doc[doc.index("## The state grammar across skins"):]
     section = section[:section.index("\n## ", 1)]
     assert "`GRAMMAR`" in section and "tests/test_fleet_ink.py" in section, "the doc names the constant"
+    assert "`expresses`" in section and "tests/test_fleet_ink_cues.py" in section, "the doc names the relaxation"
     rows = {}
     for line in section.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
@@ -1227,6 +1232,19 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
                                 for k, g in GRAMMAR.items()}, "each entry names one element per selector"
     assert len(grammar["checked"]) == sum(len(v) for v in _grammar_skins().values()) >= 17, grammar
     assert grammar["missing"] == [], "a skin draws a state off the grammar: " + ", ".join(grammar["missing"])
+    # A genre's own signs (docs/desk-ink.md §The state grammar across skins): the field's and the
+    # rain's, exactly the entries their modules express and no others, and only on those looks.
+    from test_fleet_ink_cues import expresses_of
+    root = os.path.join(os.path.dirname(S.__file__), "static", "ink", "skins")
+    want = {}
+    for name, variants in _grammar_skins().items():
+        ex = expresses_of(os.path.join(root, name + ".js"))
+        for variant in variants:
+            entries = sorted({**ex.get("*", {}), **ex.get(variant, {})})
+            if entries:
+                want[f"{name}:{variant}"] = entries
+    assert {k: sorted(v) for k, v in grammar["expressed"].items()} == want, (grammar["expressed"], want)
+    assert "gridiron:nightgame" in want and "weather:rainy" in want and "weather:sunny" not in want
     on = seen["on"]
     assert on["tool"] == "pen" and seen["red"] == "red", "each variant has its own table"
     assert on["skin"]["hooks"] == ["ground", "paper", "frame", "tick", "dispose"], on["skin"]

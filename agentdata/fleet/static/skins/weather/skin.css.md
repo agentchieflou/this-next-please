@@ -42,6 +42,18 @@ underside. The panel is `--paper` alone.
 The starry night, on `vanta-black`. `--wx-star` is a star, `--wx-meteor` the meteor. The panel is
 `--paper` alone.
 
+
+### `body[data-skin="weather"][data-skin-variant="showers"]`
+
+The rain's light side (the Rainy day look by day), on `overcast`: the same kind 0 sky in daylight
+greys, and a streak that darkens the pale paper rather than lightening a dark one, so the pair's
+dark end is the paper under a streak and its light end the paper.
+
+### `body[data-skin="weather"][data-skin-variant="dusk"]`
+
+The cloud's dark side (the Cloudy look at night), on `slate`: kind 2, cloud cover in the rainy
+day's greys with its shade beneath, and the rainy day's inks.
+
 ### `body[data-skin="weather"]:not(.ink-off) :is(.renew-strip, .away-strip)`
 
 The renew and away strips stand aside for the canvas like the panes (#337): opaque, they sat as

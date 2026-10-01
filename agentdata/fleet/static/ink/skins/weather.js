@@ -1,24 +1,36 @@
-export function marks() {
-  return [
+export const expresses = {
+  "rainy": { "needs_name": "squall", "needs_q": "squall", "needs_card": "squall", "running": "puddle",
+             "error_bang": "lightning", "done": "drying" },
+  "showers": { "needs_name": "squall", "needs_q": "squall", "needs_card": "squall", "running": "puddle",
+               "error_bang": "lightning", "done": "drying" }
+};
+
+const RAINED = [
+  { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline",
+    grow: ".transcript > li", step: 12, tip: true },
+  { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines", leaves: "erased" },
+  { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-q", tool: "highlighter", shape: "lines" },
+  { selector: ".tile.needs-human .approval:not([hidden]) .summary", tool: "highlighter", shape: "lines" },
+  { selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },
+  { selector: ".tile.state-error", tool: "red", shape: "bang" },
+  { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
+];
+
+export function marks(variant) {
+  const rows = [
     { selector: ".tile.state-idle", tool: "pencil", shape: "outline", pad: -3, dash: true },
-    { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline",
-      grow: ".transcript > li", step: 12, tip: true },
-    { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines", leaves: "erased" },
-    { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-q", tool: "highlighter", shape: "lines" },
-    { selector: ".tile.needs-human .approval:not([hidden]) .summary", tool: "highlighter", shape: "lines" },
-    { selector: ".tile.needs-human .asks:not([hidden])", tool: "marker", shape: "loop", pad: -3 },
     { selector: ".ask.is-answered .ask-q", tool: "pen", shape: "strike" },
     { selector: ".ask.is-answered .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "ellipse" },
     { selector: ".ask.is-answered:not(:has(.ask-choice[aria-pressed=\"true\"])) .ask-answer",
       tool: "pen", shape: "ellipse" },
     { selector: ".tile.state-error .why", tool: "marker", shape: "outline", pad: 2 },
-    { selector: ".tile.state-error", tool: "red", shape: "bang" },
-    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
     { selector: ".tile:has(.oldsession:not([hidden]))", tool: "pencil", shape: "outline", dash: true, pad: -8 },
     { selector: ".tile .transcript > li.friction", tool: "red", shape: "ellipse", pad: -6 },
     { selector: "#bellcount", tool: "pen", shape: "write", rewrite: true },
   ];
+  const rained = expresses[variant] && !document.body.matches(".ink-off");
+  return rained ? rows : rows.concat(RAINED);
 }
 
 const EVEN = { press: 1, pvar: 0, wob: 0.15, bow: 0, tin: 0, tout: 0 };
@@ -36,6 +48,8 @@ export const cues = [
 
 const FLASH_S = 0.32;
 const CLEAR_S = 0.32;
+const EASE_S = 0.32;
+const THUNDER_S = 1.6;
 const METEOR_EVERY = 9.0;
 const KINDS = ["rainy", "sunny", "cloudy", "starry"];
 
@@ -122,6 +136,7 @@ void main(){
 const RAIN_FS = `
 uniform float uTime; uniform float uDpr; uniform vec2 uView; uniform vec3 uDrop; uniform float uDropA;
 uniform vec3 uFlashC; uniform float uFlash;
+uniform float uSquall; uniform float uDry; uniform float uRipple; uniform float uSeed; uniform vec4 uBox;
 ${NOISE}
 float sheet(vec2 p, float col, float speed, float len, float lean, float seed){
   p.x += p.y * lean;
@@ -136,9 +151,24 @@ float sheet(vec2 p, float col, float speed, float len, float lean, float seed){
 }
 void main(){
   vec2 p = vec2(gl_FragCoord.x, uView.y * uDpr - gl_FragCoord.y) / uDpr;
-  float a = sheet(p, 5.0, 620.0, 26.0, 0.10, 1.0) * 1.0
-          + sheet(p, 8.0, 380.0, 16.0, 0.07, 4.0) * 0.55;
-  a = clamp(a, 0.0, 1.0) * uDropA;
+  float gust = 1.0 + 0.7 * uSquall;
+  float a = sheet(p, 5.0, 620.0 * gust, 26.0 * gust, 0.10 + 0.22 * uSquall, 1.0) * 1.0
+          + sheet(p, 8.0, 380.0 * gust, 16.0 * gust, 0.07 + 0.18 * uSquall, 4.0) * 0.55
+          + sheet(p, 6.0, 520.0 * gust, 20.0 * gust, 0.16 + 0.2 * uSquall, 7.0) * uSquall;
+  a = clamp(a, 0.0, 1.0) * uDropA * (1.0 - uDry);
+  if (uRipple > 0.0) {
+    vec2 q = (p - uBox.xy) / max(uBox.zw, vec2(1.0));
+    float rip = 0.0;
+    for (int i = 0; i < 4; i++) {
+      float k = float(i);
+      vec2 at = 0.12 + 0.76 * vec2(h21(vec2(uSeed, k)), h21(vec2(k, uSeed + 1.0)));
+      float d = length((q - at) * uBox.zw);
+      float ph = fract(uTime * 0.45 + h21(vec2(uSeed + 3.0, k)));
+      float r = ph * 46.0;
+      rip += (1.0 - smoothstep(0.0, 2.2, abs(d - r))) * (1.0 - ph) * step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
+    }
+    a = max(a, clamp(rip, 0.0, 1.0) * uDropA * uRipple * (1.0 - uDry));
+  }
   vec3 c = mix(uDrop, uFlashC, uFlash);
   gl_FragColor = vec4(c, a + uFlash * 0.12);
 }`;
@@ -170,8 +200,8 @@ function noiseTexture(THREE) {
 }
 
 const W = {
-  sky: null, rain: null, rainU: null, over: [], noise: null, sig: "", tokens: null, api: null, kind: 0, time: 0, ticks: 0,
-  flash: 0, clear: 0, frames: 0, played: {}, reduced: false,
+  sky: null, rain: null, rainU: null, over: [], panes: [], noise: null, sig: "", tokens: null, api: null, kind: 0, time: 0,
+  ticks: 0, flash: 0, clear: 0, frames: 0, played: {}, reduced: false, seeds: 0,
 };
 
 function rainUniforms(THREE, api) {
@@ -179,14 +209,84 @@ function rainUniforms(THREE, api) {
     const { w, h, dpr } = api.viewport;
     W.rainU = { uTime: { value: 0 }, uDpr: { value: dpr }, uView: { value: new THREE.Vector2(w, h) },
                 uFlashC: { value: new THREE.Vector3() }, uFlash: { value: 0 },
-                uDrop: { value: new THREE.Vector3() }, uDropA: { value: 0.16 } };
+                uDrop: { value: new THREE.Vector3() }, uDropA: { value: 0.16 },
+                uSquall: { value: 0 }, uDry: { value: 0 }, uRipple: { value: 0 }, uSeed: { value: 0 },
+                uBox: { value: new THREE.Vector4() } };
   }
   return W.rainU;
 }
 
-function rainMaterial(THREE, api) {
-  return new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: RAIN_FS, uniforms: rainUniforms(THREE, api),
+function paneUniforms(THREE, api) {
+  W.seeds += 1;
+  return Object.assign({}, rainUniforms(THREE, api), {
+    uSquall: { value: 0 }, uDry: { value: 0 }, uRipple: { value: 0 }, uSeed: { value: W.seeds },
+    uBox: { value: new THREE.Vector4() } });
+}
+
+function rainMaterial(THREE, api, uniforms) {
+  return new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: RAIN_FS, uniforms: uniforms || rainUniforms(THREE, api),
                                     depthTest: false, depthWrite: false, transparent: true });
+}
+
+function wants(el) {
+  return { squall: el.matches(".needs-human") ? 1 : 0, ripple: el.matches(".state-running") ? 1 : 0,
+           dry: el.matches(".is-done, .state-done") ? 1 : 0 };
+}
+
+function ease(u, key, to, step) {
+  const at = u[key].value;
+  if (at === to) return false;
+  u[key].value = W.reduced ? to : (at < to ? Math.min(to, at + step) : Math.max(to, at - step));
+  return true;
+}
+
+function weatherOn(step) {
+  let moved = false;
+  W.panes = W.panes.filter(p => p.mesh.parent && p.el.isConnected);
+  for (const p of W.panes) {
+    const w = wants(p.el), r = p.el.getBoundingClientRect();
+    p.u.uBox.value.set(r.left, r.top, r.width, r.height);
+    if (ease(p.u, "uSquall", w.squall, step / EASE_S)) moved = true;
+    if (ease(p.u, "uRipple", w.ripple, step / EASE_S)) moved = true;
+    if (ease(p.u, "uDry", w.dry, step / EASE_S)) moved = true;
+  }
+  return moved;
+}
+
+function chimeOn() {
+  const b = document.getElementById("chime");
+  return !!b && b.getAttribute("aria-pressed") === "true";
+}
+
+function thunder() {
+  if (!chimeOn()) return false;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const n = Math.floor(ctx.sampleRate * THUNDER_S), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const k = i / n;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - k, 2.2) * (0.6 + 0.4 * Math.sin(k * 41.0));
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const low = ctx.createBiquadFilter();
+    low.type = "lowpass";
+    low.frequency.setValueAtTime(240, ctx.currentTime);
+    low.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + THUNDER_S);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.45, ctx.currentTime + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + THUNDER_S);
+    src.connect(low);
+    low.connect(gain);
+    gain.connect(ctx.destination);
+    src.start();
+    src.stop(ctx.currentTime + THUNDER_S + 0.1);
+    src.onended = () => { try { ctx.close(); } catch (e) {} };
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function remember({ tokens, api }) {
@@ -302,18 +402,26 @@ export function frame(ctx, el, box) {
   sheet.position.set(box.w / 2, -box.h / 2, 0);
   sheet.renderOrder = api.order.frame;
   scene.add(sheet);
-  const over = new THREE.Mesh(new THREE.PlaneGeometry(box.w, box.h), rainMaterial(THREE, api));
+  const u = paneUniforms(THREE, api);
+  const over = new THREE.Mesh(new THREE.PlaneGeometry(box.w, box.h), rainMaterial(THREE, api, u));
   over.position.set(box.w / 2, -box.h / 2, 0);
   over.renderOrder = api.order.frame + 1;
   over.visible = W.kind === 0;
   scene.add(over);
   W.over.push(over);
-  void el;
+  W.panes = W.panes.filter(p => p.el !== el);
+  const w = wants(el);
+  u.uSquall.value = w.squall;
+  u.uRipple.value = w.ripple;
+  u.uDry.value = w.dry;
+  W.panes.push({ el, mesh: over, u });
+  weatherOn(0);
 }
 
 export function cue(ctx, name) {
   remember(ctx);
   W.played[name] = (W.played[name] || 0) + 1;
+  if (name === "lightning" && W.kind === 0 && thunder()) W.played.thunder = (W.played.thunder || 0) + 1;
   if (W.reduced) return;
   if (name === "lightning" && W.kind === 0) W.flash = 0.7;
   if (name === "clearing" && W.kind === 1) W.clear = 1;
@@ -336,6 +444,7 @@ export function tick(ctx, dt) {
     moved = true;
   }
   const changed = look(THREE);
+  if (W.kind === 0 && weatherOn(step)) moved = true;
   timing();
   if (moved || changed) W.api.request();
   return !W.reduced;
@@ -346,6 +455,7 @@ export function dispose() {
   W.sky = W.rain = W.rainU = W.noise = null;
   W.sig = "";
   W.over = [];
+  W.panes = [];
   W.flash = W.clear = 0;
   W.frames = 0;
 }
@@ -353,5 +463,7 @@ export function dispose() {
 export function inspect() {
   return { kind: KINDS[W.kind], time: W.time, ticks: W.ticks, frames: W.frames, flash: W.flash, clear: W.clear,
            rain: !!(W.rain && W.rain.visible), over: W.over.filter(m => m.parent && m.visible).length,
-           reduced: W.reduced, played: Object.assign({}, W.played) };
+           reduced: W.reduced, played: Object.assign({}, W.played), chime: chimeOn(),
+           panes: Object.fromEntries(W.panes.filter(p => p.mesh.parent).map(p => [p.el.dataset.repo || "",
+             { squall: p.u.uSquall.value, ripple: p.u.uRipple.value, dry: p.u.uDry.value }])) };
 }

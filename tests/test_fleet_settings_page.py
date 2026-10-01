@@ -74,26 +74,35 @@ def _settings(browser, port, token):
 
 
 def _looks_on(palette):
-    """"Screens · Glass · Smoke" for each look drawn on `palette`, in the order the picker lists
+    """"Screens · Glass" for each look with a side drawn on `palette`, in the order the picker lists
     them (#393): what /settings says is drawn on that palette, read from the data, not the page."""
     return [f"{g['title']} · {l['title']}" for g in K.genres() for l in g["looks"]
-            if l["skin"] and l["variant"] != K.AUTO and l["base"] == palette]
+            if l["skin"] and any(l["sides"][side]["base"] == palette for side in ("light", "dark"))]
 
 
-def _line_for(theme, skin):
-    """The line under the picker, as settings.js writes it (`looksLine`), from the data."""
+def _palette_title(name):
     from agentdata import theme as T
-    title = lambda n: T.get(n).title
-    if skin and skin != "none":
-        full = K.get_skin(skin)["full"]
-        look = next(f"{g['title']} · {l['title']}" for g in K.genres() for l in g["looks"] if l["value"] == full)
-        return f"{look} — palette {title(K.get_skin(skin)['base'])}, shared with this project's terminal"
-    if theme == "none":
+    if name.startswith(T.FLIP_PREFIX):
+        return _palette_title(name[len(T.FLIP_PREFIX):]) + "'s other side"
+    return T.get(name).title
+
+
+def _line_for(look, mode, side=None):
+    """The line under the picker, as settings.js writes it (`looksLine`), from the data: the look,
+    how its side was chosen (pinned, or following the system, which the headless browser reads as
+    light), and the palette that side brings."""
+    side = side or mode or "light"
+    how = ("pinned to its " if mode else "following the system, now its ") + side + " side"
+    if look == "palette:none":
         return "the system's own colours, and the plain page"
-    looks = _looks_on(theme)
-    why = K.PALETTE_ONLY.get(theme)
-    tail = f" — also drawn by {', '.join(looks)}" if looks else (f" — {why}" if why else "")
-    return f"palette {title(theme)} on the plain page, shared with this project's terminal{tail}"
+    row = next(l for g in K.genres() for l in g["looks"] if l["value"] == look)
+    palette = row["sides"][side]["base"]
+    if look.startswith(K.PALETTE_LOOK):
+        looks = _looks_on(palette)
+        tail = f" — also drawn by {', '.join(looks)}" if looks else ""
+        return f"palette {_palette_title(palette)} on the plain page, {how}, shared with this project's terminal{tail}"
+    genre = next(g["title"] for g in K.genres() for l in g["looks"] if l["value"] == look)
+    return f"{genre} · {row['title']}, {how} — palette {_palette_title(palette)}, shared with this project's terminal"
 
 
 def _answered(page, body):
@@ -111,7 +120,7 @@ def _answered(page, body):
 _PICKERS = """() => {
     const look = document.getElementById('look'), now = window.themeNow || {};
     const line = document.getElementById('palette-looks');
-    return { theme: now.theme || '', skin: now.skin || 'none', picked: look.value,
+    return { theme: now.theme || '', skin: now.skin || 'none', picked: look.value, mode: now.mode || '',
              looks: line && line.textContent, bg: document.documentElement.style.getPropertyValue('--bg') };
 }"""
 
@@ -401,23 +410,25 @@ def test_the_picker_says_what_is_already_worn(fleet_home, tmp_path, desk_browser
     try:
         browser, page, errors = _settings(desk_browser, port, token)
         page.wait_for_function(
-            """() => document.getElementById('look').value === 'glass:smoke'""", timeout=10000)
+            """() => document.getElementById('look').value === 'glass'""", timeout=10000)
         state = page.evaluate("""() => {
                 const l = document.getElementById('look'), looks = document.getElementById('palette-looks');
                 return { picked: l.value, blank: l.selectedIndex < 0,
                          painted: document.body.getAttribute('data-skin'),
                          looks: looks && looks.textContent };
             }""")
-        assert state["picked"] == "glass:smoke", state
+        assert state["picked"] == "glass", state
         assert not state["blank"], "a picker showing nothing at all is the one thing it may not do"
-        # ...and the line under it names the look, its genre and the palette it brings (#393).
-        assert state["looks"] == _line_for("dark", "glass:smoke"), state
+        # ...and the line under it names the look, its genre, its side (a skin written by hand is
+        # one side, pinned) and the palette it brings (#393).
+        assert state["looks"] == _line_for("glass", "dark"), state
         # ...and the page is actually WEARING it, not merely reporting it.
         assert state["painted"] == "glass", state
 
-        with _answered(page, {"theme": "dark", "skin": "none"}):
+        with _answered(page, {"look": "palette:dark"}):
             page.select_option("#look", "palette:dark")
-        _settled(page, theme="dark", skin="none", picked="palette:dark", looks=_line_for("dark", "none"))
+        _settled(page, theme="dark", skin="none", picked="palette:dark", mode="dark",
+                 looks=_line_for("palette:dark", "dark"))
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -450,42 +461,61 @@ def test_the_picker_offers_every_look_by_genre_and_the_line_names_the_palette(fl
         tips = {o[0]: o[2] for o in offered}
         for g in K.genres():
             for l in g["looks"]:
-                tail = f"  ·  palette: {l['base']}" if l["base"] and l["base"] != "none" else ""
+                light, dark = (l["sides"][s]["base"] for s in ("light", "dark"))
+                tail = "" if light == "none" and dark == "none" else f"  ·  light: {light}  ·  dark: {dark}"
                 assert tips[l["value"]] == (l["why"] or "") + tail, (l["value"], tips[l["value"]])
         # #389: Browns is drawn by the playbook, and is itself a plain look whose line says so.
-        assert "palette:nfl-browns" in tips and "playbook:chalkboard" in tips
+        assert "palette:nfl-browns" in tips and "playbook" in tips
 
-        with _answered(page, {"skin": "voxel:nether"}):
+        # A flavour pins its own side (docs/themes.md §Genres): Nether is a night world.
+        with _answered(page, {"look": "voxel:nether"}):
             page.select_option("#look", "voxel:nether")
-        picker = _settled(page, theme="reds", skin="voxel:nether", picked="voxel:nether")
-        assert picker["looks"] == _line_for("reds", "voxel:nether"), "the line names the look and its palette"
+        picker = _settled(page, theme="reds", skin="voxel:nether", picked="voxel:nether", mode="dark")
+        assert picker["looks"] == _line_for("voxel:nether", "dark"), "the line names the look, its side and its palette"
 
-        with _answered(page, {"theme": "reds", "skin": "none"}):
-            page.select_option("#look", "palette:reds")
-        _settled(page, theme="reds", skin="none", picked="palette:reds", looks=_line_for("reds", "none"))
+        # A palette is one side too, and pins it. (Reds, greens and blues are Colors presets now,
+        # not plain looks: docs/themes.md §Colors.)
+        assert "palette:reds" not in tips and "palette:greens" not in tips and "palette:blues" not in tips
+        with _answered(page, {"look": "palette:matrix"}):
+            page.select_option("#look", "palette:matrix")
+        _settled(page, theme="matrix", skin="none", picked="palette:matrix", mode="dark",
+                 looks=_line_for("palette:matrix", "dark"))
 
         # A palette no look is drawn on is chosen like any other: posted, saved, worn, and said.
         palettes = {t["name"]: t for t in S.themes()}
         for name, reason in K.PALETTE_ONLY.items():
-            with _answered(page, {"theme": name, "skin": "none"}):
+            with _answered(page, {"look": "palette:" + name}):
                 page.select_option("#look", "palette:" + name)
             assert C.load()["theme"]["default"] == name, "the saved config names that palette"
             said = _settled(page, theme=name, skin="none", bg=palettes[name]["css"]["--bg"],
-                            looks=_line_for(name, "none"))
+                            looks=_line_for("palette:" + name, "light" if palettes[name]["light"] else "dark"))
             assert reason in said["looks"], said
 
         # #389: Browns is no longer palette-only; as a plain look, the line names its look.
-        with _answered(page, {"theme": "nfl-browns", "skin": "none"}):
+        with _answered(page, {"look": "palette:nfl-browns"}):
             page.select_option("#look", "palette:nfl-browns")
-        said = _settled(page, theme="nfl-browns", skin="none", looks=_line_for("nfl-browns", "none"))
-        assert "Football · Chalkboard" in said["looks"], said
-        assert C.load()["theme"] == {**C.load()["theme"], "default": "nfl-browns", "skin": "none"}
+        said = _settled(page, theme="nfl-browns", skin="none", looks=_line_for("palette:nfl-browns", "dark"))
+        assert "Football · Playbook" in said["looks"], said
+        assert C.load()["theme"] == {**C.load()["theme"], "default": "nfl-browns", "skin": "none",
+                                     "look": "palette:nfl-browns", "mode": "dark"}
 
         # A palette with looks names every one of them.
-        with _answered(page, {"theme": "dark", "skin": "none"}):
+        with _answered(page, {"look": "palette:dark"}):
             page.select_option("#look", "palette:dark")
-        said = _settled(page, theme="dark", skin="none", looks=_line_for("dark", "none"))
-        assert "Glass · Smoke" in said["looks"], said
+        said = _settled(page, theme="dark", skin="none", looks=_line_for("palette:dark", "dark"))
+        assert "Screens · Glass" in said["looks"] and "Paper · Notebook" in said["looks"], said
+
+        # The toggle: the other side of the look that is on, then following the system again.
+        with _answered(page, {"mode": "light"}):
+            page.click("#mode")
+        said = _settled(page, theme="flip:dark", skin="none", picked="palette:dark", mode="light",
+                        looks=_line_for("palette:dark", "light"))
+        assert C.load()["theme"]["default"] == "flip:dark" and C.load()["theme"]["mode"] == "light"
+        with _answered(page, {"mode": ""}):
+            page.click("#mode-follow")
+        said = _settled(page, skin="none", picked="palette:dark", mode="",
+                        looks=_line_for("palette:dark", "", "light"))
+        assert C.load()["theme"]["mode"] == "" and C.load()["theme"]["skin"] == "none"
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -513,11 +543,12 @@ def test_the_picker_groups_looks_under_their_genre(fleet_home, tmp_path, desk_br
         for name, skin in K.SKINS.items():
             genre = K.GENRES[K.genre_of(name)]["title"]
             values = by_label[genre]
-            # every variant, the default first among its skin's, and "Auto" last, only on a skin
-            # with a light and a dark variant (#342)
+            # every look of the skin, its pair first, then each flavour (docs/themes.md §Genres);
+            # no variant is offered on its own, since the side is the toggle's
             own = [v for v in values if v.split(":")[0] == name]
-            auto = [f"{name}:auto"] if skin.get("auto") else []
-            assert own == [f"{name}:{skin['default']}"] + [f"{name}:{v}" for v in skin["variants"] if v != skin["default"]] + auto, own
+            assert own == [l["value"] for l in K.looks(name)], own
+            assert not any(v.split(":")[1] in skin["variants"] and v.split(":")[1] in skin["sides"].values()
+                           for v in own if ":" in v), own
         assert by_label["Plain"][0] == "palette:none", "the system's own colours lead the plain looks"
         assert page.evaluate("() => document.querySelectorAll('#look > option').length") == 0, "every look is in a genre"
         assert not errors, errors
@@ -572,7 +603,8 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         (tmp_path / "cfg.json").write_text(
             json.dumps({"theme": {"default": "eye-relief-day", "skin": "notebook:auto"}}), encoding="utf-8")
         page.wait_for_function(AUTO_WORN, arg=["light", sides["light"]], timeout=15000)
-        assert page.evaluate("() => document.getElementById('look').value") == "notebook:auto"
+        assert page.evaluate("() => document.getElementById('look').value") == "notebook"
+        assert page.evaluate("() => (window.themeNow || {}).mode") == "", "following the system"
         page.emulate_media(color_scheme="dark")
         page.wait_for_function(AUTO_WORN, arg=["dark", sides["dark"]], timeout=10000)
         assert page.evaluate("() => window.__kept") == 1, "the page was reloaded"

@@ -246,6 +246,7 @@ function turnOff(reason) {
   }
   layer = null;
   plain(table);
+  if (fromSkin) { skinKey = ""; follow(); }
 }
 
 function start() {

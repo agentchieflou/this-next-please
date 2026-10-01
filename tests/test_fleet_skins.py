@@ -25,7 +25,7 @@ def test_list_skins_returns_all_skins_with_budgets():
     farmstead, and the ink epic's paper skins (#249-#253)."""
     available = skins.list_skins()
     names = [s["name"] for s in available]
-    assert names == ["none", "glass", "voxel", "farmstead", "graph", "legalpad", "napkin", "notebook", "playbook", "phosphor", "circuit", "weather"]
+    assert names == ["none", "glass", "voxel", "farmstead", "graph", "legalpad", "napkin", "notebook", "playbook", "gridiron", "phosphor", "circuit", "weather"]
 
     for s in available:
         assert "title" in s and "why" in s and "base" in s and "variants" in s
@@ -128,9 +128,11 @@ def test_the_glass_stylesheet_paints_the_numbers_skins_py_declares():
 
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     for variant, spec in skins.SKINS["glass"]["variants"].items():
-        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\}' % variant, css, re.S)
+        block = re.search(r'body(?:\[data-skin="glass"\])?\[data-skin-variant="%s"\]\s*\{(.*?)\}' % variant, css, re.S)
         assert block, f"glass:{variant} is not drawn"
-        body = block.group(1)
+        # The Colors genre's `hue` reads every number from a `--colors-*` token, with the default
+        # colour's numbers as the fallbacks: those are what skins.py holds, so they are read here.
+        body = re.sub(r"var\(--colors-[\w-]+,\s*", "", block.group(1))
         # The blobs are the variant's `--glass-mesh-N` (#254), which the one gradient on the page
         # and the three.js ground (`ink/skins/glass.js`) both paint from.
         blobs = [_rgba(m) for m in re.findall(
@@ -152,7 +154,7 @@ def test_the_glass_mesh_is_one_gradient_and_three_js_paints_it_at_the_same_place
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     assert "radial-gradient" not in css, "the stylesheet paints a ground: that is the module's"
     for variant in skins.SKINS["glass"]["variants"]:
-        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{([^}]*)\}' % variant, css)
+        block = re.search(r'body(?:\[data-skin="glass"\])?\[data-skin-variant="%s"\]\s*\{([^}]*)\}' % variant, css)
         assert block, variant
         assert all(f"--glass-mesh-{i}:" in block.group(1) for i in (1, 2, 3)), variant
     js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
@@ -173,7 +175,8 @@ def test_glass_draws_with_the_inks_skins_py_checks():
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     for variant, spec in skins.SKINS["glass"]["variants"].items():
         assert set(spec["inks"]) == set(skins.GLASS_INKS), variant
-        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\n\}' % variant, css, re.S).group(1)
+        block = re.search(r'body(?:\[data-skin="glass"\])?\[data-skin-variant="%s"\]\s*\{(.*?)\n\}' % variant, css, re.S).group(1)
+        block = re.sub(r"var\(--colors-[\w-]+,\s*", "", block)
         said = dict(re.findall(r"--ink-(\w+):\s*var\((--[\w-]+)\)", block))
         assert said == spec.get("ink_tokens", {}), (variant, said)
         # A variant's own literal (#329: the highlighter each one is read through) is the one
@@ -194,7 +197,9 @@ def test_a_variant_names_a_palette_that_exists():
     same as correct, so it is caught here instead."""
     known = {t.name for t in theme.list_themes()}
     for skin_name, variant, spec in skins.every_variant():
-        assert spec["base"] in known, f"{skin_name}:{variant} names an unknown palette {spec['base']!r}"
+        # A generated palette (the Colors genre's `hue`) is known by its name's grammar.
+        assert spec["base"] in known or theme.parse_name(spec["base"]), \
+            f"{skin_name}:{variant} names an unknown palette {spec['base']!r}"
 
 
 def test_every_palette_has_a_look_or_says_why_it_has_none():
@@ -279,9 +284,12 @@ def test_a_bare_skin_name_resolves_to_its_default_and_an_unknown_variant_does_no
     assert skins.get_skin("nosuchskin") is None
 
 
-def test_auto_follows_the_system_on_a_skin_with_a_pair_and_is_the_default_variant_elsewhere():
-    """#342: `<skin>:auto` names a light and a dark variant; `base` and `composited_panel` stay the
-    default variant's (the terminal cannot follow the system), and `full` keeps `auto`."""
+def test_every_skin_has_a_light_and_a_dark_side_and_auto_follows_the_system_on_all_of_them():
+    """#342, now on every skin: `sides` names a light and a dark variant, `<skin>:auto` follows the
+    system between them; `base` and `composited_panel` stay the default variant's (the terminal
+    cannot follow the system), and `full` keeps `auto`. Every look has both sides (docs/themes.md
+    §Genres): a pair look's are the skin's, a flavour keeps its own and borrows the other."""
+    from agentdata import theme as T
     assert skins.split("notebook:auto") == ("notebook", "auto")
     got = skins.get_skin("notebook:auto")
     assert got["full"] == "notebook:auto" and got["variant"] == "auto"
@@ -290,16 +298,38 @@ def test_auto_follows_the_system_on_a_skin_with_a_pair_and_is_the_default_varian
                            "dark": {"variant": "dark", "base": "dark", "full": "notebook:dark"}}
     assert skins.get_skin("glass:auto")["auto"]["light"]["full"] == "glass:frost"
     assert skins.get_skin("glass:auto")["base"] == "dark", "glass's default is smoke"
-    # a skin with one appearance: `split`'s unknown-variant rule, and never a raise
-    assert skins.split("legalpad:auto") == ("legalpad", "canary")
-    assert skins.get_skin("legalpad:auto")["full"] == "legalpad:canary"
-    assert "auto" not in skins.get_skin("voxel:auto") and skins.get_skin("voxel:auto")["variant"] == "overworld"
-    # every pair is one variant on a light palette and one on a dark one
-    from agentdata import theme as T
+    # the skins that had one appearance have the other now
+    assert skins.split("legalpad:auto") == ("legalpad", "auto")
+    assert skins.get_skin("legalpad:auto")["auto"]["dark"]["full"] == "legalpad:night"
+    assert skins.get_skin("voxel:auto")["auto"]["light"]["full"] == "voxel:daylight"
     for name, skin in skins.SKINS.items():
-        if skin.get("auto"):
-            light, dark = (T.get(skin["variants"][skin["auto"][s]]["base"]) for s in ("light", "dark"))
-            assert light.light and not dark.light, name
+        assert set(skin["sides"]) == {"light", "dark"} and skin["auto"] == skin["sides"], name
+        light, dark = (T.get(skin["variants"][skin["sides"][s]]["base"]) for s in ("light", "dark"))
+        assert light.light and not dark.light, name
+        for look in skins.looks(name):
+            for side in ("light", "dark"):
+                variant = look[side]
+                assert variant in skin["variants"], (name, look["value"], side)
+                assert T.get(skin["variants"][variant]["base"]).light == (side == "light"), (name, look["value"], side)
+            if look.get("own"):
+                assert look[look["own"]] not in skin["sides"].values(), (name, look["value"])
+    # a fresh pick of a flavour pins its own side; Auto afterwards follows; a pair keeps following
+    assert skins.resolve("voxel:nether", "", pick=True)["mode"] == "dark"
+    assert skins.resolve("voxel:nether", "", pick=True)["skin"] == "voxel:nether"
+    assert skins.resolve("voxel:nether", "")["skin"] == "voxel:auto"
+    assert skins.resolve("voxel:nether", "light")["skin"] == "voxel:daylight"
+    assert skins.resolve("palette:reds", "", pick=True)["mode"] == "dark" and skins.resolve("palette:reds", "")["mode"] == ""
+    assert skins.resolve("voxel", "")["skin"] == "voxel:auto" and skins.resolve("voxel", "light")["skin"] == "voxel:daylight"
+    # a palette look's other side is its pair or its flip, and `none` is both
+    assert skins.palette_sides("eye-relief") == {"dark": "eye-relief", "light": "eye-relief-day"}
+    assert skins.palette_sides("sand") == {"light": "sand", "dark": "flip:sand"}
+    assert T.get("flip:sand").light is False and T.get("flip:flip:sand").name == "sand"
+    assert skins.resolve("palette:none", "dark") == {"look": "palette:none", "mode": "dark", "skin": "none",
+                                                     "theme": "none", "auto": None}
+    # a config written before looks existed reads back as the look its variant is a side of
+    assert skins.find_look("notebook:dark")[1]["value"] == "notebook"
+    assert skins.find_look("glass:azure")[1]["value"] == "glass:azure" and skins.find_look("glass:auto")[1]["value"] == "glass"
+    assert skins.look_of("dark", "glass:smoke") == "glass" and skins.look_of("sand", "none") == "palette:sand"
 
 
 def test_every_variant_is_actually_drawn_by_its_stylesheet():

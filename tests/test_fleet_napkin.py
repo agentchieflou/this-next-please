@@ -79,7 +79,8 @@ def test_the_napkin_is_a_skin_and_its_stylesheet_draws_the_numbers_skins_py_chec
     darkest the text is ever read on is the coffee's rim over the quilt's seam, the lightest the
     paper. `theme.check` holds text, status and every ink at both ends."""
     napkin = skins.SKINS["napkin"]
-    assert napkin["default"] == "diner" and set(napkin["variants"]) == {"diner", "kraft"}
+    assert napkin["default"] == "diner" and set(napkin["variants"]) == {"diner", "kraft", "late"}
+    assert napkin["sides"] == {"light": "diner", "dark": "late"}
     assert "napkin" in S.ink_skins(), "the skin ships its module, so the desk draws it with ink"
     css = open(CSS, encoding="utf-8").read()
     for variant, spec in napkin["variants"].items():

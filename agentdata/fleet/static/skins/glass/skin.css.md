@@ -77,6 +77,13 @@ Above `body[data-skin-variant="noir"] {`:
 noir: near-black, for a room with the lights off — over vanta-black (#000000): near-white blobs at
 low alpha, so a black room stays a black room; composites #0A0A0A … #202020
 
+### `body[data-skin="glass"][data-skin-variant="hue"]`
+
+The Colors genre's glass (docs/themes.md §Colors), hidden from the Screens looks: every number is
+`var(--colors-*)`, the tokens the server serves beside a Colors glass palette (`skins.colors_css`),
+with the default colour's numbers as the fallbacks, which `skins.SKINS["glass"]["variants"]["hue"]`
+holds to `theme.check` and the glass tests read back. One block draws every colour on either side.
+
 ### `body[data-skin-variant="frost"]`
 
 Above `body[data-skin-variant="frost"] {`:

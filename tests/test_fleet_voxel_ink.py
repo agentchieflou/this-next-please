@@ -286,6 +286,13 @@ def _shade(colour, k):
 #: What an effect piece may wear (#377): the edge, or the panel at the ground's darker shades
 #: (`jitter` capped at 1). Never the ground.
 PIECE_SHADES = (0.84, 0.92, 1.0)
+
+
+def _piece_shades(panel):
+    """The factors a piece's panel colour is scaled by: `PIECE_SHADES` in a dark world, and their
+    mirror above 1 (lightening, clamped) in a light one, as `colourOf` picks them."""
+    dark = theme.is_dark(theme.rgb_to_hex(tuple(panel)) if not isinstance(panel, str) else panel)
+    return [k if dark else 2 - k for k in PIECE_SHADES]
 #: The ground flash's peak (#377): x1.35 would leave Overworld's text at 4.51:1, x1.25 keeps 5.01.
 FLASH = 1.25
 
@@ -296,7 +303,8 @@ def test_every_colour_a_voxel_effect_draws_keeps_every_word_readable():
     does (4.5:1, or the panel's own figure where that is lower), in every world. And the ground's
     flash, where the pane was, keeps the text 4.5:1; a hit's `--human` blink is 5.3:1 on the edge (#378)."""
     code = _code(MODULE)
-    assert "shade(c.panel, Math.min(1, jitter(" in code and "c.edge" in code, "pieces wear panel and edge"
+    assert "shade(c.panel, c.dark ? Math.min(1, jitter(i, j)) : Math.max(1, 2 - jitter(i, j)))" in code \
+        and "c.edge" in code, "pieces wear panel and edge, lightened in a light world"
     assert f"FLASH_UP = {FLASH}" in code
     css_text = open(SKIN_CSS, encoding="utf-8").read()
     blocks = dict(re.findall(r'body\[data-skin="voxel"\](?:\[data-skin-variant="(\w+)"\])?\s*\{([^}]*)\}', css_text))
@@ -306,7 +314,7 @@ def test_every_colour_a_voxel_effect_draws_keeps_every_word_readable():
         own = dict(re.findall(r"(--voxel-\w+):\s*(#[0-9A-Fa-f]{6})", block))
         panel, edge, ground = own["--voxel-panel"], own["--voxel-edge"], own["--voxel-ground"]
         css = theme.to_css(theme.get(spec["base"]))
-        pieces = [edge] + [_shade(panel, k) for k in PIECE_SHADES]
+        pieces = [edge] + [_shade(panel, k) for k in _piece_shades(panel)]
         for word in ("--text", "--muted", "--human", "--waiting", "--done", "--idle", "--accent"):
             need = min(4.5, theme.contrast_ratio(css[word], panel))
             low += [(variant, word, piece, round(theme.contrast_ratio(css[word], piece), 2))
@@ -475,7 +483,7 @@ def _worn(page, variant="overworld"):
     block = blocks["" if variant == SK.SKINS["voxel"]["default"] else variant]
     edge = [c / 255 for c in _hex_rgb(re.search(r"--voxel-edge:\s*(#[0-9A-Fa-f]{6})", block).group(1))]
     panel = _voxel(page)["panel"]
-    return [edge] + [[min(1.0, c * k) for c in panel] for k in PIECE_SHADES]
+    return [edge] + [[min(1.0, c * k) for c in panel] for k in _piece_shades(panel)]
 
 
 def _pieces_problems(run, worn):

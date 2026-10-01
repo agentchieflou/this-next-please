@@ -16,17 +16,24 @@ class comes from, or whether an element outlives a redraw. That is read here, fr
 * an arrive row on a transcript line is only for a line that is news: `li.denied`, `li.friction`
   or `li.error`.
 
-The helpers (`cue_rows`, `mark_selectors`) are for the skin tests: the voxel and farmstead guards
+A module may also ship `expresses` (docs/desk-ink.md §The state grammar across skins): a strict
+JSON literal, `{"*" | <variant>: {<grammar entry>: "<expression>"}}`, naming the entries of the
+state grammar the genre draws with its own materials instead of a mark. It is read here as the
+cues are (`expresses_of`), and held to: keys are `*` or a variant skins.py gives the skin, every
+entry is one of the grammar's, and every expression name is in a table row of the skin's page.
+
+The helpers (`cue_rows`, `mark_selectors`, `expresses_of`) are for the skin tests: the voxel and farmstead guards
 count every `selector:` literal in their module, and a skin card that adds cues counts
 `mark_selectors` instead.
 """
 from __future__ import annotations
+import json
 import os
 import re
 
 import pytest
 
-from agentdata.fleet import agentstate
+from agentdata.fleet import agentstate, skins as K
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -43,6 +50,9 @@ ATTRIBUTES = ("hidden",)
 CUE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 #: Skins whose rows name test-only classes and that have no page of their own.
 EXEMPT = ("example.js",)
+#: The state grammar's entries (`GRAMMAR` in tests/test_fleet_ink.py, the doc's table), the only
+#: keys an `expresses` block may name.
+ENTRIES = ("needs_name", "needs_q", "needs_card", "answered", "running", "error_bang", "error_box", "done")
 
 
 class CueError(AssertionError):
@@ -150,6 +160,59 @@ def cue_rows(path: str) -> list[dict]:
     if not rows:
         raise CueError(f"{where}: the cues block has no row this contract can read")
     return rows
+
+
+def expresses_of(path: str) -> dict[str, dict[str, str]]:
+    """A skin module's `expresses`, `{"*" | variant: {entry: expression}}`: `{}` when it ships
+    none. A block that is not a strict JSON object literal of that shape raises `CueError`."""
+    where = os.path.basename(path)
+    src = open(path, encoding="utf-8").read()
+    m = re.search(r"\bexport\s+const\s+expresses\s*=\s*(?=\{)", src)
+    if not m:
+        if re.search(r"\bexpresses\b", src):
+            raise CueError(f"{where}: an `expresses` that is not `export const expresses = {{...}}`")
+        return {}
+    try:
+        block = src[m.end():_match(src, m.end()) + 1]
+        got = json.loads(block)
+    except (CueError, ValueError) as e:
+        raise CueError(f"{where}: `expresses` is not a strict JSON object ({e})") from None
+    if not isinstance(got, dict) or not got:
+        raise CueError(f"{where}: `expresses` is an empty or non-object literal")
+    for key, entries in got.items():
+        if not isinstance(entries, dict) or not entries \
+                or not all(isinstance(k, str) and isinstance(v, str) for k, v in entries.items()):
+            raise CueError(f"{where}: expresses[{key!r}] is not {{entry: expression}}")
+    return got
+
+
+def check_expresses(path: str, *, docs: str = DOCS) -> list[str]:
+    """What is wrong with a module's `expresses`, one line per rule broken: `[]` when it keeps the
+    contract or ships none."""
+    name = os.path.basename(path)
+    try:
+        got = expresses_of(path)
+    except CueError as e:
+        return [str(e)]
+    if not got:
+        return []
+    wrong = []
+    variants = list(K.SKINS.get(name[:-3], {}).get("variants", {}))
+    doc = os.path.join(docs, f"skin-{name[:-3]}.md")
+    table = [ln for ln in (open(doc, encoding="utf-8").read() if os.path.exists(doc) else "").splitlines()
+             if ln.lstrip().startswith("|")]
+    for key, entries in got.items():
+        if key != "*" and key not in variants:
+            wrong.append(f"{name}: expresses[{key!r}] names no variant of the skin")
+        for entry, expression in entries.items():
+            at = f"{name}: expresses[{key!r}].{entry}"
+            if entry not in ENTRIES:
+                wrong.append(f"{at}: not an entry of the state grammar")
+            if not CUE_NAME.match(expression):
+                wrong.append(f"{at}: the expression name is not {CUE_NAME.pattern}")
+            elif not any(re.search(rf"(?<![\w-]){re.escape(expression)}(?![\w-])", ln) for ln in table):
+                wrong.append(f"{at}: {expression!r} is in no table row of docs/skin-{name[:-3]}.md")
+    return wrong
 
 
 def mark_selectors(path: str) -> list[str]:
@@ -288,6 +351,36 @@ def test_every_skin_that_ships_cues_keeps_the_contract():
     assert "example.js" in shipping, shipping
     for name in shipping:
         assert check(os.path.join(SKINS, name)) == [], name
+
+
+def test_every_skin_that_expresses_a_state_keeps_the_contract():
+    """The gridiron and the rain express states (docs/desk-ink.md §The state grammar across skins);
+    every module under static/ink/skins/ is read, so a new one is held the day it lands."""
+    expressing = sorted(n for n in os.listdir(SKINS) if n.endswith(".js")
+                        and expresses_of(os.path.join(SKINS, n)))
+    assert expressing == ["gridiron.js", "weather.js"], expressing
+    for name in expressing:
+        assert check_expresses(os.path.join(SKINS, name)) == [], name
+    assert set(expresses_of(os.path.join(SKINS, "gridiron.js"))) == {"*"}
+    assert set(expresses_of(os.path.join(SKINS, "weather.js"))) == {"rainy", "showers"}, "the rain alone"
+
+
+def test_the_expresses_contract_reads_a_strict_literal_and_holds_its_names(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "skin-sample.md").write_text("| sign | when |\n| --- | --- |\n| `flag` | needs you |\n",
+                                                     encoding="utf-8")
+    def wrong(body):
+        path = tmp_path / "sample.js"
+        path.write_text(body, encoding="utf-8")
+        return check_expresses(str(path), docs=str(tmp_path / "docs"))
+    assert wrong('export const expresses = { "*": { "needs_name": "flag" } };\n') == []
+    assert wrong("export function marks() { return []; }\n") == []
+    got = wrong('export const expresses = { "*": { "needs_name": "kite", "flags": "flag" }, "night": { "done": "flag" } };\n')
+    assert any("'kite' is in no table row" in w for w in got), got
+    assert any("flags: not an entry" in w for w in got), got
+    assert any("names no variant" in w for w in got), got
+    assert any("not a strict JSON object" in w for w in wrong('const x = 1;\nexport const expresses = { "*": { needs_name: "flag" } };\n'))
+    assert any("not `export const expresses" in w for w in wrong("export function expresses() {}\n"))
 
 
 def test_the_example_rows_are_the_three_from_372_and_its_marks_are_apart_from_them():

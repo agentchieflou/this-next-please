@@ -63,7 +63,9 @@ def test_the_circuit_board_is_a_skin_and_greens_is_no_longer_palette_only():
     board = skins.SKINS["circuit"]
     assert board["title"] == "Circuit board" and board["default"] == "solder"
     assert board["why"] == "solder mask, silkscreen and copper: each agent a component on the board"
-    assert {v: s["base"] for v, s in board["variants"].items()} == {"solder": "greens", "matte": "vanta-black"}
+    assert {v: s["base"] for v, s in board["variants"].items()} == {"solder": "greens", "matte": "vanta-black",
+                                                                       "silk": "overcast"}
+    assert board["sides"] == {"light": "silk", "dark": "solder"}, "the white mask is the board's light side"
     assert skins.split("circuit") == ("circuit", "solder")
     assert skins.get_skin("circuit:matte")["base"] == "vanta-black"
     assert "circuit" in S.ink_skins() and "circuit" in [s["name"] for s in skins.list_skins()]
@@ -81,7 +83,7 @@ def test_the_stylesheet_paints_the_numbers_skins_py_declares():
         assert all(a <= w <= b for a, w, b in zip(lo, weave, hi)), (variant, props["weave"])
         for tool in TOOLS:
             assert props[f"ink-{tool}"].upper() == spec["inks"][tool], (variant, tool)
-        assert props["copper"].upper() == "#6B4A2A", variant
+        assert props["copper"].upper() == spec["copper"], (variant, "the copper is declared, and in no check")
         assert "text" not in props and "muted" not in props, (variant, "the palette's own words, recoloured")
 
 
@@ -91,7 +93,7 @@ def test_theme_check_holds_both_ends_of_both_boards_plain_and_in_ink():
     for variant, spec in skins.SKINS["circuit"]["variants"].items():
         base = theme.get(spec["base"])
         dark = theme.is_dark(_css_block(variant)["paper"])
-        assert dark, variant
+        assert dark == (not base.light), (variant, "a light mask on a light palette")
         for panel in skins.composited_panels(spec):
             theme.check(base, composited_panel=panel, skin=f"circuit:{variant}", inks=spec["inks"], dark=dark)
             assert theme.contrast_ratio(theme.to_css(base)["--muted"], panel) >= 4.5, (variant, panel)

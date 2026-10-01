@@ -67,7 +67,8 @@ def _props(css: str) -> dict:
 
 def test_phosphor_is_offered_by_name_with_its_default():
     ph = skins.SKINS["phosphor"]
-    assert ph["title"] == "Phosphor" and ph["default"] == "green" and set(ph["variants"]) == {"green"}
+    assert ph["title"] == "Phosphor" and ph["default"] == "green" and set(ph["variants"]) == {"green", "paper"}
+    assert ph["sides"] == {"light": "paper", "dark": "green"}, "the screen turned to paper is its light side"
     assert skins.split("phosphor") == ("phosphor", "green")
     got = skins.get_skin("phosphor")
     assert got["base"] == "matrix" and got["variant_title"] == "Green" and got["full"] == "phosphor:green"
@@ -155,7 +156,7 @@ def test_the_names_are_our_own():
     for words in [ph["title"], ph["why"]] + [s[k] for s in ph["variants"].values() for k in ("title", "why")]:
         assert not NOT_OURS.search(words), words
     entry = _phosphor_source_in_skins_py()
-    assert entry.count('"base": "matrix"') == len(ph["variants"])
+    assert entry.count('"base": "matrix"') == sum(v["base"] == "matrix" for v in ph["variants"].values())
     assert not NOT_OURS.search(entry.replace('"base": "matrix"', "")), entry
 
 

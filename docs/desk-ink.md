@@ -197,7 +197,7 @@ its border box inset 1px (#331), so a row that pads outward is cut away rather t
   say it. Since #334 it underlines the name, as every skin does, and gives the compact head the same room.
 
 `tests/test_fleet_ink_bounds.py` is the HIG guard (#340; #332 took one look per module): every variant of every
-skin (`skins.every_variant()`, 21 today), switched in one page per param, at 1400px and 700px, ink on and ink off,
+skin (`skins.every_variant()`, 35 today), switched in one page per param, at 1400px and 700px, ink on and ink off,
 with a blocking question, a running turn, an error and a stale done. Ink on: no stroke more than 2px outside its pane, none outside the viewport, none cut away
 whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
 element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word
@@ -259,8 +259,9 @@ in the script ([desk-rendering.md](desk-rendering.md) rule 1).
 ## The state grammar across skins
 
 A state is drawn with the same marks on the same elements in every skin (#334; HIG *Color*: one sign never means two
-things). Each module's table must carry these rows. A skin may add material responses (glass's rims, voxel's stacks,
-farmstead's crops) and extra marks, never instead of a required row. The test holds it as data:
+things) -- unless the genre has a sign of its own for it. Each module's table carries these rows, or names, per
+entry, the material it draws the state with instead. A skin may add material responses (glass's rims, voxel's stacks,
+farmstead's crops) and extra marks. The test holds it as data:
 `GRAMMAR` in `tests/test_fleet_ink.py`, which is this table, row for row
 (`test_the_state_grammar_in_desk_ink_is_the_one_the_skins_are_held_to`).
 
@@ -280,7 +281,34 @@ every `static/ink/skins/*.js` but `example.js` (so a new skin is held to it the 
 (and `options(variant)` where it is a function) for every variant skins.py gives it, and clones the page's `#tile`
 template into detached panes, one per state, set the way `app.js` sets them (classes, attributes, `hidden`, never
 markup). An entry passes when some row with one of its tools and shapes matches the entry's element
-(`E.matches(row.selector)`). A module missing a row fails, naming the skin, the variant and the entry.
+(`E.matches(row.selector)`), or when the module **expresses** it. A module missing both fails, naming the skin, the
+variant and the entry.
+
+**A genre's own signs (`expresses`).** The operator's ask that relaxed the rule: *each genre possesses its own set of
+animations* -- the football field signals with lines and a flag, the rain with weather, not with the notebook's pen
+and highlighter. A module that does so exports
+
+```js
+export const expresses = { "*": { "needs_name": "flag", "running": "drive", "done": "touchdown" } };
+```
+
+a strict JSON literal (parsed, not evaluated, by `expresses_of` in `tests/test_fleet_ink_cues.py`, as the cues are),
+keyed `"*"` for every variant or by a variant's name, each value an entry of this table and the name of the sign that
+carries it. The contract (`test_every_skin_that_expresses_a_state_keeps_the_contract`): every key is `*` or a variant
+skins.py gives the skin, every entry is one of the eight above, and every sign's name is in a table row of the skin's
+page (`docs/skin-<name>.md`), where what it does is written down. What is expressed is still redundant with the page's
+own chip and word (HIG *Color & Redundancy*), and still a shape as well as a colour. Two things follow:
+
+- **The plain page keeps the grammar.** Under `body.ink-off` there is no material to sign with, so `marks(variant)`
+  reads the body and hands the plain sheet the grammar's rows for the entries it expresses with the ink on. The layer
+  asks again when it falls back to plain at runtime (`ink.js` `turnOff`).
+- **The sweeps know.** `tests/test_fleet_ink_bounds.py` waits for an error's and a done's marks unless the look
+  expresses them, and holds the needs-you pane louder than the error only where the loudness is ink.
+
+Today: the gridiron expresses needs-you (the flag), running (the drive), error (the fumble) and done (the touchdown)
+on both sides ([skin-gridiron.md](skin-gridiron.md)); the rain expresses needs-you (a squall), running (puddles),
+error (lightning, and thunder with the chime on) and done (drying) on *Rainy day* and *Showers*
+([skin-weather.md](skin-weather.md)). The sun, the cloud and the stars, and every other skin, keep every row.
 
 Where the skins stand after #334 and #335:
 
@@ -429,6 +457,7 @@ export function tick({ api }, dt) {
 | voxel (#256) | `skins/voxel.js` | [skin-voxel.md](skin-voxel.md): voxel ground, lit slabs and a status stack per pane, one draw call per material |
 | notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
 | playbook (`chalkboard`, #389) | `skins/playbook.js` | [skin-playbook.md](skin-playbook.md): a coach's chalkboard, the grammar in X's and O's, each route in orange chalk |
+| gridiron (`nightgame`, `daygame`) | `skins/gridiron.js` | [skin-gridiron.md](skin-gridiron.md): the field itself, every pane turf with a line of scrimmage, a first-down line that advances a yard line per turn line, a flag, a fumble and a touchdown (`expresses`) |
 | phosphor (#394, #395) | `skins/phosphor.js` | [skin-phosphor.md](skin-phosphor.md): near-black glass with faint scanlines, the notebook's marks traced by a thin, even beam (`tools`, no hand), and a glyph of rain per transcript line settling in the margin, one draw call for every pane |
 | circuit (`solder`, `matte`, #396) | `skins/circuit.js` | [skin-circuit.md](skin-circuit.md): solder mask with a fibreglass weave, a copper pad and trace per pane, pin 1 ringed, outlines ruled on a 4px grid |
 

@@ -21,13 +21,26 @@
     <h2>Appearance</h2>
     <p class="why">A <strong>look</strong> is how the desk is drawn: its sky or its paper, what
       moves on it, and the colours it brings. Looks are grouped by <strong>genre</strong> &mdash; the
-      weather, paper, a coach's board &mdash; and every look names the palette it is drawn on, which
-      is written to the same <code>~/.agentdata/config.json</code> that <code>ad-theme set</code>
-      writes, so this project's terminal prompt and tab follow it. A look under <em>Plain</em> is a
-      palette on its own: the plain page in that colour.</p>
+      weather, paper, a coach's board &mdash; and every look has a <strong>light and a dark
+      side</strong>: the toggle beside the picker switches between them, and <em>Auto</em> follows
+      the system's appearance. The palette a look is drawn on is written to the same
+      <code>~/.agentdata/config.json</code> that <code>ad-theme set</code> writes, so this project's
+      terminal prompt and tab follow it. A look under <em>Plain</em> is a palette on its own: the
+      plain page in that colour.</p>
     <div class="setrow">
       <label for="look">look</label>
       <select id="look" title="look — how the desk is drawn; the palette it brings is shared with this project&#39;s terminal"><option value="palette:none">System</option></select>
+      <button type="button" id="mode" class="segment" role="switch" aria-checked="false"
+              title="light or dark — every look has both sides; press to switch">Light</button>
+      <button type="button" id="mode-follow" class="segment" aria-pressed="true"
+              title="follow the system&#39;s appearance: light by day, dark at night">Auto</button>
+    </div>
+    <div class="setrow" id="colour-row" hidden>
+      <label for="colour">colour</label>
+      <input type="color" id="colour" value="#3A7BD5" title="the colour the Colors looks are built from">
+      <input type="text" id="colour-hex" value="#3A7BD5" maxlength="7" size="8" spellcheck="false"
+             title="the same colour as six hex digits">
+      <span id="colour-presets" class="why"></span>
     </div>
     <p class="why" id="palette-looks"></p>
     <p class="why">The <strong>tiers</strong> are the widths at which a pane on the desk changes what

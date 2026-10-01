@@ -51,166 +51,97 @@ put the old theme back over the pick; kept, it is what a refusal goes back to.
 
 ### `function loadThemes`
 
-Above `function loadThemes() {`:
-
-Two controls, two tiers, and the difference is the point (#150, #154).
-
-A PALETTE is colour only, so it is 1:1 with the terminal: the same hex reaches this page's custom
-properties and the project's prompt and tab, and choosing one here writes
-`~/.agentdata/config.json` -- the same file `ad-theme set` writes -- so every window on every
-screen and the terminal beside them move together. A SKIN is how the page is RENDERED, which a
-terminal cannot follow; it rides on a base palette and loads one extra stylesheet on demand.
-
-Both post to the server rather than to `localStorage`, because a desk is four windows and a
-choice kept in one browser's storage is four different desks.
-
-Beside `if (t.name === "none") return;`:
-
-"system" is already the first option
-
-Above `text(option, t.title || t.name);`:
-
-Its title, not its slug (#393). The tooltip adds what is drawn on it, as a supplement only:
-it is hover-only, and never seen while a skin has the picker disabled -- `#palette-looks`
-under the picker is where that is said.
-
-Above `while (skinSel.options.length > 1) skinSel.remove(1);`:
-
-One control, not two. A variant is not independent of its skin -- "Nether" means nothing on
-its own, and a second picker offering it beside Farmstead would be offering a combination
-that does not exist. Grouping them says the same thing the model does: pick a skin, and its
-ground comes with it. A skin with one variant lists as a single option.
-
-Above `if (k.auto) {`:
-
-"Auto" (#342), only on a skin with a light and a dark variant: the page then follows the system's
-appearance. Its tooltip names the two variants it switches between.
-
-Above `if (themeNow) {`:
-
-What is chosen, now that there is something to choose from. `themeNow` is whatever the
-stream said while these options did not exist yet; it wins, because it is the later word,
-and this answer paints nothing over it. Otherwise `current` is the stream's own payload
-(#346), painted only when it carries css: a `current` without css is "not known", never
-"no palette" -- read as the latter, it wiped the palette the stream had just applied.
-
-In `}).catch(function () { });`:
-
-themes are decoration; the page works without them
+Fills the one picker from `/api/themes`: an `<optgroup>` per genre, an option per look with its
+title as the text, its value as the value (`notebook`, `glass:azure`, `weather:rain`,
+`palette:sand`), and a tooltip of its why and the palette on each side (`sidesNote`). Wires the
+picker's `change` to `choose` with `{look}`, the side toggle `#mode` to `choose` with the other
+side of the one in effect (`sideOn`), and `#mode-follow` to `choose` with `{mode: ""}` when a side
+is pinned. Then reflects what is worn: `themeNow` if a frame has arrived while fetching (#195),
+else the answer's `current`.
 
 ### `var themeData`
 
-Beside `var themeNow = null;`:
-
-the last word on what this page is wearing, from either path
+The `/api/themes` answer, kept for `paletteCss`, `lookRow` and the lines under the picker.
 
 ### `var themeSeq`
 
-Above `var themeSeq = 0;`:
+The highest pick number this page has sent or heard (#483): every pick is numbered above it.
 
-The number of the last theme pick this page made or heard the server answer with (#483). Two
-quick picks travel on two connections, and the server can take them in either order: the page
-guard (`pendingTheme !== write`) kept the page on the later pick, but the server could still write
-the earlier one last, so the desk, every other window and the terminal ended on it. Each pick is
-numbered above the last, and the server does not write one numbered at or below the highest it
-has written (`serve._write_theme`), so the last pick wins whatever order the writes arrive in.
+### `function parseLook`
 
-The number is the wall clock in milliseconds, or one more than the last if that is not above it:
-every tab on the machine reads the same clock, so a slow write from one tab cannot overwrite a
-later pick made in another. The theme state carries the server's highest number (`seq`) in every
-form the page hears it -- `/api/themes`'s `current`, the stream's `theme` frame and each answer --
-and the page numbers above the highest it has heard. So a number stored by a clock that was ahead
-(an NTP step back, a VM resumed, a hand edit) never makes a fresh page's picks stale: without the
-seed, every pick was refused until the clock caught up, hours in the worst case.
+The body a look posts: `{look: value}`, the value the picker holds (`skins.parse_look` says the same).
+
+### `function lookOf`
+
+The picker value for a theme state: its `look` when the server says one, else the skin's full
+name or `palette:<theme>` for a state written before looks existed.
 
 ### `function paletteCss`
 
-Beside `var themeData = null;`:
+A palette's tokens from `themeData.themes`, or null for a name it does not list (a generated
+`flip:` or `colors:` palette: the server sends its tokens with the state, so the page never needs
+them here).
 
-the `/api/themes` answer: every palette's css, every skin's base
+### `function lookRow`
 
-### `function autoFor`
+The genre row for a look value: its title, why, `skin`, `own` side and `sides` (variant, skin and
+palette per side).
 
-Above `function autoFor(full) {`:
+### `function sidesNote`
 
-The two sides of `<skin>:auto` from the `/api/themes` answer, shaped as `theme_state`'s `auto`, so
-`choose` paints an Auto pick at once through `applyThemeState` as it paints a fixed one; `null`
-for anything that is not an auto pick of a skin with a pair.
+The tooltip's tail: the palette on each side, or nothing for the system's own colours.
+
+### `function sideOn`
+
+The side in effect: the pinned `mode`, else what `prefers-color-scheme` says now.
+
+### `function resolveLook`
+
+The page's copy of `skins.resolve`, so a pick paints before the server answers: the variant and
+palette of the side in effect, or, while following the system, the `<skin>:auto` state with both
+sides for `applyThemeState`. With `pick`, a fresh choice of a flavour or a palette pins its own
+side (Nether is a night world); the toggle's own writes never pin.
+
+### `function lookTitle`
+
+"Genre · title" for a look value, from the data.
 
 ### `function looksOn`
 
-Above `function looksOn(data, name) {`:
+"Genre · title" for each look with a side drawn on a palette (#393), for the line under a plain
+look.
 
-The looks drawn on a palette (#393), from an `/api/themes` answer: "Glass · Smoke" for every skin
-variant whose base it is, in the skin picker's order. None means the palette is the plain page
-only -- `palette_only` says why -- and it is still an ordinary palette to choose.
+### `function paletteTitle`
+
+A palette's title from the data; a `flip:` palette is named after the one it flips, and a
+`colors:` palette after its mode, its colour and its side.
+
+### `function isColors`
+
+Whether a look value is the Colors genre's (`colors:<mode>`).
 
 ### `function looksLine`
 
-Above `function looksLine(skin, palette) {`:
-
-The line under the palette picker: what is drawn on the palette, or, while a skin is on, the look
-the palette comes from -- words a keyboard, a touch screen and a disabled picker all show, which
-an option's tooltip is not.
+The line under the picker: the look, how its side was chosen (pinned, or following the system and
+which side that is now), the palette that side brings and that the terminal shares it; for a plain
+look, the looks also drawn on that palette. `tests/test_fleet_settings_page.py` writes the same
+line from the data.
 
 ### `function choose`
 
-Above `function choose(select, body) {`:
-
-Paint, post, reconcile (#346). A pick is painted in the task that made it, from the css the server
-already sent with `/api/themes` -- no palette maths here -- and only then posted. The answer is
-the stream's own payload: equal values write nothing; a refusal puts back what was worn before
-and says why on the control.
-
-Above `var keep = themeSel ? themeSel.value : "none";`:
-
-The palette stays the one the skin brought: the server keeps it as the default.
-
-Above `var auto = autoFor(full), home = skinBase(full.split(":")[0]);`:
-
-An Auto pick paints the side the system is on; the palette picker shows the default variant's
-palette, the one the server saves for the terminal.
-
-Above `body.seq = themeSeq = Math.max(Date.now(), themeSeq + 1);`:
-
-Numbered in the task that posts it, so the order of the numbers is the order of the picks (#483,
-`var themeSeq`).
-
-Above `if (res && res.seq > themeSeq) themeSeq = res.seq;`:
-
-Before the guard below: a superseded answer's number is still the server's word.
-
-Beside `if (pendingTheme !== write) return;`:
-
-a later pick is in flight; its answer decides
+One pick, from the picker, the toggle, the colour input or a preset: paint it optimistically
+(`resolveLook`), reflect it, then `post("theme", body)` numbered above `themeSeq`. A Colors look is
+not painted ahead of the answer: its palette is built by the server from the colour, and the page
+has no engine of its own; the controls reflect the pick and the answer paints it. On an answer that is not a refusal, apply and
+reflect what the server resolved; on a refusal or no answer, put back what was worn (or what the
+stream said meanwhile, `heardDuringWrite`) and say why on the control.
 
 ### `function reflectTheme`
 
-Above `function reflectTheme(cur) {`:
-
-One place that puts the server's answer into the two controls, so a change made in the terminal
-or in another window shows up here rather than leaving the picker saying something else.
-
-Above `if (cur.seq > themeSeq) themeSeq = cur.seq;`:
-
-Every server state reaches the page through here, so this is where the page learns the number to
-pick above (#483, `var themeSeq`). A state the page made itself has no `seq` and changes nothing.
-
-Above `[themeSel, skinSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selec …`:
-
-A saved name that is no longer a palette leaves a select showing nothing at all, which is the
-one thing a picker may never do: the operator cannot see what is on, or that anything is wrong.
-
-Above `if (themeSel) {`:
-
-While a skin is on, the palette is the skin's -- so the palette picker shows what is being
-rendered and says why it is not taking instructions, rather than accepting a choice the server
-would then override. Turning the skin off hands it back.
-
-Above `if (themeData) text(document.getElementById("palette-looks"),`:
-
-What is drawn on it (#393), said here and so on every pick too: `choose` reflects a palette in
-the task that picked it. Before `/api/themes` has answered there is nothing to say it from.
+Writes the state into the controls: the picker's value (`lookOf`, never blank), the toggle's word
+(Light or Dark, the side in effect), its `aria-checked` and `active` (pinned), the Auto button's
+`aria-pressed`, the colour row (shown for a Colors look, its picker and hex field set to the
+colour in force) and the line under them.
 
 ## models
 
