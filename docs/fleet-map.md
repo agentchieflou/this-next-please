@@ -91,6 +91,42 @@ lanes). Each agent has an **open chat** button: the desk opens with that agent's
 own terminal window is raised as well (`POST /api/focus`). Clicking the words or pressing Enter does
 the same, as before.
 
+### Cleaning up dirty trees (operator request, 2026-10)
+
+The map stays read-only; what it gains is a way out to the **cleanup guide**, a page of its own
+(`/tidy`) that it pops out in a window: *clean up N dirty trees* in the toolbar, or *clean up* on a
+dirty checkout (that tree first). The guide walks every dirty working tree one decision at a time,
+**the most recent first** (the later of the branch's last commit and the newest changed file):
+
+| Option | What it does | Undo |
+|---|---|---|
+| commit | the changes, on the branch the tree is on (never `main`, `master`, `develop`, the remote's HEAD, or a detached HEAD) | `git reset --soft HEAD~1` |
+| branch | the changes, on a new `wip/<branch>-<date>` branch cut from HEAD and checked out | `git switch <the old branch>` |
+| stash | the changes, untracked files included, in a stash named for the guide | `git stash pop` |
+| skip | nothing | |
+
+There is no discard. One option is **recommended and pre-selected**, decisively, and nothing changes
+until *do it*:
+
+- No other home changes the same files: commit where they were made (a branch of their own on a
+  protected branch).
+- The same files change in another dirty checkout of the project or on one of the checkout's
+  unmerged branches: each home is scored for **tech debt** -- commits behind the default branch,
+  days since it moved, how much it already carries, a branch name without a ticket key, and a
+  protected branch never -- and the home with less debt keeps the work; the other side is stashed,
+  which keeps it and costs nothing to undo. The score and its parts are on the card.
+- A tree mid-merge or mid-rebase is left for a terminal; a tree whose agent is running a turn is
+  refused `agent_busy` (it is editing those files).
+
+Every press names the survey it was decided on (`plan_id`); a tree that moved since is refused
+`changed` and shown again as it is. `.agent/` is never staged, stashed or committed, and a commit the
+repository's own hook refuses is reported in the hook's words, unstaged, never retried with
+`--no-verify`. Each decision is journaled in `<fleet dir>/cleanup.jsonl` with its undo line.
+`GET /api/tidy` (`?repo=` for one tree, overlaps still computed against all) and `POST /api/tidy`
+`{repo, plan_id, choice, message?, branch?}` are the page's API (`agentdata/fleet/cleanup.py`, over
+`agentdata/fleet/tidy.py`); an agent does the same through `ad-git tidy` (skill `worktree-tidy`), where
+`--apply` waits on the approval gate.
+
 ## The network
 
 "Our network", read locally (#404): what this desk server knows about itself and about what it talks to. `GET

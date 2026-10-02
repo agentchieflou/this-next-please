@@ -811,7 +811,8 @@ PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("settings.html", ["settings.js", "common.js"]),
                 ("probe.html", ["probe.js", "common.js"]),
                 ("map.html", ["map/map.js", "common.js"]),
-                ("m.html", ["m/m.js", "common.js"])]
+                ("m.html", ["m/m.js", "common.js"]),
+                ("tidy.html", ["tidy.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])

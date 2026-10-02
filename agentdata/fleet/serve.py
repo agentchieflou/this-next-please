@@ -103,8 +103,11 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # after `common.js`.
 #
 # `/m` (#581), the phone page, brings `m.css` and its one script, `m/m.js`.
+#
+# `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
+# `tidy.js`.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js", "m.css", "m/m.js")
+          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -122,8 +125,11 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 # `/m` (#581) is the fifth: the phone page, one column over `/api/attention` and `/api/approval`
 # (#559) with the four verbs (approve, deny, send, answer), for a tablet on this machine's
 # localhost. Not inked: it is not in `INKED_PAGES`, and it wears `ink-off` like the map.
+#
+# `/tidy` is the sixth: the cleanup guide, opened from the map in a window of its own. It walks the
+# dirty working trees one decision at a time; every write is one press on a decision it showed.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html", "/m": "m.html"}
+         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
@@ -2783,10 +2789,19 @@ def act(what: str, body: dict) -> dict:
                                   overwrite=body.get("overwrite") or None)
         except WRAP.WrapupError as e:
             raise ServeError(e.msg, e.hint, code=e.code) from None
+    if what == "tidy":
+        # The cleanup guide's one press (operator request, 2026-10): commit, branch, stash or skip
+        # one dirty tree, decided on the survey the guide showed (`plan_id`). `fleet/cleanup.py`.
+        from . import cleanup
+
+        try:
+            return cleanup.decide(repo, body)
+        except cleanup.CleanupError as e:
+            raise ServeError(e.msg, e.hint, code=e.code) from None
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load | wrapup")
+                     "measure | load | wrapup | tidy")
 
 
 def _write_settings(C, SET, body: dict) -> None:
@@ -3450,6 +3465,12 @@ class Handler(BaseHTTPRequestHandler):
             if record is None:
                 return self._json({"ok": False, "error": f"no approval called {id} is waiting"}, 404)
             return self._json({"ok": True, **record})
+        if route == "/api/tidy":
+            from . import cleanup
+
+            # Every dirty working tree, the most recent first, each with one decision recommended.
+            names = [n for n in (query.get("repo") or []) if n]
+            return self._json(cleanup.plans(names or None))
         if route == "/api/map":
             from . import fleetmap
 

@@ -358,6 +358,9 @@
     "tests/test_fleet_checkouts.py": {
       "tests": 19
     },
+    "tests/test_fleet_cleanup.py": {
+      "tests": 7
+    },
     "tests/test_fleet_cli_desk.py": {
       "tests": 32
     },
@@ -552,6 +555,9 @@
     "tests/test_fleet_map_branches.py": {
       "tests": 9
     },
+    "tests/test_fleet_map_chat.py": {
+      "tests": 2
+    },
     "tests/test_fleet_map_layout.py": {
       "tests": 2
     },
@@ -672,6 +678,12 @@
     },
     "tests/test_fleet_theme_tokens.py": {
       "tests": 12
+    },
+    "tests/test_fleet_tidy.py": {
+      "tests": 14
+    },
+    "tests/test_fleet_tidy_page.py": {
+      "tests": 2
     },
     "tests/test_fleet_tiers.py": {
       "tests": 11

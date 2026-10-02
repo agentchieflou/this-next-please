@@ -75,6 +75,9 @@ DEFAULT_ALLOW = [
     # unconfigured remote itself, and waits on the approval gate. `shell(git push)` stays denied
     # below -- a prefix allow on it would also allow every dangerous continuation.
     "shell(ad-git push)",
+    # The cleanup (operator request, 2026-10): commit, branch or stash a dirty tree, never discard;
+    # `--apply` waits on the approval gate like the push, so an agent proposes and the operator decides.
+    "shell(ad-git tidy)",
     "skill",                         # the skill tool itself; without it the router cannot run
 ]
 

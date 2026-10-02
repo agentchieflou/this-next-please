@@ -43,7 +43,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | progress saved?, "where was I" | `state-update` |
 
 6. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
-7. No row matched after reading the table twice: a change to this repository's code (fix, patch, add a flag, refactor, "make it do X") → invoke `code-change`. Anything else → `friction-log` with type `ambiguity`. STOP.
+7. No row matched after reading the table twice: uncommitted changes to tidy ("clean up the worktree", "dirty tree", "stash this", "what do I do with these changes") → invoke `worktree-tidy`. A change to this repository's code (fix, patch, add a flag, refactor, "make it do X") → invoke `code-change`. Anything else → `friction-log` with type `ambiguity`. STOP.
 8. **Environment errors are not routing errors.** A command the host refused (permission denied, "not allowed", an approval declined), a launcher that does not start, or a broken install (a merge-conflict marker or `SyntaxError` inside an installed file) is never fixed by re-running a skill: `ad-state ask "<exact executable or permission> is blocked: <what a human must do>" --want access`, then `friction-log` type `tool-error`. STOP.
 
 When this table outgrows itself — about 24 rows, checked by `tests/test_skills.py` — **split it, do not shorten the rows.** Add a domain sub-router and give this table one row pointing at it, the way `pbi-router` already holds the seven report skills behind a single Power BI row. The rows here are already terse; squeezing them further trades a legible table for a cryptic one while the growth continues, and first-match-wins turns a near-miss into the wrong skill.
