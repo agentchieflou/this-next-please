@@ -497,12 +497,14 @@ def test_the_board_stays_under_its_ceiling_is_built_once_and_rests(fleet_home, t
 
 # ================================================================ the moments (#391)
 
-#: Each state the flag of pane `repo` shows, once per change, from now until `__pbStop` is set.
+#: Each state the flag of pane `repo` shows, once per change, from now until `__pbStop` is set. The first
+#: sample is taken at once, not on the next frame: under reduced motion the flag goes straight to
+#: `resting`, and a first frame that came after the question had landed recorded no `none` (CI, 2026-10-02).
 RECORD_FLAG = """(repo) => { window.__flags = []; window.__pbStop = false;
   const step = () => { const p = window.__pb.inspect().panes[repo], s = p ? p.flag : 'none';
     if (__flags[__flags.length - 1] !== s) __flags.push(s);
     if (!window.__pbStop) requestAnimationFrame(step); };
-  requestAnimationFrame(step); }"""
+  step(); }"""
 
 #: Every rect of text in pane `repo` (a Range over each non-empty text node), in viewport px.
 TEXT_RECTS = """(repo) => { const t = document.querySelector(`.tile[data-repo="${repo}"]`), out = [];

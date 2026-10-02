@@ -495,8 +495,10 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
 @pytest.mark.browser
 def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, monkeypatch, desk_browser):
     """*error* is a red marker loop round its why (#335) and a bang in the pane's margin; *done* a green check in
-    the margin. Both are ink, so a state that goes is struck through and the strike stays. (The
-    fleet's records carry the pane from one to the other: an error, then a new run that finishes.)"""
+    the margin. Both are ink, so a state that goes is struck through and the strike stays -- except in the
+    margin, where the check takes the struck bang's place rather than landing on it (2026-10, the operator:
+    the check and the X overlapped). (The fleet's records carry the pane from one to the other: an error,
+    then a new run that finishes.)"""
     _pad(tmp_path, monkeypatch, {"broke": [_said("broke", "trying"), _ev("broke", "error", {"exit_code": 2})]})
     _config(fleet_home)
     server, token, port = _serve()
@@ -517,7 +519,8 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
         page.wait_for_function("() => document.querySelector('.tile[data-repo=\"broke\"]')"
                                ".classList.contains('is-done')", timeout=15000)
         _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.state === 'drawn')"
-                    " && Ink.inspect().layer.marks.filter(m => m.strikeOf).length === 3")
+                    " && Ink.inspect().layer.marks.filter(m => m.strikeOf).length === 2"
+                    " && !Ink.inspect().layer.marks.some(m => m.shape === 'bang')")
         done = _marks(page)
         box = next(m for m in done if m["shape"] == "check")["box"]
         ink = page.evaluate(PIXELS, [[box["x"] + 14 + dx, box["y"] + 14 + dy]
@@ -531,8 +534,9 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
     assert error[(".tile.state-error", "red", "bang")] == ["drawn"], error
     assert (".tile.state-error", "marker", "loop") not in error, "the whole pane is not boxed (#335)"
     struck = [m for m in done if m["selector"].startswith(".tile.state-error")]
-    assert sorted(m["state"] for m in struck) == ["struck", "struck"], struck
+    assert [(m["selector"], m["state"]) for m in struck] == [(".tile.state-error .why", "struck")], struck
     assert all(any(s["strikeOf"] == m["id"] and s["tool"] == "pen" for s in done) for m in struck)
+    assert not [m for m in done if m["shape"] == "bang"], "the check took the struck bang's place in the margin"
     name = [m for m in done if m["selector"] == ".tile.needs-human .head .repo"]
     assert [m["state"] for m in name] == ["struck"], "done no longer needs you: its highlight is struck"
     assert [m["tool"] for m in done if m["shape"] == "check"] == ["green"]
