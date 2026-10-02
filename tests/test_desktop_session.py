@@ -48,6 +48,7 @@ def test_status_with_pages_and_version(tmp_path):
     assert i.loaded is True
     assert i.desktop_version == "2.138.1004.0"
     assert i.install == "msi"
+    assert i.verified == "older", "2.138 is older than the release this package was verified against (2.157)"
     assert len(i.pages) == 2
     assert i.pages[0]["id"] == "page1" and i.pages[0]["active"] is True
     assert i.pages[1]["id"] == "page2" and i.pages[1]["active"] is False

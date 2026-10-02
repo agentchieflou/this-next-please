@@ -277,12 +277,15 @@ def screenshot_session(pid: int, page: str | None = None, all_pages: bool = Fals
     page_rows = []
     visual_rows = []
 
-    # Check Bridge capability
+    # Check Bridge capability: the documented `report.snapshot.capture/v1` (Desktop 2.155+), or the
+    # pre-release `screenshot`; a PNG from Desktop's own renderer beats a window capture.
     from . import bridge as BR
     b_client, b_man, _ = BR.get_bridge_manifest(pid=pid)
     use_bridge = False
     if b_client:
-        if "screenshot" in b_man.get("operations", []):
+        if hasattr(b_client, "bind"):
+            b_client.bind(b_man)
+        if "screenshot" in BR.normalize_manifest(b_man).get("operations", []):
             use_bridge = True
         else:
             b_client.close()
@@ -297,24 +300,21 @@ def screenshot_session(pid: int, page: str | None = None, all_pages: bool = Fals
         if use_bridge and b_client:
             try:
                 t0 = time.perf_counter()
-                b_res = b_client.screenshot(page=p_id)
+                b_res = b_client.screenshot(page=p_id, scale=scale if scale and scale != 1 else None)
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                if "image_base64" in b_res:
-                    import base64
+                if b_res.get("png"):
                     with open(out_path, "wb") as f:
-                        f.write(base64.b64decode(b_res["image_base64"]))
-                    w = b_res.get("width", 1280)
-                    h = b_res.get("height", 720)
-                    dpi = b_res.get("dpi", 96)
-                    via = "bridge"
-                    captured_via_bridge = True
-                elif "path" in b_res and os.path.exists(b_res["path"]):
+                        f.write(b_res["png"])
+                elif b_res.get("path") and os.path.exists(b_res["path"]):
                     shutil.copyfile(b_res["path"], out_path)
-                    w = b_res.get("width", 1280)
-                    h = b_res.get("height", 720)
-                    dpi = b_res.get("dpi", 96)
-                    via = "bridge"
-                    captured_via_bridge = True
+                else:
+                    raise BR.BridgeError("snapshot answered without an image")
+                w = b_res.get("width") or 1280
+                h = b_res.get("height") or 720
+                dpi = b_res.get("dpi") or 96
+                p_name = b_res.get("displayName") or p_name
+                via = "bridge"
+                captured_via_bridge = True
             except Exception:
                 captured_via_bridge = False
 

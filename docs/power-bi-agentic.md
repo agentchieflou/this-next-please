@@ -33,7 +33,7 @@ $$\text{Plan} \longrightarrow \text{Design} \xrightarrow{\text{Gate 1: Brief App
   - `ad-pbip filter set`
   - `ad-pbip bookmark add`
   - `ad-pbip theme set`
-- **Verification Loop**: After edits, reload running Desktop (`ad-pbip desktop reload --pid <pid>`) and verify via screenshot (`ad-pbip screenshot --pid <pid> --page <p>`).
+- **Verification Loop**: After edits, reload running Desktop (`ad-pbip desktop reload --pid <pid>`, the Desktop Bridge's `file.reload` on 2.155+) and verify via screenshot (`ad-pbip screenshot --pid <pid> --page <p>`, the bridge's `report.snapshot.capture`).
 
 ### §3b. Model Authoring, Audit & Optimization (`tmdl-edit` & `pbi-model-audit`)
 - **Tier 1 (Live TOM)**: `ad-pbip model apply --server <host:port>|--pid <pid> --ops <ops.json> [--save]` modifies the live model over port via Tabular Editor 2 `-S apply.csx`. Exact TOM errors are returned per op. When `--save`, session save triggers via UIA (`Ctrl+S`) and waits for Desktop-serialised TMDL to settle.
@@ -90,13 +90,56 @@ We track Power BI Desktop and the Desktop Bridge through **capability probes** a
 Power BI Desktop capabilities (Analysis Services port, local XMLA tooling, external tools directory, UIAutomation, user32!PrintWindow, Bridge named pipe, Bridge manifest) are probed dynamically on every session. We never assume an environment capability based on a Windows build number or Power BI Desktop version string.
 
 ### Bridge Manifest + Recorded Transcripts
-The Bridge is an optional JSON-RPC 2.0 transport operating over `\\.\pipe\pbi-desktop-bridge-<pid>`. We negotiate capabilities at runtime via the `manifest` call:
-- Operations are only invoked if explicitly declared in the advertised manifest (`manifest.operations`).
-- Baseline transcripts (`tests/fixtures/bridge/<desktop-version>/*.jsonl`) capture golden request/response frames from live sessions.
+The Desktop Bridge is a JSON-RPC 2.0 server inside Power BI Desktop, over the named pipe
+`\\.\pipe\pbi-desktop-bridge-<pid>` (one per open window, Content-Length framing, local only, one
+operation at a time). Microsoft documents it (*What is the Power BI Desktop Bridge?*, Microsoft
+Learn) from Desktop 2.155 (June 2026, preview); 0.18.0 speaks that contract and is verified against
+2.157 (August 2026). It is on by default: **File > Options and settings > Options > Security >
+Desktop Bridge > Enable external tool access to Power BI Desktop through secure local APIs**. IT can
+force it on or off for every user with the machine policy
+`HKLM\SOFTWARE\Policies\Microsoft\Power BI Desktop\DesktopNamedPipeBridge` (1 or 0);
+`ad-pbip bridge probe` reports that policy, and a missing pipe says which switch to look at.
+
+We negotiate at runtime, never from a version string:
+- `bridge.manifest` is asked first. It returns `methods` (name, description, `params` and `result`
+  schemas). Every caller works in four logical operations, and the client maps each to the
+  highest-versioned method the manifest declares:
+
+  | Operation | Documented method (2.157) | What it does here |
+  |---|---|---|
+  | manifest | `bridge.manifest` | negotiation, `ad-pbip bridge probe`, drift |
+  | state | `application.state.get/v1` | `currentFilePath` and `hasUnsavedChanges`: `ad-pbip desktop status` (`unsaved`, `bridge`), and the reload preflight |
+  | reload | `file.reload/v1` (`reloadModelDefinition`) | `ad-pbip desktop reload` (`--report-only` sends `false`) |
+  | screenshot | `report.snapshot.capture/v1` (`pageId`, `scale` 1-3) | `ad-pbip screenshot`: a PNG from Desktop's own renderer, by PBIR page id |
+
+- A Desktop that answers `bridge.manifest` with `-32601` (method not found) is the pre-release
+  bridge; the client asks it `manifest` and uses its bare words (`status`, `reload`, `screenshot`).
+  `tests/fixtures/bridge/2.138.1452.0` keeps that dialect tested.
+- A busy answer (another client's operation is running) is retried with a doubling backoff; an
+  operation the manifest does not declare is never called.
+- Baseline transcripts (`tests/fixtures/bridge/<desktop-version>/*.jsonl`) hold request/response
+  frames; the newest version directory is the drift baseline. `2.157.1354.0` is built from the
+  documented contract until a laptop recording replaces it (its README says how).
 - When Power BI Desktop updates on its monthly release train:
-  1. `ad-pbip bridge probe --pid <pid>` checks for added or removed operations (`drift`).
-  2. `ad-pbip bridge record --pid <pid>` records a new golden transcript under `tests/fixtures/bridge/<new-version>/transcript.jsonl`.
-  3. Adding support for newly declared operations is a simple method mapping without code breaks or version bumps.
+  1. `ad-pbip bridge probe --pid <pid>` checks for added or removed methods (`drift`), and a change of
+     dialect.
+  2. `ad-pbip bridge record --pid <pid> --page <page id>` records a new golden transcript under
+     `tests/fixtures/bridge/<Desktop version>/transcript.jsonl` (read-only: it never records a
+     reload).
+  3. A newly declared `/v2` is picked up by the manifest, without code changes; a new operation is a
+     method mapping in `agentdata/pbip/bridge.py`.
+
+### The PBIP on disk is the source of truth
+A reload replaces what Desktop shows with the files on disk. Through the bridge, `ad-pbip desktop
+reload` reads `application.state.get` first and goes ahead only when `hasUnsavedChanges` is an
+explicit `false`; otherwise it refuses (`fail: unsaved_changes`) and says to save in Desktop, or to
+pass `--discard` to overwrite them. Desktop 2.157 also notices external edits on its own and offers
+**Apply external changes**: the bridge reload is the same action, taken by the agent.
+
+After a reload with the model definition (the default), the model's definitions are loaded but not
+processed: refresh what changed (Calculate for measures, calculated columns and tables; a targeted
+Full for changed import tables), then prove a value with `ad-pbip dax` before trusting a screenshot.
+The reload's answer says so (`next`).
 
 ### Graceful Degrade to Native
 Every Bridge-backed verb MUST gracefully fall back to its native equivalent if:
@@ -104,12 +147,16 @@ Every Bridge-backed verb MUST gracefully fall back to its native equivalent if:
 - The requested operation is not declared in the manifest
 - A frame is malformed, times out, or returns a transport error
 
-In all fallback scenarios, the operation succeeds with `via: native` (or `reloaded_via: native`) and logs an informative warning. **Skills never see a Bridge error.**
+In all fallback scenarios, the operation succeeds with `via: native` (or `reloaded_via: native`) and logs an informative warning. **Skills never see a Bridge error.** The one refusal is deliberate: a reload through the bridge onto unsaved changes (above).
 
 | Verb | Bridge Path (`via: bridge`) | Native Degrade Path (`via: native` / `via: printwindow`) | Degrade Trigger |
 |---|---|---|---|
-| `ad-pbip desktop reload` | In-place JSON-RPC `reload` preserving AS port and live instance | Native `close` + `open_and_wait` with PBIP path | No pipe, undeclared `reload`, timeout, error |
-| `ad-pbip screenshot` | Desktop internal renderer screenshot via JSON-RPC `screenshot` | Native `user32!PrintWindow` / UIAutomation window capture | No pipe, undeclared `screenshot`, timeout, error |
+| `ad-pbip desktop reload` | `file.reload/v1` in place, preserving the AS port and live instance, after the unsaved-changes preflight | Native `close` + `open_and_wait` with PBIP path | No pipe, undeclared `reload`, timeout, error |
+| `ad-pbip screenshot` | `report.snapshot.capture/v1`, Desktop's own renderer, one call per page | Native `user32!PrintWindow` / UIAutomation window capture | No pipe, undeclared `screenshot`, timeout, error |
+| `ad-pbip desktop status` | `application.state.get/v1` for `unsaved` and the open file | the window title's `*` | No pipe, undeclared `state` |
+
+`ad-pbip desktop status` also prints `verified`: `verified` for Desktop 2.157 (the release 0.18.0
+was verified against), `newer`, or `older`. It is a fact to report, not a gate.
 
 ---
 

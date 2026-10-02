@@ -64,7 +64,7 @@
     },
     "tests/laptop/test_07_desktop.py": {
       "skips": 1,
-      "tests": 1
+      "tests": 2
     },
     "tests/laptop/test_08_measure_edit.py": {
       "skips": 1,
@@ -241,7 +241,7 @@
       "tests": 9
     },
     "tests/test_bridge.py": {
-      "tests": 20
+      "tests": 30
     },
     "tests/test_brief.py": {
       "tests": 11

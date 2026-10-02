@@ -217,10 +217,12 @@ In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-
 ad-pbip capabilities                                                   # probe 8 capabilities (as_port, xmla_local, uia, etc.)
 ad-pbip desktop status                                                 # lists instances with pid, port, pages, unsaved, desktop_version, install
 ad-pbip desktop open <path-to.pbip> --wait 180                         # launches and polls until Analysis Services and UI are ready
-ad-pbip desktop reload --pid <pid>                                     # cleanly closes and reopens, restoring active page
+ad-pbip desktop reload --pid <pid>                                     # Desktop 2.155+: the bridge's file.reload/v1; else closes and reopens
+ad-pbip bridge probe --pid <pid>                                       # dialect: documented, the four methods, drift against 2.157.1354.0
+ad-pbip bridge record --pid <pid> --page <page id>                     # replaces tests/fixtures/bridge/<version>/transcript.jsonl with a recording
 ad-pbip desktop close --pid <pid> --discard                            # closes via WM_CLOSE, discarding unsaved changes
 ```
-Pass: `capabilities` outputs 8 rows with available state and evidence; `status` reports `pages`, `unsaved`, `loaded`, `desktop_version`, `install`; `open --wait` returns instance row once loaded; `reload` returns `reloaded_via: native`; `close` cleanly exits.
+Pass: `capabilities` outputs 8 rows with available state and evidence; `status` reports `pages`, `unsaved`, `loaded`, `desktop_version`, `install`; `open --wait` returns instance row once loaded; on Desktop 2.157 `status` reports `verified: verified` and `bridge: documented`, `reload` returns `reloaded_via: bridge` with `method: file.reload/v1` (and refuses with `fail: unsaved_changes` after an unsaved edit in Desktop until it is saved), and `screenshot` returns `via: bridge`; on an older Desktop without the bridge `reload` returns `reloaded_via: native`; `close` cleanly exits.
 
 ## 13. Desktop screenshots and visual regression (#51)
 ```powershell
