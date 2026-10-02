@@ -191,7 +191,8 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
 
         # #368: the model row, "runs on" and the pills: the inherit pill pressed, the last turn's
         # model beside it, and `more…`.
-        assert "the CLI chooses · cli-auto" in card.locator(".dispatch-rows").inner_text()
+        # Nothing chosen is the operator's default, `auto` (2026-10-02).
+        assert "auto · default" in card.locator(".dispatch-rows").inner_text()
         assert card.locator(".dispatch-note").get_attribute("role") == "status"
         assert card.locator(".dispatch-runs").inner_text().strip() == "runs on"
         page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"]', timeout=5000)
