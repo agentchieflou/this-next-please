@@ -60,6 +60,15 @@ def write_projection(norm: dict, model: Model, report: P.Report | None, out_dir:
     _tsv(os.path.join(out_dir, "relationships.tsv"), ["name", "fromTable", "fromColumn", "toTable", "toColumn", "active", "crossFilter"],
          [[r["name"], r["fromTable"], r["fromColumn"], r["toTable"], r["toColumn"], r["active"], r["crossFilter"]] for r in m["relationships"]])
     files = ["normalized.json", "tables.tsv", "columns.tsv", "measures.tsv", "relationships.tsv", "MODEL.md", "meta.json"]
+    fns = m.get("functions") or []
+    if fns:  # DAX user-defined functions (functions.tmdl); the file only exists when the model has some
+        _tsv(os.path.join(out_dir, "functions.tsv"), ["function", "parameters", "min_args", "max_args", "optional", "dep_columns",
+                                                      "dep_measures", "dep_functions", "used_by", "description", "body", "file", "line"],
+             [[f["name"], "; ".join(p["text"] for p in f["parameters"]), f["min_args"], f["max_args"],
+               ";".join(p["name"] for p in f["parameters"] if p["optional"]), ";".join(f["deps"]["columns"]),
+               ";".join(f["deps"]["measures"]), ";".join(f["deps"]["functions"]), ";".join(norm["lineage"]["function_usage"].get(f["name"], [])),
+               f["description"], f["body"].replace("\n", " ").strip(), f["file"], f["line"]] for f in fns])
+        files.append("functions.tsv")
     rep = norm.get("report")
     if rep:
         _tsv(os.path.join(out_dir, "visuals.tsv"), ["page", "visual", "type", "title", "hidden", "fields", "filters", "file"],
@@ -83,6 +92,7 @@ def write_projection(norm: dict, model: Model, report: P.Report | None, out_dir:
         json.dump({"generated_at": norm["generated_at"], "pbip": norm["pbip"], "sources": new_hashes,
                    "counts": {"tables": len(m["tables"]), "columns": sum(len(t["columns"]) for t in m["tables"]),
                               "measures": sum(len(t["measures"]) for t in m["tables"]), "relationships": len(m["relationships"]),
+                              "functions": len(fns),
                               "pages": len(rep["pages"]) if rep else 0, "visuals": sum(len(p["visuals"]) for p in rep["pages"]) if rep else 0}}, f, indent=1, sort_keys=True)
         f.write("\n")
     return {"skipped": False, "out_dir": textio.norm_path(out_dir), "files": sorted(files)}
@@ -90,10 +100,21 @@ def write_projection(norm: dict, model: Model, report: P.Report | None, out_dir:
 
 def model_md(norm: dict) -> str:
     m = norm["model"]
+    fns = m.get("functions") or []
     out = [f"# Model {m.get('name') or ''}".rstrip(), "", f"{len(m['tables'])} tables · {sum(len(t['measures']) for t in m['tables'])} measures · "
-           f"{len(m['relationships'])} relationships · compatibility {m.get('compatibility') or '?'}", ""]
+           f"{len(m['relationships'])} relationships · {f'{len(fns)} functions · ' if fns else ''}compatibility {m.get('compatibility') or '?'}", ""]
     out += ["## Relationships", ""] + [f"- {r['fromTable']}[{r['fromColumn']}] → {r['toTable']}[{r['toColumn']}]"
                                        f"{'' if r['active'] else ' (inactive)'}{' · ' + r['crossFilter'] if r['crossFilter'] != 'oneDirection' else ''}" for r in m["relationships"]] + [""]
+    if fns:  # signature as declared; [brackets] mark an optional parameter (it has a default)
+        out += ["## Functions (DAX UDFs) — `" + fns[0]["file"] + "`", ""]
+        for f in fns:
+            sig = ", ".join(f"[{p['text']}]" if p["optional"] else p["text"] for p in f["parameters"])
+            arity = f"{f['min_args']}" if f["min_args"] == f["max_args"] else f"{f['min_args']}–{f['max_args']}"
+            used = norm["lineage"]["function_usage"].get(f["name"]) or []
+            deps = ", ".join(f["deps"]["columns"] + [f"[{d}]" for d in f["deps"]["measures"]] + [f"{d}()" for d in f["deps"]["functions"]])
+            out.append(f"- **{f['name']}**({sig}) — {arity} args{' · ' + f['description'] if f['description'] else ''}"
+                       f"{' · reads ' + deps if deps else ''} · used by {', '.join(used) or 'nothing'}")
+        out.append("")
     for t in m["tables"]:
         out.append(f"## {t['name']}{' (hidden)' if t['hidden'] else ''} — `{t['file']}`")
         if t.get("description"):
@@ -105,7 +126,8 @@ def model_md(norm: dict) -> str:
         if t["measures"]:
             out += ["", "| measure | format | folder | depends on |", "|---|---|---|---|"]
             for x in t["measures"]:
-                deps = ", ".join(x["deps"]["columns"] + [f"[{d}]" for d in x["deps"]["measures"]])
+                deps = ", ".join(x["deps"]["columns"] + [f"[{d}]" for d in x["deps"]["measures"]]
+                                 + [f"{d}()" for d in x["deps"].get("functions", [])])
                 out.append(f"| {x['name']}{' (hidden)' if x['hidden'] else ''} | {x['formatString'] or ''} | {x['displayFolder'] or ''} | {deps} |")
         if t["columns"]:
             out += ["", "| column | type | kind | summarize | notes |", "|---|---|---|---|---|"]
@@ -155,6 +177,10 @@ def lineage_md(norm: dict) -> str:
     out += ["", "## Column / measure → measures that use it", ""]
     for label, users in lin["measure_usage"].items():
         out.append(f"- {label}: " + ", ".join(users))
+    if lin.get("function_usage"):
+        out += ["", "## Function (DAX UDF) → measures, columns and functions that call it", ""]
+        for name, users in lin["function_usage"].items():
+            out.append(f"- {name}(): " + (", ".join(users) or "(not called)"))
     out += ["", "## Table → source objects (from partition M)", ""]
     for t, src in lin["sources"].items():
         out.append(f"- {t}: {', '.join(src) or '(not detected)'}")

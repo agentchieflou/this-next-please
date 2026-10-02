@@ -22,14 +22,15 @@ FIXTURE_MODEL = os.path.join(FIXTURE_DIR, "Native.SemanticModel", "definition")
 
 
 def test_native_fixture_complete_and_clean():
-    """Native fixture contains all 20 features and passes validation with 0 findings."""
+    """Native fixture contains all 21 features and passes validation with 0 findings."""
     rep = P.load_report(FIXTURE_REPORT)
     mod = N.load_model(FIXTURE_MODEL)
 
     feats = F.detect_features(mod, rep)
-    assert len(feats) == 20
+    assert len(feats) == len(F.NATIVE_FEATURES) == 21
+    assert [f.feature for f in feats] == F.NATIVE_FEATURES
     missing = [f.feature for f in feats if not f.present]
-    assert not missing, f"Expected all 20 features to be present in native fixture, missing: {missing}"
+    assert not missing, f"Expected all 21 features to be present in native fixture, missing: {missing}"
 
     model_findings = CK.check_model(mod)
     assert len(model_findings) == 0, f"Expected 0 model findings, got: {[f.row() for f in model_findings]}"
@@ -39,12 +40,13 @@ def test_native_fixture_complete_and_clean():
 
 
 def test_check_features_cli(capsys):
-    """ad-pbip check --features prints the 20-row features TOON table."""
+    """ad-pbip check --features prints the 21-row features TOON table."""
     with pytest.raises(SystemExit) as exc:
         cli_pbip.main(["check", FIXTURE_PBIP, "--features"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "features[20]{feature,present,objects,status}:" in out
+    assert "features[21]{feature,present,objects,status}:" in out
+    assert '  udf,true,"AddTax, MarginShare",ok' in out
     assert "bookmarks,true" in out
     assert "drillthrough,true" in out
     assert "tooltip,true" in out
@@ -144,6 +146,19 @@ def test_rule_fieldparam_nameof_mismatch(tmp_path):
     findings = F.check_model_features(mod)
     kinds = [f.kind for f in findings]
     assert "fieldparam-nameof-mismatch" in kinds
+
+
+def test_rule_fieldparam_nameof_with_optional_arguments(tmp_path):
+    """NAMEOF ( <object> [, <component> [, <escaped>]] ) (April 2026): the reference is still checked when the
+    optional arguments follow it, and a valid one with them is not a finding."""
+    dest = tmp_path / "model"
+    shutil.copytree(FIXTURE_MODEL, dest)
+    fp_file = dest / "tables" / "FieldParam.tmdl"
+    text = fp_file.read_text(encoding="utf-8")
+    fp_file.write_text(text.replace("NAMEOF('Sales'[Margin])", "NAMEOF('Sales'[Margin], SELF, MINIMALLYESCAPED)"), encoding="utf-8")
+    assert "fieldparam-nameof-mismatch" not in [f.kind for f in F.check_model_features(N.load_model(str(dest)))]
+    fp_file.write_text(text.replace("NAMEOF('Sales'[Margin])", "NAMEOF('Sales'[Nope], SELF)"), encoding="utf-8")
+    assert "fieldparam-nameof-mismatch" in [f.kind for f in F.check_model_features(N.load_model(str(dest)))]
 
 
 def test_rule_calcgroup_precedence_clash(tmp_path):

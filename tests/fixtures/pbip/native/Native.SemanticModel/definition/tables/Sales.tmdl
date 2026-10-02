@@ -25,6 +25,11 @@ table Sales
 		formatStringDefinition = "\$#,##0"
 		lineageTag: 10000000-0000-0000-0000-000000000013
 
+	/// Total Sales with the default 10% tax, through the AddTax function
+	measure 'Sales with Tax' = AddTax ( [Total Sales] )
+		formatString: $ #,##0
+		lineageTag: 10000000-0000-0000-0000-000000000014
+
 	column Product
 		dataType: string
 		lineageTag: 10000000-0000-0000-0000-000000000020
