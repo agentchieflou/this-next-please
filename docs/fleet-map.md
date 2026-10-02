@@ -213,7 +213,8 @@ tree stacks above the stage at full width and the stage is `min(55vh, 480px)` ta
 
 **`window.FleetMap`** (frozen): `ready` resolves after the first draw; `draw(graph)` draws a graph of the caller's
 and sets `paused`, which the page's own drawing (and #406's refetch) honours; `graph` is the last graph drawn;
-`scene` is `null` until #409.
+`gate(probe, asked, narrow)` is the scene's gate and `verdict` the page's own answer to it; `scene` is the running
+scene's `{inspect, sample, screen}`, or `null` (§The scene).
 
 Tests: `tests/test_fleet_map_page.py` (5 browser tests, one Chromium for the module), plus the budgets and hooks in
 `test_fleet_serve.py`, the gate in `test_fleet_ink.py` and the inventory in `test_fleet_components.py`.
@@ -349,7 +350,88 @@ a single `page.evaluate`.
 
 ## The scene
 
-(written by #409)
+`static/map/scene.js` (#409) draws the tree as a three.js scene where the probe measured hardware WebGL. It is the
+one canvas on `/map`, in `#mapstage`, and the only other WebGL [desk-rendering.md](desk-rendering.md) rule 7 allows
+besides the ink layer. It carries nothing the tree lacks: the tree stays the page's text twin and its whole plain look.
+
+**The gate.** `FleetMap.gate(probe, asked, narrow)` is the ink gate ([desk-ink.md](desk-ink.md) §The gate) restated
+in `map/map.js`, answering `{on, source, why}`: `?ink=off` is off (`param`); `?ink=on` is on (`override`, a test
+override and never a measurement, which is how CI's SwiftShader draws it); a coarse pointer under 900 px is off
+(`narrow`); otherwise on for a `hardware` probe alone (`probe`). `FleetMap.verdict` is the page's own answer, from
+the `data-ink-probe` the server writes on `<body>`. Only when it is on does the page put `map-scene` on `<body>`
+(the stage is shown) and import `map/scene.js` through `q()`; the scene asks for a WebGL context (WebGL2, then 1)
+**before** it imports three.js and `map/layout.js`, the way the probe and the ink layer do. A failed import, no
+context, or a lost context (`webglcontextlost`) turns the scene off for the page's life: the canvas goes,
+`map-scene` goes, `verdict.source` is `runtime`, and the tree is the page. Nothing on /map loads `ink/ink.js`,
+`ink/layer.js` or a mark table, and `body.ink-off` is never removed.
+
+**From the tree.** The scene reads the page, never the JSON: `outlineOf` builds `layout()`'s outline (§Layout)
+from `#maptree`'s items, their classes, `data-on`, `data-default` and `data-name` -- branches from each `bs:`
+group, the network from `n:network`, stale agents by class -- and draws what `layout()` places.
+
+**Meshes.** Three `InstancedMesh`es and one `LineSegments`, so the scene is **four draw calls** at any size:
+
+| Mesh | What | Instances |
+| --- | --- | --- |
+| `islands` | every checkout | one box each |
+| `lanes` | each project's trunk, unmerged lanes and merged stubs | one flat box each, `DIMS.trunkW`, `laneW` or `stubW` wide |
+| `nodes` | each project's gate and every network node | one box each |
+| `links` | the layout's links | one segment each, centre to centre |
+
+One unit box, unlit (`MeshBasicMaterial({vertexColors: true})`): its top face carries vertex colour 1.0 and its
+sides 0.82 and 0.68, so the form reads without a light and a top face renders exactly its instance colour. A mesh is
+replaced only when its instances outgrow it, at twice the size. Agents are placed by the layout and not drawn
+(#410 draws them). Twenty checkouts in ten projects of forty branches are 437 instances, 4 calls and 5,244
+triangles, drawn in one frame.
+
+**Structural ink.** Everything above is one neutral colour, `ink`: `--text` mixed toward `--bg` at the largest
+share of `--bg`, in hundredths, that keeps 3:1 on `--bg` by the WCAG formula (WCAG 1.4.11; the shape of
+`theme._muted`, #325). `--panel` is about 1.1:1 on `--bg`, `--muted` is under 3:1 in most palettes, and `--accent`
+is `--running` on dark, so none of them carries structure, and no role colour is ever used on it: role colours
+are the agents'. Unmerged against merged is length and width alone. Measured: `#8d8f92` on the default `#f6f7f8`
+(3.02:1), `#8b8273` on `sand` (3.05:1), `#787368` on `eye-relief` (3.04:1).
+
+**The camera.** Orthographic and isometric, looking down the (-1, -1, -1) diagonal at the centre of
+`layout().bounds`, its frustum fitted to every box the layout placed (plus 8%) on each rebuild and on a
+`ResizeObserver` of `#mapstage`; the drawing buffer is the stage at `devicePixelRatio`, capped at 2. The canvas
+lies over the stage absolutely (`map.css`). Pan and zoom are #411's.
+
+**When it draws.** There is no frame loop. A frame is asked for, once however many things changed before it,
+when the tree changes (child lists, and `class`, `data-on`, `data-node`, `data-default`, `data-name` and every
+plugin's `attrs`; a change inside an item's words, its branch chip or its buttons is ignored), when the stage
+resizes, and when the palette changes (`style`, `data-theme` and `class` on `<html>`, `data-skin` and
+`data-skin-variant` on `<body>`, `prefers-color-scheme`, and a stylesheet's `load`, which catches a skin's
+`link[data-skin]` created later). **An idle map draws zero WebGL frames and makes zero DOM mutations.** The first
+frame waits for the tree's first draw (`FleetMap.ready`) and marks `performance` with `map:first-draw`.
+
+**`FleetMap.scene`**, for tests and the console: `inspect()` is `{frames, samples, calls, triangles, nodes, busy,
+first_draw_ms, colours: {ink, bg}, size, canvas, reserved, plugins}` (`frames` the frames it drew on its own,
+`calls` and `triangles` the last frame's, `nodes` every id drawn); `sample(points)` draws one frame now and reads
+each viewport point's pixel back in the same task; `screen(id)` is an id's top centre on the viewport.
+
+**Plugins.** The later map cards draw through hooks rather than by editing the scene. `scene.js` exports
+`use(plugin)`; `map/map.js` imports each module named in `MAP_PLUGINS` and hands its default export to `use()`
+before `start` (one handed over later is attached at once). A plugin is, every member optional:
+
+| Member | Called |
+| --- | --- |
+| `attach(ctx)` | once, before the first frame. `ctx` is `{THREE, scene, camera, renderer, meshes: {islands, lanes, nodes, links}, tokens, kick, invalidate, reserve(mesh, n), stage, tree}`; `meshes` is kept current when a mesh grows; `tokens` is the palette last read |
+| `rebuilt(prev, next, placed, laid)` | after every rebuild: the outlines before and after, `placed` (`id -> {mesh, key, index}` for every drawn id) and the layout |
+| `recoloured(tokens)` | after a palette change, once the scene has recoloured its own instances |
+| `frame(dt)` | every frame; returning `true` (busy) asks for another |
+| `inspect()` | merged into `FleetMap.scene.inspect()` |
+| `attrs` | attribute names the tree observer also wakes on |
+
+`reserve(mesh, n)` hands a plugin `n` instances of a mesh (by its key or the mesh), kept across rebuilds and never
+placed or coloured by the scene; `kick()` asks for a frame and `invalidate()` for a rebuild. A plugin that throws
+is reported and skipped.
+
+Tests: `tests/test_fleet_map_scene.py` -- two that read the sources (the copies of the layer's `context` and
+`parseColour`; no colour literal, markup, 2D context or bare import under `static/map/`) and five browser tests
+with `?ink=on`: the gate against [desk-ink.md](desk-ink.md) §The gate and the three ways to the tree alone; a 10x40
+fleet in four calls, 30 idle frames that draw and write nothing, one class toggled as one frame, and a plugin;
+the ink drawn and read back in three palettes; the header at 4.5:1 under three skins; and 480 px with a lost
+context.
 
 ## Agents
 
@@ -377,6 +459,12 @@ a single `page.evaluate`.
 gzipped together. The map's scripts, `static/map/**/*.js` outside `map/skins/`, have `MAP_BUDGET` = 32 KiB gzipped
 of their own (`tests/test_fleet_serve.py`), outside the desk's: a desk never fetches them. `INK_BUDGET` is untouched.
 `map/map.js` is a classic script (checked by `node --check` as `.js`); every other `map/**/*.js` is checked as a module.
+
+| What | Budget | Now |
+| --- | --- | --- |
+| Draw calls, the whole map | 6 | 4, the scene's own (#409): islands, lanes, nodes, links |
+| Draw calls, the scene alone | 4 | 4 at any size (`tests/test_fleet_map_scene.py`) |
+| WebGL frames, an idle map | 0 | 0 over 30 animation frames |
 
 ## Measured
 
