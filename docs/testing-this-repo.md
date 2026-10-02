@@ -1045,11 +1045,15 @@ Windows only**: Linux is reported against its would-be budget, never gated.
   18 browser tests at the tier's mean, spread over the shards. The first budget (green run 36330617129 @ a8549e1,
   356 ids: 1,615 s and 1,447 s) was outgrown by fe601d2, when the Windows tier measured 1,545.4 s and the slowest of
   the three Windows shards' `pytest` steps took 13m58s of its 15; the operator raised it with the fourth Windows
-  shard, which puts each shard at about 9.4 minutes on the same table.
+  shard, which puts each shard at about 9.4 minutes on the same table. On 2026-10-02 (release 0.18.0) #624-#629 added
+  23 browser tests (391 ids) and the projection put Windows at 1,642.0 s, over 1,622; the operator raised the budget
+  rather than wait for a refresh: `BROWSER_MEASURED_S` holds that projection for `main` @ 913d157 (Linux 1,809.5 s,
+  Windows 1,642.0 s), and the budget is it plus 5%, **1,899 s and 1,724 s**. The next refresh of `durations.json` and
+  `browser_counts.json` from one run replaces the projection with a measurement.
 - **Windows is gated; Linux is reported** (decision 24). `BROWSER_GATED` in `tests/test_suite_hygiene.py` is
   `{"windows"}`. Linux's browser time varies about 9% between green runs (two with the same 356 ids measured
   1,410.6 s and 1,538.4 s), wider than the 5% headroom, while Windows moved 0.9%. So Linux keeps its would-be budget
-  of 1,788 s, and the check prints its projected time against it, but a Linux overrun fails nothing. Windows stays
+  of 1,899 s, and the check prints its projected time against it, but a Linux overrun fails nothing. Windows stays
   at measured + 5%.
 - **The cost of a new test** is its file's measured time per browser test (`tests/browser_counts.json` holds the
   counts of the measured run), or the tier's mean for a file the run did not measure. A removed test gives its time

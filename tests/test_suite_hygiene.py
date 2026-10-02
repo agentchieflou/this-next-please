@@ -483,13 +483,20 @@ def test_the_browser_check_sees_a_module_and_a_fixture_without_the_marker():
 # about 9.4 minutes of its 15. Raising a number here is the operator's call, never a card's
 # (docs/testing-this-repo.md, *The browser tier's time budget*).
 #
+# The operator raised it again on 2026-10-02 (release 0.18.0): #624-#629 added 23 browser tests (391
+# ids), the projection put the Windows tier at 1,642.0 s against 1,622, and the operator chose a
+# raise over waiting for a refreshed `durations.json`. `BROWSER_MEASURED_S` is now that projection
+# for `main` @ 913d157 -- run 36551490090's per-test times over the 391 ids (Linux 1,809.5 s, Windows
+# 1,642.0 s) -- and the budget is still it plus 5%. The next refresh of both files from one run
+# replaces the projection with a measurement.
+#
 # Decision 24: the budget is enforced on Windows only. Two green Linux runs with the same 356 ids
 # measured 1,410.6 s and 1,538.4 s, 9% apart and wider than the 5% headroom, while Windows moved
 # 0.9%. Linux keeps its would-be budget, and its projected time is printed against it, but it
 # fails nothing.
-BROWSER_MEASURED_S = {"linux": 1703.1, "windows": 1545.4}
+BROWSER_MEASURED_S = {"linux": 1809.5, "windows": 1642.0}
 BROWSER_HEADROOM = 0.05
-BROWSER_BUDGET_S = {"linux": 1788, "windows": 1622}
+BROWSER_BUDGET_S = {"linux": 1899, "windows": 1724}
 BROWSER_GATED = frozenset({"windows"})
 DURATIONS = os.path.join(REPO_ROOT, "tests", "durations.json")
 BROWSER_COUNTS = os.path.join(REPO_ROOT, "tests", "browser_counts.json")
