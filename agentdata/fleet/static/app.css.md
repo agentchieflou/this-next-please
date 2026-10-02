@@ -105,6 +105,13 @@ Above `.toolbar-group .glabel {`:
 HIG *Toolbars*: a group of commands says what it is for. Twelve controls in one unlabelled row
 is a settings panel, which is what the toolbar is not.
 
+### `#find`
+
+The search field gives up width before the toolbar wraps: 12% of the window, between 120 and
+240 px. It was 16% until the desk's toolbar gained the chat view's and the world's links beside the
+map's; at 1280 px the widest skins' toolbar was then 27 px over one row
+(`test_the_toolbar_is_one_row_at_1280_in_every_look`).
+
 ### `@media (max-width: 1100px)`
 
 Above `@media (max-width: 1100px) { .toolbar-group .glabel { display: none; } }`:
@@ -675,7 +682,9 @@ grew a rail past 160 px would make it compact, drop the rule, shrink it back, an
 The gutters and grips go: there is no width to pull on a phone. The toolbar is two rows, the live
 dot, the presets and the alerts on the first and the `see` group on the second; the brand and the
 chime give up their room for it (the day button, #511, came after the audit's two rows were
-counted).
+counted). So does the world's link (#626): with it the `see` row was 407 px on a 390 px glass and the
+page scrolled sideways, and the world is walked with keys or a controller, which a phone has not
+got. `/world` itself still opens there.
 
 ### `@media (pointer: coarse) and (max-height: 480px)`
 

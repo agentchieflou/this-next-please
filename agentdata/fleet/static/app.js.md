@@ -1420,6 +1420,11 @@ conversation at a time -- the traditional layout, a page beside the desk rather 
 Its href is set here for the reason the settings link's is. The `c` key opens it on the pane the
 keys are on (`openName()`), as `#<repo>`, which the chat page reads at boot.
 
+Beside `if (worldLink) worldLink.href = pageUrl("/world");`:
+
+#626: the world, a 3D space walked with a controller or the keyboard, in the window the desk is in.
+Set here for the reason the settings link is.
+
 Beside `LOAD.settled = document.body.dataset.skin || "";`:
 
 the skin the first refresh settled on (#351)

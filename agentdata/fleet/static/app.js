@@ -1797,6 +1797,8 @@ var mapLink = /** @type {HTMLAnchorElement} */ (document.getElementById("mapbtn"
 if (mapLink) mapLink.href = pageUrl("/map");
 var chatLink = /** @type {HTMLAnchorElement} */ (document.getElementById("chatbtn"));
 if (chatLink) chatLink.href = pageUrl("/chat");
+var worldLink = /** @type {HTMLAnchorElement} */ (document.getElementById("worldbtn"));
+if (worldLink) worldLink.href = pageUrl("/world");
 
 refresh().then(function () {
   LOAD.settled = document.body.dataset.skin || "";

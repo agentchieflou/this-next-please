@@ -726,6 +726,31 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
     assert sent < CHAT_BUDGET, (sent, scripts_)
 
 
+#: The world's own scripts (#626): `static/world/**/*.js`, gzipped as served. Outside the desk's
+#: 200 KiB like `M_BUDGET`: a desk never fetches them. They measured about 17 KiB when they arrived:
+#: `world/world.js` 12.4 KiB (the scene, the rain, the walk, the pad, a conversation, the character
+#: picker) and `world/hero.js` 4.2 KiB (the player's character); three.js is the vendored copy, counted
+#: nowhere here, as for the ink layer and the map.
+WORLD_BUDGET = 22 * 1024
+
+
+def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
+    """`world.html` and `world.css` sit in `static/` beside the desk's files, so the 200 KiB above
+    counts them; they are held to 4 KiB of it together. The world's script has a budget of its own."""
+    import gzip as gz
+
+    def wire(rel):
+        return len(gz.compress(S.static_body(rel), 6, mtime=0))
+
+    page = wire("world.html") + wire("world.css")
+    assert page < 4 * 1024, page
+    scripts_ = world_scripts()
+    assert scripts_ == ["world/hero.js", "world/world.js"], scripts_
+    sent = sum(wire(n) for n in scripts_)
+    print(f"\n  world page {page} bytes gzipped; world scripts {sent} bytes gzipped {scripts_}")
+    assert sent < WORLD_BUDGET, (sent, scripts_)
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""
@@ -737,7 +762,8 @@ def test_the_page_and_its_assets_are_served_compressed():
     thread.start()
     port = server.server_address[1]
     try:
-        for route in ("/", "/settings", "/map", "/m", "/chat", "/static/m/m.js", "/static/chat/chat.js",
+        for route in ("/", "/settings", "/map", "/m", "/chat", "/world", "/static/m/m.js",
+                      "/static/chat/chat.js", "/static/world/world.js",
                       "/static/app.js", "/static/common.js",
                       "/static/settings.js", "/static/app.css", "/static/ink/ink.js",
                       "/static/ink/layer.js"):
@@ -782,7 +808,7 @@ def scripts() -> list[str]:
              if n.endswith(".js")]
     # The map's scripts (#405), walked all the way down: its scene and skins (#409, #414) will
     # live in folders under `static/map/`.
-    return sorted(top + ink + skins + map_scripts() + m_scripts() + chat_scripts())
+    return sorted(top + ink + skins + map_scripts() + m_scripts() + chat_scripts() + world_scripts())
 
 
 def m_scripts() -> list[str]:
@@ -793,6 +819,11 @@ def m_scripts() -> list[str]:
 def chat_scripts() -> list[str]:
     """Every `.js` under `static/chat/` (the chat view), as a path under `static/`."""
     return map_scripts("chat")
+
+
+def world_scripts() -> list[str]:
+    """Every `.js` under `static/world/` (#626), as a path under `static/`."""
+    return map_scripts("world")
 
 
 def map_scripts(folder="map") -> list[str]:
@@ -843,7 +874,8 @@ PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("map.html", ["map/map.js", "common.js"]),
                 ("m.html", ["m/m.js", "common.js"]),
                 ("tidy.html", ["tidy.js", "common.js"]),
-                ("chat.html", ["chat/chat.js", "common.js"])]
+                ("chat.html", ["chat/chat.js", "common.js"]),
+                ("world.html", ["world/world.js", "world/hero.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
@@ -961,7 +993,7 @@ def test_the_page_can_actually_fetch_its_own_css_and_js(running):
     the URLs out of the served HTML and fetches exactly those.
     """
     base, token, _ = running
-    for page in ("/", "/settings", "/m", "/chat"):
+    for page in ("/", "/settings", "/m", "/chat", "/world"):
         html = urllib.request.urlopen(f"{base}{page}?t={token}", timeout=5).read().decode()
 
         refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
