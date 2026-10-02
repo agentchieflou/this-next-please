@@ -192,7 +192,8 @@ def check_brief(spec_path: str | Path, model_override: N.Model | None = None) ->
                 repl = visual_types[vtype].get("replacement")
                 findings.append(Finding("warning", "brief-visual-type-legacy", v_loc, str(vtype),
                                        f"Visual uses deprecated legacy type '{vtype}'",
-                                       f"use modern replacement '{repl}'"))
+                                       f"use modern replacement '{repl}'" if repl
+                                       else visual_types[vtype].get("description", "")))
 
             # Canvas boundary check
             if x < 0 or y < 0 or (x + w > cw) or (y + h > ch):

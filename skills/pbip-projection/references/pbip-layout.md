@@ -10,8 +10,10 @@
   definition/pages/pages.json         {"pageOrder":[...],"activePageName":...}  -> order is meaningful
   definition/pages/<pageId>/page.json displayName, filterConfig, visualInteractions
   definition/pages/<pageId>/visuals/<visualId>/visual.json
-  definition/bookmarks/*.json         explorationState.sections.<page>.visualContainers.<visualId>
-  definition/reportExtension.json     report-level measures (entities[].measures[])
+  definition/bookmarks/bookmarks.json the bookmark index: Desktop lists only the bookmarks named here
+  definition/bookmarks/<name>.bookmark.json  explorationState.sections.<page>.visualContainers.<visualId>
+  definition/reportExtensions.json    report-level measures (entities[].measures[]); older projects may hold
+                                      reportExtension.json (singular): both are read
   localSettings.json                  user-local; never commit
 <Name>.SemanticModel/
   .platform, definition.pbism         {"version":"4.2"} — do not edit
@@ -38,6 +40,14 @@ Every reference is one object with exactly one key: `Column`, `Measure`, `Aggreg
 - Visual `name`: 20 lowercase hex chars, unique per page — keep Desktop's; bookmarks, sync groups and interactions point at it.
 - Page `name`: unique per report (`ReportSection…` or 20 hex). Filter `name`: `Filter` + 24 hex, unique across the whole report.
 - `$schema` URLs carry a version Desktop bumps with releases: preserve them, never invent or bump one; copy from a sibling file.
+  `ad-pbip page|visual|bookmark add` do exactly that (the highest version a file of that kind declares), and say so in
+  their `schema` field: `copied from <file>`.
+- A kind the project has no file of gets what Power BI Desktop 2.157 (August 2026) writes, the one table in
+  `agentdata/pbip/pbir.py` (`DESKTOP_SCHEMAS`), reported as `2.157 default`: report 3.3.0, page 2.1.0,
+  pagesMetadata 1.1.0, visualContainer 2.12.0, visualContainerMobileState 2.7.0, bookmark 2.1.0,
+  bookmarksMetadata 1.0.0, versionMetadata 1.0.0, reportExtension 1.0.0; `definition.pbir` is definitionProperties
+  2.0.0. A Desktop older than 2.157 may refuse such a file: open the project with 2.157 or later.
+- Desktop converts a PBIR-Legacy report (`report.json` at the report root) to PBIR when it saves: PBIR is the default.
 - `definition.pbir` `version` "4.0" and `version.json` "2.0.0" are constants.
 
 ## Volatile (do not diff, do not "fix") vs load-bearing

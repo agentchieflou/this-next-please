@@ -174,8 +174,9 @@ def page_add(pbip_path: str, name: str, after: str | None = None,
     page_dir = pages_base / page_id
     os.makedirs(page_dir / "visuals", exist_ok=True)
 
+    page_schema, page_why = P.schema_for(root, "page")
     page_data = {
-        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/1.0.0/schema.json",
+        "$schema": page_schema,
         "name": page_id,
         "displayName": name.strip(),
         "displayOption": "FitToPage",
@@ -192,8 +193,10 @@ def page_add(pbip_path: str, name: str, after: str | None = None,
         pages_meta = _load_json(pages_json_path)
         pages_order = list(pages_meta.get("pageOrder") or [])
 
+    pages_note = None
     if not pages_meta.get("$schema"):
-        pages_meta["$schema"] = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/pagesMetadata/1.0.0/schema.json"
+        pages_meta["$schema"], why = P.schema_for(root, "pagesMetadata")
+        pages_note = P.schema_note("pagesMetadata", pages_meta["$schema"], why)
 
     if after and after in pages_order:
         idx = pages_order.index(after) + 1
@@ -226,6 +229,8 @@ def page_add(pbip_path: str, name: str, after: str | None = None,
         "displayName": name,
         "path": textio.norm_path(str(page_dir / "page.json")),
         "pageOrder": pages_order,
+        "schema": P.schema_note("page", page_schema, page_why),
+        **({"pages_schema": pages_note} if pages_note else {}),
     }
 
 
@@ -306,7 +311,11 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
     vmeta = visuals[visual_type]
     if vmeta.get("legacy"):
         repl = vmeta.get("replacement")
-        raise ValueError(f"Legacy visual type '{visual_type}' is deprecated; use modern replacement '{repl}' instead.")
+        instead = f"use modern replacement '{repl}' instead" if repl else vmeta.get("description", "")
+        raise ValueError(f"Legacy visual type '{visual_type}' is deprecated; {instead}.")
+    if vmeta.get("add_in_desktop"):
+        raise ValueError(f"`visual add` cannot make a working '{visual_type}': {vmeta['add_in_desktop']}. Add it in "
+                         "Desktop, or invoke friction-log with type: contract naming the missing verb.")
 
     # 2. Validate position against canvas
     x, y, w, h = position or (20, 20, 500, 300)
@@ -369,8 +378,9 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
     vis_dir = page_dir / "visuals" / visual_id
     os.makedirs(vis_dir, exist_ok=True)
 
+    vis_schema, vis_why = P.schema_for(root, "visualContainer")
     vis_data: dict[str, Any] = {
-        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.0.0/schema.json",
+        "$schema": vis_schema,
         "name": visual_id,
         "position": {
             "x": x,
@@ -413,6 +423,7 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
         "page_id": page_dir.name,
         "path": textio.norm_path(str(vj_path)),
         "position": {"x": x, "y": y, "width": w, "height": h},
+        "schema": P.schema_note("visualContainer", vis_schema, vis_why),
     }
 
 
@@ -647,7 +658,10 @@ def filter_set(pbip_path: str, scope: str, field_ref: str,
 
 def bookmark_add(pbip_path: str, name: str, page: str,
                  visuals: list[str] | None = None) -> dict[str, Any]:
-    """Create a bookmark definition file."""
+    """Create a bookmark: `bookmarks/<name>.bookmark.json`, listed in `bookmarks/bookmarks.json`.
+
+    Both as Microsoft's PBIR folder table has them: Desktop ignores a file whose name breaks the naming convention, and
+    leaves a bookmark that bookmarks.json does not list out of the report's bookmark list."""
     root = P.find_report_dir(pbip_path)
     page_dir, _ = find_page_dir(root, page)
     page_id = page_dir.name
@@ -658,8 +672,9 @@ def bookmark_add(pbip_path: str, name: str, page: str,
     bm_id = "Bookmark" + _gen_hex(16)
     v_dict = {vid: {} for vid in (visuals or [])}
 
+    bm_schema, bm_why = P.schema_for(root, "bookmark")
     bm_data = {
-        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/bookmark/1.0.0/schema.json",
+        "$schema": bm_schema,
         "name": bm_id,
         "displayName": name,
         "explorationState": {
@@ -673,9 +688,24 @@ def bookmark_add(pbip_path: str, name: str, page: str,
         }
     }
 
-    bm_file = bm_dir / f"{bm_id}.json"
+    bm_file = bm_dir / f"{bm_id}.bookmark.json"
     _save_json(bm_file, bm_data)
-    return {"ok": True, "action": "bookmark_add", "name": bm_id, "displayName": name, "path": textio.norm_path(str(bm_file))}
+
+    index_path = bm_dir / "bookmarks.json"
+    index = _load_json(index_path) if index_path.exists() else {}
+    index_note = None
+    if not index.get("$schema"):
+        url, why = P.schema_for(root, "bookmarksMetadata")
+        index = {"$schema": url, **index}
+        index_note = P.schema_note("bookmarksMetadata", url, why)
+    if "items" not in index:  # a new index lists the bookmarks already here first, so none leaves the list
+        index["items"] = [{"name": _load_json(f).get("name") or f.name[:-len(".bookmark.json")]}
+                          for f in sorted(bm_dir.glob("*.bookmark.json")) if f != bm_file]
+    index["items"].append({"name": bm_id})
+    _save_json(index_path, index)
+    return {"ok": True, "action": "bookmark_add", "name": bm_id, "displayName": name, "path": textio.norm_path(str(bm_file)),
+            "schema": P.schema_note("bookmark", bm_schema, bm_why),
+            **({"bookmarks_schema": index_note} if index_note else {})}
 
 
 def theme_set(pbip_path: str, theme_file: str) -> dict[str, Any]:

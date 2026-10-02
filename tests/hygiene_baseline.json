@@ -863,6 +863,9 @@
     "tests/test_pbip_handoff_cli.py": {
       "tests": 29
     },
+    "tests/test_pbir_2157.py": {
+      "tests": 12
+    },
     "tests/test_pbir_author.py": {
       "tests": 16
     },
