@@ -76,6 +76,67 @@ def parse_help_config(text: str) -> list[str]:
     return out
 
 
+CONFIG_KEY = re.compile(r"^\s+`([^`]+)`:\s*(.*)$")
+CONFIG_NOTE = re.compile(r"^\s+-\s+(.*)$")
+
+#: Copilot's own settings (its `/config`, `copilot help config`) that the fleet sets for each agent
+#: as a flag at launch, and the fleet setting that does it. Every other key Copilot lists stays in
+#: `~/.copilot/config.json`, which the operator's own chats share and the fleet never writes.
+COVERED = {
+    "model": "fleet.models",
+    "contextTier": "fleet.copilot.context",
+    "context_tier": "fleet.copilot.context",
+    "logLevel": "fleet.copilot.log_level",
+    "log_level": "fleet.copilot.log_level",
+    "reasoningEffort": "fleet.models",
+    "reasoning_effort": "fleet.models",
+    "trusted_folders": "fleet.copilot.add_dirs",
+    "trustedFolders": "fleet.copilot.add_dirs",
+}
+
+
+def parse_config_keys(text: str) -> list[dict]:
+    """Every setting `copilot help config` documents: `{key, about, choices}`, in the CLI's order.
+
+    The bullet lines under a key are its choices when they are quoted values (the model ids) and
+    part of its description otherwise ("Can also be set with --context flag").
+    """
+    out: list[dict] = []
+    for line in (text or "").splitlines():
+        m = CONFIG_KEY.match(line)
+        if m:
+            out.append({"key": m.group(1), "about": m.group(2).strip(), "choices": []})
+            continue
+        n = CONFIG_NOTE.match(line)
+        if n and out:
+            item = ITEM.match(line)
+            if item:
+                out[-1]["choices"].append(item.group(1))
+            else:
+                out[-1]["about"] = (out[-1]["about"] + " " + n.group(1).strip()).strip()
+    return out
+
+
+def config_keys(cache: dict | None = None) -> dict:
+    """Copilot's own settings as the installed CLI documents them, each with the fleet setting that
+    covers it per agent (`covered_by`), or none: then it is Copilot's, in its own file."""
+    if cache is None:
+        cache = load_cache() or {}
+        if not cache.get("config"):
+            # Never a blank table: the keys the shipped CLI build documents, until the CLI is asked.
+            cache = {**shipped(), "shipped": True}
+    rows = []
+    for row in cache.get("config") or []:
+        if not isinstance(row, dict) or not row.get("key"):
+            continue
+        key = str(row["key"])
+        rows.append({"key": key, "about": str(row.get("about") or ""),
+                     "choices": len(row.get("choices") or []),
+                     "covered_by": COVERED.get(key, "")})
+    return {"rows": rows, "cli_version": str(cache.get("cli_version") or ""),
+            "known": bool(cache.get("config")), "shipped": bool(cache.get("shipped"))}
+
+
 def parse_efforts(text: str) -> list[str]:
     """The levels `--reasoning-effort` takes, from either `--help` format (`[possible values: …]`
     on 1.0.88, `(choices: "…")` on 1.0.81)."""
@@ -154,7 +215,9 @@ def discover_help(timeout: int = TIMEOUT, *, cli_version: str | None = None,
     try:
         version = (cli_version if cli_version is not None
                    else parse_version(_run(["copilot", "--version"], timeout, stop)))
-        ids, source = parse_help_config(_run(["copilot", "help", "config"], timeout, stop)), "help"
+        config_text = _run(["copilot", "help", "config"], timeout, stop)
+        ids, source = parse_help_config(config_text), "help"
+        config = parse_config_keys(config_text)
         efforts = parse_efforts(_run(["copilot", "--help"], timeout, stop))
         if not ids:
             ids, source = parse_completion(_run(["copilot", "completion", "bash"], timeout, stop)), "completion"
@@ -162,7 +225,8 @@ def discover_help(timeout: int = TIMEOUT, *, cli_version: str | None = None,
         return {"ok": False, "why": e.msg, "code": e.code}
     if not ids:
         return {"ok": False, "why": "copilot help config and completion bash listed no models", "code": "no_models"}
-    return {"ok": True, "source": source, "cli_version": version, "models": ids, "efforts": efforts}
+    return {"ok": True, "source": source, "cli_version": version, "models": ids, "efforts": efforts,
+            "config": config}
 
 
 # ------------------------------------------------------------------------------------ the cache
@@ -226,7 +290,8 @@ def refresh(cfg: dict | None = None, *, cli_version: str | None = None, path: st
         return _read(path) or {"failed": True, "why": STOPPED}
     if got["ok"]:
         cache = {"source": got["source"], "cli_version": got["cli_version"], "fetched_at": _now(),
-                 "models": got["models"], "efforts": got["efforts"], "why": ""}
+                 "models": got["models"], "efforts": got["efforts"], "why": "",
+                 "config": got.get("config") or []}
         textio.write_json(path, cache)
         return cache
     cache = _read(path)

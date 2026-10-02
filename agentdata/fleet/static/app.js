@@ -3861,6 +3861,8 @@ function openModelCard(repo, anchor) {
   sayOnModelField(null, "");
   var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
   all.href = pageUrl("/settings") + "#model-" + encodeURIComponent(repo);
+  var own = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-agent"));
+  if (own) own.href = pageUrl("/settings", { agent: repo });
 
   hide(card, false);
   if (drawModelCard()) { placeModelCard(anchor); focusPressedPill(); }

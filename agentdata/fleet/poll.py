@@ -59,6 +59,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from . import overrides as OV
 from .. import config as C
 from .. import textio
 from ..connectors.jira_http import JiraBudgetError, RequestBudget
@@ -428,7 +429,7 @@ class Poller:
                 self._branch_rows[repo.name] = _map_rows(read, now)
         except Exception:                         # noqa: BLE001 - the branch stays; the count is absent
             pass
-        self._ok(repo.name, "git", now, _git_value(answer, warn=warn_at(self.cfg)))
+        self._ok(repo.name, "git", now, _git_value(answer, warn=warn_at(OV.for_agent(self.cfg, repo.name))))
         return []
 
     def now_for(self, repo) -> list[dict]:
@@ -834,8 +835,9 @@ def branches(repo, *, cfg: dict | None = None, force: bool = False, now: float |
     if hit and not force and now - hit[0] < ttl:
         return {**hit[1], "cached": True, "age_s": round(now - hit[0], 1)}
     answer = read_branches(repo, full=True, now=now)
-    answer["warn"] = len(answer["branches"]) >= warn_at(cfg)
-    answer["warn_at"] = warn_at(cfg)
+    mine = OV.for_agent(cfg, repo.name)
+    answer["warn"] = len(answer["branches"]) >= warn_at(mine)
+    answer["warn_at"] = warn_at(mine)
     answer["carry_line"] = carry_line(answer)
     _branches_cache[repo.path] = (now, answer)
     return {**answer, "cached": False, "age_s": 0.0}

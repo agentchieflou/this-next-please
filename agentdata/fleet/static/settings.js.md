@@ -382,3 +382,49 @@ opened from settings and a cold open both read `navigate`, and every page is `no
 In `try { sessionStorage.setItem("fleet.load.from", "settings"); } catch (e) { }`:
 
 not counted
+
+### `var scope`
+
+The agent the Copilot block and the permission lists are showing, from `?agent=<repo>` so a pane can
+link straight to its own agent's settings. Empty is every agent. The page never decides what an agent
+runs with: each agent's rows, their sources and its resolved allow/deny come back from
+`settings_snapshot()["agents"]`, which reads them through `overrides.for_agent` exactly as a launch
+does, so the page cannot show a value the launch would not use.
+
+### `function scoped`
+
+Every write the Copilot block makes carries `agent` when one is picked, so one control writes either
+the fleet's value or that agent's, and the server's per-agent refusals (`not_per_agent`, `no_repo`)
+answer a key that only means something fleet-wide.
+
+### `function renderScope`
+
+The picker's options are the registered agents. A picked agent that is no longer registered falls back
+to every agent rather than drawing an empty block.
+
+### `function renderConfig`
+
+With an agent picked, only the settings an agent can have of its own are drawn, each with where its
+value comes from and, when it is the agent's own, *use every agent's* to drop it. The appearance rows
+stay fleet-wide (`fleetOnly`): they are how the desk is drawn, not how an agent is launched. With every
+agent picked, a row that some agents override names them, because a fleet-wide change does not reach
+those.
+
+### `function listRow`
+
+The list settings (`also allowed`, `also denied`, `extra directories`) are edited an entry at a time
+and saved whole: the fleet's entries with every agent picked, the agent's own with one picked. The
+fleet's entries still show under an agent, unremovable there, because they are on its launch too. A
+broad entry (`powershell`, `bash`: every command that tool runs) is marked every time it is shown.
+
+### `function renderCopilotConfig`
+
+Copilot's own settings as the installed CLI documents them (`copilot help config`, cached by the model
+refresh). A key a fleet setting covers is set per agent as a flag; every other one lives in
+`~/.copilot/config.json`, which the operator's own chats share and the fleet never writes. Saying which
+is which, key by key, is the answer to "my fleet settings and my Copilot settings are mashing up".
+
+### `function draw`
+
+One redraw of everything the scope changes, so picking an agent needs no second request: `lastData`
+already holds every agent's view.

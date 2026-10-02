@@ -323,6 +323,12 @@
     "tests/test_fleet.py": {
       "tests": 32
     },
+    "tests/test_fleet_agent_settings.py": {
+      "tests": 11
+    },
+    "tests/test_fleet_agent_settings_page.py": {
+      "tests": 2
+    },
     "tests/test_fleet_approval.py": {
       "tests": 34
     },

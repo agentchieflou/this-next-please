@@ -208,9 +208,11 @@ static `href="/settings"` is a 403 that reads exactly like a dead button.
 The page has four blocks: **Appearance** (palette and skin), **Model per agent**, **Copilot** (the
 launch and notification settings the server enumerates), and **What an agent may run** — the
 resolved allow and deny lists, read-only, each pattern labelled with whether it shipped or was
-configured. It is read-only on purpose: `fleet.allow_tools` *replaces* the default rather than
+configured. The base list is read-only on purpose: `fleet.allow_tools` *replaces* the default rather than
 adding to it, so a list saved from a page would become the whole boundary, and an operator who
-saved one would silently stop receiving any command a later version adds.
+saved one would silently stop receiving any command a later version adds. What the page edits are
+the *also allowed* / *also denied* / *extra directories* lists, which add to it, for every agent or
+for the agent picked at the top of the Copilot block ([setup.md](setup.md) §The fleet's settings page).
 
 What the page is *wearing* is answered by the server: `GET /api/themes` returns the palettes, the
 skins, and which of them is `current`, because a page that can only fill the pickers and not set
@@ -544,8 +546,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream); `?w=left&shell=pycharm&page=map` say which window is listening (#404, the desk sends `w` and its `shell`): `w` and `page` are kept when they match `^[a-z0-9][a-z0-9_-]{0,31}$`, else `main` and `settings` (for `frames=theme`) or `desk`; `shell` is `shell=`, else `w=`. Kept in memory while the stream is open, never on disk, and read by `/api/map`'s `network.windows` ([fleet-map.md](fleet-map.md) §The network) |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
-| GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
-| POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |
+| GET | `/api/settings` | the editable keys with their type, default, effect-scope, `per_agent` and `overridden_by`; what each is set to; the model per repository; the resolved tool lists; `lists` (the `fleet.copilot.*` list settings); `agents[]` (each agent's effective value and source per setting, its lists and its resolved tools); `copilot_config` (Copilot's own `/config` keys and the fleet setting covering each) |
+| POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default; `{lists: [{key, items}]}` for a list setting; with `agent: <repo>`, `set`, `lists` and `inherit: [keys]` write or drop that agent's own values (`not_per_agent`, `no_repo`, `bad_pattern` refusals) |
 | GET | `/api/models` | the model list a picker offers (#361): `{refreshing, models, groups, efforts, meta}`, the catalogue of [fleet.md](fleet.md) §The rules with the ids the last turns ran on. Read from `<fleet dir>/models.json`, else the list shipped with the package with `meta.source: "shipped"` and `meta.stale: true`; it never starts the Copilot CLI |
 | POST | `/api/models` | `{refresh: true}` asks the CLI again on a thread and answers `{refreshing: true, started}` at once; an ask while a refresh runs joins it (`started: false`). A changed list reaches the pages as a `models` frame (§The stream). Not a row action |
 | POST | `/api/theme` | set the palette or the skin; answers with the stream's `theme` payload, css included (#346) |

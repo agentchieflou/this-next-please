@@ -1212,6 +1212,31 @@ body.settings-page .patterns li {
 }
 body.settings-page .patterns code { font: 11px var(--mono); color: var(--text); }
 body.settings-page .patterns .from { font-size: 11px; color: var(--muted); }
+body.settings-page .patterns li.broad code,
+body.settings-page .chip.broad code { color: var(--waiting-text, var(--text)); font-weight: 600; }
+body.settings-page .source {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
+  padding: 0 7px; white-space: nowrap;
+}
+body.settings-page .source-agent { color: var(--text); border-color: var(--accent); }
+body.settings-page .inherit,
+body.settings-page .addone,
+body.settings-page .dropone {
+  font: inherit; font-size: 11px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer;
+}
+body.settings-page .inherit:hover,
+body.settings-page .addone:hover,
+body.settings-page .dropone:hover { border-color: var(--accent); }
+body.settings-page .listrow .chips {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%;
+}
+body.settings-page .chip {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+  border-radius: 6px; padding: 2px 6px;
+}
+body.settings-page .chip code { font: 11px var(--mono); color: var(--text); }
+body.settings-page #copilotcfg code { font: 11px var(--mono); }
 
 @media (max-width: 640px) {
   body.settings-page main.settings { width: 100%; min-width: 0; box-sizing: border-box; }

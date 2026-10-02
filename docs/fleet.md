@@ -420,6 +420,7 @@ And when a tile is wrong rather than the fleet:
 | `needs_human` | a refused tool, or it asked and stopped | answer it: `ad-fleet answer <repo> <id> "…"`, or `ad-fleet send <repo> "…"` |
 | `waiting_approval` | a write is one click away | `ad-fleet approve <id>`, or the tile |
 | `running` forever | it really is running | `ad-fleet logs <repo>`; `stop` if it is stuck |
+| `needs_human` on a PowerShell command, again | a permission approved in a Copilot window lasts that session; the next fleet launch carries the fleet's own list | `/settings?agent=<repo>` → *also allowed*: `powershell` (every command) or `shell(<command>)`; it is on every launch from then on ([setup.md](setup.md) §The fleet's settings page) |
 
 ## What it deliberately is not
 

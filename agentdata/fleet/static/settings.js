@@ -541,7 +541,16 @@ if (modelRefresh) {
   });
 }
 
-function controlFor(key, spec, current) {
+var scope = new URLSearchParams(location.search).get("agent") || "";
+var lastData = null;
+var SOURCE_WORDS = { agent: "this agent", fleet: "every agent", "default": "default" };
+
+function scoped(body) {
+  if (scope) body.agent = scope;
+  return body;
+}
+
+function controlFor(key, spec, current, fleetOnly) {
   var el;
   if (spec.type === "bool") {
     el = document.createElement("input");
@@ -568,7 +577,8 @@ function controlFor(key, spec, current) {
   el.id = "cfg-" + key.replace(/\./g, "-");
   el.addEventListener("change", function () {
     var value = spec.type === "bool" ? el.checked : el.value;
-    post("settings", { set: [{ key: key, value: value }] }).then(function (res) {
+    var body = { set: [{ key: key, value: value }] };
+    post("settings", fleetOnly ? body : scoped(body)).then(function (res) {
       if (res && res.ok === false) {
         problem(el, res.error + (res.hint ? " — " + res.hint : ""));
         return;
@@ -583,6 +593,77 @@ function controlFor(key, spec, current) {
 
 var SECTIONS = { copilot: "cfgrows", appearance: "tierrows" };
 
+function agentView(data) {
+  return scope ? (data.agents || []).filter(function (a) { return a.repo === scope; })[0] || null : null;
+}
+
+function renderScope(data) {
+  var sel = document.getElementById("scope");
+  var note = document.getElementById("scopenote");
+  if (!sel) return;
+  var names = (data.agents || []).map(function (a) { return a.repo; });
+  if (scope && names.indexOf(scope) < 0) scope = "";
+  while (sel.options.length > 1) sel.remove(1);
+  names.forEach(function (name) {
+    var option = document.createElement("option");
+    option.value = name;
+    text(option, name);
+    sel.appendChild(option);
+  });
+  sel.value = scope;
+  var mine = agentView(data);
+  var own = mine ? mine.rows.filter(function (r) { return r.source === "agent"; }).length : 0;
+  text(note, mine ? (own ? own + " of its own; the rest are every agent's" : "nothing of its own yet: every row is every agent's")
+                  : "pick an agent to see and change what it alone is launched with");
+}
+
+function sourceChip(source, title) {
+  var chip = document.createElement("span");
+  chip.className = "source source-" + source;
+  text(chip, SOURCE_WORDS[source] || source);
+  chip.title = title || "";
+  return chip;
+}
+
+function inheritButton(keys, what) {
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = "inherit";
+  text(b, "use every agent's");
+  b.title = "drop " + scope + "'s own " + what + "; it follows every agent's again";
+  b.addEventListener("click", function () {
+    post("settings", { agent: scope, inherit: keys }).then(function (res) {
+      if (res && res.ok === false) { saidSaved("not saved — " + (res.error || "refused")); return; }
+      saidSaved("saved — " + scope + " follows every agent");
+      load();
+    });
+  });
+  return b;
+}
+
+function configRow(host, spec, current, extra, fleetOnly) {
+  var row = document.createElement("div");
+  row.className = "setrow";
+  var label = document.createElement("label");
+  text(label, spec.label || spec.key);
+  label.title = spec.key;
+  var control = controlFor(spec.key, spec, current, fleetOnly);
+  label.htmlFor = control.id;
+  row.appendChild(label);
+  row.appendChild(control);
+  (extra || []).forEach(function (el) { row.appendChild(el); });
+  var when = document.createElement("span");
+  when.className = "when";
+  text(when, spec.scope || "");
+  when.title = "when a change here takes effect";
+  row.appendChild(when);
+  var why = document.createElement("span");
+  why.className = "why inline";
+  text(why, spec.why || "");
+  row.appendChild(why);
+  host.appendChild(row);
+}
+
 function renderConfig(data) {
   var hosts = {};
   Object.keys(SECTIONS).forEach(function (name) {
@@ -590,28 +671,163 @@ function renderConfig(data) {
     if (el) while (el.firstChild) el.removeChild(el.firstChild);
     hosts[name] = el;
   });
+  var mine = agentView(data);
+  var specs = {};
+  (data.editable || []).forEach(function (spec) { specs[spec.key] = spec; });
+  if (mine) {
+    (data.editable || []).filter(function (spec) { return spec.section !== "copilot"; }).forEach(function (spec) {
+      var host = hosts[spec.section];
+      if (host) configRow(host, spec, (data.current || {})[spec.key], [], true);
+    });
+    mine.rows.forEach(function (r) {
+      var spec = specs[r.key];
+      if (!spec || !hosts.copilot) return;
+      var extra = [sourceChip(r.source, r.source === "agent" ? "every agent's: " + String(r.fleet) : "")];
+      if (r.source === "agent") extra.push(inheritButton([r.key], spec.label));
+      configRow(hosts.copilot, spec, r.value, extra);
+    });
+    return;
+  }
   (data.editable || []).forEach(function (spec) {
     var host = hosts[spec.section] || hosts.copilot;
     if (!host) return;
-    var row = document.createElement("div");
-    row.className = "setrow";
-    var label = document.createElement("label");
-    text(label, spec.label || spec.key);
-    label.title = spec.key;
-    var control = controlFor(spec.key, spec, (data.current || {})[spec.key]);
-    label.htmlFor = control.id;
-    row.appendChild(label);
-    row.appendChild(control);
-    var scope = document.createElement("span");
-    scope.className = "when";
-    text(scope, spec.scope || "");
-    scope.title = "when a change here takes effect";
-    row.appendChild(scope);
-    var why = document.createElement("span");
-    why.className = "why inline";
-    text(why, spec.why || "");
-    row.appendChild(why);
-    host.appendChild(row);
+    var extra = [];
+    if ((spec.overridden_by || []).length) {
+      extra.push(sourceChip("agent", "these agents set their own: " + spec.overridden_by.join(", ")));
+      text(extra[0], "own value: " + spec.overridden_by.join(", "));
+    }
+    configRow(host, spec, (data.current || {})[spec.key], extra);
+  });
+}
+
+function listRow(host, spec, rows) {
+  var row = document.createElement("div");
+  row.className = "setrow listrow";
+  row.id = "list-" + spec.key.replace(/\./g, "-");
+  var label = document.createElement("label");
+  text(label, spec.label);
+  label.title = spec.key;
+  var input = document.createElement("input");
+  input.type = "text";
+  input.id = row.id + "-add";
+  input.placeholder = spec.item === "dir" ? "an absolute folder" : "powershell, or shell(<command>)";
+  label.htmlFor = input.id;
+  var own = rows.filter(function (r) { return scope ? r.source === "agent" : r.source === "fleet"; })
+                .map(function (r) { return r.item; });
+  var save = function (items, said) {
+    var body = scoped({ lists: [{ key: spec.key, items: items }] });
+    post("settings", body).then(function (res) {
+      if (res && res.ok === false) {
+        problem(input, res.error + (res.hint ? " — " + res.hint : ""));
+        return;
+      }
+      problem(input, "");
+      input.value = "";
+      saidSaved("saved — " + said + ", " + (spec.scope || "next turn"));
+      load();
+    });
+  };
+  var add = document.createElement("button");
+  add.type = "button";
+  add.className = "addone";
+  text(add, "add");
+  add.addEventListener("click", function () {
+    if (!input.value.trim()) return;
+    save(own.concat([input.value.trim()]), (scope ? scope + " " : "every agent ") + "also gets " + input.value.trim());
+  });
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") add.click(); });
+  row.appendChild(label);
+  row.appendChild(input);
+  row.appendChild(add);
+  var chips = document.createElement("ul");
+  chips.className = "chips";
+  rows.forEach(function (r) {
+    var li = document.createElement("li");
+    li.className = "chip" + (r.broad ? " broad" : "");
+    var code = document.createElement("code");
+    text(code, r.item);
+    li.appendChild(code);
+    li.appendChild(sourceChip(r.source, ""));
+    if (r.broad) li.title = "broad: every command this tool can run (the deny floor still applies)";
+    var mineToo = scope ? r.source === "agent" : r.source === "fleet";
+    if (mineToo) {
+      var x = document.createElement("button");
+      x.type = "button";
+      x.className = "dropone";
+      text(x, "remove");
+      x.title = "remove " + r.item;
+      x.addEventListener("click", function () {
+        save(own.filter(function (i) { return i !== r.item; }), r.item + " removed");
+      });
+      li.appendChild(x);
+    }
+    chips.appendChild(li);
+  });
+  row.appendChild(chips);
+  var why = document.createElement("span");
+  why.className = "why inline";
+  text(why, spec.why || "");
+  row.appendChild(why);
+  host.appendChild(row);
+}
+
+function renderLists(data) {
+  var host = document.getElementById("listrows");
+  if (!host) return;
+  while (host.firstChild) host.removeChild(host.firstChild);
+  var mine = agentView(data);
+  (data.lists || []).forEach(function (spec) {
+    listRow(host, spec, mine ? (mine.lists[spec.key] || []) : (spec.rows || []));
+  });
+}
+
+function renderCopilotConfig(data) {
+  var body = document.getElementById("copilotrows");
+  var count = document.getElementById("copilotcount");
+  if (!body) return;
+  while (body.firstChild) body.removeChild(body.firstChild);
+  var cfg = data.copilot_config || {};
+  var rows = cfg.rows || [];
+  text(count, !cfg.known ? "(not asked yet: refresh the model list above)"
+    : "(" + rows.length + (cfg.cli_version ? ", CLI " + cfg.cli_version : "")
+      + (cfg.shipped ? ", the shipped list until copilot is asked" : "") + ")");
+  rows.forEach(function (r) {
+    var tr = document.createElement("tr");
+    var key = document.createElement("td");
+    var code = document.createElement("code");
+    text(code, r.key);
+    key.appendChild(code);
+    var by = document.createElement("td");
+    text(by, r.covered_by || "Copilot's own file");
+    by.title = r.covered_by ? "a flag on each agent's command line" : "shared with your own chats; /config in a Copilot window";
+    var about = document.createElement("td");
+    text(about, r.about + (r.choices ? " (" + r.choices + " choices)" : ""));
+    tr.appendChild(key);
+    tr.appendChild(by);
+    tr.appendChild(about);
+    body.appendChild(tr);
+  });
+}
+
+function draw(data) {
+  renderScope(data);
+  renderConfig(data);
+  renderLists(data);
+  renderCopilotConfig(data);
+  var mine = agentView(data);
+  var tools = (mine ? mine.tools : data.tools) || {};
+  renderPatterns("allowlist", "allowcount", tools.allow);
+  renderPatterns("denylist", "denycount", tools.deny);
+}
+
+var scopeSel = document.getElementById("scope");
+if (scopeSel) {
+  scopeSel.addEventListener("change", function () {
+    scope = scopeSel.value;
+    var u = new URL(location.href);
+    if (scope) u.searchParams.set("agent", scope); else u.searchParams.delete("agent");
+    history.replaceState(null, "", u.toString());
+    if (lastData) draw(lastData);
   });
 }
 
@@ -636,9 +852,14 @@ function renderPatterns(listId, countId, rows) {
     var from = document.createElement("span");
     from.className = "from";
     text(from, r.source);
-    from.title = r.source === "default"
-      ? "shipped with agentdata"
+    from.title = r.source === "default" ? "shipped with agentdata"
+      : r.source === "added" ? "also allowed or denied for every agent, from this page"
+      : r.source === "agent" ? "this agent's own, from this page"
       : "from ~/.agentdata/config.json";
+    if (r.broad) {
+      li.className = "broad";
+      li.title = "broad: every command this tool can run";
+    }
     li.appendChild(from);
     list.appendChild(li);
   });
@@ -652,11 +873,10 @@ function load() {
     .then(function (got) {
       var data = got[0];
       if (!data || data.ok === false) return;
+      lastData = data;
       renderModels(data);
-      renderConfig(data);
+      draw(data);
       renderTierNote(data.tiers);
-      renderPatterns("allowlist", "allowcount", (data.tools || {}).allow);
-      renderPatterns("denylist", "denycount", (data.tools || {}).deny);
       landOnRow();
     }).catch(function () {});
 }

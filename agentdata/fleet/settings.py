@@ -40,6 +40,13 @@ What is missing is missing on purpose, and the reasons are not the same:
 * `fleet.poll.*` and `fleet.inbox.folders` are read once, into a poller cached per process, so a
   control for them would appear to do nothing until the server restarted.
 
+A key marked `agent` can also be set for one agent (`fleet.agents.<repo>`, `overrides.py`), because
+its reader acts for one agent and reads it through `overrides.for_agent`. The rest are one value for
+the desk: they are read where no agent is in hand, so a per-agent value of one would never be read,
+and `apply_agent` refuses it (`not_per_agent`). `LISTS` are the three list settings that *add* to an
+agent's launch -- extra allowed and denied tool patterns, extra directories -- the editable part of
+"what an agent may run" beside the read-only base list.
+
 `tests/test_fleet_settings_api.py` asserts that every key here has a real `C.get` call site in
 `agentdata/`, which is what stops this table from growing a knob that does nothing -- the state
 `fleet.console.idle_s` is in today: documented, defaulted, and read by nobody.
@@ -48,6 +55,7 @@ from __future__ import annotations
 
 from .. import config as C
 from . import launch as LAUNCH
+from . import overrides as OV
 
 # When a change takes effect. The page prints this verbatim beside the control.
 NOW = "in effect now"
@@ -61,9 +69,11 @@ CONSOLE_HOSTS = ("cmd", "wt", "terminal", "fake")
 # when that is not the Copilot block.
 EDITABLE: dict[str, dict] = {
     "fleet.approval_timeout": {
+        "agent": True,
         "label": "approval window", "type": "int", "default": 30 * 60, "scope": NOW,
         "why": "seconds a write waits for your click before it is refused"},
     "fleet.max_restarts": {
+        "agent": True,
         "label": "restarts per session", "type": "int", "default": 1, "scope": NOW,
         "why": "an agent that fails twice the same way will fail a third time"},
     "fleet.log_mb": {
@@ -76,15 +86,18 @@ EDITABLE: dict[str, dict] = {
         "label": "board cache (s)", "type": "int", "default": 120, "scope": NOW,
         "why": "how long the Jira board is reused before it is fetched again"},
     "fleet.branches.warn": {
+        "agent": True,
         "label": "branch warning at", "type": "int", "default": 6, "scope": NOW,
         "why": "how many local branches before a checkout is flagged as cluttered"},
     "fleet.attach.max_mb": {
         "label": "attachment cap (MB)", "type": "int", "default": 10, "scope": NOW,
         "why": "the largest file the tray will copy into a checkout"},
     "fleet.console.palette": {
+        "agent": True,
         "label": "colour the console", "type": "bool", "default": True, "scope": NEXT_TURN,
         "why": "run `ad-theme apply` inside a console the fleet opens"},
     "fleet.console.host": {
+        "agent": True,
         "label": "console window", "type": "enum", "default": "", "scope": NEXT_TURN,
         "choices": list(CONSOLE_HOSTS),
         "why": "which terminal a console opens in; blank picks per platform"},
@@ -107,8 +120,24 @@ EDITABLE: dict[str, dict] = {
         "label": "quiet hours", "type": "str", "default": "", "scope": NOW,
         "why": 'no notifications in this window, e.g. "18:00-08:00"; it may wrap midnight'},
     "fleet.budget_per_agent": {
+        "agent": True,
         "label": "budget per agent", "type": "int", "default": 0, "scope": NOW,
         "why": "premium requests an agent may spend before its next reply is refused; 0 is off"},
+    # How an agent's Copilot is launched (friction: fleet settings mashing up with Copilot's). Each is
+    # a flag on the agent's own command line, never a write to `~/.copilot/config.json`, which the
+    # operator's own chats share; so each can differ per agent. The model and effort have their own
+    # block on the page (`fleet.models`), and the permission lists theirs (`LISTS` below).
+    "fleet.copilot.context": {
+        "agent": True, "label": "context tier", "type": "enum", "default": "", "scope": NEXT_TURN,
+        "choices": list(LAUNCH.CONTEXT_TIERS),
+        "why": "Copilot's `/model` context picker as `--context`; blank leaves it to Copilot"},
+    "fleet.copilot.log_level": {
+        "agent": True, "label": "Copilot log level", "type": "enum", "default": "error",
+        "scope": NEXT_TURN, "choices": list(LAUNCH.LOG_LEVELS),
+        "why": "`--log-level` for the agent's own Copilot log, under its fleet folder"},
+    "fleet.copilot.agent": {
+        "agent": True, "label": "custom agent", "type": "str", "default": "", "scope": NEXT_TURN,
+        "why": "run as this Copilot custom agent (`--agent`, Copilot's `/agent`); blank is the default agent"},
     "fleet.port": {
         "label": "port", "type": "int", "default": 8765, "scope": RESTART,
         "why": "the loopback port this page is served on"},
@@ -197,7 +226,10 @@ def describe(cfg: dict) -> list[dict]:
     for key, spec in EDITABLE.items():
         row = {"key": key, "label": spec["label"], "type": spec["type"], "scope": spec["scope"],
                "why": spec["why"], "default": spec["default"],
-               "section": spec.get("section", "copilot")}
+               "section": spec.get("section", "copilot"),
+               "per_agent": bool(spec.get("agent")),
+               # The agents that set this themselves, which a fleet-wide change does not reach.
+               "overridden_by": OV.agents_with(cfg, key)}
         if spec.get("choices"):
             row["choices"] = list(spec["choices"])
         for bound in ("min", "max"):
@@ -223,7 +255,138 @@ def apply(cfg: dict, key: str, value) -> None:
         raise SettingsError(f"{key} is not a setting this page may change",
                             "the page writes only the keys it lists; edit "
                             "`~/.agentdata/config.json` for anything else", code="unknown_key")
-    C.put(cfg, key, coerce(key, spec, value))
+    value = coerce(key, spec, value)
+    if key == "fleet.copilot.agent":
+        value = _launch_value("agent", value)
+    C.put(cfg, key, value)
+
+
+# ------------------------------------------------------------------------- one agent's own values
+
+
+def _launch_value(what: str, value):
+    try:
+        return LAUNCH.check_model_value(what, value)
+    except LAUNCH.LaunchError as e:
+        raise SettingsError(str(e), e.hint, code="bad_type") from None
+
+
+def _agent_name(cfg: dict, repo: str, known=None) -> str:
+    name = str(repo or "").strip()
+    if not name:
+        raise SettingsError("no agent named", "pass the repo whose setting is changing", code="no_repo")
+    if known is not None and name not in known:
+        raise SettingsError(f"{name} is not a registered agent", "`ad-fleet repo add` it first",
+                            code="no_repo")
+    return name
+
+
+def apply_agent(cfg: dict, repo: str, key: str, value, *, known=None) -> None:
+    """One agent's own value for `key`: validated exactly as the fleet-wide one is."""
+    name = _agent_name(cfg, repo, known)
+    spec = EDITABLE.get(key)
+    if spec is None and key not in LISTS:
+        raise SettingsError(f"{key} is not a setting this page may change", "", code="unknown_key")
+    if spec is not None and not spec.get("agent"):
+        raise SettingsError(f"{key} is one value for the whole fleet",
+                            "it is read where no single agent is in hand (the server, the page, "
+                            "the notifier), so a per-agent value would never be read",
+                            code="not_per_agent")
+    if key in LISTS:
+        OV.put(cfg, name, key, check_list(key, value))
+        return
+    value = coerce(key, spec, value)
+    if key == "fleet.copilot.agent":
+        value = _launch_value("agent", value)
+    OV.put(cfg, name, key, value)
+
+
+def inherit(cfg: dict, repo: str, keys, *, known=None) -> list[str]:
+    """Drop the agent's own values for `keys`; it inherits the fleet's again."""
+    name = _agent_name(cfg, repo, known)
+    return [key for key in keys or [] if OV.drop(cfg, name, str(key))]
+
+
+def describe_agent(cfg: dict, repo: str) -> dict:
+    """One agent's effective value for every setting it can have of its own, and where each came
+    from: `agent` (set for it), `fleet` (set for every agent) or `default`."""
+    mine = OV.for_agent(cfg, repo)
+    rows = []
+    for key, spec in EDITABLE.items():
+        if not spec.get("agent"):
+            continue
+        value = C.get(mine, key)
+        rows.append({"key": key, "value": spec["default"] if value is None else value,
+                     "source": OV.source(cfg, repo, key),
+                     "fleet": C.get(cfg, key) if C.get(cfg, key) is not None else spec["default"]})
+    lists = {key: list_rows(cfg, key, repo) for key in LISTS}
+    return {"repo": repo, "rows": rows, "lists": lists, "tools": tools(mine, repo=repo, fleet_cfg=cfg)}
+
+
+# ---------------------------------------------------------------- the permission and directory lists
+
+#: Settings that are lists, edited an entry at a time. Each *adds* to what the agent is launched
+#: with -- the allow-list's base stays `fleet.allow_tools` or the shipped default, and the deny floor
+#: stays under everything -- and an agent's entries add to the fleet's (`overrides.LISTS`).
+LISTS: dict[str, dict] = {
+    "fleet.copilot.allow_extra": {
+        "label": "also allowed", "item": "tool", "scope": NEXT_TURN,
+        "why": "tool patterns added to the allow-list: `powershell` (every PowerShell command), "
+               "`shell(Get-ChildItem)` (one command and what follows it)"},
+    "fleet.copilot.deny_extra": {
+        "label": "also denied", "item": "tool", "scope": NEXT_TURN,
+        "why": "tool patterns added to the deny floor; a denial always wins over an allow"},
+    "fleet.copilot.add_dirs": {
+        "label": "extra directories", "item": "dir", "scope": NEXT_TURN,
+        "why": "folders outside the checkout the agent may read and write (`--add-dir`, Copilot's `/add-dir`)"},
+}
+assert set(LISTS) == set(OV.LISTS)
+
+
+def check_list(key: str, items) -> list[str]:
+    """A list setting's entries, each validated, duplicates dropped, or a refusal naming the one."""
+    if isinstance(items, str):
+        items = [line for chunk in items.splitlines() for line in chunk.split(",")]
+    out = []
+    for item in items or []:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        try:
+            text = (LAUNCH.check_tool_pattern(text) if LISTS[key]["item"] == "tool"
+                    else LAUNCH.check_dir(text))
+        except LAUNCH.LaunchError as e:
+            raise SettingsError(str(e), e.hint, code="bad_pattern") from None
+        if text not in out:
+            out.append(text)
+    return out
+
+
+def set_list(cfg: dict, key: str, items) -> list[str]:
+    """The fleet-wide value of a list setting; an empty list removes the key."""
+    if key not in LISTS:
+        raise SettingsError(f"{key} is not a list this page may change", "", code="unknown_key")
+    value = check_list(key, items)
+    if value:
+        C.put(cfg, key, value)
+    else:
+        parent = C.get(cfg, key.rpartition(".")[0])
+        if isinstance(parent, dict):
+            parent.pop(key.rpartition(".")[2], None)
+    return value
+
+
+def list_rows(cfg: dict, key: str, repo: str | None = None) -> list[dict]:
+    """The entries of a list setting, each with where it came from and whether it is broad."""
+    fleet = [str(v) for v in (C.get(cfg, key) or [])]
+    mine = [str(v) for v in (OV.own(cfg, repo).get(key) or [])] if repo else []
+    rows = [{"item": v, "source": OV.FLEET, "broad": LAUNCH.is_broad(v)} for v in fleet]
+    rows += [{"item": v, "source": OV.AGENT, "broad": LAUNCH.is_broad(v)} for v in mine if v not in fleet]
+    return rows
+
+
+def describe_lists(cfg: dict) -> list[dict]:
+    return [{"key": key, **spec, "rows": list_rows(cfg, key)} for key, spec in LISTS.items()]
 
 
 def check(cfg: dict, keys) -> None:
@@ -326,23 +489,36 @@ def set_fleet_model(cfg: dict, *, model=None, effort=None) -> None:
         C.put(cfg, "fleet.effort", LAUNCH.check_model_value("effort", effort))
 
 
-def tools(cfg: dict) -> dict:
+def tools(cfg: dict, *, repo: str | None = None, fleet_cfg: dict | None = None) -> dict:
     """The resolved allow and deny lists, each pattern labelled with where it came from.
 
     Read-only on the page, and this is the shape that makes that useful rather than merely safe:
     "what may this agent run" is answerable at a glance, and a pattern the operator added is
-    distinguishable from one that shipped.
+    distinguishable from one that shipped. `added` is a `fleet.copilot.*_extra` entry for every
+    agent, `agent` one for this agent alone (`cfg` is then that agent's view, `fleet_cfg` the
+    fleet's).
     """
     configured_allow = C.get(cfg, "fleet.allow_tools")
     allow = LAUNCH.allow_tools(cfg)
     deny = LAUNCH.deny_tools(cfg)
     default_allow = set(LAUNCH.DEFAULT_ALLOW)
     default_deny = set(LAUNCH.DEFAULT_DENY)
+    base_allow = set(LAUNCH._as_list(configured_allow)) if configured_allow is not None else default_allow
+    base_deny = default_deny | set(LAUNCH._as_list(C.get(cfg, "fleet.deny_tools")))
+    fleet = fleet_cfg if fleet_cfg is not None else cfg
+    fleet_extra = set(LAUNCH._as_list(C.get(fleet, "fleet.copilot.allow_extra"))) | \
+        set(LAUNCH._as_list(C.get(fleet, "fleet.copilot.deny_extra")))
+
+    def origin(p: str, base: set, default: set, configured: bool) -> str:
+        if p in base:
+            return "default" if (not configured and p in default) else "configured"
+        return "added" if p in fleet_extra else "agent"
+
     return {
-        "allow": [{"pattern": p,
-                   "source": "default" if (configured_allow is None and p in default_allow) else "configured"}
-                  for p in allow],
-        "deny": [{"pattern": p, "source": "default" if p in default_deny else "configured"}
+        "allow": [{"pattern": p, "source": origin(p, base_allow, default_allow, configured_allow is not None),
+                   "broad": LAUNCH.is_broad(p)} for p in allow],
+        "deny": [{"pattern": p, "source": "default" if p in default_deny else
+                  ("configured" if p in base_deny else ("added" if p in fleet_extra else "agent"))}
                  for p in deny],
         "allow_is_configured": configured_allow is not None,
     }

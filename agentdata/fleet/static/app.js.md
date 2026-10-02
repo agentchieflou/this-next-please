@@ -2560,6 +2560,10 @@ Above `if (drawModelCard()) { placeModelCard(anchor); focusPressedPill(); }`:
 
 Draw, then place (the pills are most of its height), then the keyboard on the pressed pill.
 
+`#mc-agent` opens `/settings?agent=<repo>`: the page with this agent picked, where everything it
+alone is launched with -- its extra permissions, its console window, its restart and approval
+limits, its context tier -- is shown with where each value comes from.
+
 ### `function closeModelCard`
 
 Above `function closeModelCard() {`:

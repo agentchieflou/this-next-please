@@ -52,7 +52,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
-               poll as P, probe as PROBE, strip, supervisor, trace as TRACE, wrapup as WRAP)
+               overrides as OV, poll as P, probe as PROBE, strip, supervisor, trace as TRACE, wrapup as WRAP)
 from .registry import Registry, RegistryError, agent_dir, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -827,7 +827,8 @@ def fleet_snapshot() -> dict:
                      # What it has cost, against what (#211). On the row and not in `polls`,
                      # because a poll cell can be stale or grey and this never is: it is a fold of
                      # the agent's own stream.
-                     "spend": _spend_cell(name, budget_now),
+                     "spend": _spend_cell(name, lifecycle.settings(OV.for_agent(cfg, name))["budget_per_agent"]
+                                          if OV.own(cfg, name) else budget_now),
                      # The shape of the hour (#218): sixty small integers, drawn as a trace on
                      # the tile and the band. Folded from the whole stream rather than from
                      # `recent`, because forty events is not an hour -- a busy agent fills that
@@ -2791,17 +2792,33 @@ def act(what: str, body: dict) -> dict:
 def _write_settings(C, SET, body: dict) -> None:
     """`act("settings")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
     cfg = C.load()
+    agent = str(body.get("agent") or "").strip()
     try:
-        for item in body.get("set") or []:
-            SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
-        # What only holds between keys, once the whole batch is in: two tier boundaries that
-        # only go together can be written together (#235).
-        SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
-        for item in body.get("models") or []:
-            SET.set_model(cfg, str(item.get("repo") or ""),
-                          model=item.get("model"), effort=item.get("effort"))
-        if "model" in body or "effort" in body:
-            SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
+        if agent:
+            # One agent's own values: the same keys, the same validation, written under
+            # `fleet.agents.<repo>`; `inherit` drops them so the agent reads the fleet's again.
+            try:
+                known = {r.name for r in Registry().sorted()}
+            except (RegistryError, OSError):
+                known = set()
+            for item in body.get("set") or []:
+                SET.apply_agent(cfg, agent, str(item.get("key") or ""), item.get("value"), known=known)
+            for item in body.get("lists") or []:
+                SET.apply_agent(cfg, agent, str(item.get("key") or ""), item.get("items"), known=known)
+            SET.inherit(cfg, agent, body.get("inherit") or [], known=known)
+        else:
+            for item in body.get("lists") or []:
+                SET.set_list(cfg, str(item.get("key") or ""), item.get("items"))
+            for item in body.get("set") or []:
+                SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
+            # What only holds between keys, once the whole batch is in: two tier boundaries that
+            # only go together can be written together (#235).
+            SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
+            for item in body.get("models") or []:
+                SET.set_model(cfg, str(item.get("repo") or ""),
+                              model=item.get("model"), effort=item.get("effort"))
+            if "model" in body or "effort" in body:
+                SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
     except SET.SettingsError as e:
         raise ServeError(e.msg, e.hint, code=e.code) from None
     except LAUNCH.LaunchError as e:
@@ -3908,6 +3925,16 @@ def settings_snapshot() -> dict:
         # that does not go together: then it is CI's, and `invalid` says why (#235).
         "tiers": SET.tiers(cfg),
         "tools": SET.tools(cfg),
+        # The list settings (extra allowed/denied tool patterns, extra directories), fleet-wide.
+        "lists": SET.describe_lists(cfg),
+        # Every registered agent's own view: each per-agent setting's effective value and where it
+        # came from, its lists, and the allow/deny it is launched with. The page's agent picker
+        # draws from this, so "what does luna run with, and why" is one lookup, not a join.
+        "agents": [SET.describe_agent(cfg, repo.name) for repo in repos],
+        # What Copilot itself keeps in `~/.copilot/config.json` (its `/config`), read from
+        # `copilot help config`, and which fleet setting covers each key. Read-only here: that file
+        # is shared with the operator's own chats and the fleet never writes it.
+        "copilot_config": MODELS.config_keys(),
     }
 
 
