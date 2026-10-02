@@ -40,7 +40,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -50,7 +50,7 @@ var vState = {
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
-  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null
+  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, compiling: true, warming: false, warm: null
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
@@ -632,7 +632,8 @@ function vFrame(now) {
     WorldKit.uniforms.time.value = WorldBots.beat.time.value = vState.time;
   }
   drawHud();
-  if (!WorldRender.soft || now - vState.drawn > 95 || !vState.drawn) {
+  if (vState.warming) vState.warming = !vWarm();
+  else if (!vState.compiling && (!WorldRender.soft || now - vState.drawn > 95 || !vState.drawn)) {
     vState.drawn = now;
     WorldKit.pick(cam, vState.time, 1 - vState.daylight);
     WorldRender.render(vState.time, 1 - vState.daylight, vState.exposure);
@@ -643,6 +644,34 @@ function vFrame(now) {
   if (vState.intervals.length > 240) vState.intervals.splice(0, vState.intervals.length - 240);
   if (vState.work.length > 240) vState.work.splice(0, vState.work.length - 240);
   if (now - vState.lastTune > 1000) vTune(now);
+}
+
+/** @returns {boolean} */
+function vWarm() {
+  var T = vState.T, r = vState.renderer, w = vState.warm;
+  if (!w) {
+    var list = [];
+    vState.scene.traverse(function (o) { if ((o.isMesh || o.isLine || o.isPoints) && o.material) list.push(o); });
+    w = vState.warm = { list: list, vis: list.map(function (o) { return o.visible; }), i: 0, target: new T.WebGLRenderTarget(1, 1) };
+  }
+  if (w.i <= w.list.length) {
+    w.list.forEach(function (o, k) { o.visible = k === w.i; });
+    var one = w.list[w.i], count = one && one.isInstancedMesh ? one.count : -1, screen = vState.tier === "low";
+    if (count === 0) one.count = 1;
+    r.setRenderTarget(screen ? null : w.target);
+    if (screen) { r.setScissorTest(true); r.setScissor(0, 0, 1, 1); }
+    if (one) r.render(vState.scene, vState.camera);
+    else WorldRender.warmPasses(w.target);
+    if (screen) r.setScissorTest(false);
+    if (count === 0) one.count = 0;
+    r.setRenderTarget(null);
+    w.list.forEach(function (o, k) { o.visible = w.vis[k]; });
+    w.i += 1;
+    return false;
+  }
+  w.target.dispose();
+  vState.warm = null;
+  return true;
 }
 
 /** @param {Array<number>} xs @param {number} p @returns {number} */
@@ -973,6 +1002,8 @@ function vStart() {
     vLook(kept || WorldHero.preset(0));
     vView(PARAMS.get("view") === "first" ? "first" : "third");
     if (!kept) vWho(true);
+    var compiled = function () { vState.compiling = false; vState.warming = true; };
+    WorldRender.prepare().then(compiled, compiled);
     var first = vState.rows.filter(function (r) { return r.needs_human; })[0] || vState.rows[0];
     var ag = first && vState.agents.get(first.repo);
     if (ag) vState.player.yaw = Math.atan2(-ag.x, -ag.z);

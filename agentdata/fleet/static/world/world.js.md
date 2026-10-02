@@ -236,6 +236,8 @@ The agent within reach and in front of you, the nearest if several: the one E or
 ### `function vFrame`
 
 The simulation steps with the frame, capped at 50 ms so a stall does not throw you across the plaza.
+Until the shaders are compiled (`WorldRender.prepare`, then `vWarm`) the frame warms them instead of
+drawing.
 The robots move and the ground's ripples and the beacon's bands run with the frame's time; under
 reduced motion they hold still. The traffic and the people move (`WorldStreet.frame`), the nearest
 lights are picked, and `WorldRender` draws the frame. On a software renderer (`WorldRender.soft`)
@@ -243,6 +245,15 @@ the scene is drawn at most about ten times a second, while the walk and the labe
 display's pace: SwiftShader on a CPU cannot draw a city faster, and a page that tried would starve
 everything else on the machine, the tests included.
 `FleetWorld.hold(true)` stops the steps (the frame still draws) so a test can drive `step()` itself.
+
+### `function vWarm`
+
+Before the first real frame, one object a frame is drawn alone (into a 1 by 1 target, or a single
+scissored pixel of the screen on the `low` path, whose shaders are compiled for the screen), and then
+the passes. The world has some forty shaders; compiled all at once in the first frame they froze the
+page for seconds on a software renderer (and noticeably on Windows, where shaders compile slowly),
+long enough that nothing else on the page could run. One a frame, the page answers between them. The
+scene is drawn when the last is compiled.
 
 ### `function vTune`
 

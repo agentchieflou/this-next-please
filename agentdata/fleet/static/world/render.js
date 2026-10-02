@@ -240,6 +240,25 @@ var WorldRender = (function () {
       .multiply(cam.projectionMatrix).multiply(m.matrixWorldInverse);
   }
 
+  /** @param {any} target */
+  function warmPasses(target) {
+    if (R.tier === "low") return;
+    Object.keys(R.m).forEach(function (k) { draw(R.m[k], target); });
+  }
+
+  /** @returns {Promise<any>} */
+  function prepare() {
+    var r = R.renderer;
+    if (!r.compileAsync) return Promise.resolve();
+    var passes = new R.T.Scene();
+    Object.keys(R.m).forEach(function (k) {
+      var m = new R.T.Mesh(R.fs.mesh.geometry, R.m[k]);
+      m.frustumCulled = false;
+      passes.add(m);
+    });
+    return Promise.all([r.compileAsync(R.scene, R.camera), r.compileAsync(passes, R.fs.cam)]);
+  }
+
   /** @param {number} t @param {number} night @param {number} exposure */
   function render(t, night, exposure) {
     var r = R.renderer, c = R.cfg, T = R.T, u = WorldKit.uniforms;
@@ -317,7 +336,7 @@ var WorldRender = (function () {
   }
 
   return Object.freeze({
-    TIERS: TIERS, ORDER: ORDER, create: create, setTier: setTier, resize: resize, step: step, render: render,
+    TIERS: TIERS, ORDER: ORDER, create: create, setTier: setTier, resize: resize, step: step, prepare: prepare, warmPasses: warmPasses, render: render,
     get tier() { return R.tier; }, get cfg() { return R.cfg; }, get calls() { return R.calls; }, get soft() { return R.soft; },
     get triangles() { return R.triangles; }, get frameCalls() { return R.renderer ? R.renderer.info.render.calls : 0; }
   });

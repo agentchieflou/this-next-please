@@ -72,6 +72,18 @@ The camera reflected in the street (y = 0), with an oblique near plane on the st
 nothing below it is drawn into the reflection. The matrix the street samples it with is written to
 the kit's uniforms.
 
+### `function warmPasses`
+
+Draws each pass once into a 1 by 1 target, so their shaders are compiled before the first real frame
+needs them (`vWarm`).
+
+### `function prepare`
+
+Compiles every material in the scene, and the passes, with `compileAsync`: where the browser has
+`KHR_parallel_shader_compile` (Chrome on Windows does) the GPU compiles them in the background and the
+page never freezes for it. Where it does not (SwiftShader), the promise resolves at once and `vWarm`
+spreads the compiling over frames instead.
+
 ### `function render`
 
 One frame: the mirror, the scene, occlusion, bloom, then the composite to the screen (or through
