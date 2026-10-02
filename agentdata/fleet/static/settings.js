@@ -781,31 +781,153 @@ function renderLists(data) {
   });
 }
 
-function renderCopilotConfig(data) {
-  var body = document.getElementById("copilotrows");
-  var count = document.getElementById("copilotcount");
+/**
+ * @param {Object} body
+ * @param {HTMLElement} note
+ */
+function copilotPost(body, note) {
+  return post("copilot", body).then(function (res) {
+    if (res && res.ok === false) {
+      text(note, (res.error || "refused") + (res.hint ? " — " + res.hint : ""));
+      return res;
+    }
+    text(note, "");
+    saidSaved("saved to Copilot's own file");
+    load();
+    return res;
+  });
+}
+
+/** @param {Object} r */
+function shownValue(r) {
+  if (r.value == null) return "";
+  if (r.type === "list") return (r.value || []).join(", ");
+  return typeof r.value === "string" ? r.value : JSON.stringify(r.value);
+}
+
+/** @param {Object} r  @param {HTMLElement} note */
+function globalControl(r, note) {
+  var el = document.createElement("input");
+  el.id = "cg-" + r.key.replace(/\./g, "-");
+  if (r.type === "bool") {
+    el.type = "checkbox";
+    el.checked = r.value === true;
+    el.addEventListener("change", function () {
+      copilotPost({ scope: "global", key: r.key, value: el.checked }, note);
+    });
+    return el;
+  }
+  el.type = "text";
+  el.value = shownValue(r);
+  el.placeholder = r.set ? "" : "not set";
+  el.addEventListener("change", function () {
+    copilotPost(el.value.trim() === "" ? { scope: "global", unset: r.key }
+                                       : { scope: "global", key: r.key, value: el.value }, note);
+  });
+  return el;
+}
+
+function renderCopilotGlobal(data) {
+  var g = data.copilot_global || {};
+  var body = document.getElementById("cgrows");
+  var note = /** @type {HTMLElement} */ (document.getElementById("cgnote"));
   if (!body) return;
+  var rows = g.rows || [];
+  text(document.getElementById("cgpath"), g.path || "~/.copilot/settings.json");
+  text(document.getElementById("cgcount"), g.error ? "(unreadable)"
+    : "(" + rows.filter(function (r) { return r.set; }).length + " set)");
+  text(note, g.error ? g.error + (g.hint ? " — " + g.hint : "") : "");
   while (body.firstChild) body.removeChild(body.firstChild);
-  var cfg = data.copilot_config || {};
-  var rows = cfg.rows || [];
-  text(count, !cfg.known ? "(not asked yet: refresh the model list above)"
-    : "(" + rows.length + (cfg.cli_version ? ", CLI " + cfg.cli_version : "")
-      + (cfg.shipped ? ", the shipped list until copilot is asked" : "") + ")");
   rows.forEach(function (r) {
     var tr = document.createElement("tr");
     var key = document.createElement("td");
     var code = document.createElement("code");
     text(code, r.key);
     key.appendChild(code);
-    var by = document.createElement("td");
-    text(by, r.covered_by || "Copilot's own file");
-    by.title = r.covered_by ? "a flag on each agent's command line" : "shared with your own chats; /config in a Copilot window";
+    var value = document.createElement("td");
+    value.appendChild(globalControl(r, note));
     var about = document.createElement("td");
-    text(about, r.about + (r.choices ? " (" + r.choices + " choices)" : ""));
+    text(about, r.about || "");
+    var act = document.createElement("td");
+    if (r.set) {
+      var unset = document.createElement("button");
+      unset.type = "button";
+      unset.className = "dropone";
+      text(unset, "unset");
+      unset.title = "/config unset " + r.key;
+      unset.addEventListener("click", function () { copilotPost({ scope: "global", unset: r.key }, note); });
+      act.appendChild(unset);
+    }
     tr.appendChild(key);
-    tr.appendChild(by);
+    tr.appendChild(value);
     tr.appendChild(about);
+    tr.appendChild(act);
     body.appendChild(tr);
+  });
+}
+
+/** @param {Object} a */
+function approvalWords(a) {
+  return [a.kind].concat(a.commandIdentifiers || []).join(" ");
+}
+
+function renderCopilotRepo(data) {
+  var block = document.getElementById("crblock");
+  var r = scope ? (data.copilot_repos || {})[scope] : null;
+  hide(block, !r);
+  if (!r) return;
+  var note = /** @type {HTMLElement} */ (document.getElementById("crnote"));
+  text(document.getElementById("crname"), scope);
+  text(document.getElementById("crloc"), r.location || "?");
+  text(document.getElementById("crpath"), r.path || "~/.copilot/permissions-config.json");
+  text(note, r.error ? r.error + (r.hint ? " — " + r.hint : "") : "");
+  var list = document.getElementById("crapprovals");
+  while (list.firstChild) list.removeChild(list.firstChild);
+  (r.tool_approvals || []).forEach(function (a) {
+    var li = document.createElement("li");
+    var code = document.createElement("code");
+    text(code, approvalWords(a));
+    li.appendChild(code);
+    var drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "dropone";
+    text(drop, "remove");
+    drop.addEventListener("click", function () {
+      copilotPost({ scope: "repo", repo: scope, remove: a }, note);
+    });
+    li.appendChild(drop);
+    list.appendChild(li);
+  });
+  if (!(r.tool_approvals || []).length) {
+    var none = document.createElement("li");
+    text(none, "no approvals saved for this repository yet");
+    list.appendChild(none);
+  }
+  var dirs = /** @type {HTMLTextAreaElement} */ (document.getElementById("crdirs"));
+  if (document.activeElement !== dirs) dirs.value = (r.allowed_directories || []).join("\n");
+}
+
+function wireCopilot() {
+  var cgNote = /** @type {HTMLElement} */ (document.getElementById("cgnote"));
+  var crNote = /** @type {HTMLElement} */ (document.getElementById("crnote"));
+  var key = /** @type {HTMLInputElement} */ (document.getElementById("cgkey"));
+  var value = /** @type {HTMLInputElement} */ (document.getElementById("cgvalue"));
+  var kind = /** @type {HTMLSelectElement} */ (document.getElementById("crkind"));
+  var ids = /** @type {HTMLInputElement} */ (document.getElementById("crids"));
+  var dirs = /** @type {HTMLTextAreaElement} */ (document.getElementById("crdirs"));
+  if (!key) return;
+  document.getElementById("cgset").addEventListener("click", function () {
+    copilotPost({ scope: "global", key: key.value, value: value.value }, cgNote).then(function (res) {
+      if (res && res.ok !== false) { key.value = ""; value.value = ""; }
+    });
+  });
+  kind.addEventListener("change", function () { hide(ids, kind.value !== "commands"); });
+  document.getElementById("cradd").addEventListener("click", function () {
+    copilotPost({ scope: "repo", repo: scope, add: { kind: kind.value, identifiers: ids.value } }, crNote)
+      .then(function (res) { if (res && res.ok !== false) ids.value = ""; });
+  });
+  document.getElementById("crdirsave").addEventListener("click", function () {
+    copilotPost({ scope: "repo", repo: scope, directories: dirs.value.split("\n") }, crNote);
   });
 }
 
@@ -813,10 +935,18 @@ function draw(data) {
   renderScope(data);
   renderConfig(data);
   renderLists(data);
-  renderCopilotConfig(data);
+  renderCopilotGlobal(data);
+  renderCopilotRepo(data);
   var mine = agentView(data);
   var tools = (mine ? mine.tools : data.tools) || {};
-  renderPatterns("allowlist", "allowcount", tools.allow);
+  var allow = tools.allow || [];
+  if (tools.permissions === "all") {
+    allow = [{ pattern: "every tool a Copilot window would ask about", source: "all", broad: true }]
+      .concat(allow);
+  } else if (tools.permissions === "repo") {
+    allow = [{ pattern: "what this repository's Copilot approvals allow", source: "repo" }].concat(allow);
+  }
+  renderPatterns("allowlist", "allowcount", allow);
   renderPatterns("denylist", "denycount", tools.deny);
 }
 
@@ -852,7 +982,9 @@ function renderPatterns(listId, countId, rows) {
     var from = document.createElement("span");
     from.className = "from";
     text(from, r.source);
-    from.title = r.source === "default" ? "shipped with agentdata"
+    from.title = r.source === "all" ? "tool access is all: the agent runs with --allow-all-tools"
+      : r.source === "repo" ? "tool access is repo: Copilot's own approvals for this repository's Git root"
+      : r.source === "default" ? "shipped with agentdata"
       : r.source === "added" ? "also allowed or denied for every agent, from this page"
       : r.source === "agent" ? "this agent's own, from this page"
       : "from ~/.agentdata/config.json";
@@ -904,6 +1036,7 @@ function connectTheme() {
 }
 
 loadThemes().then(function () { LOAD.settled = document.body.dataset.skin || ""; });
+wireCopilot();
 load();
 connectTheme();
 if (LOAD.on) {

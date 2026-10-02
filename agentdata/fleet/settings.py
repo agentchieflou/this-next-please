@@ -127,6 +127,25 @@ EDITABLE: dict[str, dict] = {
     # a flag on the agent's own command line, never a write to `~/.copilot/config.json`, which the
     # operator's own chats share; so each can differ per agent. The model and effort have their own
     # block on the page (`fleet.models`), and the permission lists theirs (`LISTS` below).
+    # The operator's defaults of 2026-10-02: an agent has what a Copilot CLI window has, runs on
+    # autopilot, and lets Copilot's `auto` pick the model on its efficiency tier (`fleet/launch.py`).
+    "fleet.permissions": {
+        "agent": True, "label": "tool access", "type": "enum", "default": LAUNCH.DEFAULT_PERMISSIONS,
+        "scope": NEXT_TURN, "choices": list(LAUNCH.PERMISSIONS),
+        "why": "all: every tool a Copilot window would ask about is allowed (`--allow-all-tools`); "
+               "repo: only what this repository's Copilot approvals allow (set below, per repository); "
+               "strict: only the fleet's enumerated list, with its deny floor"},
+    "fleet.copilot.autopilot": {
+        "agent": True, "label": "autopilot", "type": "bool", "default": True, "scope": NEXT_TURN,
+        "why": "Copilot's `--autopilot`: it works the task through instead of stopping after each step"},
+    "fleet.copilot.autopilot_max": {
+        "agent": True, "label": "autopilot continues", "type": "int", "default": 0, "scope": NEXT_TURN,
+        "why": "`--max-autopilot-continues`; 0 leaves the limit to Copilot"},
+    "fleet.copilot.auto_tier": {
+        "agent": True, "label": "auto tier", "type": "enum", "default": LAUNCH.DEFAULT_AUTO_TIER,
+        "scope": NEXT_TURN, "choices": ["", *LAUNCH.AUTO_TIERS],
+        "why": "how `--model auto` weighs cost and quality; passed only when your Copilot CLI's `--help` "
+               "names the option for it, never guessed"},
     "fleet.copilot.context": {
         "agent": True, "label": "context tier", "type": "enum", "default": "", "scope": NEXT_TURN,
         "choices": list(LAUNCH.CONTEXT_TIERS),
@@ -521,4 +540,5 @@ def tools(cfg: dict, *, repo: str | None = None, fleet_cfg: dict | None = None) 
                   ("configured" if p in base_deny else ("added" if p in fleet_extra else "agent"))}
                  for p in deny],
         "allow_is_configured": configured_allow is not None,
+        "permissions": LAUNCH.permissions(cfg),
     }

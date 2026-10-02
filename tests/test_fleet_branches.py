@@ -316,12 +316,13 @@ def _patterns(argv, flag):
 
 
 def test_the_agent_may_look_and_may_not_delete():
-    """Acceptance criterion. The allow-list stays enumerated: the two filters are permitted,
+    """Acceptance criterion, for an agent set to `strict`. The allow-list stays enumerated: the two filters are permitted,
     `git branch -D` and a bare `git branch` are not, and `for-each-ref` has no write to permit.
     Checked with the fake's own `permitted`, which reproduces the CLI's prefix rule."""
     from fakes.runner import permitted
 
-    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs",
+                                 cfg={"fleet": {"permissions": "strict"}})
     allow, deny = _patterns(argv, "--allow-tool"), _patterns(argv, "--deny-tool")
     for ok in ("git branch --list", "git branch --no-merged main --format=%(refname:short)",
                "git for-each-ref refs/heads --format=%(refname:short)", "git rev-list --count main..x",

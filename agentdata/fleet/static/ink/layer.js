@@ -7,6 +7,7 @@ const DEG = Math.PI / 180;
 const FOLLOW_MS = 400;
 const REVEAL_BLEED = 14;
 const MARGIN_SHAPES = new Set(["check", "bang", "cross"]);
+const PAINT_ONLY = /(^|-)color$|^(box|text)-shadow$|^outline(-|$)|^opacity$/;
 const TOKENS = ["bg", "panel", "text", "line", "select", "muted", "accent", "focus", "running",
                 "waiting", "human", "done", "idle"];
 
@@ -129,7 +130,10 @@ class Layer {
     this.ro = new ResizeObserver(() => { if (this.stopped) return; this.dirty.geom = true; this.now(); });
     this.onResize = () => { this.dirty.size = true; this.dirty.geom = true; this.kick(); };
     this.onScroll = () => { this.dirty.geom = true; this.kick(); };
-    this.onMove = () => { this.followUntil = performance.now() + FOLLOW_MS; this.dirty.geom = true; this.kick(); };
+    this.onMove = e => {
+      if (e && PAINT_ONLY.test(/** @type {TransitionEvent} */ (e).propertyName || "")) return;
+      this.followUntil = performance.now() + FOLLOW_MS; this.dirty.geom = true; this.kick();
+    };
     this.onScheme = () => { this.dirty.colours = true; this.kick(); };
     window.addEventListener("resize", this.onResize);
     document.addEventListener("scroll", this.onScroll, { capture: true, passive: true });

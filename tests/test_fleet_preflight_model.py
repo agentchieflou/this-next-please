@@ -88,7 +88,7 @@ def _model(card):
     return rows[0]
 
 
-def test_the_model_row_follows_the_repo_and_says_the_cli_chooses_when_nothing_is_set(
+def test_the_model_row_follows_the_repo_and_says_auto_when_nothing_is_set(
         fleet_home, tmp_path, spawned):
     _luna(tmp_path)
     _seed()
@@ -96,7 +96,7 @@ def test_the_model_row_follows_the_repo_and_says_the_cli_chooses_when_nothing_is
     names = [r["row"] for r in card["rows"]]
     assert names[names.index("repo") + 1] == "model", names
     row = _model(card)
-    assert row["value"] == "the CLI chooses · cli-auto", row
+    assert row["value"] == "auto · default", row       # the operator's default (2026-10-02)
     assert row["verdict"] == PF.READY and card["verdict"] == PF.READY, card["rows"]
     # Only for a repository that resolved: there is no model to name for one that did not.
     assert "model" not in [r["row"] for r in _card(repo="nowhere")["rows"]]

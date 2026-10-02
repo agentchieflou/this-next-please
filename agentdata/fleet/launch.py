@@ -18,6 +18,30 @@ So the allow-list is an enumerated whitelist, narrow enough that no dangerous co
 appended, and the denies below are a second line against near-miss spellings -- never the boundary.
 Anything that must be *refused* rather than merely un-allowed belongs in the `ad-*` command that
 performs it, where a refusal is a return value rather than a guess about a command string.
+
+**That whitelist is now `strict`, a choice, and not the default.** The operator, 2026-10-02: "Agents
+within our fleet need to have the same configured settings that copilot cli windows would have ...
+The fleet's purpose is to improve the CLI experience, but that can't happen if the fleet is more
+restricted", and then, explicitly: "I accept fleet agents running --allow-all-tools by default.
+Default settings for all agents should be autopilot enabled, model mode auto - efficiency, with all
+tool access enabled." So `fleet.permissions` -- fleet-wide or per agent -- is one of:
+
+* `all` (the default): every tool a Copilot CLI window would ask about is allowed
+  (`--allow-all-tools`); the built-in MCP servers stay on, as in a window. The fleet's only deny is
+  `FLEET_SELF` -- an agent does not drive the fleet that runs it -- plus whatever the operator
+  denies themselves (`fleet.deny_tools`, *also denied*). Every write an `ad-*` command makes still
+  waits on the approval gate, which lives in the command, not here.
+* `repo`: no flag of the fleet's own either way -- the agent has exactly what Copilot itself grants
+  in that checkout: the approvals saved for its Git root in `permissions-config.json` and the
+  operator's settings (`copilot_files`, edited from the fleet screen). "--allow-all-tools is a
+  global allow. We should still be able to turn it off from repo configs, but it should default to
+  on" (the operator, 2026-10-02): this is *off*, per repository.
+* `strict`: the enumerated whitelist and the full deny floor below, as before.
+
+And by default every agent runs with `--autopilot` (`fleet.copilot.autopilot`) on `--model auto`
+(`DEFAULT_MODEL`), with the auto tier `efficiency` (`fleet.copilot.auto_tier`) passed only when the
+installed CLI's own `--help` names the option that takes it (`models.auto_tier_flag`): an option
+this file guessed and the CLI did not know would stop every agent from starting.
 """
 from __future__ import annotations
 import os
@@ -116,8 +140,28 @@ DEFAULT_DENY = [
     "shell(iwr)", "shell(irm)",      # the PowerShell aliases, which are a different command string
 ]
 
-# Never acceptable in config, whatever a hurry says. These are the flags that turn an approval gate
-# into a formality.
+# The part of the floor every mode keeps: an agent does not stop, start, reinstall or reconfigure the
+# fleet that is running it -- with `ad-fleet` it could also read every other repository's
+# `.agent/state.json` (AGENTS.md rule 3).
+FLEET_SELF = [
+    "shell(ad-fleet)",
+    "shell(ad-update)",
+    "shell(ad-setup)",
+    "shell(python -m agentdata fleet)",
+    "shell(python -m agentdata update)",
+    "shell(python -m agentdata setup)",
+]
+
+# `fleet.permissions` (see the module docstring), and the operator's defaults of 2026-10-02.
+PERMISSIONS = ("all", "repo", "strict")
+DEFAULT_PERMISSIONS = "all"
+DEFAULT_MODEL = "auto"
+AUTO_TIERS = ("efficiency", "balance", "intelligence", "fast")
+DEFAULT_AUTO_TIER = "efficiency"
+
+# Never acceptable in an allow or deny *pattern* list, whatever a hurry says: a pattern is one
+# permission, and these flags are every permission. `fleet.permissions: copilot` is how an agent gets
+# a window's permissions -- a setting the page names and `--show-launch` prints, never a smuggled flag.
 FORBIDDEN_FLAGS = ("--allow-all", "--allow-all-tools", "--allow-all-paths", "--allow-all-urls",
                    "--yolo")
 
@@ -189,8 +233,23 @@ def allow_tools(cfg: dict | None = None) -> list[str]:
     with the fleet's by the time this reads them.
     """
     configured = C.get(cfg or {}, "fleet.allow_tools")
-    base = _dedup(_as_list(configured)) if configured is not None else list(DEFAULT_ALLOW)
+    if configured is None:
+        # `all` and `repo`: no list of the fleet's own -- `--allow-all-tools` allows what a window
+        # would ask about, or the repository's own Copilot approvals do. The extras still go on the
+        # argv, so `--show-launch` keeps saying what was added.
+        base = list(DEFAULT_ALLOW) if permissions(cfg) == "strict" else []
+    else:
+        base = _dedup(_as_list(configured))
     return _dedup(base + _as_list(C.get(cfg or {}, "fleet.copilot.allow_extra")))
+
+
+def permissions(cfg: dict | None = None) -> str:
+    """`all` (every tool, the default), `repo` (the repository's own Copilot approvals) or `strict`
+    (the fleet's whitelist)."""
+    mode = str(C.get(cfg or {}, "fleet.permissions") or DEFAULT_PERMISSIONS).strip().lower()
+    if mode not in PERMISSIONS:
+        raise LaunchError(f"fleet.permissions is {mode!r}", "one of " + ", ".join(PERMISSIONS))
+    return mode
 
 
 def deny_tools(cfg: dict | None = None) -> list[str]:
@@ -201,7 +260,8 @@ def deny_tools(cfg: dict | None = None) -> list[str]:
     which is what "configuration replaces the default" would mean -- and `--show-launch` would have
     reported the loss as though it were the guarantee.
     """
-    return _dedup(list(DEFAULT_DENY) + _as_list(C.get(cfg or {}, "fleet.deny_tools"))
+    floor = list(DEFAULT_DENY) if permissions(cfg) == "strict" else list(FLEET_SELF)
+    return _dedup(floor + _as_list(C.get(cfg or {}, "fleet.deny_tools"))
                   + _as_list(C.get(cfg or {}, "fleet.copilot.deny_extra")))
 
 
@@ -259,7 +319,45 @@ def copilot_flags(cfg: dict | None = None) -> list[str]:
         out += ["--agent", agent]
     for path in _as_list(C.get(cfg, "fleet.copilot.add_dirs")):
         out += ["--add-dir", check_dir(path)]
+    if autopilot(cfg):
+        # Copilot works the task through to the end instead of stopping after each step (its
+        # `--autopilot`, documented for `-p` runs). On by default (the operator, 2026-10-02).
+        out += ["--autopilot"]
+        cap = autopilot_max(cfg)
+        if cap:
+            out += ["--max-autopilot-continues", str(cap)]
     return out
+
+
+def _on(value, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def autopilot(cfg: dict | None = None) -> bool:
+    """`fleet.copilot.autopilot`, on unless set off."""
+    return _on(C.get(cfg or {}, "fleet.copilot.autopilot"), True)
+
+
+def autopilot_max(cfg: dict | None = None) -> int:
+    """`fleet.copilot.autopilot_max`: the `--max-autopilot-continues` cap, 0 for the CLI's own."""
+    try:
+        return max(0, int(C.get(cfg or {}, "fleet.copilot.autopilot_max") or 0))
+    except (TypeError, ValueError):
+        raise LaunchError("fleet.copilot.autopilot_max is not a whole number",
+                          "a number of continues, or 0 for the CLI's own limit") from None
+
+
+def auto_tier(cfg: dict | None = None) -> str:
+    """`fleet.copilot.auto_tier` for `--model auto`: `efficiency` unless set; blank for none."""
+    value = C.get(cfg or {}, "fleet.copilot.auto_tier")
+    tier = DEFAULT_AUTO_TIER if value is None else str(value).strip().lower()
+    if tier and tier not in AUTO_TIERS:
+        raise LaunchError(f"fleet.copilot.auto_tier is {tier!r}", "one of " + ", ".join(AUTO_TIERS))
+    return tier
 
 
 def log_level(cfg: dict | None = None) -> str:
@@ -338,8 +436,36 @@ def model_for(repo: str | None, cfg: dict | None = None) -> tuple[str, str, str]
     """
     cfg = cfg if cfg is not None else {}
     own_model, own_effort, fleet_model, fleet_effort = _halves(repo, cfg)
-    source = f"fleet.models.{repo}" if own_model else ("fleet.model" if fleet_model else "cli-auto")
-    return own_model or fleet_model, own_effort or fleet_effort, source
+    if own_model or fleet_model:
+        source = f"fleet.models.{repo}" if own_model else "fleet.model"
+        return own_model or fleet_model, own_effort or fleet_effort, source
+    if C.get(cfg, "fleet.model") is None:
+        # Nobody chose in the fleet. A model set in Copilot's own settings (`/config model …`, or the
+        # repository's settings files) is Copilot's to apply: no flag, which would override it.
+        # Otherwise the operator's default, `auto` (2026-10-02). An explicit blank `fleet.model`
+        # (*CLI default* on the page) is still "no --model flag", `cli-auto`.
+        if _copilot_model(repo):
+            return "", own_effort or fleet_effort, "copilot settings"
+        return DEFAULT_MODEL, own_effort or fleet_effort, "default"
+    return "", own_effort or fleet_effort, "cli-auto"
+
+
+def _copilot_model(repo: str | None) -> str:
+    """The model Copilot's own settings files give this checkout, or ""."""
+    from . import copilot_files as CF
+
+    path = None
+    if repo:
+        try:
+            from .registry import Registry
+
+            path = Registry().get(repo).path
+        except Exception:                                # noqa: BLE001 - an unknown repo has only the user file
+            path = None
+    try:
+        return str(CF.setting("model", path) or "")
+    except Exception:                                    # noqa: BLE001 - an unreadable file applies nothing here
+        return ""
 
 
 def effort_source(repo: str | None, cfg: dict | None = None) -> str:
@@ -393,11 +519,15 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
 
     argv = [copilot, "-p", prompt,
             "--output-format", "json",
-            "--no-ask-user",
-            # The CLI ships a built-in github-mcp-server. Epic #91's "no MCP anywhere" rule is
-            # therefore an argument, not an absence.
-            "--disable-builtin-mcps",
-            "--add-dir", textio.norm_path(repo_path),
+            "--no-ask-user"]
+    if permissions(cfg) == "strict":
+        # The CLI ships a built-in github-mcp-server. Epic #91's "no MCP anywhere" rule is
+        # therefore an argument, not an absence.
+        argv += ["--disable-builtin-mcps"]
+    elif permissions(cfg) == "all":
+        # What a window would ask about, allowed: a headless turn has nobody to ask.
+        argv += ["--allow-all-tools"]
+    argv += ["--add-dir", textio.norm_path(repo_path),
             "--log-dir", textio.norm_path(log_dir),
             "--log-level", log_level(cfg)]
     argv += copilot_flags(cfg)
@@ -408,7 +538,7 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
         argv += ["--resume", session]
     # Empty means the flag is not there at all. Passing `--model ""` would be inventing a behaviour
     # nobody measured; the measured one is that with no flag the CLI selects a model itself.
-    argv += model_flags(model, effort)
+    argv += model_flags(model, effort, auto_tier(cfg))
     for pattern in allow:
         argv += ["--allow-tool", pattern]
     for pattern in deny:
@@ -416,13 +546,24 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
     return argv
 
 
-def model_flags(model: str = "", effort: str = "") -> list[str]:
-    """`--model`/`--effort`, or nothing. One function so a console and a headless turn cannot drift."""
+def model_flags(model: str = "", effort: str = "", tier: str = "") -> list[str]:
+    """`--model`/`--effort`, or nothing. One function so a console and a headless turn cannot drift.
+
+    `tier` is the auto tier, added for `--model auto` only, and only under the option the installed
+    CLI's `--help` says takes it (`models.auto_tier_flag`); with none found it is left out, never
+    guessed -- an unknown option stops the CLI before the agent's first word.
+    """
     out: list[str] = []
     name = check_model_value("model", model)
     level = check_model_value("effort", effort)
     if name:
         out += ["--model", name]
+    if name == "auto" and tier:
+        from . import models as M
+
+        flag = M.auto_tier_flag()
+        if flag:
+            out += [flag, tier]
     if level:
         out += ["--effort", level]
     return out
@@ -452,13 +593,16 @@ def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
                           "the fleet mints one (`ad-fleet console <repo>`) or resumes one (`--resume <id>`)")
     argv = [copilot,
             "--resume" if resume else "--session-id", session,
-            "-C", textio.norm_path(repo_path),
-            "--disable-builtin-mcps",
-            "--add-dir", textio.norm_path(repo_path),
+            "-C", textio.norm_path(repo_path)]
+    if permissions(cfg) == "strict":
+        argv += ["--disable-builtin-mcps"]
+    elif permissions(cfg) == "all":
+        argv += ["--allow-all-tools"]
+    argv += ["--add-dir", textio.norm_path(repo_path),
             "--log-dir", textio.norm_path(log_dir),
             "--log-level", log_level(cfg)]
     argv += copilot_flags(cfg)
-    argv += model_flags(model, effort)
+    argv += model_flags(model, effort, auto_tier(cfg))
     for pattern in allow:
         argv += ["--allow-tool", pattern]
     for pattern in deny:
