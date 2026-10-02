@@ -21,6 +21,7 @@ performs it, where a refusal is a return value rather than a guess about a comma
 """
 from __future__ import annotations
 import os
+import re
 
 from .. import config as C
 from .. import textio
@@ -74,6 +75,9 @@ DEFAULT_ALLOW = [
     # unconfigured remote itself, and waits on the approval gate. `shell(git push)` stays denied
     # below -- a prefix allow on it would also allow every dangerous continuation.
     "shell(ad-git push)",
+    # The cleanup (operator request, 2026-10): commit, branch or stash a dirty tree, never discard;
+    # `--apply` waits on the approval gate like the push, so an agent proposes and the operator decides.
+    "shell(ad-git tidy)",
     "skill",                         # the skill tool itself; without it the router cannot run
 ]
 
@@ -177,9 +181,16 @@ def _dedup(patterns: list[str]) -> list[str]:
 
 
 def allow_tools(cfg: dict | None = None) -> list[str]:
-    """What the agent may run. Configuration *replaces* the default, so an operator can narrow it."""
+    """What the agent may run. Configuration *replaces* the default, so an operator can narrow it.
+
+    `fleet.copilot.allow_extra` then *adds* to whichever list that is -- the settings page's way to
+    give one agent (or every agent) a command the shipped list lacks, such as PowerShell, without
+    taking over the whole boundary. `overrides.for_agent` has already merged the agent's own extras
+    with the fleet's by the time this reads them.
+    """
     configured = C.get(cfg or {}, "fleet.allow_tools")
-    return _dedup(_as_list(configured)) if configured is not None else list(DEFAULT_ALLOW)
+    base = _dedup(_as_list(configured)) if configured is not None else list(DEFAULT_ALLOW)
+    return _dedup(base + _as_list(C.get(cfg or {}, "fleet.copilot.allow_extra")))
 
 
 def deny_tools(cfg: dict | None = None) -> list[str]:
@@ -190,7 +201,70 @@ def deny_tools(cfg: dict | None = None) -> list[str]:
     which is what "configuration replaces the default" would mean -- and `--show-launch` would have
     reported the loss as though it were the guarantee.
     """
-    return _dedup(list(DEFAULT_DENY) + _as_list(C.get(cfg or {}, "fleet.deny_tools")))
+    return _dedup(list(DEFAULT_DENY) + _as_list(C.get(cfg or {}, "fleet.deny_tools"))
+                  + _as_list(C.get(cfg or {}, "fleet.copilot.deny_extra")))
+
+
+# What a tool pattern may look like: a tool's bare name (`powershell`, `write`) or a shell prefix
+# (`shell(Get-ChildItem)`). Anything else -- a flag, a second argument, an empty prefix -- is how a
+# setting becomes something other than a permission.
+TOOL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
+SHELL_PATTERN = re.compile(r"^shell\((?=\S)[^()\r\n]+\)$")
+# A bare shell tool allows every command it can run. Allowed, because the operator may decide that
+# for one agent, and said out loud by the settings page every time it is shown.
+BROAD_TOOLS = ("shell", "powershell", "pwsh", "bash", "sh", "cmd", "write")
+LOG_LEVELS = ("none", "error", "warning", "info", "debug", "all", "default")
+CONTEXT_TIERS = ("default", "long_context")
+
+
+def check_tool_pattern(pattern: str) -> str:
+    """One `--allow-tool` / `--deny-tool` value, or a refusal by name."""
+    text = str(pattern or "").strip()
+    check_no_blanket_permission([text])
+    if not (TOOL_NAME.match(text) or SHELL_PATTERN.match(text)):
+        raise LaunchError(f"{pattern!r} is not a tool pattern",
+                          "a tool's name (`powershell`, `write`) or a shell prefix in "
+                          "`shell(<command>)`, one per entry")
+    return text
+
+
+def is_broad(pattern: str) -> bool:
+    return str(pattern or "").strip().lower() in BROAD_TOOLS
+
+
+def check_dir(path: str) -> str:
+    """One `--add-dir` value: an absolute directory, never something that reads as a flag."""
+    text = str(path or "").strip()
+    if not text or text.startswith("-"):
+        raise LaunchError(f"{path!r} is not a directory", "give an absolute path")
+    if not (os.path.isabs(text) or re.match(r"^[A-Za-z]:[\\/]", text) or text.startswith("\\\\")):
+        raise LaunchError(f"{path!r} is not an absolute path",
+                          "a relative path would resolve against wherever the agent was started")
+    return textio.norm_path(text)
+
+
+def copilot_flags(cfg: dict | None = None) -> list[str]:
+    """The launch flags the settings page controls beyond the model: the context tier, a custom
+    agent, extra directories and the log level. One function, so a console and a headless turn get
+    the same ones."""
+    cfg = cfg or {}
+    out: list[str] = []
+    tier = str(C.get(cfg, "fleet.copilot.context") or "").strip()
+    if tier:
+        if tier not in CONTEXT_TIERS:
+            raise LaunchError(f"fleet.copilot.context is {tier!r}", "one of " + ", ".join(CONTEXT_TIERS))
+        out += ["--context", tier]
+    agent = check_model_value("agent", C.get(cfg, "fleet.copilot.agent") or "")
+    if agent:
+        out += ["--agent", agent]
+    for path in _as_list(C.get(cfg, "fleet.copilot.add_dirs")):
+        out += ["--add-dir", check_dir(path)]
+    return out
+
+
+def log_level(cfg: dict | None = None) -> str:
+    level = str(C.get(cfg or {}, "fleet.copilot.log_level") or "error").strip()
+    return level if level in LOG_LEVELS else "error"
 
 
 def check_no_blanket_permission(patterns: list[str]) -> None:
@@ -313,6 +387,9 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
     """
     allow, deny = allow_tools(cfg), deny_tools(cfg)
     check_no_blanket_permission(allow + deny)
+    for pattern in _as_list(C.get(cfg or {}, "fleet.copilot.allow_extra")) + \
+            _as_list(C.get(cfg or {}, "fleet.copilot.deny_extra")):
+        check_tool_pattern(pattern)
 
     argv = [copilot, "-p", prompt,
             "--output-format", "json",
@@ -322,7 +399,8 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
             "--disable-builtin-mcps",
             "--add-dir", textio.norm_path(repo_path),
             "--log-dir", textio.norm_path(log_dir),
-            "--log-level", "error"]
+            "--log-level", log_level(cfg)]
+    argv += copilot_flags(cfg)
     if usage_file:
         # Simpler than parsing the stream for cost, and exact. #101 budgets from this.
         argv += ["--usage-output-file", textio.norm_path(usage_file)]
@@ -366,6 +444,9 @@ def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
     """
     allow, deny = allow_tools(cfg), deny_tools(cfg)
     check_no_blanket_permission(allow + deny)
+    for pattern in _as_list(C.get(cfg or {}, "fleet.copilot.allow_extra")) + \
+            _as_list(C.get(cfg or {}, "fleet.copilot.deny_extra")):
+        check_tool_pattern(pattern)
     if not str(session or "").strip():
         raise LaunchError("a console needs a session id",
                           "the fleet mints one (`ad-fleet console <repo>`) or resumes one (`--resume <id>`)")
@@ -375,7 +456,8 @@ def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
             "--disable-builtin-mcps",
             "--add-dir", textio.norm_path(repo_path),
             "--log-dir", textio.norm_path(log_dir),
-            "--log-level", "error"]
+            "--log-level", log_level(cfg)]
+    argv += copilot_flags(cfg)
     argv += model_flags(model, effort)
     for pattern in allow:
         argv += ["--allow-tool", pattern]
@@ -384,16 +466,105 @@ def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
     return argv
 
 
-def child_env(repo_name: str, fleet_dir_path: str) -> dict:
+# Where Windows keeps the environment a new sign-in (and so a new terminal) starts with.
+_MACHINE_ENV = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+_USER_ENV = "Environment"
+
+
+def login_env() -> dict:
+    """The environment a terminal opened *now* would start with: on Windows the machine's and the
+    user's variables from the registry (PATH the two joined, machine first, as Windows does), every
+    `%VAR%` expanded; elsewhere nothing, because a login shell's environment cannot be read without
+    running one. Any failure reads as nothing -- this tops an environment up, it never replaces one.
+    """
+    if os.name != "nt":
+        return {}
+    try:
+        import winreg
+    except ImportError:
+        return {}
+
+    def read(hive, key) -> dict:
+        out = {}
+        try:
+            with winreg.OpenKey(hive, key) as k:
+                i = 0
+                while True:
+                    try:
+                        name, value, kind = winreg.EnumValue(k, i)
+                    except OSError:
+                        break
+                    i += 1
+                    if isinstance(value, str):
+                        out[name] = winreg.ExpandEnvironmentStrings(value) if kind == winreg.REG_EXPAND_SZ else value
+        except OSError:
+            pass
+        return out
+
+    machine = read(winreg.HKEY_LOCAL_MACHINE, _MACHINE_ENV)
+    user = read(winreg.HKEY_CURRENT_USER, _USER_ENV)
+    merged = {**machine, **user}
+    paths = [v for v in (machine.get("Path") or machine.get("PATH"), user.get("Path") or user.get("PATH")) if v]
+    if paths:
+        for name in [k for k in merged if k.upper() == "PATH"]:
+            merged.pop(name)
+        merged["Path"] = os.pathsep.join(paths)
+    return merged
+
+
+def _same_dir(a: str, b: str) -> bool:
+    return os.path.normcase(a.strip().rstrip("\\/")) == os.path.normcase(b.strip().rstrip("\\/"))
+
+
+def top_up(env: dict, fresh: dict) -> list[str]:
+    """Add to `env` what `fresh` has and it lacks; return the names that changed.
+
+    Never replaces a value: the desk may have been started on purpose with a different proxy or a
+    different `AGENTDATA_CONFIG`, and that choice is kept. PATH gains only the directories it is
+    missing, after its own, so the `ad-*` the agent runs is still the install the desk runs.
+    """
+    changed = []
+    names = {k.upper(): k for k in env}
+    for name, value in fresh.items():
+        if not isinstance(value, str) or not value:
+            continue
+        have = names.get(name.upper())
+        if name.upper() == "PATH":
+            current = env.get(have, "") if have else ""
+            parts = [p for p in current.split(os.pathsep) if p.strip()]
+            extra = [p for p in value.split(os.pathsep)
+                     if p.strip() and not any(_same_dir(p, q) for q in parts)]
+            if extra:
+                env[have or name] = os.pathsep.join(parts + extra)
+                changed.append(f"{have or name}+{len(extra)}")
+        elif have is None:
+            env[name] = value
+            names[name.upper()] = name
+            changed.append(name)
+    return changed
+
+
+def child_env(repo_name: str, fleet_dir_path: str, *, login=None) -> dict:
     """What the agent's process inherits.
 
     The two `AGENTDATA_FLEET_*` markers are how a gated `ad-*` command inside the agent knows it is
     running under a supervisor at all -- #95 keys its approval gate on them. They are not a grant:
     `ad-fleet` itself is on the deny-list, so an agent cannot use its own marker to drive the fleet.
+
+    The desk's own environment, topped up with what a terminal opened now would have (`login_env`,
+    `top_up`). The desk usually runs for days; pncli, the Azure CLI or a proxy setting installed
+    since were in every new terminal and missing from every agent, and the operator's way round it
+    was to close the fleet and resume the session in a local `copilot` (report, 2026-10-02).
     """
     from .registry import AGENT_ENV, FLEET_DIR_ENV
 
     env = dict(os.environ)
+    try:
+        top_up(env, (login or login_env)())
+    except Exception:                                    # noqa: BLE001 - a top-up never stops a launch
+        from ..log import debug_exc
+
+        debug_exc("fleet login environment")
     env[AGENT_ENV] = repo_name
     env[FLEET_DIR_ENV] = textio.norm_path(fleet_dir_path)
     env["AGENTDATA_COLOR"] = "never"      # the events are read by a machine

@@ -44,11 +44,23 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - content_understanding_endpoint: <https://<resource>.services.ai.azure.com>  # optional: Azure AI Content Understanding (ad-foundry, ad-dpm extract-fields --engine azure-content-understanding)
 - content_understanding_analyzer: <analyzer-id>   # optional: the analyzer whose field schema the job uses
 - content_understanding_auth: entra                # optional: entra (default) or key; the key itself lives in keyring, never here
+- run_status: <python -m dpm status --run {run}>     # run-control: read-only status of one run; `{run}` is the run id
+- run_launch: <python -m dpm launch --run {run}>     # run-control: start a run (only on the operator's word)
+- run_resume: <python -m dpm resume --run {run}>     # run-control: resume a stopped run
+- run_stop: <python -m dpm stop --run {run}>         # run-control: stop a run
+- run_reconcile: <python -m dpm reconcile --run {run}>   # run-control: reconcile a run's ledger
 - test_cmd: <pytest -q>                      # ad-test: blank = auto-detect the runner
 - graph_min_coverage: <0.8>                 # ad-graph findings/guard: per-node coverage a change must clear
 - graph_min_speedup: <1.10>                 # test-regress: speedup a change must clear to count
 - skills_dir: <~/.copilot/skills>
 - pae_host: <host>
+
+## Project routes
+Rows the router checks before its own table (first match wins). Point each at an installed skill; delete the example.
+
+| Request mentions | Invoke |
+|---|---|
+| <usage report for an asset or mnemonic> | `<installed-skill>` |
 
 ## Definition of done
 state.json updated · findings file in .agent/out/ · Confluence page · PR open · Jira "In Review".

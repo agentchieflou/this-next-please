@@ -167,6 +167,60 @@ def push(cwd: str, remote: str | None = None, *, dry_run: bool = False, source: 
     return 0, {**meta, "pushed": True, "upstream": f"{remote}/{branch}"}
 
 
+def _tidy(a) -> int:
+    """`ad-git tidy`: the cleanup guide's decisions for the checkout this runs in (`fleet/tidy.py`).
+
+    `--dry-run` surveys and recommends, and changes nothing. `--apply` changes the tree, so inside a
+    fleet it waits on the approval gate like `ad-git push`: an agent proposes, the operator decides.
+    """
+    from .fleet import tidy as T
+
+    src = "ad-git tidy"
+    cwd = os.getcwd()
+    if a.pretty:
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
+    try:
+        if not a.apply:
+            s = T.survey(cwd)
+            r = T.recommend(s)
+            meta = {"ok": True, "source": src, "dry_run": True, "branch": s["branch"] or "(detached)",
+                    "dirty": s["dirty"], "count": s["count"], "plan_id": s["plan_id"],
+                    "recommended": r["recommended"] if s["dirty"] else "nothing", "why": r["why"],
+                    "options": [o["choice"] for o in r["options"]], "debt": r["debt"]["score"],
+                    "next": (f"ad-git tidy --apply {r['recommended']} --plan {s['plan_id']}" if s["dirty"]
+                             else "nothing to do: the tree is clean")}
+            rows = [[f["state"], f["path"]] for f in s["files"]]
+            overlaps = [[o["where"], o["shared"], o["debt"]["score"]] for o in r["overlaps"]]
+            if policy.pretty():
+                ui.facts(list(meta.items()), title=src)
+            else:
+                print(toon.encode({"meta": meta}))
+                if rows:
+                    print(toon.table("files", ["state", "path"], rows))
+                if overlaps:
+                    print(toon.table("overlaps", ["where", "shared", "debt"], overlaps))
+            return 0
+        if not a.plan:
+            raise T.TidyError("no_plan", "--apply needs --plan <id> from a --dry-run",
+                              "run `ad-git tidy --dry-run` and read the plan_id")
+        from .fleet import approval
+
+        if approval.in_fleet():
+            decision = approval.require("git-tidy", f"{a.apply} the uncommitted changes in {os.path.basename(cwd)}",
+                                        {"choice": a.apply, "plan_id": a.plan, "message": a.message or "",
+                                         "branch": a.branch or ""}, ticket=_active_ticket(cwd), cfg=C.load())
+            if not decision.ok:
+                print(toon.encode({"meta": approval.refusal(decision, src)}))
+                return 2
+        done = T.apply(cwd, a.plan, a.apply, msg=a.message or "", branch=a.branch or "")
+        print(toon.encode({"meta": {"source": src, **done}}))
+        return 0
+    except T.TidyError as e:
+        print(toon.encode({"meta": {"source": src, **{k: v for k, v in e.to_dict().items() if k != "survey"}}}))
+        return 2
+
+
 # Every spelling that would make this something other than "this branch, to its own name".
 FORCE_WORDS = ("--force", "-f", "--force-with-lease", "--force-if-includes", "--mirror", "--delete", "-d", "--tags",
                "--all", "--prune")
@@ -175,7 +229,8 @@ FORCE_WORDS = ("--force", "-f", "--force-with-lease", "--force-if-includes", "--
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-git", allow_abbrev=False,
-                                 description="The one git write an agent may make: push the current branch, gated.")
+                                 description="The git writes an agent may make, gated: push the current branch, and tidy a dirty tree "
+                                             "without losing anything.")
     from . import version
     version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -185,8 +240,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--remote", help="a remote `git remote` lists (default: origin); never a URL")
     p.add_argument("--dry-run", action="store_true", help="print the plan from local refs; contact no remote")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    t = sub.add_parser("tidy", allow_abbrev=False,
+                       help="a dirty working tree, made clean without losing anything: survey it and recommend "
+                            "one option (--dry-run), then --apply commit | branch | stash | skip --plan <id>")
+    t.add_argument("--dry-run", action="store_true", help="survey and recommend; change nothing")
+    t.add_argument("--apply", choices=["commit", "branch", "stash", "skip"],
+                   help="the decision to apply; never a discard")
+    t.add_argument("--plan", help="the plan_id the --dry-run printed; a tree that moved since is refused")
+    t.add_argument("--message", help="the commit message for commit or branch")
+    t.add_argument("--branch", help="the new branch's name for branch (default: wip/<branch>-<date>)")
+    t.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
     completion.autocomplete(ap)
     a, extra = ap.parse_known_args(argv)
+    if a.cmd == "tidy":
+        a = ap.parse_args(argv)
+        return _tidy(a)
     src = "ad-git push"
     if extra:
         word = extra[0].split("=", 1)[0]

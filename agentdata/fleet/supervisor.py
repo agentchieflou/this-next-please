@@ -18,6 +18,7 @@ from .. import textio
 from . import console as fleet_console
 from . import handoff as H
 from . import lifecycle
+from . import overrides as OV
 from .launch import child_env, launch_command, prompt_for, console_command
 from . import launch as LAUNCH
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
@@ -547,7 +548,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
     model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"),
-                          cfg=cfg, usage_file=os.path.join(directory, USAGE),
+                          cfg=OV.for_agent(cfg, name), usage_file=os.path.join(directory, USAGE),
                           session=resume, model=model, effort=effort)
     child = _spawn(repo, name, argv, exe)
 
@@ -584,7 +585,7 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
 
     # Before the turn, never during one: stopping an agent halfway through a thought leaves the
     # repository in whatever state it had reached, and the money is spent either way.
-    over, used, budget = lifecycle.over_budget(name, cfg=cfg)
+    over, used, budget = lifecycle.over_budget(name, cfg=OV.for_agent(cfg, name))
     if over and not force:
         raise SupervisorError(
             f"{name} has spent {used:g} of its {budget:g} premium-request budget",
@@ -601,7 +602,8 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     directory = agent_dir(name)
     model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = launch_command("copilot", repo.path, message,
-                          log_dir=os.path.join(directory, "logs"), session=session, cfg=cfg,
+                          log_dir=os.path.join(directory, "logs"), session=session,
+                          cfg=OV.for_agent(cfg, name),
                           usage_file=os.path.join(directory, USAGE), model=model, effort=effort)
     child = _spawn(repo, name, argv, exe)
 
@@ -772,7 +774,7 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
                               f"start one with `ad-fleet start {name} <TICKET>`",
                               code="no_session")
 
-    limit = lifecycle.settings(cfg)["max_restarts"]
+    limit = lifecycle.settings(OV.for_agent(cfg, name) if cfg is not None else None)["max_restarts"]
     done = int(lock.get("restarts") or 0)
     if not force and limit and done >= limit:
         raise SupervisorError(
@@ -785,7 +787,8 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
     text = lifecycle.RESUME_PROMPT
     model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = launch_command("copilot", repo.path, text,
-                          log_dir=os.path.join(directory, "logs"), session=session, cfg=cfg,
+                          log_dir=os.path.join(directory, "logs"), session=session,
+                          cfg=OV.for_agent(cfg, name),
                           usage_file=os.path.join(directory, USAGE), model=model, effort=effort)
     child = _spawn(repo, name, argv, exe)
     fresh = {"pid": child.pid, "repo": name, "path": repo.path, "session": session,
@@ -845,6 +848,9 @@ def console(name: str, *, key: str | None = None, resume: str | None = None, new
     directory = agent_dir(name)
     os.makedirs(os.path.join(directory, "logs"), exist_ok=True)
     model, effort, model_source = LAUNCH.model_for(name, cfg)
+    # This agent's own view of the settings from here on (`fleet.agents.<repo>`): its launch
+    # flags, its console window and its palette.
+    cfg = OV.for_agent(cfg if cfg is not None else C.load(), name)
     argv = console_command("copilot", repo.path, log_dir=os.path.join(directory, "logs"),
                            session=session, resume=bool(resume), cfg=cfg,
                            model=model, effort=effort)

@@ -44,19 +44,61 @@ RESUME_PROMPT = ("You were interrupted. Read your own last messages, say in one 
                  "to, and continue. Do not start the ticket again.")
 
 
-def answers_prompt(answers: list[tuple[str, str]]) -> str:
+def answers_prompt(answers: list[tuple[str, str]], recorded=()) -> str:
     """The resume that carries the operator's answers -- all of them, in one turn.
 
     One respawn per answer would be one premium request per answer (the spike measured a trivial
     turn at a third of one), and it would train the operator to answer one question at a time. So
     the card sends every answer together and this is the sentence that delivers them.
 
-    It says *record each* rather than *act on each*: `ad-state answer` is what actually clears the
-    block, and an agent that continued without recording would stop again on its next bootstrap.
+    `recorded` are the ids the desk has already written with `ad-state answer` (`record_answers`):
+    those are said to be recorded, so the agent's router finds nothing blocking and goes on. Only an
+    answer the desk could not record asks the agent to record it, and `ad-state answer` takes either
+    twice without complaint.
     """
+    done = set(recorded or ())
     said = "; ".join(f"{qid}: {text}" for qid, text in answers)
+    if answers and all(qid in done for qid, _ in answers):
+        return (f"Answers to your questions -- {said}. Already recorded with `ad-state answer`; "
+                f"continue the ticket from where you stopped.")
     return (f"Answers to your questions -- {said}. Record each with `ad-state answer <id> \"<text>\"`, "
             f"then continue the ticket from where you stopped.")
+
+
+def record_answers(repo_path: str, answers: list[tuple[str, str]]) -> list[str]:
+    """Write the operator's answers with `ad-state answer`, before the agent is resumed; the ids written.
+
+    The operator report of 2026-10-02: a reply did not stamp the question answered, so the router
+    found it still blocking and stopped again. Recording was left to the agent -- a model reading a
+    prompt and deciding to run a command. Now the desk asks `ad-state` itself, as the inbox does for
+    an attached file (`handoff.ask_ad_state`): `ad-state` stays the only writer of `state.json`, and
+    the answer is on the file before the agent's next turn reads it. Run as `python -m agentdata`,
+    the desk's own install, so a PATH without `ad-state` on it cannot quietly undo this.
+    """
+    import sys
+
+    from .. import proc
+
+    done = []
+    for qid, text in answers:
+        try:
+            code, _out, _err, _elapsed = proc.run(
+                [sys.executable, "-m", "agentdata", "state", "answer", qid, text],
+                cwd=repo_path, timeout=60)
+        except (proc.ProcError, OSError):
+            continue
+        if code == 0:
+            done.append(qid)
+    return done
+
+
+def record_answers_for(name: str, answers: list[tuple[str, str]]) -> list[str]:
+    """`record_answers` for a registered checkout by name; nothing recorded when it is not one."""
+    try:
+        path = Registry().get(name).path
+    except (RegistryError, KeyError, OSError):
+        return []
+    return record_answers(path, answers) if os.path.isdir(path) else []
 
 # The Copilot CLI's own words when the token has expired, measured in the #92 spike. Matched
 # loosely on purpose: the wording moves between releases and the *class* of failure is what matters.

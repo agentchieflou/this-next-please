@@ -27,6 +27,6 @@ model: <your model id>
 <1 sentence — which SKILL.md line should change and how>
 ```
 
-2. `ad-state ask "<the unblock sentence>"` (skill `state-update`). It sets `phase=blocked` and gives the question an id the operator can answer.
+2. `ad-state ask "<the unblock sentence>"` (skill `state-update`). It sets `phase=blocked` and gives the question an id the operator can answer, scoped to the active ticket. Type `tool-error` for a refused tool, a missing executable or a broken install → add `--want access` and name the exact executable or permission: the fix is the operator's, and re-running the skill never is.
    If an `ad-*` launcher does not start (*Unable to create process*, *not recognized*), use `python -m agentdata state ask …` instead, and do not run the broken launcher again. For a write to Jira, Confluence or Bitbucket, do not look for another way: the type is `tool-error`, and the unblock sentence names the doctor's fix (`python -m agentdata doctor`, its `launchers` row) and says the operator's `ad-fleet wrapup <repo>` can make the write meanwhile.
 3. Print: `blocked — <unblock sentence>`. STOP. Do not continue the task. Do not retry.

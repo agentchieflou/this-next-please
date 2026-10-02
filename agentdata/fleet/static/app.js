@@ -307,23 +307,18 @@ function makeTile(row, index) {
     if (key) takeTicket(key, row.repo);
   });
 
-  el.querySelector(".asks-send").addEventListener("click", function () {
-    var answers = [];
-    Array.prototype.forEach.call(el.querySelectorAll(".asks-list .ask"), function (li) {
-      var value = li.querySelector(".ask-answer").value.trim();
-      if (value) answers.push({ id: li.dataset.qid, answer: value });
-    });
-    if (!answers.length) {
-      text(el.querySelector(".asks-note"), "pick a choice or type an answer first");
-      return;
-    }
-    text(el.querySelector(".asks-note"), "");
-    action(el, "answer", { repo: row.repo, answers: answers }).then(function (r) {
-      var done = (r && r.ok !== false && r.answered) || [];
-      Array.prototype.forEach.call(el.querySelectorAll(".asks-list .ask"), function (li) {
-        if (done.indexOf(li.dataset.qid) >= 0) toggle(li, "is-answered", true);
-      });
-    });
+  el.querySelector(".answering").addEventListener("click", function () {
+    var off = el.dataset.answerOff !== "1";
+    setData(el, "answerOff", off ? "1" : "");
+    if (!off) setData(el, "answering", "");
+    drawAnswering(el);
+    /** @type {HTMLElement} */ (el.querySelector(".say")).focus();
+  });
+  el.querySelector(".asks-list").addEventListener("click", function (e) {
+    var q = /** @type {HTMLElement} */ (e.target).closest(".ask-q");
+    var li = q && /** @type {HTMLElement} */ (q.closest(".ask"));
+    if (!li || li.classList.contains("is-answered")) return;
+    aimAt(el, li, li.querySelector(".ask-answer").textContent);
   });
 
   bindTools(el, row.repo);
@@ -401,8 +396,17 @@ function makeTile(row, index) {
 
   var say = /** @type {HTMLInputElement} */ (el.querySelector(".say"));
   var sendBtn = /** @type {HTMLButtonElement} */ (el.querySelector(".send"));
+  say.addEventListener("input", function () {
+    var li = answeringLi(el);
+    if (!li) return;
+    text(li.querySelector(".ask-answer"), say.value.trim());
+    Array.prototype.forEach.call(li.querySelectorAll(".ask-choice"), function (b) {
+      attr(b, "aria-pressed", String(b.dataset.choice === say.value.trim()));
+    });
+  });
   sendBtn.addEventListener("click", function () {
     var forcing = sendBtn.dataset.force === "1";
+    if (answeringLi(el)) { answerAll(el, row, forcing); return; }
     action(el, el.dataset.console ? "say" : "send",
            { repo: row.repo, message: say.value, force: forcing })
       .then(function (r) {
@@ -480,6 +484,161 @@ function action(el, what, body) {
   }).catch(function (e) { fail(el, String(e)); });
 }
 
+var SAY_PLACEHOLDER = "reply, or a ticket key to start";
+
+/** @param {HTMLElement} el  @returns {Array<HTMLElement>} */
+function openAsks(el) {
+  var card = /** @type {HTMLElement | null} */ (el.querySelector(".asks"));
+  if (!card || card.hidden) return [];
+  return Array.prototype.filter.call(card.querySelectorAll(".asks-list .ask"), function (li) {
+    return !li.hidden && !li.classList.contains("is-answered") && !!li.dataset.qid;
+  });
+}
+
+/** @param {HTMLElement} el  @returns {HTMLElement | null} */
+function answeringLi(el) {
+  if (el.dataset.answerOff === "1") return null;
+  var qid = el.dataset.answering || "";
+  return openAsks(el).filter(function (li) { return li.dataset.qid === qid; })[0] || null;
+}
+
+/** @param {HTMLElement} el  @param {HTMLElement} li  @param {string} value */
+function aimAt(el, li, value) {
+  setData(el, "answering", li.dataset.qid || "");
+  setData(el, "answerOff", "");
+  var say = /** @type {HTMLInputElement} */ (el.querySelector(".say"));
+  say.value = value || "";
+  text(li.querySelector(".ask-answer"), say.value.trim());
+  drawAnswering(el);
+  drawStart(el, (tiles.get(el.dataset.repo || "") || {}).row);
+  say.focus();
+}
+
+/** @param {HTMLElement} el */
+function drawAnswering(el) {
+  var say = /** @type {HTMLInputElement} */ (el.querySelector(".say"));
+  var chip = el.querySelector(".answering");
+  if (!say || !chip) return;
+  var open = openAsks(el);
+  var li = answeringLi(el);
+  if (!li && open.length && el.dataset.answerOff !== "1") {
+    li = open.filter(function (o) { return !o.querySelector(".ask-answer").textContent; })[0] || open[0];
+    setData(el, "answering", li.dataset.qid || "");
+  }
+  if (!open.length) setData(el, "answering", "");
+  hide(chip, !open.length);
+  open.forEach(function (o) { toggle(o, "is-target", o === li); });
+  attr(chip, "aria-pressed", li ? "true" : "false");
+  if (li) {
+    var asked = li.querySelector(".ask-q").textContent || "";
+    text(chip, "answers " + (li.dataset.qid || "the question"));
+    attr(chip, "title", "what you type here answers this question; press to send a plain message instead");
+    attr(say, "placeholder", "answer: " + (asked.length > 70 ? asked.slice(0, 69) + "\u2026" : asked)
+         + (li.dataset.want === "file" ? " — a path, or drop the file on this tile" : ""));
+  } else {
+    text(chip, "a message, not an answer");
+    attr(chip, "title", "press to answer the open question instead");
+    attr(say, "placeholder", SAY_PLACEHOLDER);
+  }
+}
+
+/** @param {HTMLElement} el  @param {Object} row  @param {boolean} forcing */
+function answerAll(el, row, forcing) {
+  var say = /** @type {HTMLInputElement} */ (el.querySelector(".say"));
+  var sendBtn = /** @type {HTMLButtonElement} */ (el.querySelector(".send"));
+  var target = answeringLi(el);
+  if (target && say.value.trim()) text(target.querySelector(".ask-answer"), say.value.trim());
+  var asked = openAsks(el);
+  var answers = [];
+  asked.forEach(function (li) {
+    var value = (li.querySelector(".ask-answer").textContent || "").trim();
+    if (value) answers.push({ id: li.dataset.qid, answer: value });
+  });
+  if (!answers.length) {
+    fail(el, "pick a choice or type an answer first: this box answers " + (target ? target.dataset.qid : "the question"));
+    return;
+  }
+  action(el, "answer", { repo: row.repo, answers: answers, force: forcing }).then(function (r) {
+    if (r && r.ok) {
+      var done = r.answered || [];
+      asked.forEach(function (li) { if (done.indexOf(li.dataset.qid) >= 0) toggle(li, "is-answered", true); });
+      say.value = "";
+      setData(el, "answering", "");
+      disarmSend(sendBtn);
+      drawAnswering(el);
+      drawStart(el, rowOf(row));
+      return;
+    }
+    if (r && r.code === "budget_exceeded" && !forcing) {
+      setData(sendBtn, "force", "1");
+      text(sendBtn, "Send anyway");
+      attr(sendBtn, "title", "it is over its budget — press again to spend one more turn");
+      return;
+    }
+    disarmSend(sendBtn);
+  });
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {HTMLElement} li
+ * @param {Object} r
+ * @param {string} scope
+ */
+function grantRefusal(el, li, r, scope) {
+  var buttons = Array.prototype.slice.call(li.querySelectorAll("button"));
+  buttons.forEach(function (b) { disable(b, true); });
+  return action(el, "grant", { repo: el.dataset.repo || "", patterns: r.patterns, scope: scope, retry: true })
+    .then(function (got) {
+      if (!got || !got.ok) {
+        buttons.forEach(function (b) { disable(b, false); });
+        return got;
+      }
+      toggle(li, "is-granted", true);
+      text(li.querySelector(".refusal-note"), "allowed " + (got.allowed || []).join(", ")
+           + (scope === "fleet" ? " for every agent" : " for " + (el.dataset.repo || "this agent"))
+           + (got.retried ? " — retrying" : "") + (got.note ? " — " + got.note : "")
+           + " · settings lists it, to take back");
+      return got;
+    });
+}
+
+/** @type {WeakMap<HTMLElement, Object>} */
+var refusalOf = new WeakMap();
+
+/** @param {HTMLElement} el  @param {Object} row */
+function drawRefused(el, row) {
+  var card = /** @type {HTMLElement} */ (el.querySelector(".refused"));
+  if (!card) return;
+  var refused = row.refused_tools || [];
+  hide(card, !refused.length);
+  text(card.querySelector(".refused-n"), refused.length === 1 ? "1 command" : refused.length + " commands");
+  var list = /** @type {HTMLElement} */ (card.querySelector(".refused-list"));
+  var pattern = list.querySelector(".refusal");
+  patchList(list, refused, function (r) { return r.what || r.message || r.id; }, function () {
+    var li = /** @type {HTMLElement} */ (pattern.cloneNode(true));
+    hide(li, false);
+    li.querySelector(".refusal-allow").addEventListener("click", function () {
+      grantRefusal(el, li, refusalOf.get(li), "agent");
+    });
+    li.querySelector(".refusal-all").addEventListener("click", function () {
+      grantRefusal(el, li, refusalOf.get(li), "fleet");
+    });
+    return li;
+  }, function (li, r) {
+    refusalOf.set(li, r);
+    if (li.classList.contains("is-granted")) return;
+    var named = (r.patterns || []).join(", ");
+    var allow = li.querySelector(".refusal-allow");
+    text(li.querySelector(".refusal-what"), r.what || r.message || "a tool it may not run");
+    text(li.querySelector(".refusal-note"), r.grantable ? (r.broad ? "broad: " + r.why_broad : "")
+         : (r.instead || r.message || ""));
+    hide(li.querySelector(".refusal-row"), !r.grantable);
+    text(allow, "allow " + named + " for " + (row.repo || "this agent") + ", then retry");
+    attr(allow, "title", "adds " + named + " to this agent's *also allowed* tools; the next turn launches with it");
+  });
+}
+
 function drawAsks(el, row) {
   var card = el.querySelector(".asks");
   var list = card.querySelector(".asks-list");
@@ -500,21 +659,22 @@ function drawAsks(el, row) {
         var li = pattern.cloneNode(true);
         hide(li, false);
         setData(li, "qid", q.id || "");
+        setData(li, "want", q.want || "decision");
         text(li.querySelector(".ask-q"), q.q || "");
-        var picked = li.querySelector(".ask-answer");
-        picked.placeholder = q.want === "file" ? "a path, or drop the file on this tile" : "your answer";
+        attr(li.querySelector(".ask-q"), "title", "answer this one in the reply box below");
         var choices = li.querySelector(".ask-choices");
         (q.choices || []).forEach(function (choice) {
           var b = document.createElement("button");
           b.type = "button";
           setClass(b, "ask-choice");
+          setData(b, "choice", choice);
           text(b, choice + (choice === q.default ? " (default)" : ""));
           attr(b, "aria-pressed", "false");
           b.addEventListener("click", function () {
-            picked.value = choice;
             Array.prototype.forEach.call(choices.children, function (other) {
               attr(other, "aria-pressed", String(other === b));
             });
+            aimAt(el, li, choice);
           });
           choices.appendChild(b);
         });
@@ -536,6 +696,8 @@ function drawAsks(el, row) {
       text(li.querySelector(".assumption-what"), "assumed: " + (q.assume || q.default || q.q));
       li.querySelector(".overturn").addEventListener("click", function () {
         var say = el.querySelector(".say");
+        setData(el, "answerOff", openAsks(el).length ? "1" : "");
+        drawAnswering(el);
         say.value = "That assumption is wrong: " + (q.assume || q.q) + ". ";
         drawStart(el, (tiles.get(el.dataset.repo || "") || {}).row);
         say.focus();
@@ -543,6 +705,7 @@ function drawAsks(el, row) {
       strip.appendChild(li);
     });
   }
+  drawAnswering(el);
 }
 
 function drawScopeReport(el, row) {
@@ -762,6 +925,7 @@ function drawTile(el, row, approvals) {
       text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
     }
     drawAsks(el, row);
+    drawRefused(el, row);
   }
   if (shows.full) {
     drawScopeReport(el, row);
@@ -3861,6 +4025,8 @@ function openModelCard(repo, anchor) {
   sayOnModelField(null, "");
   var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
   all.href = pageUrl("/settings") + "#model-" + encodeURIComponent(repo);
+  var own = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-agent"));
+  if (own) own.href = pageUrl("/settings", { agent: repo });
 
   hide(card, false);
   if (drawModelCard()) { placeModelCard(anchor); focusPressedPill(); }
@@ -5153,7 +5319,8 @@ function drawDayPlan(p) {
         var name = li.dataset.rowkey || "";
         openPane(name);
         var entry = tiles.get(name);
-        var ask = /** @type {HTMLElement} */ (entry && entry.el.querySelector(".asks:not([hidden]) textarea, .asks:not([hidden]) input, .asks:not([hidden]) button"));
+        var ask = /** @type {HTMLElement} */ (entry && (entry.el.querySelector(".asks:not([hidden]) .ask-choice")
+          || entry.el.querySelector(".say")));
         if (ask) ask.focus();
       });
       return li;

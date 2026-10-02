@@ -4,7 +4,7 @@ description: "Use for UAT/remediation of Jira-tracking dashboards — when numbe
 ---
 # UAT: live Jira vs the Jira history in a warehouse
 
-Prereq: `jira-triage` done; acceptance criteria include an explicit **date window** and **JQL scope**. Missing either → `friction-log`. STOP. Sprint or story-point questions → run `jira-changelog` first (its `sprint-replay` rows are the live side).
+Prereq: `jira-triage` done; acceptance criteria include an explicit **JQL scope** (missing → `ad-state ask "Which issues — what JQL?" --want value`, `friction-log` type `missing-info`. STOP). A missing **date window** is a safe default, not a stop: `ad-state ask "Which date window?" --assume "<the ticket's sprint dates, else the last 30 days>"`, one line, CONTINUE (AGENTS.md rule 10). The warehouse's credentials are `ad-doctor`'s `sources/<engine>` row; failing → environment error (router step 8). Sprint or story-point questions → run `jira-changelog` first (its `sprint-replay` rows are the live side).
 
 The SQL is **generated per engine**, not written by hand: Teradata and Oracle get `QUALIFY`, Hive and Impala get the windowed subquery, and the `key` alias is quoted the way each engine quotes identifiers. Every generated query is linted by `ad-sql-check` before it is sent.
 

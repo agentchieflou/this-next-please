@@ -1,5 +1,6 @@
 # PYTHON_ARGCOMPLETE_OK
-"""ad-uat: expect (document -> TSV + grain) · plan (visual -> commands) · reconcile (tiers -> classes + findings.md)."""
+"""ad-uat: expect (document -> TSV + grain) · plan (visual -> commands) · rollup (a finer tier -> the shared grain) ·
+reconcile (tiers -> classes + findings.md)."""
 from __future__ import annotations
 import argparse
 import os
@@ -94,6 +95,41 @@ def cmd_reconcile(a) -> int:
         print(toon.encode({"meta": meta, "counts": {c: n for c, n in res["counts"].items() if c != "ok"}}))
         print(toon.table("findings", ["key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note"],
                          [[f[c] for c in ("key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note")] for f in shown]))
+    return 0
+
+
+def cmd_rollup(a) -> int:
+    """`ad-uat rollup <file> --by <cols> [--sum <cols>] [--count <name>]`: the grain-matching script,
+    as a command a fleet agent may run (`uat/rollup.py` says why)."""
+    import csv
+
+    from .pbip.dax import read_csv
+    from .uat import rollup as RU
+
+    split = lambda text: [c.strip() for c in (text or "").split(",") if c.strip()]   # noqa: E731
+    if a.file.lower().endswith(".csv"):
+        table = read_csv(a.file, "rollup") or AgentTable("rollup", [], [], source=a.file)
+    else:
+        table = AgentTable.read_tsv(a.file, "rollup")
+    by, sums = split(a.by), split(a.sum)
+    try:
+        out = RU.rollup(table, by, sums, a.count or "")
+    except RU.RollupError as e:
+        print(toon.encode({"meta": {"ok": False, "source": "ad-uat rollup", "error": e.msg, "hint": e.hint,
+                                    "refused": "bad_columns"}}))
+        return 2
+    stem = os.path.splitext(os.path.basename(a.file))[0]
+    path = a.out or os.path.join(OUT_DIR, f"{stem}-by-{'-'.join(by)}.tsv")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, delimiter="\t", lineterminator="\n")
+        w.writerow(out.columns)
+        for row in out.rows:
+            w.writerow(["" if v is None else v for v in row])
+    meta = {"ok": True, "source": "ad-uat rollup", "path": textio.norm_path(path), "rows_in": len(table.rows),
+            "rows_out": len(out.rows), "by": ",".join(by), "sum": ",".join(sums), "count": a.count or ""}
+    print(toon.encode({"meta": meta}))
+    print(toon.table("rollup", out.columns, out.rows[:max(0, a.show)]))
     return 0
 
 
@@ -196,6 +232,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--expected"); p.add_argument("--window", help="start,end (YYYY-MM-DD)")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_plan)
+    p = sub.add_parser("rollup", help="sum (and count) a finer tier by the grain the others share, "
+                                      "before reconcile: the grain-matching step with no script")
+    p.add_argument("file", help="a .tsv (any ad-* output) or a .csv (a dscmd export)")
+    p.add_argument("--by", required=True, help="the grain: comma-separated columns, e.g. sprint,key")
+    p.add_argument("--sum", default="", help="numeric columns to add up, comma-separated")
+    p.add_argument("--count", default="", help="also count the rows per group, into a column of this name")
+    p.add_argument("--out", default="", help="where to write the TSV (default .agent/out/<file>-by-<cols>.tsv)")
+    p.add_argument("--show", type=int, default=20, help="rows to print (the file has them all)")
+    p.set_defaults(fn=cmd_rollup)
     p = sub.add_parser("reconcile", help="compare tiers and classify every (key, metric)")
     p.add_argument("--expected"); p.add_argument("--jira"); p.add_argument("--hist"); p.add_argument("--pbi")
     p.add_argument("--hist2", help="a second warehouse history tier: enables the warehouse-vs-warehouse comparison")

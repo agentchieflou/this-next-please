@@ -27,7 +27,8 @@ Scope: every project that installs these skills. Do not restate these in project
 
 ## Stop conditions (invoke `friction-log`, then STOP)
 10. Acceptance criteria ambiguous. **Two readings that lead to different work** → `ad-state ask` with the two
-    readings as `--choice`, then `friction-log`, then STOP. **A missing detail a safe, reversible default
+    readings as `--choice`, then `friction-log`, then STOP -- unless `ad-state ask` answers `already_answered`:
+    the operator answered those words on this ticket before, so use their `answer` and CONTINUE, no friction. **A missing detail a safe, reversible default
     settles** (a date window nobody will dispute, an obvious unit) → `ad-state ask "<assumption>" --assume
     "<the default>"`, say so in one line, and CONTINUE. Never assume something you cannot undo.
 11. You issued the same tool call twice with the same args.

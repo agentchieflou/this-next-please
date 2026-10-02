@@ -17,6 +17,21 @@ body { overflow: auto; }
 #maptree [aria-expanded] > .say::before { content: "\25BE"; display: inline-block; width: 1.1em; }
 #maptree [aria-expanded="false"] > .say::before { content: "\25B8"; }
 #maptree > li > .say { font-weight: 600; }
+#maptree .branch {
+  display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid var(--line);
+  border-radius: 9px; font: 11px var(--mono); color: var(--muted); vertical-align: 1px;
+}
+#maptree .branch::before { content: "\2387 "; }
+#maptree .dirty > .branch { color: var(--text); border-style: dashed; }
+#maptree .mapchat, #maptree .maptidy {
+  margin-left: 6px; padding: 0 8px; font: inherit; font-size: 11px; color: var(--text);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px; cursor: pointer;
+}
+#maptree .mapchat:hover, #maptree .maptidy:hover { border-color: var(--accent); }
+#maptree .mapchat:focus-visible, #maptree .maptidy:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
+#maptree .maptidy { border-style: dashed; }
+#maptree [data-node^="c:"] > .say, #maptree [data-node^="a:"] > .say { cursor: pointer; }
+#maptree [data-node^="c:"] > .say:hover, #maptree [data-node^="a:"] > .say:hover { text-decoration: underline; }
 #maptree .needs-human > .say { font-weight: 600; }
 #maptree .pending > .say { font-weight: 600; }
 

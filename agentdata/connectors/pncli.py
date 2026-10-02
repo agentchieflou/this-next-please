@@ -117,7 +117,7 @@ def usage_hint(text: str, args: list[str]) -> str:
                 f"`ad-pncli raw {' '.join(args[:2])} {opt} {value}`")
     m = _UNKNOWN.search(text)
     if m:
-        return (f"pncli has no {m.group(1)} {m.group(3)!r}: run `pncli {args[0] if args else ''} --help` once, "
+        return (f"pncli has no {m.group(1)} {m.group(3)!r}: run `ad-pncli help {args[0] if args else ''}` once, "
                 "use a listed verb, and report it so the skill can pin it. Do not guess a second time.")
     return ""
 
@@ -306,6 +306,29 @@ def redact(text: str, hosts: dict[str, str], home: str) -> tuple[str, dict[str, 
             text, n = re.subn(re.escape(form), "<home>", text, flags=re.I if os.name == "nt" else 0)
             bump("<home>", n)
     return text, counts
+
+
+HELP_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def help_for(names: list[str], cfg: dict | None = None) -> dict:
+    """`pncli [<product> [<verb>]] --help`, the agent's way to read pncli's own usage.
+
+    Bare `pncli` is on the fleet's deny floor (`fleet/launch.py`), so a skill that said "run
+    `pncli bitbucket --help` once" sent an agent into a refusal it could not get past -- and the
+    operator out of the desk into a terminal of their own. Only command names are passed through,
+    at most two, and `--help` is always last: commander.js prints the help and exits before an
+    action runs (#524), so nothing here can be a write in disguise.
+    """
+    names = [str(n) for n in names if str(n)]
+    if len(names) > 2 or not all(HELP_NAME.match(n) for n in names):
+        raise proc.ProcError("bad_args", f"not a pncli command path: {' '.join(names) or '(none)'}",
+                             "ad-pncli help [<product> [<verb>]] -- names only, e.g. `ad-pncli help bitbucket`")
+    cfg = C.load() if cfg is None else cfg
+    rc, out, err, el = proc.run(["pncli", *names, "--help"], exe=exe(cfg), timeout=CAPTURE_TIMEOUT,
+                                hint=install_hint(cfg))
+    text = "\n".join(t for t in (out or "", err or "") if t.strip())
+    return {"rc": rc, "text": text, "verbs": help_commands(text), "ms": int(el * 1000)}
 
 
 def capture_help(max_verbs: int = 40, cfg: dict | None = None) -> dict:

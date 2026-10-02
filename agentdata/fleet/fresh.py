@@ -162,8 +162,8 @@ def judge(name: str, *, st: dict, stream: list[dict], lock: dict, derived_state:
                   f"close that window; `ad-fleet console {name} --new` opens a fresh one",
                   "a console the fleet opened is your window, and the fleet does not close it")
     phase = str(st.get("phase") or "")
-    if agentstate.needs_the_human(derived_state) or phase == "blocked" or any(
-            STATE.is_blocking(q) for q in (st.get("open_questions") or [])):
+    if agentstate.needs_the_human(derived_state) or phase == "blocked" or bool(
+            STATE.blocking_for(st)):
         return no("needs_you", "answer it first — a fresh session would bury the question",
                   f"answer the question on the pane (or `ad-fleet answer {name}`), then start fresh")
     pid = int(seen.get("pid") or 0) or (int(lock.get("pid") or 0) if external else 0)
@@ -415,10 +415,9 @@ def _local_hm(began: str) -> str:
 def _first_question(st: dict) -> dict:
     from .. import state as STATE
 
-    for q in (st.get("open_questions") or []):
-        if STATE.is_blocking(q):
-            return {"id": str(q.get("id") or ""), "q": str(q.get("q") or "")} if isinstance(q, dict) \
-                else {"id": "", "q": str(q)}
+    for q in STATE.blocking_for(st):
+        return {"id": str(q.get("id") or ""), "q": str(q.get("q") or "")} if isinstance(q, dict) \
+            else {"id": "", "q": str(q)}
     return {}
 
 

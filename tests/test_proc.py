@@ -193,7 +193,7 @@ def test_usage_errors_become_the_exact_fix():
         "pncli options are named, never positional (you passed 'RDSD-22399' positionally): re-run with "
         "`--key RDSD-22399`, e.g. `ad-pncli raw jira get-issue --key RDSD-22399`")
     assert "--key <issue-key>" in P.usage_hint("required option '--key <issue-key>' not specified", ["jira", "get-issue"])
-    assert "run `pncli jira --help` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
+    assert "run `ad-pncli help jira` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
     assert P.usage_hint("Traceback: connection reset", ["jira", "search"]) == ""
 
 

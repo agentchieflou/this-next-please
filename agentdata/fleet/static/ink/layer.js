@@ -6,6 +6,7 @@ const DZ = 1600;
 const DEG = Math.PI / 180;
 const FOLLOW_MS = 400;
 const REVEAL_BLEED = 14;
+const MARGIN_SHAPES = new Set(["check", "bang", "cross"]);
 const TOKENS = ["bg", "panel", "text", "line", "select", "muted", "accent", "focus", "running",
                 "waiting", "human", "done", "idle"];
 
@@ -845,6 +846,7 @@ class Layer {
     if (op.t === "draw") {
       if (m.leaveOp || m.state === "leaving" || m.state === "struck") return [];
       m.state = "drawing";
+      if (MARGIN_SHAPES.has(m.shape)) this.clearMargin(m.el, m);
       this.sync(m);
       if (m.shape === "write") {
         return [this.travel(L, () => this.handPoint(m, false), m.tool), this.writeSeg(L, m),
@@ -890,10 +892,30 @@ class Layer {
         if (row.leaving.get(m.el) === m) row.leaving.delete(m.el);
         row.history.set(m.el, m);
         if (old && old !== m) this.drop(old);
+        if (MARGIN_SHAPES.has(m.shape) && this.marginTaken(m.el, m)) {
+          row.history.delete(m.el);
+          this.drop(m);
+        }
       }));
       return out;
     }
     return [];
+  }
+
+  clearMargin(el, keep) {
+    for (const o of Array.from(this.marks)) {
+      if (o === keep || o.el !== el || o.strikeOf || o.state !== "struck" || !MARGIN_SHAPES.has(o.shape)) continue;
+      if (o.row && o.row.history.get(el) === o) o.row.history.delete(el);
+      this.drop(o);
+    }
+  }
+
+  marginTaken(el, gone) {
+    for (const o of this.marks) {
+      if (o !== gone && o.el === el && !o.strikeOf && MARGIN_SHAPES.has(o.shape)
+          && (o.state === "drawing" || o.state === "drawn")) return true;
+    }
+    return false;
   }
 
   lift(m) {

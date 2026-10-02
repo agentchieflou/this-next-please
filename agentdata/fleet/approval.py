@@ -139,7 +139,11 @@ def require(kind: str, summary: str, payload=None, *, ticket: str = "", cfg: dic
 
     _emit(agent, "needs_approval", {"id": id, "kind": kind, "summary": summary}, ticket)
 
-    deadline = time.time() + (timeout if timeout is not None else timeout_seconds(cfg))
+    # This agent's own window when it has one (`fleet.agents.<repo>`), else the fleet's.
+    from . import overrides as OV
+
+    own = OV.for_agent(cfg if cfg is not None else C.load(), agent)
+    deadline = time.time() + (timeout if timeout is not None else timeout_seconds(own))
     while True:
         decided = read_decision(id)
         if decided:

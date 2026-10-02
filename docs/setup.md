@@ -148,6 +148,26 @@ when a change takes effect, because the answers differ:
 | `fleet.notify.*` | dashboard, desktop and chime notifications, the cooldown, quiet hours | now |
 | `fleet.tiers.rail_px`, `compact_px`, `full_px`, `slack_px` | the widths at which a desk pane is a rail, compact or full, and the slack between the last two (CI's 48 / 160 / 360 / 8 by default). Under *Appearance*, bounded, and refused when the four do not go together ([desk-window.md](desk-window.md) §The tiers) | now: every open desk redraws, no reload |
 | `fleet.port` | the loopback port the page is served on | when `ad-fleet serve` restarts |
+| `fleet.copilot.context`, `fleet.copilot.log_level`, `fleet.copilot.agent` | Copilot's context tier (`--context`, its `/model` picker), its log level, and a custom agent (`--agent`, its `/agent`) | from the agent's next turn |
+| `fleet.copilot.allow_extra`, `deny_extra`, `add_dirs` | lists, edited an entry at a time: tool patterns **added** to the allow-list (`powershell`, `shell(Get-ChildItem)`), to the deny floor, and extra directories (`--add-dir`, its `/add-dir`) | from the agent's next turn |
+
+**Per agent.** Pick an agent at the top of the *Copilot* block (or open `/settings?agent=<repo>`,
+the model card's *this agent's settings*) and the same rows become that agent's own: written to
+`fleet.agents.<repo>`, read through `overrides.for_agent` by every reader that acts for one agent,
+each row saying whether its value is *this agent's*, *every agent's* or the default, and *use every
+agent's* drops it. The approval window, restarts, branch warning, console window and palette, budget
+and every `fleet.copilot.*` key can be set per agent; the rest are one value for the desk (the
+server, the page and the notifier read them where no agent is in hand), and a per-agent write of one
+is refused `not_per_agent`. List entries **add**: an agent gets the fleet's extras and its own, and
+never loses a denial the fleet set.
+
+**Fleet settings are not Copilot's settings.** Every value above becomes a flag on the agent's own
+command line at every launch, its console included. None is written to `~/.copilot/config.json`,
+which your own Copilot chats share; the *Copilot's own settings* table lists what that file holds
+(`copilot help config`, Copilot's `/config`) and which fleet setting covers each key per agent. A
+permission approved for one session in a Copilot window is that session's and is not on the next
+fleet launch; an agent that should always be allowed PowerShell gets `powershell` in its own *also
+allowed* list instead.
 
 `fleet.allow_tools` and `fleet.deny_tools` are **shown and not editable** there. The allow-list is
 the boundary an agent runs inside, and configuration *replaces* it rather than adding to it — so a

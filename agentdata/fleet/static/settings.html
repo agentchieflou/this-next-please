@@ -79,19 +79,43 @@
   <section class="setblock">
     <h2>Copilot</h2>
     <p class="why">How the fleet launches the Copilot CLI, and how long it waits. Each row says when
-      a change takes effect.</p>
+      a change takes effect. Pick one agent to give it values of its own: each of its rows says
+      whether the value is <em>this agent's</em>, <em>every agent's</em> or the default, and
+      <em>use every agent's</em> puts one back. Every value here becomes a flag on that agent's own
+      command line at every launch, its console included &mdash; never a write to Copilot's own
+      <code>~/.copilot/config.json</code>, which your own Copilot chats share.</p>
+    <div class="setrow">
+      <label for="scope">settings for</label>
+      <select id="scope" title="every agent, or one agent's own values"><option value="">every agent</option></select>
+      <span class="why inline" id="scopenote"></span>
+    </div>
     <div id="cfgrows"></div>
+    <h3>Copilot's own settings <span id="copilotcount" class="count"></span></h3>
+    <p class="why" id="copilotnote">What the installed Copilot CLI documents for its own
+      <code>/config</code> (<code>copilot help config</code>). A row with a fleet setting beside it is
+      set per agent from this page; the others live in <code>~/.copilot/config.json</code>, shared
+      with your own chats, and the fleet never writes that file &mdash; change them with
+      <code>/config</code> in a Copilot window.</p>
+    <table class="settable" id="copilotcfg">
+      <thead><tr><th>Copilot setting</th><th>per agent, from</th><th>what it is</th></tr></thead>
+      <tbody id="copilotrows"></tbody>
+    </table>
   </section>
 
   <!-- ------------------------------------------------------------------ permissions -->
   <section class="setblock">
     <h2>What an agent may run</h2>
-    <p class="why">Read-only here, deliberately. The allow-list is the boundary and configuration
-      <em>replaces</em> it rather than adding to it, so a list saved from this page would become the
-      whole boundary &mdash; and you would silently stop receiving any command a later version adds.
-      Change it in <code>~/.agentdata/config.json</code> or through <code>ad-setup</code>, where the
-      whole list is in front of you. The deny-list is a floor: configuration can add to it and can
-      never remove one of these.</p>
+    <p class="why">The base allow-list is read-only here, deliberately. It is the boundary and
+      configuration <em>replaces</em> it rather than adding to it, so a list saved from this page
+      would become the whole boundary &mdash; and you would silently stop receiving any command a
+      later version adds. Change it in <code>~/.agentdata/config.json</code> or through
+      <code>ad-setup</code>. What you <em>can</em> do here is add to it: <strong>also allowed</strong>
+      (for example <code>powershell</code> for every PowerShell command, or
+      <code>shell(Get-ChildItem)</code> for one) and <strong>also denied</strong>, for every agent or,
+      with an agent picked above, for that one alone. They are on every launch, so a permission set
+      here does not wear off. The deny-list is a floor: a denial always wins, and an agent never
+      loses one the fleet set.</p>
+    <div id="listrows"></div>
     <div class="twocol">
       <div>
         <h3>allowed <span id="allowcount" class="count"></span></h3>

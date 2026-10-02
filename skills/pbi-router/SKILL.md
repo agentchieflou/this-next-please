@@ -24,5 +24,8 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | verify service parity, compare Desktop with service, deployed measure checks | `pbi-verify-service` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 
-2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. `.agent/desktop.json` missing or stale → read the `external_tools` row of `ad-pbip capabilities` and ask for the one gesture its `via` names: `ribbon:machine`, press *External Tools → agentdata*; `te2:local`, in Tabular Editor pick the instance, then *Hand off to agentdata*; `zorder`, click the window you mean and run `ad-pbip handoff --active`; `file`, name the document with `ad-pbip handoff --file <name>`. Then invoke it.
+2. Preconditions for the rows that touch the service. Each is a command, never a judgement:
+   - Deploy, refresh or service verification: `ad-pbi auth --probe` must answer `ok: true`. Anything else is an environment error (router step 8): print its row, never route around it.
+   - Publishing a report onto an existing model: `ad-pbi ls --workspace <workspace> --kind model` must list the target model. Missing: `ad-state ask "Model <model> is not in <workspace>: publish it first, or which model?" --want value`, then `friction-log` type `missing-info`, STOP.
+   Output one line: `→ <skill>: <reason in ≤ 12 words>`. `.agent/desktop.json` missing or stale → read the `external_tools` row of `ad-pbip capabilities` and ask for the one gesture its `via` names: `ribbon:machine`, press *External Tools → agentdata*; `te2:local`, in Tabular Editor pick the instance, then *Hand off to agentdata*; `zorder`, click the window you mean and run `ad-pbip handoff --active`; `file`, name the document with `ad-pbip handoff --file <name>`. Then invoke it.
 3. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.

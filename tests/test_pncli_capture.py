@@ -192,3 +192,69 @@ def test_capture_help_is_the_operators_and_refuses_inside_a_fleet(tmp_path, monk
     out = capsys.readouterr().out
     assert "operator_only" in out and "your own terminal" in out
     assert not out_file.exists() and os.listdir(cfg_dir) == []
+
+
+# ------------------------------------------------------------------ ad-pncli help (operator report 2026-10-02)
+# Bare `pncli` is on the fleet's deny floor, and three skills told the agent to run
+# `pncli <product> --help` once: in the fleet that was a refusal, and the operator left the desk for
+# a terminal of their own to get past it. `ad-pncli help` is the same help, allowed and read-only.
+
+def _pncli(monkeypatch, *args: str) -> int:
+    from agentdata import cli
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", *args])
+    try:
+        cli.main_pncli()
+    except SystemExit as e:
+        return int(e.code or 0)
+    return 0
+
+
+def _fake_help(monkeypatch, tmp_path) -> list[list[str]]:
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("PNCLI_EXE", "pncli")
+    seen: list[list[str]] = []
+
+    def fake_run(argv, **kw):
+        seen.append(list(argv))
+        return 0, README_PROGRAM_HELP.replace("string-util", "pncli bitbucket"), "", 0.01
+
+    from agentdata import proc
+    monkeypatch.setattr(proc, "run", fake_run)
+    return seen
+
+
+def test_help_runs_only_the_products_help_and_lists_its_verbs_inside_a_fleet(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENTDATA_FLEET_AGENT", "luna")
+    monkeypatch.setenv("AGENTDATA_FLEET_DIR", str(tmp_path / "fleet"))
+    seen = _fake_help(monkeypatch, tmp_path)
+    assert _pncli(monkeypatch, "help", "bitbucket") == 0
+    out = capsys.readouterr().out
+    assert seen == [["pncli", "bitbucket", "--help"]]
+    assert "ok: true" in out and "verbs: split" in out and "pncli bitbucket --help" in out
+    assert "Usage: pncli bitbucket [options] [command]" in out
+
+
+def test_raw_with_help_answers_as_help_rather_than_failing_for_want_of_json(tmp_path, monkeypatch, capsys):
+    """`ad-pncli raw bitbucket create-pr --help` used to reach `run`, which insists on JSON, and came
+    back `bad_output` -- so the agent's one sanctioned door to pncli's usage did not open either."""
+    _no_fleet(monkeypatch)
+    seen = _fake_help(monkeypatch, tmp_path)
+    assert _pncli(monkeypatch, "raw", "bitbucket", "create-pr", "--help") == 0
+    out = capsys.readouterr().out
+    assert seen == [["pncli", "bitbucket", "create-pr", "--help"]]
+    assert "ok: true" in out and "bad_output" not in out
+
+
+def test_help_takes_names_only_and_runs_nothing_else(tmp_path, monkeypatch, capsys):
+    _no_fleet(monkeypatch)
+    seen = _fake_help(monkeypatch, tmp_path)
+    for names in (["bitbucket", "create-pr", "extra"], ["Bitbucket;calc"], ["bitbucket", "create&pr"]):
+        assert _pncli(monkeypatch, "help", *names) == 1, names
+        out = capsys.readouterr().out
+        assert "bad_args" in out and "ad-pncli help [<product> [<verb>]]" in out, out
+    assert seen == [], "a refused path never reaches pncli"
+
+
+def test_the_unknown_verb_hint_names_ad_pncli_help_never_bare_pncli():
+    hint = P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
+    assert "`ad-pncli help jira`" in hint and "`pncli " not in hint

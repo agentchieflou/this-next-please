@@ -9,6 +9,7 @@ description: "Use for read-only SQL against Hive (HiveServer2) or Impala on Hado
 2. Write the SQL to `.agent/sql/<ticket>-<purpose>.sql`. One SELECT. Add `LIMIT 100` while exploring; remove only for the final run.
 3. Run `ad-hive --sql-file <that file> --name <purpose>` or `ad-impala ...` (`--env` overrides the fact).
 4. `ok: false` with `source: ad-sql-check` → apply the `fix` from `findings`, rerun. Other `ok: false` → fix once from `hint` (`klist` shows whether a Kerberos ticket exists); second failure → `friction-log` type `tool-error`.
+   The request said Hadoop (not Hive by name) and Hive refused for capacity — a YARN queue, a timeout, `Error while processing statement` with no SQL line → run the same query once on the other engine (`ad-impala`, after re-reading §The five differences: `||` → `concat()`). Its failure too → `friction-log` type `tool-error` quoting both. A missing Kerberos ticket is an environment error (router step 8), not a reason to switch engines.
 5. `meta.warnings` present → apply each fix before the final run.
 6. `rule: 6` → do not read rows. Use `stats` or script over `path` (see `data-adapter`).
 7. Invoke `state-update` with the `path` and `run_id`.

@@ -52,7 +52,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
-               poll as P, probe as PROBE, strip, supervisor, trace as TRACE, wrapup as WRAP)
+               overrides as OV, poll as P, probe as PROBE, strip, supervisor, trace as TRACE, wrapup as WRAP)
 from .registry import Registry, RegistryError, agent_dir, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -103,8 +103,11 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # after `common.js`.
 #
 # `/m` (#581), the phone page, brings `m.css` and its one script, `m/m.js`.
+#
+# `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
+# `tidy.js`.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js", "m.css", "m/m.js")
+          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -122,8 +125,11 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 # `/m` (#581) is the fifth: the phone page, one column over `/api/attention` and `/api/approval`
 # (#559) with the four verbs (approve, deny, send, answer), for a tablet on this machine's
 # localhost. Not inked: it is not in `INKED_PAGES`, and it wears `ink-off` like the map.
+#
+# `/tidy` is the sixth: the cleanup guide, opened from the map in a window of its own. It walks the
+# dirty working trees one decision at a time; every write is one press on a decision it showed.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html", "/m": "m.html"}
+         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
@@ -827,7 +833,8 @@ def fleet_snapshot() -> dict:
                      # What it has cost, against what (#211). On the row and not in `polls`,
                      # because a poll cell can be stale or grey and this never is: it is a fold of
                      # the agent's own stream.
-                     "spend": _spend_cell(name, budget_now),
+                     "spend": _spend_cell(name, lifecycle.settings(OV.for_agent(cfg, name))["budget_per_agent"]
+                                          if OV.own(cfg, name) else budget_now),
                      # The shape of the hour (#218): sixty small integers, drawn as a trace on
                      # the tile and the band. Folded from the whole stream rather than from
                      # `recent`, because forty events is not an hour -- a busy agent fills that
@@ -2613,17 +2620,25 @@ def act(what: str, body: dict) -> dict:
         if not answers:
             raise ServeError("nothing to answer",
                              "pick a choice or type an answer for at least one question")
-        if supervisor.live(repo).get("kind") == "console":
+        live = supervisor.live(repo)
+        # Recorded here, with `ad-state answer`, before the agent is resumed (2026-10-02): the
+        # answered stamp no longer waits on the agent choosing to run the command. Not while a
+        # headless turn is running -- `send` refuses that `mid_turn` anyway, and two writers of
+        # one state.json at once is how an answer gets lost.
+        recorded = (lifecycle.record_answers_for(repo, answers)
+                    if not live or live.get("kind") == "console" else [])
+        if live.get("kind") == "console":
             # A console is typed into, never sent to (#190), and `send` refused it -- so the card
             # did nothing, the operator answered in the chat instead, the agent cleared rather than
             # recorded, and the tile went on counting (#231). The same sentence, typed into the
-            # window: session-bootstrap turns it into `ad-state answer`, the agent's own writer.
-            said = supervisor.say(repo, lifecycle.answers_prompt(answers), cfg=C.load())
+            # window.
+            said = supervisor.say(repo, lifecycle.answers_prompt(answers, recorded), cfg=C.load())
             return {"repo": repo, "pid": said["pid"], "answered": [qid for qid, _ in answers],
-                    "via": "console"}
-        lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load(),
+                    "recorded": recorded, "via": "console"}
+        lock = supervisor.send(repo, lifecycle.answers_prompt(answers, recorded), cfg=C.load(),
                                force=bool(body.get("force")))
-        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers]}
+        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers],
+                "recorded": recorded}
     if what == "stop":
         return supervisor.stop(repo)
     if what == "reset":
@@ -2732,6 +2747,46 @@ def act(what: str, body: dict) -> dict:
             # draws them from this answer, so its chip says the switch within a frame of the save.
             answer["rows"] = [row for row in fleet_snapshot().get("repos", []) if row.get("repo") in named]
         return answer
+    if what == "grant":
+        # The desk's *yes* to a refused tool (operator report 2026-10-02): what a local `copilot`
+        # would have asked, added to this agent's (or every agent's) extra allowed tools, through
+        # the settings page's own validation. The deny floor is never granted (`grants.grant`).
+        from .. import config as C
+        from . import grants as G
+        from . import settings as SET
+
+        target = _repo_record(repo)
+        try:
+            known = {r.name for r in Registry().sorted()}
+        except (RegistryError, OSError):
+            known = {target.name}
+        with C.LOCK:
+            cfg = C.load()
+            try:
+                done = G.grant(cfg, target.name, body.get("patterns") or [],
+                               scope=str(body.get("scope") or "agent"), known=known)
+            except G.GrantError as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            except SET.SettingsError as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            try:
+                C.save(cfg)
+            except C.ConfigError as e:
+                raise ServeError(str(e), e.hint, code="config_refused") from None
+        _config_changed()
+        done["retried"] = False
+        lock = supervisor.live(target.name)
+        if body.get("retry") and not lock:
+            # The grant is saved whatever happens here: a budget or a login refusing the retry is
+            # said beside it, never as though the grant itself had failed.
+            try:
+                supervisor.send(target.name, G.retry_message(done["allowed"]), cfg=C.load())
+                done["retried"] = True
+            except supervisor.SupervisorError as e:
+                done["note"] = f"allowed, not retried: {e.msg}" + (f" — {e.hint}" if e.hint else "")
+        elif lock and lock.get("kind") == "console":
+            done["note"] = "a console's allow-list is fixed when it opens: close it and open it again"
+        return {"repo": target.name, **done}
     if what == "theme":
         from .. import config as C
 
@@ -2782,26 +2837,51 @@ def act(what: str, body: dict) -> dict:
                                   overwrite=body.get("overwrite") or None)
         except WRAP.WrapupError as e:
             raise ServeError(e.msg, e.hint, code=e.code) from None
+    if what == "tidy":
+        # The cleanup guide's one press (operator request, 2026-10): commit, branch, stash or skip
+        # one dirty tree, decided on the survey the guide showed (`plan_id`). `fleet/cleanup.py`.
+        from . import cleanup
+
+        try:
+            return cleanup.decide(repo, body)
+        except cleanup.CleanupError as e:
+            raise ServeError(e.msg, e.hint, code=e.code) from None
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load | wrapup")
+                     "measure | load | wrapup | tidy | grant")
 
 
 def _write_settings(C, SET, body: dict) -> None:
     """`act("settings")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
     cfg = C.load()
+    agent = str(body.get("agent") or "").strip()
     try:
-        for item in body.get("set") or []:
-            SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
-        # What only holds between keys, once the whole batch is in: two tier boundaries that
-        # only go together can be written together (#235).
-        SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
-        for item in body.get("models") or []:
-            SET.set_model(cfg, str(item.get("repo") or ""),
-                          model=item.get("model"), effort=item.get("effort"))
-        if "model" in body or "effort" in body:
-            SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
+        if agent:
+            # One agent's own values: the same keys, the same validation, written under
+            # `fleet.agents.<repo>`; `inherit` drops them so the agent reads the fleet's again.
+            try:
+                known = {r.name for r in Registry().sorted()}
+            except (RegistryError, OSError):
+                known = set()
+            for item in body.get("set") or []:
+                SET.apply_agent(cfg, agent, str(item.get("key") or ""), item.get("value"), known=known)
+            for item in body.get("lists") or []:
+                SET.apply_agent(cfg, agent, str(item.get("key") or ""), item.get("items"), known=known)
+            SET.inherit(cfg, agent, body.get("inherit") or [], known=known)
+        else:
+            for item in body.get("lists") or []:
+                SET.set_list(cfg, str(item.get("key") or ""), item.get("items"))
+            for item in body.get("set") or []:
+                SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
+            # What only holds between keys, once the whole batch is in: two tier boundaries that
+            # only go together can be written together (#235).
+            SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
+            for item in body.get("models") or []:
+                SET.set_model(cfg, str(item.get("repo") or ""),
+                              model=item.get("model"), effort=item.get("effort"))
+            if "model" in body or "effort" in body:
+                SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
     except SET.SettingsError as e:
         raise ServeError(e.msg, e.hint, code=e.code) from None
     except LAUNCH.LaunchError as e:
@@ -3433,6 +3513,12 @@ class Handler(BaseHTTPRequestHandler):
             if record is None:
                 return self._json({"ok": False, "error": f"no approval called {id} is waiting"}, 404)
             return self._json({"ok": True, **record})
+        if route == "/api/tidy":
+            from . import cleanup
+
+            # Every dirty working tree, the most recent first, each with one decision recommended.
+            names = [n for n in (query.get("repo") or []) if n]
+            return self._json(cleanup.plans(names or None))
         if route == "/api/map":
             from . import fleetmap
 
@@ -3908,6 +3994,16 @@ def settings_snapshot() -> dict:
         # that does not go together: then it is CI's, and `invalid` says why (#235).
         "tiers": SET.tiers(cfg),
         "tools": SET.tools(cfg),
+        # The list settings (extra allowed/denied tool patterns, extra directories), fleet-wide.
+        "lists": SET.describe_lists(cfg),
+        # Every registered agent's own view: each per-agent setting's effective value and where it
+        # came from, its lists, and the allow/deny it is launched with. The page's agent picker
+        # draws from this, so "what does luna run with, and why" is one lookup, not a join.
+        "agents": [SET.describe_agent(cfg, repo.name) for repo in repos],
+        # What Copilot itself keeps in `~/.copilot/config.json` (its `/config`), read from
+        # `copilot help config`, and which fleet setting covers each key. Read-only here: that file
+        # is shared with the operator's own chats and the fleet never writes it.
+        "copilot_config": MODELS.config_keys(),
     }
 
 

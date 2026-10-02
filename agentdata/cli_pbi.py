@@ -125,6 +125,23 @@ def _custom_visual_refusal(report_dir: str) -> int | None:
     return 1
 
 
+def _published_parts(live: dict, sent: list[dict], kind: str, name: str) -> int:
+    """Read the published definition back: every part this publish sent must be on the service.
+
+    A succeeded operation is the service's word that it accepted a request, not that the item now
+    holds what was sent (friction scan 1.2). A part missing from the live definition is
+    `publish_unverified`, status Indeterminate, and the publish is not called done.
+    """
+    have = {str(p.get("path") or "") for p in (live or {}).get("parts", []) if isinstance(p, dict)}
+    missing = sorted({str(p.get("path") or "") for p in sent} - have)
+    if missing:
+        raise FabricError("publish_unverified",
+                          f"the service's {kind} {name!r} lacks {len(missing)} part(s) this publish sent",
+                          "status Indeterminate: read it with `ad-pbi get` and publish again; never call it done",
+                          detail={"status": "Indeterminate", "missing": missing[:10]})
+    return len(have)
+
+
 def cmd_publish_report(args: argparse.Namespace) -> int:
     report_dir, default_name = _locate_report_folder(args.pbip)
     refused = _custom_visual_refusal(report_dir)
@@ -204,9 +221,12 @@ def cmd_publish_report(args: argparse.Namespace) -> int:
             rep_id, op_id = client.create_report(ws_id, report_name, parts)
             action = "created"
 
+        live = _published_parts(client.report_definition_by_id(ws_id, rep_id), parts, "report", report_name)
         url = f"https://app.powerbi.com/groups/{ws_id}/reports/{rep_id}"
         print(toon.encode({
             "ok": True,
+            "verified": True,
+            "parts_live": live,
             "action": action,
             "workspace": ws_name,
             "report_id": rep_id,
@@ -261,8 +281,11 @@ def cmd_publish_model(args: argparse.Namespace) -> int:
             m_id, op_id = client.create_model(ws_id, model_name, parts)
             action = "created"
 
+        live = _published_parts(client.model_definition_by_id(ws_id, m_id), parts, "model", model_name)
         print(toon.encode({
             "ok": True,
+            "verified": True,
+            "parts_live": live,
             "action": action,
             "workspace": ws_name,
             "model_id": m_id,
@@ -396,10 +419,13 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             print(toon.table("partitions", ["table", "partition", "rows", "last_processed"], rows))
             return 0
 
-        # Submit refresh
+        # The top history row before submitting is the baseline the poll must see past: without it,
+        # the last refresh's `Completed` read as this one's success.
+        before = get_refresh_history(ws_id, m_id, client, top=1)
+        baseline = before[0] if before else None
         submit_refresh(ws_name, m_name, scope=args.scope, runner=client.runner)
         if args.wait > 0:
-            res = poll_refresh(ws_id, m_id, client, wait_timeout=args.wait)
+            res = poll_refresh(ws_id, m_id, client, wait_timeout=args.wait, baseline=baseline)
             res["workspace"] = ws_name
             res["model"] = m_name
             print(toon.encode(res))
@@ -407,6 +433,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             print(toon.encode({
                 "ok": True,
                 "status": "Submitted",
+                "hint": "submitted is not completed: `--wait <s>` or `--history` proves it ran",
                 "workspace": ws_name,
                 "model": m_name,
                 "scope": args.scope,

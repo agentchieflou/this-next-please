@@ -219,9 +219,78 @@ def test_the_card_answers_a_console_by_typing_into_it(fleet_home, tmp_path, monk
     monkeypatch.setattr(supervisor, "send", lambda *a, **k: pytest.fail("a console is never sent to"))
     out = S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "prod"},
                                                        {"id": "q2", "answer": "sprint_2026"}]})
-    assert out == {"repo": "luna", "pid": 42, "answered": ["q1", "q2"], "via": "console"}
+    assert out == {"repo": "luna", "pid": 42, "answered": ["q1", "q2"], "recorded": [], "via": "console"}
     assert said == [("luna", lifecycle.answers_prompt([("q1", "prod"), ("q2", "sprint_2026")]))]
     assert said[0][1].startswith("Answers to your questions"), "the words session-bootstrap step 5 reads"
+
+
+def test_the_desk_records_the_answer_before_it_resumes_the_agent(fleet_home, tmp_path, monkeypatch):
+    """Operator report, 2026-10-02: a reply did not stamp the question answered, so the router found
+    it still blocking and the agent stopped again. The stamp waited on the agent choosing to run
+    `ad-state answer`. Now the desk asks `ad-state` itself before the resume, and says so."""
+    from agentdata.fleet import serve as S, supervisor
+
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    Registry().add(repo, name="luna")
+    assert _state_cli(repo, "ask", "Which workspace?", "--choice", "uat", "--choice", "prod").returncode == 0
+    sent = []
+    monkeypatch.setattr(supervisor, "live", lambda name: {})
+    monkeypatch.setattr(supervisor, "send", lambda name, text, cfg=None, force=False:
+                        sent.append(text) or {"pid": 7})
+    out = S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "uat"}]})
+    assert out["recorded"] == ["q1"], out
+    saved = json.load(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8"))
+    assert saved["open_questions"] == [] and saved["phase"] == "querying", saved
+    (done,) = saved["answered_questions"]
+    assert done["id"] == "q1" and done["answer"] == "uat" and done["answered"], done
+    assert sent == [lifecycle.answers_prompt([("q1", "uat")], ["q1"])]
+    assert "Already recorded" in sent[0] and "Record each" not in sent[0]
+
+
+def test_a_running_turn_is_not_written_under_and_its_answer_is_left_to_it(fleet_home, tmp_path, monkeypatch):
+    from agentdata.fleet import serve as S, supervisor
+
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    Registry().add(repo, name="luna")
+    _state_cli(repo, "ask", "Which workspace?")
+    monkeypatch.setattr(supervisor, "live", lambda name: {"pid": 9, "kind": "turn"})
+    monkeypatch.setattr(supervisor, "send", lambda name, text, cfg=None, force=False: {"pid": 9})
+    assert S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "uat"}]})["recorded"] == []
+    saved = json.load(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8"))
+    assert [q["id"] for q in saved["open_questions"]] == ["q1"], "nothing written under a live turn"
+
+
+def test_answering_is_forgiving_about_the_id_and_never_fails_twice(fleet_home, tmp_path):
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    _state_cli(repo, "ask", "Which workspace?")
+    done = _state_cli(repo, "answer", "uat")                         # one question open: no id needed
+    assert done.returncode == 0 and "answered: q1" in done.stdout, done.stdout + done.stderr
+    again = _state_cli(repo, "answer", "Q1", "uat")                   # the desk already recorded it
+    assert again.returncode == 0 and "already_answered: q1" in again.stdout, again.stdout + again.stderr
+    _state_cli(repo, "ask", "Which sprint?")
+    _state_cli(repo, "ask", "Which board?")
+    refused = _state_cli(repo, "answer", "the last sprint")         # two open: it must say which
+    assert refused.returncode != 0 and "say which one" in (refused.stdout + refused.stderr)
+    assert _state_cli(repo, "answer", "3", "the team board").returncode == 0     # `3` is q3
+    last = _state_cli(repo, "answer", "the last sprint")             # one left: q2
+    assert last.returncode == 0 and "answered: q2" in last.stdout, last.stdout
+
+
+def test_a_question_already_answered_on_this_ticket_is_not_asked_again(fleet_home, tmp_path):
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    _state_cli(repo, "ask", "Which workspace?", "--choice", "uat", "--choice", "prod")
+    _state_cli(repo, "answer", "q1", "uat")
+    asked = _state_cli(repo, "ask", "which  workspace")
+    assert asked.returncode == 0 and "already_answered: q1" in asked.stdout and "answer: uat" in asked.stdout
+    saved = json.load(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8"))
+    assert saved["open_questions"] == [] and saved["phase"] == "querying", "nothing re-blocked"
+    forced = _state_cli(repo, "ask", "Which workspace?", "--again")
+    assert "already_answered" not in forced.stdout and "blocking: 1" in forced.stdout, forced.stdout
+    _state_cli(repo, "answer", "q2", "prod")
+    _state_cli(repo, "set", "active_ticket=RDSD-119")
+    other = _state_cli(repo, "ask", "Which workspace?")
+    assert "already_answered" not in other.stdout and "blocking: 1" in other.stdout, \
+        "another ticket's answer is not this one's"
 
 
 def test_a_turn_that_answers_one_and_asks_another_reports_both(fleet_home, tmp_path):
@@ -295,7 +364,12 @@ def test_the_router_only_stops_on_a_blocking_question():
 def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: three questions produce one card and one Send. Asserted on the
     rendered page, because a substring in `app.js` proves an author wrote a line, not that a
-    person can see it."""
+    person can see it.
+
+    2026-10, the operator: "we always need to scroll beneath it to the second text box to type a
+    response that will actually send. There should only be one place to type per agent." The card's
+    own box (no Enter, its refusals written under the other box) is gone: the pane's reply box
+    answers the open question, and its chip switches it to a plain message."""
     import threading
 
     from agentdata.fleet import serve as S
@@ -342,31 +416,75 @@ def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path,
         page.wait_for_selector(".tile:visible", timeout=15000)
         page.wait_for_selector('.tile[data-repo="luna"] .asks:not([hidden])', timeout=5000)
 
-        card = page.locator('.tile[data-repo="luna"] .asks')
-        # Two blocking questions on one card, and exactly one Send for both.
+        tile = page.locator('.tile[data-repo="luna"]')
+        card = tile.locator(".asks")
+        say = tile.locator(".say")
+        chip = tile.locator(".answering")
+        # Two blocking questions on one card -- and nowhere on it to type (2026-10: one place to
+        # type per agent). The pane's reply box answers them; the card says so.
         assert card.locator(".ask:not([hidden])").count() == 2, "two blocking questions, one card"
         assert "2 questions" in card.locator(".asks-n").inner_text()
-        assert card.locator(".asks-send").count() == 1
+        assert card.locator("input, textarea, .asks-send").count() == 0, "the card has no box of its own"
+        assert "reply box below" in card.locator(".asks-how").inner_text()
         assert card.locator('.ask[data-qid="q1"] .ask-choice').count() == 2
         assert "default" in card.locator('.ask[data-qid="q1"] .ask-choice').first.inner_text()
-        # `--want file` says so where the answer is typed.
-        placeholder = card.locator('.ask[data-qid="q2"] .ask-answer').get_attribute("placeholder")
-        assert "path" in placeholder
+        assert tile.locator("input[type=text]:visible, textarea:visible").count() == 1, "one place to type"
+
+        # The reply box answers the first open question, and says which.
+        assert chip.inner_text() == "answers q1" and chip.get_attribute("aria-pressed") == "true"
+        assert say.get_attribute("placeholder").startswith("answer: Does it cover the UAT workspace?")
 
         # The assumption is a row, not a card, and the tile is not red for it.
         assumed = page.locator('.tile[data-repo="luna"] .assumed')
         assert assumed.is_visible()
         assert "the last full sprint" in assumed.inner_text()
 
-        # Clicking a choice fills that question's answer and nothing else's.
-        card.locator('.ask[data-qid="q1"] .ask-choice').first.click()
-        assert card.locator('.ask[data-qid="q1"] .ask-answer').input_value() == "yes"
-        assert card.locator('.ask[data-qid="q2"] .ask-answer').input_value() == ""
+        # Clicking a question's words aims the box at it; `--want file` says so where it is typed.
+        card.locator('.ask[data-qid="q2"] .ask-q').click()
+        assert chip.inner_text() == "answers q2" and "a path" in say.get_attribute("placeholder")
 
-        # Send with nothing typed says so rather than spending a turn.
-        page.locator('.tile[data-repo="luna"] .ask[data-qid="q1"] .ask-answer').fill("")
-        card.locator(".asks-send").click()
-        assert "pick a choice" in card.locator(".asks-note").inner_text()
+        # Clicking a choice puts it in the box, aimed at its question, and nothing else's.
+        card.locator('.ask[data-qid="q1"] .ask-choice').first.click()
+        assert say.input_value() == "yes" and chip.inner_text() == "answers q1"
+        assert card.locator('.ask[data-qid="q1"] .ask-answer').inner_text() == "yes"
+        assert card.locator('.ask[data-qid="q2"] .ask-answer').inner_text() == ""
+        assert page.evaluate("() => document.activeElement.classList.contains('say')"), "Enter is next"
+
+        # Enter with nothing to answer says so under the one box rather than spending a turn.
+        say.fill("")
+        say.press("Enter")
+        page.wait_for_function("""() => { const e = document.querySelector('.tile[data-repo="luna"] .err');
+            return !e.hidden && e.textContent.includes('pick a choice'); }""", timeout=5000)
+
+        # Enter sends the answer -- one `answer` with every question answered so far.
+        sent = []
+
+        def answer(route):
+            sent.append(json.loads(route.request.post_data or "{}"))
+            return route.fulfill(status=200, content_type="application/json",
+                                 body='{"ok": true, "action": "answer", "repo": "luna", "answered": ["q1"]}')
+
+        page.route("**/api/answer*", answer)
+        say.fill("yes, and the UAT copy")
+        say.press("Enter")
+        page.wait_for_selector('.tile[data-repo="luna"] .ask[data-qid="q1"].is-answered', timeout=5000)
+        assert sent == [{"repo": "luna", "answers": [{"id": "q1", "answer": "yes, and the UAT copy"}],
+                         "force": False}], sent
+        assert say.input_value() == "" and chip.inner_text() == "answers q2", "on to the next question"
+
+        # The chip turns the box into a plain message, and back.
+        messages = []
+        page.route("**/api/send*", lambda route: (messages.append(json.loads(route.request.post_data or "{}")),
+                                                  route.fulfill(status=200, content_type="application/json",
+                                                                body='{"ok": true, "action": "send", "repo": "luna"}')))
+        chip.click()
+        assert chip.inner_text() == "a message, not an answer" and chip.get_attribute("aria-pressed") == "false"
+        assert say.get_attribute("placeholder") == "reply, or a ticket key to start"
+        say.fill("stop after the export")
+        say.press("Enter")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"luna\"] .say').value === ''",
+                               timeout=5000)
+        assert [m["message"] for m in messages] == ["stop after the export"] and len(sent) == 1
         assert not errors, errors
         close_pages(browser)
     finally:

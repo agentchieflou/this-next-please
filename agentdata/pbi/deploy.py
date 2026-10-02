@@ -92,6 +92,19 @@ def record_deploy_stamp(workspace: str, model: str, model_sha: str, log_file: st
         json.dump(stamps, f, indent=2)
 
 
+# What a failed sign-in or connection looks like in Tabular Editor's own output when its exit code
+# says nothing went wrong. Matched case-insensitively, per line.
+SILENT_FAILURES = ("aadsts", "authentication failed", "login failed", "unauthorized", "access denied",
+                   "could not connect", "unable to connect", "connection failed",
+                   "the remote server returned an error", "unhandled exception")
+
+
+def unverified_lines(text: str) -> list[str]:
+    """Lines of a zero-exit Tabular Editor run that say the deploy did not happen."""
+    return [line.strip() for line in (text or "").splitlines()
+            if any(sig in line.lower() for sig in SILENT_FAILURES)]
+
+
 def deploy_model(
     definition_dir: str,
     workspace: str,
@@ -181,7 +194,25 @@ def deploy_model(
             detail={"errors": error_lines, "log": textio.norm_path(log_path)},
         )
 
+    # Exit 0 is not a deploy (friction scan 1.2). A preview that wrote no script previewed nothing,
+    # and a deploy whose sign-in failed inside Tabular Editor has been seen to exit 0 with the
+    # service model never touched. Both are refused by name, with the log, rather than stamped.
+    if dry_run and not (os.path.isfile(xmla_out) and os.path.getsize(xmla_out) > 0):
+        raise FabricError(
+            "preview_missing",
+            "Tabular Editor exited 0 but wrote no deploy script",
+            hint="status Indeterminate: nothing was previewed. Read the log; a TE2 version that "
+                 "rejects `-X` needs `powerbi.tools.te2_exe` pointed at TE2 2.x",
+            detail={"status": "Indeterminate", "log": textio.norm_path(log_path)})
     if not dry_run:
+        silent = unverified_lines(out + "\n" + err)
+        if silent:
+            raise FabricError(
+                "deploy_unverified",
+                "Tabular Editor exited 0 but reported a failure",
+                hint="status Indeterminate: the service model may be untouched. Run `ad-pbi auth --probe`, "
+                     "then `ad-pbi verify` before calling it deployed",
+                detail={"status": "Indeterminate", "errors": silent[:5], "log": textio.norm_path(log_path)})
         record_deploy_stamp(workspace, model, model_sha, log_path, roles=roles)
 
     return {

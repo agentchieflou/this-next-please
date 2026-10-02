@@ -275,6 +275,47 @@ def test_status_goes_stale_when_the_document_is_edited(repo):
     assert approval.check_approval_status(root=root, graph_dir=out_dir)["status"] == "stale"
 
 
+def test_a_graph_sha_that_moved_with_no_node_keeps_the_approval_current(repo, capsys):
+    """Friction scan 1.5: the whole-graph sha also moves for things no human read -- an extractor
+    that orders an edge differently, a rebuild from another directory -- while every node's source
+    is byte-identical. `ad-graph status` judged on that sha alone and re-asked for an approval nobody
+    needed to give, while the guard (judging by node) said current. Simulated here by an approval
+    recorded against another build of the same nodes."""
+    root, out_dir = repo
+    graph_main(["explain", root, "--graph-dir", out_dir])
+    _state_file(root)
+    approval.approve_graph(root=root, graph_dir=out_dir, input_fn=lambda _p: "y")
+    record_path = os.path.join(out_dir, "approval.json")
+    record = json.loads(read_text(record_path))
+    record["graph_sha256"] = "0" * 64
+    write_text(record_path, json.dumps(record))
+
+    res = approval.check_approval_status(root=root, graph_dir=out_dir)
+    assert res["status"] == "current" and res["approved"] is True and res["basis"] == "nodes"
+
+    # a real source change is still a change
+    app = os.path.join(root, "app.py")
+    write_text(app, read_text(app) + "\n\ndef drift():\n    return 2\n")
+    build_graph(root=root, out_dir=out_dir, force=True)
+    assert approval.check_approval_status(root=root, graph_dir=out_dir)["status"] == "stale"
+    assert graph_main(["status", root, "--graph-dir", out_dir]) == 0
+    assert "basis" in capsys.readouterr().out
+
+
+def test_status_from_a_subdirectory_finds_the_projects_approval(repo, monkeypatch, capsys):
+    """The cwd half of 1.5: run from `src/`, the default root used to be `src/` itself."""
+    root, out_dir = repo
+    graph_main(["explain", root, "--graph-dir", out_dir])
+    _state_file(root)
+    approval.approve_graph(root=root, graph_dir=out_dir, input_fn=lambda _p: "y")
+    sub = os.path.join(root, "src")
+    os.makedirs(sub, exist_ok=True)
+    monkeypatch.chdir(sub)
+    assert graph_main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "current" in out and "none" not in out.split("approved_at")[0]
+
+
 # ----------------------------------------------------------------------------------------- skill
 
 

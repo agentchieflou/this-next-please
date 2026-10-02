@@ -30,5 +30,22 @@
     "kimi-k3",
     "kimi-k2.7-code"
   ],
-  "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+  "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  "config": [
+    {
+      "key": "logLevel",
+      "about": "log level for CLI; defaults to \"default\". Set to \"all\" for debug logging.",
+      "choices": []
+    },
+    {
+      "key": "model",
+      "about": "AI model to use for Copilot CLI; can be changed with /model command or --model flag option.",
+      "choices": []
+    },
+    {
+      "key": "contextTier",
+      "about": "context window tier for tiered-pricing models (e.g., \"default\" or \"long_context\"). Can also be set with --context flag (overrides persisted setting) Can be changed with /model command (context tier picker appears for eligible models)",
+      "choices": []
+    }
+  ]
 }

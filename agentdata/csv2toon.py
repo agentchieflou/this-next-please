@@ -11,13 +11,9 @@ with the `ad-pbip` DAX path on two things a CSV from a Windows tool gets wrong:
   route produced it.
 """
 from __future__ import annotations
-import csv
-import io
 import sys
 
-from . import textio
-from .model import AgentTable, _coerce
-from .pbip.dax import clean_header
+from .pbip.dax import read_csv
 from .policy import render
 
 
@@ -29,12 +25,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2 if len(args) != 1 else 0
 
     path = args[0]
-    rows = list(csv.reader(io.StringIO(textio.read_text(path), newline="")))
-    if not rows:
+    table = read_csv(path)
+    if table is None:
         print(f"empty csv: {path}", file=sys.stderr)
         return 1
-    cols = [clean_header(h) for h in rows[0]]
-    table = AgentTable("dax", cols, [[_coerce(v) for v in r] for r in rows[1:]], source=path)
     print(render(table))
     return 0
 

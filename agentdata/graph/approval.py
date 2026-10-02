@@ -115,6 +115,7 @@ def check_approval_status(
     app_und_sha = app_data.get("understanding_sha256", "")
 
     is_current = (cur_graph_sha == app_graph_sha) and (app_und_sha == cur_und_sha)
+    basis = "graph"
     changed_count = 0
     if not is_current:
         snapshot_file = os.path.join(graph_dir_abs, SNAPSHOT_NAME)
@@ -122,7 +123,16 @@ def check_approval_status(
             try:
                 changed_count = drift_from_snapshot(graph, textio.read_json(snapshot_file, SNAPSHOT_NAME))
             except Exception:
-                changed_count = 0
+                changed_count = -1
+            # What was approved is the understanding of *these nodes' source*, not a hash of the
+            # whole graph file: a rebuild that moved line numbers, or an edge the extractor now
+            # orders differently, changes the graph sha while every node a human read is
+            # byte-identical. Judged on the whole sha, that no-op re-asked for an approval nobody
+            # needed to give (friction scan 1.5); the guard already judged by node, so the two
+            # disagreed. Now both do.
+            if changed_count == 0 and app_und_sha == cur_und_sha:
+                is_current, basis = True, "nodes"
+            changed_count = max(changed_count, 0)
         else:
             # an approval granted before the snapshot existed: fall back to disk drift
             try:
@@ -134,6 +144,7 @@ def check_approval_status(
         "ok": True,
         "status": "current" if is_current else "stale",
         "approved": is_current,
+        "basis": basis,
         "graph_sha256": cur_graph_sha,
         "approved_graph_sha256": app_graph_sha,
         "understanding_sha256": cur_und_sha,

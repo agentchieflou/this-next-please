@@ -627,6 +627,38 @@ def cmd_visual_query(a) -> int:
     return 0
 
 
+def cmd_dax(a) -> int:
+    """`ad-pbip dax`: any DAX against the running Desktop (or whatever `--server` dscmd reaches), the
+    way `visual-query` runs a visual's. `dax-studio-export` told an agent to run `dscmd` itself and
+    read the CSV with `python -m agentdata.csv2toon`; a fleet agent is given neither (operator report,
+    2026-10-02), and `ad-pbip` it is."""
+    _resolve_desktop_target(a)
+    if not getattr(a, "server", None):
+        print(error("give --server localhost:<port> (ad-pbip desktop), or press External Tools -> agentdata in Desktop",
+                    "", "ad-pbip"))
+        return 2
+    if bool(a.query) == bool(a.file):
+        print(error("give the DAX once: --query \"EVALUATE …\" or --file <path>.dax", "", "ad-pbip"))
+        return 2
+    dax = a.query if a.query else read_text(a.file)
+    if not dax.lstrip().upper().startswith(("EVALUATE", "DEFINE")):
+        print(error("the query must start with EVALUATE (or DEFINE)", "wrap a table expression: EVALUATE TOPN(500, …)",
+                    "ad-pbip"))
+        return 2
+    cfg = C.load()
+    try:
+        t = D.run_dax(dax, a.server, _dscmd(cfg, a.dscmd), a.db, file_flag=_file_flag(cfg), name=a.name or "dax")
+    except D.DaxError as e:
+        print(error(str(e)[:300], "check --server (ad-pbip desktop) and the DAX; a DAX error is a finding", "ad-pbip"))
+        return 1
+    extra = {"server": a.server}
+    if a.out:
+        D.write_csv(t, a.out)
+        extra["out"] = textio.norm_path(a.out)
+    print(render(t, extra=extra))
+    return 0
+
+
 def cmd_lint(a) -> int:
     target = a.path
     files = [target] if os.path.isfile(target) else T.model_files(target)
@@ -1407,6 +1439,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_visual_query)
+    p = sub.add_parser("dax", help="run any DAX against the running Desktop (localhost:<port>) via dscmd; "
+                                   "the service is `ad-pbi dax`")
+    p.add_argument("--server", help="localhost:<port> (default: .agent/desktop.json from the handoff)")
+    p.add_argument("--db"); p.add_argument("--dscmd")
+    p.add_argument("--query", "-q", help="the DAX text, starting with EVALUATE")
+    p.add_argument("--file", "-f", help="a .dax file starting with EVALUATE")
+    p.add_argument("--out", "-o", help="also write the rows: .csv, or .tsv for ad-diff")
+    p.add_argument("--name")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_dax)
     p = sub.add_parser("lint", help="TMDL syntax lint for a definition folder or one .tmdl file")
     p.add_argument("path")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")

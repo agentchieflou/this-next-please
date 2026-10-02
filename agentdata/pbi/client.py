@@ -262,6 +262,11 @@ class FabricClient:
         """Fetch PBIR report definition via POST getDefinition?format=PBIR."""
         ws_id, _ = self.resolve_workspace(workspace_id)
         rep_id, _ = self.resolve_item(ws_id, report_id, kind="report")
+        return self.report_definition_by_id(ws_id, rep_id)
+
+    def report_definition_by_id(self, ws_id: str, rep_id: str) -> dict:
+        """The live definition of a report known by id, with no name lookup: what a publish reads
+        back, the moment after it created a report no listing may show yet."""
         url = f"{FABRIC_API_BASE}/workspaces/{ws_id}/reports/{rep_id}/getDefinition?format=PBIR"
         _, data, headers, _ = self.rest_call("POST", url)
 
@@ -295,6 +300,10 @@ class FabricClient:
         """Fetch TMDL semantic model definition via POST getDefinition?format=TMDL."""
         ws_id, _ = self.resolve_workspace(workspace_id)
         m_id, _ = self.resolve_item(ws_id, model_id, kind="model")
+        return self.model_definition_by_id(ws_id, m_id)
+
+    def model_definition_by_id(self, ws_id: str, m_id: str) -> dict:
+        """The live definition of a semantic model known by id, with no name lookup."""
         url = f"{FABRIC_API_BASE}/workspaces/{ws_id}/semanticModels/{m_id}/getDefinition?format=TMDL"
         _, data, headers, _ = self.rest_call("POST", url)
 

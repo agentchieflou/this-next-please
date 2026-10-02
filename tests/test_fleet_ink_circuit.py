@@ -275,7 +275,9 @@ def test_the_board_draws_the_grammar_and_its_signals_and_ink_off_is_plain(
         assert _of(marks, A, "state-error .why", "marker", "loop") and _of(marks, A, "state-error", "marker", "bang")
         scorched = _signals(page)["panes"]["alpha"]["scorch"]
 
-        # blocked: a red cross; then done: a green check, the cross struck, and a green LED.
+        # blocked: a red cross; then done: a green check in its place, and a green LED. The cross and
+        # the check share one margin anchor, so the struck cross is taken up rather than left under
+        # the check (2026-10: the two were seen drawn over each other).
         _emit(page, "beta", ("question_cleared", {"id": "q1"}), ("phase_changed", {"from": "build", "to": "blocked"}))
         _until_class(page, "beta", "state-blocked")
         _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'cross' && m.lane === 'pane:beta' && m.state === 'drawn')")
@@ -289,8 +291,8 @@ def test_the_board_draws_the_grammar_and_its_signals_and_ink_off_is_plain(
                     f" && {P}.beta.led === 'green'")
         marks = _marks(page)
         assert _of(marks, B, "is-done", "green", "check")
-        assert [m for m in marks if m["lane"] == B and m["shape"] == "cross" and not m["strikeOf"]
-                and m["state"] == "struck"], "the cross is struck when the pane is no longer blocked"
+        assert not [m for m in marks if m["lane"] == B and m["shape"] == "cross"], \
+            "the cross is taken up when the check takes its place, never left under it"
         leds.append(_signals(page)["panes"]["beta"]["led"])
 
         # The error goes: the scorch is erased.

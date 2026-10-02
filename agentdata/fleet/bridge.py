@@ -1116,8 +1116,16 @@ def _apply_reply(p: _Pass, path: str, name: str, record: dict) -> bool:
     repo, text, answered = _check_reply(p, record)
     nonce, by = record["nonce"], record["by"]
     cfg = p.cfg if p.cfg is not None else C.load()
+    live = supervisor.live(repo)
+    if answered and (not live or live.get("kind") == "console"):
+        # As the desk does (`act("answer")`): the answers are recorded with `ad-state answer` before
+        # the agent is resumed, so its router finds nothing blocking (2026-10-02).
+        from . import lifecycle
+
+        pairs = [(a["id"], a["answer"]) for a in record.get("answers") or [] if a["id"] and a["answer"].strip()]
+        text = lifecycle.answers_prompt(pairs, lifecycle.record_answers_for(repo, pairs))
     try:
-        if supervisor.live(repo).get("kind") == "console":
+        if live.get("kind") == "console":
             via = "say"
             supervisor.say(repo, text, cfg=cfg)
         else:

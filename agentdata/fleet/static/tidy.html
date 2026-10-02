@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>fleet · cleanup guide</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/tidy.css">
+</head>
+<body class="tidy-page ink-off">
+<header class="toolbar">
+  <h1>cleanup guide</h1>
+  <p id="tidysays" aria-live="polite"></p>
+  <span class="spacer"></span>
+  <button type="button" id="tidyagain" class="linkbtn" title="survey every working tree again">look again</button>
+</header>
+
+<main id="tidy">
+  <ol id="tidysteps" aria-label="the dirty working trees, the most recent first"></ol>
+
+  <section id="tidycard" aria-labelledby="tc-repo" hidden>
+    <p class="tc-who"><span id="tc-step"></span> <strong id="tc-repo"></strong> on <code id="tc-branch"></code></p>
+    <p class="tc-says" id="tc-says"></p>
+    <details id="tc-files"><summary id="tc-filesn"></summary><ul id="tc-filelist"></ul></details>
+    <p class="tc-label" id="tc-overlapsn" hidden>where these files also change, and the tech debt of each home (lower keeps the work)</p>
+    <ul id="tc-overlaps" aria-labelledby="tc-overlapsn"></ul>
+    <fieldset id="tc-options"><legend>what to do with them</legend></fieldset>
+    <div class="tc-row" id="tc-msgrow"><label for="tc-message">commit message</label><input type="text" id="tc-message" spellcheck="false"></div>
+    <div class="tc-row" id="tc-branchrow"><label for="tc-branchname">new branch</label><input type="text" id="tc-branchname" spellcheck="false"></div>
+    <div class="tc-actions">
+      <button type="button" id="tc-apply" class="tc-go">do it</button>
+      <button type="button" id="tc-later" class="linkbtn" title="leave this tree for now and go to the next">next tree</button>
+    </div>
+    <p class="tc-result" id="tc-result" role="status"></p>
+  </section>
+
+  <section id="tidydone" aria-label="what the guide did" hidden>
+    <h2 id="td-head"></h2>
+    <ul id="td-list"></ul>
+  </section>
+</main>
+
+<template id="tidy-step"><li><span class="ts-repo"></span> <span class="ts-what"></span></li></template>
+<template id="tidy-option"><label class="tc-opt"><input type="radio" name="tc-choice"><span class="tc-opt-label"></span><span class="tc-rec" hidden>recommended</span></label></template>
+<template id="tidy-line"><li><code></code></li></template>
+
+<script src="/static/common.js"></script>
+<script src="/static/tidy.js"></script>
+</body>
+</html>

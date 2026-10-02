@@ -51,6 +51,7 @@ form is a subquery with `ROW_NUMBER()` — use that when the same SQL must also 
 
 ## Identifiers
 - Quote with double quotes `"My Col"`; names are case-insensitive. Backticks are a syntax error.
+- A column named like a keyword must be double-quoted: `"TITLE"`, `"DATE"`, `"YEAR"`, `"USER"`, `"SESSION"`, `"ACCOUNT"` are the usual ones in Jira history tables. Unquoted, the error is 3707 *expected something between …*, which reads like a typo and is not one.
 - Fully qualify: `DB.TABLE`. Abbreviations `SEL`, `DEL`, `INS`, `UPD` exist — never emit them.
 
 ## Aggregation

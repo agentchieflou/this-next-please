@@ -459,7 +459,7 @@ body:has(> #ink[data-skin]) .trace > * { visibility: hidden; }
   width: 100%; height: 100%; pointer-events: none;
 }
 body:has(> #ink[data-skin]) :is(header, footer, .tile, .approval, .asks, .ask-choice, .dispatch,
-                                .scope, .outside, .readonly) {
+                                .scope, .outside, .readonly, .refused) {
   background: transparent;
   box-shadow: none;
 }
@@ -984,11 +984,35 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
 }
 .ask-choice[aria-pressed="true"] { border-color: var(--focus); background: var(--select); font-weight: 600; }
-.ask-answer {
-  width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
+.ask-answer { display: block; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.ask-answer:empty { display: none; }
+.ask-answer::before { content: "\2192  "; font-weight: 400; }
+.ask-q { cursor: pointer; }
+.ask.is-target { border-left: 2px solid var(--focus); padding-left: 6px; }
+.asks-how { margin: 4px 0 0; color: var(--text); font-size: 11px; }
+.refused {
+  margin-top: 8px; padding: 8px; border: 1px solid var(--human); border-radius: 5px;
+  background: var(--select);
 }
-.asks-note { color: var(--muted); align-self: center; }
+.refused-head { font-weight: 600; color: var(--human-text); }
+.refused-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.refusal { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.refusal:last-child { border-bottom: 0; }
+.refusal-what { display: block; overflow-wrap: anywhere; color: var(--text); }
+.refusal-note { margin: 4px 0; color: var(--text); font-size: 11px; }
+.refusal-note:empty { display: none; }
+.refusal-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.refusal-allow, .refusal-all {
+  min-height: 28px; padding: 2px 10px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
+}
+.refusal-allow { border-color: var(--focus); font-weight: 600; }
+.answering {
+  flex: 0 0 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: inherit; font-size: 11px; color: var(--text); background: var(--select);
+  border: 1px solid var(--focus); border-radius: 10px; padding: 1px 8px; cursor: pointer;
+}
+.answering[aria-pressed="false"] { background: var(--panel); border-color: var(--line); }
 .assumed { list-style: none; margin: 6px 0 0; padding: 0; }
 .assumption {
   display: flex; gap: 8px; align-items: baseline;
@@ -1212,6 +1236,31 @@ body.settings-page .patterns li {
 }
 body.settings-page .patterns code { font: 11px var(--mono); color: var(--text); }
 body.settings-page .patterns .from { font-size: 11px; color: var(--muted); }
+body.settings-page .patterns li.broad code,
+body.settings-page .chip.broad code { color: var(--waiting-text, var(--text)); font-weight: 600; }
+body.settings-page .source {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
+  padding: 0 7px; white-space: nowrap;
+}
+body.settings-page .source-agent { color: var(--text); border-color: var(--accent); }
+body.settings-page .inherit,
+body.settings-page .addone,
+body.settings-page .dropone {
+  font: inherit; font-size: 11px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer;
+}
+body.settings-page .inherit:hover,
+body.settings-page .addone:hover,
+body.settings-page .dropone:hover { border-color: var(--accent); }
+body.settings-page .listrow .chips {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%;
+}
+body.settings-page .chip {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+  border-radius: 6px; padding: 2px 6px;
+}
+body.settings-page .chip code { font: 11px var(--mono); color: var(--text); }
+body.settings-page #copilotcfg code { font: 11px var(--mono); }
 
 @media (max-width: 640px) {
   body.settings-page main.settings { width: 100%; min-width: 0; box-sizing: border-box; }

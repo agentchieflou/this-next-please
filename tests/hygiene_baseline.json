@@ -224,6 +224,9 @@
     "tests/regressions/test_20260927_any_a_post_cut_off_before_its_body_is_not_acted_on.py": {
       "tests": 1
     },
+    "tests/regressions/test_20261002_any_chrome_check_drawn_over_struck_cross.py": {
+      "tests": 1
+    },
     "tests/regressions/test_convention.py": {
       "tests": 3
     },
@@ -274,7 +277,7 @@
       "tests": 13
     },
     "tests/test_deploy_refresh_verify.py": {
-      "tests": 18
+      "tests": 21
     },
     "tests/test_desk_harness.py": {
       "tests": 10
@@ -323,6 +326,12 @@
     "tests/test_fleet.py": {
       "tests": 32
     },
+    "tests/test_fleet_agent_settings.py": {
+      "tests": 11
+    },
+    "tests/test_fleet_agent_settings_page.py": {
+      "tests": 2
+    },
     "tests/test_fleet_approval.py": {
       "tests": 34
     },
@@ -352,8 +361,14 @@
     "tests/test_fleet_checkouts.py": {
       "tests": 19
     },
+    "tests/test_fleet_cleanup.py": {
+      "tests": 7
+    },
     "tests/test_fleet_cli_desk.py": {
       "tests": 32
+    },
+    "tests/test_fleet_colors.py": {
+      "tests": 7
     },
     "tests/test_fleet_column.py": {
       "tests": 27
@@ -444,11 +459,14 @@
     "tests/test_fleet_fresh.py": {
       "tests": 16
     },
+    "tests/test_fleet_grants.py": {
+      "tests": 16
+    },
     "tests/test_fleet_gutters.py": {
       "tests": 21
     },
     "tests/test_fleet_handoff_ask.py": {
-      "tests": 18
+      "tests": 22
     },
     "tests/test_fleet_handoff_pickup.py": {
       "tests": 11
@@ -542,6 +560,9 @@
     },
     "tests/test_fleet_map_branches.py": {
       "tests": 9
+    },
+    "tests/test_fleet_map_chat.py": {
+      "tests": 2
     },
     "tests/test_fleet_map_layout.py": {
       "tests": 2
@@ -664,6 +685,12 @@
     "tests/test_fleet_theme_tokens.py": {
       "tests": 12
     },
+    "tests/test_fleet_tidy.py": {
+      "tests": 14
+    },
+    "tests/test_fleet_tidy_page.py": {
+      "tests": 2
+    },
     "tests/test_fleet_tiers.py": {
       "tests": 11
     },
@@ -693,7 +720,7 @@
       "tests": 6
     },
     "tests/test_graph_explain.py": {
-      "tests": 18
+      "tests": 20
     },
     "tests/test_graph_findings.py": {
       "tests": 17
@@ -806,7 +833,7 @@
       "tests": 24
     },
     "tests/test_pbi_cli.py": {
-      "tests": 16
+      "tests": 18
     },
     "tests/test_pbi_probe.py": {
       "skips": 3,
@@ -841,7 +868,7 @@
       "tests": 11
     },
     "tests/test_pncli_capture.py": {
-      "tests": 8
+      "tests": 12
     },
     "tests/test_proc.py": {
       "skips": 2,
@@ -870,6 +897,9 @@
       "skips": 1,
       "tests": 22
     },
+    "tests/test_routing_friction.py": {
+      "tests": 9
+    },
     "tests/test_screenshot.py": {
       "tests": 11
     },
@@ -894,6 +924,9 @@
     "tests/test_skill_argv.py": {
       "skips": 2,
       "tests": 9
+    },
+    "tests/test_skill_contracts.py": {
+      "tests": 5
     },
     "tests/test_skill_handoffs.py": {
       "tests": 7
@@ -935,7 +968,7 @@
       "tests": 11
     },
     "tests/test_state.py": {
-      "tests": 8
+      "tests": 13
     },
     "tests/test_stress_one.py": {
       "tests": 4
@@ -954,7 +987,7 @@
       "tests": 12
     },
     "tests/test_testing_run.py": {
-      "tests": 6
+      "tests": 7
     },
     "tests/test_textio.py": {
       "tests": 5
@@ -986,6 +1019,9 @@
     "tests/test_uat_jira_vs_source.py": {
       "tests": 30
     },
+    "tests/test_uat_rollup.py": {
+      "tests": 7
+    },
     "tests/test_ui.py": {
       "tests": 17
     },
@@ -1001,9 +1037,6 @@
     "tests/test_winui.py": {
       "skips": 1,
       "tests": 18
-    },
-    "tests/test_fleet_colors.py": {
-      "tests": 7
     }
   }
 }

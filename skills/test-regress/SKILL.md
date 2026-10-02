@@ -11,10 +11,13 @@ This skill **never edits** a file and never re-runs a step "to see if it passes 
 (`AGENTS.md` rule 11): the same command twice with the same arguments is a stop condition, not a
 retry. It returns a verdict; the caller decides to commit or revert.
 
-1. Input: a node id, and a worktree with the change already applied and stashable. Uncommitted
-   changes must be the change under test and nothing else — `git status --porcelain` first, and if
-   it lists anything unrelated, `friction-log` type `contract`; STOP.
-2. Baseline. `git stash push --include-untracked`, then:
+1. Input: a node id, and a worktree with the change already applied and stashable. `git status
+   --porcelain` first. It lists only the change under test → **whole mode**: the stash below takes
+   everything. It also lists unrelated files → **scoped mode**: name the change's files, and stash
+   only those (`git stash push --include-untracked -- <the change's files>`), so the unrelated edits
+   sit in both runs and cancel out. Cannot tell which files are the change → `friction-log` type
+   `contract`; STOP.
+2. Baseline. `git stash push --include-untracked` (scoped mode: `-- <the change's files>`), then:
    - `ad-test run --snapshot before`
    - `ad-test bench --node <id> --label before`
    - `ad-test coverage`  (writes the before coverage; copy it to `.agent/out/coverage-before.json`)

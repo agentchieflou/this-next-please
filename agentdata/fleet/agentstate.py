@@ -33,7 +33,7 @@ class Fold:
 
     __slots__ = ("phase", "ticket", "session", "premium", "turns", "last_text", "denied",
                  "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts",
-                 "asked", "files", "from_state", "subagents", "launch", "replied")
+                 "asked", "files", "from_state", "subagents", "launch", "replied", "calls")
 
     def __init__(self) -> None:
         self.phase = self.ticket = self.session = self.last_text = ""
@@ -60,6 +60,9 @@ class Fold:
         # refused that pair by the CLI (#493).
         self.launch: dict = {}
         self.replied = False
+        # This turn's tool calls, id -> (tool, arguments): a denial names only the call's id, and the
+        # tile has to say *what* was refused and what would allow it (`grants.refusal`).
+        self.calls: dict[str, tuple] = {}
 
     def add(self, ev: dict) -> "Fold":
         kind, data = ev.get("kind"), ev.get("data") or {}
@@ -90,12 +93,16 @@ class Fold:
             # A new turn supersedes what the last one was refused, but not what it asked: a
             # question and an approval both outlive the turn that raised them.
             self.denied = []
+            self.calls = {}
         elif kind == "turn_ended":
             self.turn_open = False
             self.turns += 1
         elif kind == "assistant_text":
             self.last_text = str(data.get("text") or "").strip()
             self.replied = True
+        elif kind == "tool_call":
+            if data.get("id"):
+                self.calls[str(data["id"])] = (str(data.get("tool") or ""), data.get("arguments"))
         elif kind == "denied":
             self.denied.append(ev)
         elif kind == "friction":
@@ -195,6 +202,24 @@ def blocking_questions(f: "Fold") -> list[dict]:
         [{"id": "", "q": q, "choices": [], "blocking": True} for q in f.questions] if not f.asked else [])
 
 
+def refusals(f: "Fold") -> list[dict]:
+    """This turn's denials, each joined to the call it refused, one per distinct command: what was
+    refused and the allow-list entry that would let it run (`grants.refusal`)."""
+    from .grants import refusal
+
+    out, seen = [], set()
+    for ev in f.denied:
+        data = ev.get("data") or {}
+        tool, arguments = f.calls.get(str(data["id"]), ("", None)) if data.get("id") else ("", None)
+        row = refusal(tool, arguments, str(data.get("message") or ""))
+        key = row["what"] or row["message"]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"id": str(data.get("id") or ""), **row})
+    return out
+
+
 def classify(f: Fold, *, live: bool = False) -> dict:
     """(state, why, plus the facts a tile shows). `live` is "a process is running right now".
 
@@ -228,8 +253,11 @@ def classify(f: Fold, *, live: bool = False) -> dict:
         why = (open_now[-1]["q"] if open_now
                else (f.questions[-1] if f.questions else "state.json says the phase is blocked"))
     elif f.denied:
-        message = (f.denied[-1].get("data") or {}).get("message") or ""
-        state, why = "needs_human", message or "a tool the agent may not run was refused"
+        last = refusals(f)[-1]
+        state = "needs_human"
+        why = (f"refused {last['what']}" + (f" — allow {', '.join(last['patterns'])}?" if last["grantable"]
+                                             else f" — {last['instead']}" if last["instead"] else "")
+               if last["what"] else last["message"] or "a tool the agent may not run was refused")
     elif blocking_questions(f):
         state, why = "needs_human", blocking_questions(f)[-1]["q"]
     elif f.asked and not blocking_questions(f):
@@ -255,7 +283,8 @@ def classify(f: Fold, *, live: bool = False) -> dict:
             # agent in a column of ten has to be able to say for itself.
             "last_said": f.last_text[-200:],
             "session": f.session, "turns": f.turns, "premium_requests": round(f.premium, 2),
-            "denied": len(f.denied), "questions": len(blocking_questions(f)),
+            "denied": len(f.denied), "refused_tools": refusals(f) if f.denied else [],
+            "questions": len(blocking_questions(f)),
             "asked": [dict(q) for q in f.asked],
             "files_modified": list(f.files),
             "assumed": [dict(q) for q in f.asked if not q.get("blocking", True)],

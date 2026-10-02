@@ -75,7 +75,8 @@ def main_pncli() -> None:
     ap = argparse.ArgumentParser(prog="ad-pncli",
         description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | "
                     "ad-pncli jira comments <KEY> | "
-                    "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli where | "
+                    "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli help [<product> [<verb>]] | "
+                    "ad-pncli where | "
                     "ad-pncli capture-help [--out FILE] (the operator's: every `pncli --help` the PR and "
                     "page commands need, redacted, in one file to attach)")
     version.add_version(ap)
@@ -90,6 +91,9 @@ def main_pncli() -> None:
                                        "pncli takes an inline body, and a page of HTML cannot survive shell quoting")
     r.add_argument("--body-arg", default="--body", help="the option the body belongs to (default --body)")
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
+    h = sub.add_parser("help", help="pncli's own usage for a product or verb (`pncli <product> [<verb>] --help`), "
+                       "with the verbs it lists; the agent's way to read it, since bare `pncli` is denied in a fleet")
+    h.add_argument("names", nargs="*", help="up to two command names, e.g. `bitbucket` or `confluence create-page`")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
     ch = sub.add_parser("capture-help", help="the operator's, in their own terminal: run `pncli --help` for bitbucket, "
                         "confluence and jira and every verb they list, and write the answers, hosts and home redacted, "
@@ -111,6 +115,8 @@ def main_pncli() -> None:
             sys.exit(0 if meta["ok"] else 1)
         if a.cmd == "capture-help":
             sys.exit(_capture_help(a, P))
+        if a.cmd == "help":
+            sys.exit(_help(list(a.names), P))
         if a.cmd == "jira" and a.verb == "get":
             key = a.key or a.target
             if not key:
@@ -131,6 +137,9 @@ def main_pncli() -> None:
             note = None
             pargs = [x for x in a.pargs if x != "--raw"]  # REMAINDER swallows a trailing --raw
             raw_out = a.raw_out or len(pargs) != len(a.pargs)
+            if P.asks_for_help(pargs) and not a.body_file:
+                # Help is text, never the JSON `run` insists on: answer it the way `ad-pncli help` does.
+                sys.exit(_help(list(P.verb(pargs)), P))
             shown = list(pargs)
             if a.body_file:
                 # the body goes across as ONE argv element: no shell, so quotes, newlines and < > in the HTML are safe
@@ -168,6 +177,19 @@ def main_pncli() -> None:
         print(toon.encode({"meta": meta})); sys.exit(1)
     except Exception as e:  # noqa: BLE001
         print(error(str(e)[:300], "run the same pncli command with --dry-run --pretty; `ad-pncli where` checks the launcher", "pncli")); sys.exit(1)
+
+
+def _help(names: list[str], P) -> int:
+    """`ad-pncli help [<product> [<verb>]]`: pncli's usage text as rows, and the verbs it lists."""
+    got = P.help_for(names)
+    shown = " ".join(["pncli", *names, "--help"])
+    meta = {"ok": got["rc"] == 0, "source": shown, "verbs": ",".join(got["verbs"]), "elapsed_ms": got["ms"]}
+    if got["rc"] != 0:
+        meta.update(error=f"`{shown}` exited {got['rc']}",
+                    hint="`ad-pncli help` with one name fewer lists what exists; `ad-pncli where` checks the launcher")
+    lines = [{"line": line.rstrip()} for line in got["text"].splitlines() if line.strip()]
+    print(toon.encode({"meta": meta, "help": lines}))
+    return 0 if meta["ok"] else 1
 
 
 def _capture_help(a, P) -> int:
@@ -215,7 +237,7 @@ def _capture_help(a, P) -> int:
 
 
 def main_view() -> None:
-    """Re-render a TSV on disk through the policy (e.g., after a script wrote it)."""
+    """Re-render a TSV (or a CSV export) on disk through the policy (e.g., after a script wrote it)."""
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-view"); ap.add_argument("path"); ap.add_argument("--name", default="result")
     version.add_version(ap)
@@ -224,6 +246,17 @@ def main_view() -> None:
     a = ap.parse_args()
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
+    if a.path.lower().endswith(".csv"):
+        # A dscmd export (dax-studio-export): the same reading as `python -m agentdata.csv2toon`,
+        # which a fleet agent may not run -- `ad-view` it may.
+        from .pbip.dax import read_csv
+
+        table = read_csv(a.path, a.name)
+        if table is None:
+            print(error(f"empty csv: {a.path}", "the export wrote no header; run the query again", "ad-view"))
+            sys.exit(1)
+        print(render(table))
+        return
     print(render(AgentTable.read_tsv(a.path, a.name)))
 
 

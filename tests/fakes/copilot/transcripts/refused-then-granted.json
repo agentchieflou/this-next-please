@@ -1,0 +1,87 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); the operator report of 2026-10-02: a step a local copilot would have asked about is refused in a headless turn, granted from the desk, and retried",
+  "captured": "2026-10-02",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-refused",
+  "usage": {
+    "premiumRequests": 0.33,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Checking the toolchain before the UAT.",
+          "model": "{model}",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "git version"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "That command is not permitted here.",
+          "model": "{model}",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ],
+  "resume_steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "run": "git version"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Toolchain checked; continuing the UAT.",
+          "model": "{model}",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

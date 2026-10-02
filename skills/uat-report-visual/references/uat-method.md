@@ -21,7 +21,7 @@ The **expected document** is the requester's claim. It is compared, never truste
 
 ## Grain matching (do this before reconcile)
 - The visual's grain is its group-by columns (`ad-uat plan` → `group_by`, `key_guess`); measures are the metrics.
-- Live Jira rows are per issue; a sprint chart is per sprint. Aggregate the finer side with a ≤10-line script: read the TSV with `AgentTable.read_tsv`, sum per key, write a TSV, `ad-view` it. Never compare different grains.
+- Live Jira rows are per issue; a sprint chart is per sprint. Aggregate the finer side with `ad-uat rollup <tier.tsv> --by <grain key> --sum <metrics>` (it writes the TSV and prints it); reconcile that `path`. Never compare different grains.
 - Normalize key formatting on every side (same case, no whitespace; dates as `YYYY-MM-DD`).
 - `sprint-replay` already emits per-issue `committed`/`completed` flags and per-sprint sums (`summary`); use the summary for a per-sprint chart, the rows for a per-issue table.
 
