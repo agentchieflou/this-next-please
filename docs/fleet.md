@@ -163,6 +163,17 @@ also its own verb ([setup.md](setup.md) §Several projects at once). The scan **
 confirm each one — it hands the human a list, never an agent a folder — and registration goes
 through the same `repo add` a hand-typed path would.
 
+### The chat view: one conversation at a time
+
+The desk shows every agent side by side. Some days you want the other shape, the one every chat app
+has: **`/chat`** (the toolbar's *chat*, or `c` on a pane) puts the agents in a left sidebar, each
+one's sessions beneath it, and one session's conversation in the rest of the window. Choose an
+agent to follow its current session, or choose any session under it to read that one. An earlier
+session is read-only, and *Resume here* makes it the live one again. *+ new session* is the desk's
+*start fresh*. Messages, answers and approvals go through the same verbs the desk uses, so nothing
+here is a second set of rules, and the palette and skin you chose apply here too. It is an addition
+beside the desk, never a replacement for it; bookmark `/open?page=chat` to land there.
+
 ### The catalogue
 
 `ad-fleet index` reads what every registered repository already publishes into one local SQLite

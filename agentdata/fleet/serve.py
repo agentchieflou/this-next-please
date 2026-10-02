@@ -106,8 +106,11 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
 # `tidy.js`.
+#
+# `/chat` (operator request, 2026-10), the chat view, brings `chat.css` and its one script,
+# `chat/chat.js`.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js")
+          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "chat.css", "chat/chat.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -128,8 +131,15 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 #
 # `/tidy` is the sixth: the cleanup guide, opened from the map in a window of its own. It walks the
 # dirty working trees one decision at a time; every write is one press on a decision it showed.
+#
+# `/chat` is the seventh (operator request, 2026-10: "a view where agents are tracked in a left
+# sidebar, and all of their active sessions sit beneath each agent, where one session's chat is
+# readable at a time"): the traditional layout beside the desk's panes, never instead of them. It
+# reads what the desk reads (`/api/fleet`, `/api/sessions`, `/api/transcript`, the stream) and posts
+# the desk's own verbs, so it adds no route and no rule. Not inked, like the map: it wears `ink-off`,
+# and the palette and the skin reach it through `_page` like every other page.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html"}
+         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/chat": "chat.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
