@@ -60,13 +60,52 @@ def test_add_writes_the_visual_denebs_guide_describes(report):
 
 
 def test_the_gate_treats_it_as_the_certified_appsource_visual_it_is(report):
+    """Certified means listed in pbi_certified_visuals (the project stub presets Deneb's GUID); unlisted, it
+    fails closed on every tenant, `allowed` included (before 0.18.0, `allowed` passed it unlisted)."""
     DN.add(str(report), "Overview", SPEC, FIELDS)
     rep = P.load_report(str(report))
     kinds = lambda facts: [f.kind for f in CK.custom_visual_delivery(rep, facts)]  # noqa: E731
-    assert kinds({"pbi_custom_visuals": "allowed"}) == []
-    assert kinds({"pbi_custom_visuals": "certified-only"}) == ["custom-visual-certification-unconfirmed"]
-    assert kinds({"pbi_custom_visuals": "certified-only", "pbi_certified_visuals": DN.GUID}) == []
-    assert kinds({"pbi_custom_visuals": "org-only"}) == ["custom-visual-tenant-blocked"]
+    certified = {"pbi_certified_visuals": DN.GUID}
+    for tenant in ("allowed", "certified-only"):
+        assert kinds({"pbi_custom_visuals": tenant}) == ["custom-visual-certification-unconfirmed"]
+        assert kinds({"pbi_custom_visuals": tenant, **certified}) == []
+    assert kinds(None) == ["custom-visual-certification-unconfirmed"]
+    assert kinds({"pbi_custom_visuals": "org-only", **certified}) == ["custom-visual-tenant-blocked"]
+
+
+def test_deneb_from_the_organizational_store_passes_on_every_tenant(report):
+    """Microsoft's guide: a store visual is a `<GUID>_OrgStore` resource package and visualType. The GUID inside
+    is Deneb's certified one, so the allow-list covers it, and no tenant setting reaches a store visual."""
+    res = DN.add(str(report), "Overview", SPEC, FIELDS)
+    path, vis = _visual(report, res["visual_id"])
+    vis["visual"]["visualType"] = DN.GUID + "_OrgStore"
+    path.write_text(json.dumps(vis), encoding="utf-8")
+    rj_path = report / "definition" / "report.json"
+    rj = json.loads(rj_path.read_text(encoding="utf-8"))
+    rj["publicCustomVisuals"] = []
+    rj["resourcePackages"] = rj.get("resourcePackages", []) + [
+        {"name": DN.GUID + "_OrgStore", "type": "OrganizationalStoreCustomVisual",
+         "items": [{"name": f"resources/{DN.GUID}_OrgStore.pbiviz.json", "path": "", "type": "CustomVisualMetadata"}]}]
+    rj_path.write_text(json.dumps(rj), encoding="utf-8")
+    rep = P.load_report(str(report))
+    for tenant in ("allowed", "certified-only", "org-only"):
+        assert CK.custom_visual_delivery(rep, {"pbi_custom_visuals": tenant, "pbi_certified_visuals": DN.GUID}) == []
+    DN.update(str(report), res["visual_id"], SPEC)   # the verb sets a store Deneb's specification too
+
+
+def test_an_uncertified_edition_is_never_certified_even_when_listed(report):
+    res = DN.add(str(report), "Overview", SPEC, FIELDS)
+    path, vis = _visual(report, res["visual_id"])
+    standalone = "STANDALONE" + DN.GUID
+    vis["visual"]["visualType"] = standalone
+    path.write_text(json.dumps(vis), encoding="utf-8")
+    rj_path = report / "definition" / "report.json"
+    rj = json.loads(rj_path.read_text(encoding="utf-8"))
+    rj["publicCustomVisuals"] = [standalone]
+    rj_path.write_text(json.dumps(rj), encoding="utf-8")
+    facts = {"pbi_custom_visuals": "allowed", "pbi_certified_visuals": f"{DN.GUID},{standalone}"}
+    rows = CK.custom_visual_delivery(P.load_report(str(report)), facts)
+    assert [(f.severity, f.kind) for f in rows] == [("error", "custom-visual-uncertified")]
 
 
 def test_interactivity_flags_are_the_booleans_deneb_reads(report):
@@ -134,6 +173,17 @@ def test_an_org_only_tenant_gets_no_appsource_deneb(report):
     assert "My organization" in e.value.hint
 
 
+def test_deneb_is_not_added_while_its_certification_is_unrecorded(report):
+    """The enterprise floor: with the project's facts in hand, the verb refuses what `ad-pbip check` would."""
+    for facts in ({}, {"pbi_custom_visuals": "allowed"}, {"pbi_certified_visuals": "someOtherVisual1"}):
+        with pytest.raises(DN.DenebError, match="certification is not recorded") as e:
+            DN.add(str(report), "Overview", SPEC, FIELDS, facts=facts)
+        assert "pbi_certified_visuals" in e.value.hint
+    res = DN.add(str(report), "Overview", SPEC, FIELDS,
+                 facts={"pbi_custom_visuals": "certified-only", "pbi_certified_visuals": f"x1, {DN.GUID.lower()}"})
+    assert res["visualType"] == DN.GUID
+
+
 def test_cli_adds_one_and_prints_the_refusal_hint(report, monkeypatch, capsys, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -143,8 +193,12 @@ def test_cli_adds_one_and_prints_the_refusal_hint(report, monkeypatch, capsys, t
             cli_pbip.main()
         return ei.value.code, capsys.readouterr().out
 
-    code, out = run(["visual", "deneb", str(report), "--page", "Overview", "--spec", SPEC,
-                     "--fields", *FIELDS, "--cross-filter"])
+    add = ["visual", "deneb", str(report), "--page", "Overview", "--spec", SPEC, "--fields", *FIELDS, "--cross-filter"]
+    code, out = run(add)       # no AGENTS.md: Deneb's certification is not recorded
+    assert code == 2 and "certification is not recorded" in out
+    (tmp_path / "AGENTS.md").write_text(f"- pbi_custom_visuals: certified-only\n- pbi_certified_visuals: {DN.GUID}\n",
+                                        encoding="utf-8")
+    code, out = run(add)
     assert code == 0 and "deneb_add" in out and DN.GUID in out
     bad = tmp_path / "bad.json"
     bad.write_text('{"data": {"values": []}, "mark": {"type": "text", "text": "it\'s"}}', encoding="utf-8")

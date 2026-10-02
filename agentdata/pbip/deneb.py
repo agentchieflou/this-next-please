@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 from typing import Any
 
 from . import author as AU
@@ -28,7 +27,6 @@ GUID = "deneb7E15AEF80B9E4D4F8E12924291ECE89A"
 # Editions that share the GUID's suffix but are not on AppSource, so not the certified visual.
 UNCERTIFIED_EDITIONS = ("STANDALONE", "ALPHA", "BETA")
 PROVIDERS = ("vegaLite", "vega")
-SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json"
 
 
 class DenebError(ValueError):
@@ -84,15 +82,6 @@ def _vega_properties(spec_text: str, provider: str, cross_filter: bool, cross_hi
     return props
 
 
-def _sibling_schema(page_dir: Path) -> str:
-    """Copy the `$schema` of a visual already on the page; never bump the version by hand."""
-    for vj in sorted(page_dir.glob("visuals/*/visual.json")):
-        schema = AU._load_json(vj).get("$schema")
-        if schema:
-            return schema
-    return SCHEMA
-
-
 def _register(report_root: str) -> str:
     """List the certified visual in report.json `publicCustomVisuals`: Power BI fetches it from AppSource."""
     rj_path = os.path.join(report_root, "definition", "report.json")
@@ -108,12 +97,22 @@ def _register(report_root: str) -> str:
 def add(pbip_path: str, page: str, spec_path: str, fields: list[str], *, provider: str = "vegaLite",
         title: str | None = None, position: tuple[int, int, int, int] | None = None,
         cross_filter: bool = False, cross_highlight: bool = False, facts: dict | None = None) -> dict[str, Any]:
-    """A new Deneb visual on `page`, its Values filled with `fields`, drawing the specification."""
+    """A new Deneb visual on `page`, its Values filled with `fields`, drawing the specification.
+
+    With `facts` (the CLI always passes AGENTS.md's), it refuses what `ad-pbip check` would: Deneb whose
+    certification nobody recorded (its GUID missing from `pbi_certified_visuals`), and AppSource Deneb on a
+    tenant that renders the organizational store only."""
     if (facts or {}).get("pbi_custom_visuals", "").strip().lower() == "org-only":
         raise DenebError("this tenant renders organizational-store visuals only, so Deneb from AppSource would "
                          "not render",
                          "add Deneb from My organization in Desktop once, then "
                          "`ad-pbip visual deneb --visual <id> --spec <file>` sets its specification")
+    certified = {g.strip().lower() for g in str((facts or {}).get("pbi_certified_visuals") or "").split(",")}
+    if facts is not None and GUID.lower() not in certified:
+        raise DenebError("Deneb's certification is not recorded: pbi_certified_visuals does not list "
+                         f"{GUID}, and the enterprise blocks visuals that are not certified",
+                         "check the certified badge on Deneb's AppSource listing, then add the GUID to "
+                         "pbi_certified_visuals in AGENTS.md (the project stub presets it)")
     if not fields:
         raise DenebError("a Deneb visual needs at least one field", "--fields 'Table'[Column] [Measure] ...")
     _spec, spec_text = load_spec(spec_path)
@@ -133,8 +132,9 @@ def add(pbip_path: str, page: str, spec_path: str, fields: list[str], *, provide
                              "nativeQueryRef": prop or raw})
 
     visual_id = AU._gen_hex(20)
+    schema, why = P.schema_for(root, "visualContainer")  # copied from a visual already here; never bumped by hand
     vis: dict[str, Any] = {
-        "$schema": _sibling_schema(page_dir),
+        "$schema": schema,
         "name": visual_id,
         "position": {"x": x, "y": y, "z": 1000, "height": h, "width": w, "tabOrder": 1000},
         "visual": {
@@ -149,7 +149,8 @@ def add(pbip_path: str, page: str, spec_path: str, fields: list[str], *, provide
     path = page_dir / "visuals" / visual_id / "visual.json"
     AU._save_json(path, vis)
     return {"ok": True, "action": "deneb_add", "visual_id": visual_id, "visualType": GUID, "provider": provider,
-            "fields": len(projections), "registered": _register(root), "path": textio.norm_path(str(path))}
+            "fields": len(projections), "registered": _register(root), "path": textio.norm_path(str(path)),
+            "schema": P.schema_note("visualContainer", schema, why)}
 
 
 def update(pbip_path: str, visual_id: str, spec_path: str, *, provider: str = "vegaLite",

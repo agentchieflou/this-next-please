@@ -7,7 +7,8 @@ TMDL facts encoded here (verified on Microsoft's sample PBIP and TMDL guidelines
 - multi-line expressions: ``` fenced block after `=`, or a bare block indented deeper than the object's properties
   (Desktop: declaration depth + 2); `source =` / `extendedProperty X =` behave the same way
 - `///` description lines above an object; `//` comments are not TMDL
-- names with space . = : ' are single-quoted, in declarations and references
+- names with space . = : ' are single-quoted, in declarations and references (so a namespaced UDF is `function 'A.B'`)
+- DAX user-defined functions are top-level `function <Name> = ( params ) => body` objects in functions.tmdl
 The writer never re-serializes untouched lines: it splices new/replacement blocks and keeps BOM + newline style.
 """
 from __future__ import annotations
@@ -435,6 +436,33 @@ def measure_block(tf: TmdlFile, table_level: int, name: str, expr: str, props: d
     if lineage_tag:
         lines.append(f"{ind2}lineageTag: {uuid.uuid4()}")
     return lines
+
+
+def function_block(tf: TmdlFile, name: str, expr: str, description: str | None = None,
+                   lineage_tag: str | None = None) -> list[str]:
+    """Lines for a top-level `function` (functions.tmdl): `///` description, the `( params ) => body` expression on
+    the header line when it is one line, else a fenced block two levels under the declaration."""
+    lines = [f"/// {d}".rstrip() for d in (description or "").splitlines()]
+    expr_lines = [ln.rstrip() for ln in expr.strip("\n").splitlines()]
+    if len(expr_lines) == 1 and _FENCE not in expr_lines[0]:
+        lines.append(f"function {quote_name(name)} = {expr_lines[0].strip()}")
+    else:
+        lines.append(f"function {quote_name(name)} = {_FENCE}")
+        lines.extend(f"{tf.indent(2)}{ln}" if ln.strip() else "" for ln in expr_lines)
+        lines.append(f"{tf.indent(2)}{_FENCE}")
+    if lineage_tag:
+        lines.append(f"{tf.indent(1)}lineageTag: {lineage_tag}")
+    return lines
+
+
+def remove_block(tf: TmdlFile, node: Node) -> None:
+    """Delete an object with its `///` lines, and one of the blank lines around it."""
+    start, end = (node.desc_start or node.line_start) - 1, node.line_end
+    if end < len(tf.lines) and not tf.lines[end].strip():
+        end += 1
+    elif start > 0 and not tf.lines[start - 1].strip():
+        start -= 1
+    del tf.lines[start:end]
 
 
 def upsert_measure(tf: TmdlFile, table: Node, name: str, expr: str, props: dict | None = None,

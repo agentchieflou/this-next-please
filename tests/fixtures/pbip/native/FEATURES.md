@@ -22,3 +22,4 @@
 | 18 | `report_level_measures` | `Native.Report/definition/reportExtension.json` | Extension measure `Report Level KPI` on `Sales` |
 | 19 | `themes` | `Native.Report/definition/report.json` | Custom theme `CY24SU02` with theme file |
 | 20 | `agg_tables` | `Native.SemanticModel/definition/tables/SalesAgg.tmdl` | Aggregation table with `isHidden` |
+| 21 | `udf` | `Native.SemanticModel/definition/functions.tmdl` | `AddTax` (optional `taxRate`), `MarginShare`; `Sales[Sales with Tax]` calls `AddTax`; `compatibilityLevel: 1702` in `database.tmdl` |

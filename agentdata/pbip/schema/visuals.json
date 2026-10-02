@@ -86,10 +86,34 @@
       }
     },
     "slicer": {
-      "description": "Interactive data slicer / filter",
+      "description": "Slicer; its form is objects.data.mode (Dropdown, Basic, Between, RelativeDatePicker = date picker, ...), not yet a visual set property",
       "legacy": false,
       "roles": {
         "Values": { "min": 1, "max": 1, "kind": "Grouping", "description": "Field to slice by" }
+      }
+    },
+    "listSlicer": {
+      "description": "List slicer: a scrollable list; several Values fields make a hierarchy",
+      "legacy": false,
+      "roles": {
+        "Values": { "min": 1, "max": 10, "kind": "Grouping", "description": "Column(s) to list; more than one is a hierarchy" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Tooltip measures (also set visualTooltip.show)" }
+      }
+    },
+    "advancedSlicerVisual": {
+      "description": "Button slicer: one field's values as tiles (up to about 10), with an optional measure on each",
+      "legacy": false,
+      "roles": {
+        "Values": { "min": 1, "max": 1, "kind": "Grouping", "description": "The one column whose values are the tiles" },
+        "Label": { "min": 0, "max": 1, "kind": "Measure", "description": "Measure shown on each tile" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Tooltip aggregations" }
+      }
+    },
+    "textSlicer": {
+      "description": "Text slicer: filters one column by the text the viewer types",
+      "legacy": false,
+      "roles": {
+        "Values": { "min": 1, "max": 1, "kind": "Grouping", "description": "The one column to search" }
       }
     },
     "pieChart": {
@@ -141,14 +165,57 @@
       }
     },
     "azureMap": {
-      "description": "Modern geospatial Azure Map visual",
+      "description": "Azure Maps: bubbles, markers, heat map, filled and path layers over geocoded locations",
       "legacy": false,
       "roles": {
-        "Location": { "min": 0, "max": 1, "kind": "Grouping", "description": "Geographic location name" },
-        "Latitude": { "min": 0, "max": 1, "kind": "Measure", "description": "Latitude coordinate" },
-        "Longitude": { "min": 0, "max": 1, "kind": "Measure", "description": "Longitude coordinate" },
-        "Size": { "min": 0, "max": 1, "kind": "Measure", "description": "Bubble size metric" }
+        "Category": { "min": 1, "max": 1, "kind": "Grouping", "description": "Location (country, state, city, ...): the field well Location" },
+        "Size": { "min": 0, "max": 1, "kind": "Measure", "description": "Bubble size" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend" },
+        "Y": { "min": 0, "max": 1, "kind": "GroupingOrMeasure", "description": "Latitude" },
+        "X": { "min": 0, "max": 1, "kind": "GroupingOrMeasure", "description": "Longitude" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Tooltips" },
+        "PathID": { "min": 0, "max": 1, "kind": "Grouping", "description": "Path ID (path layer only)" },
+        "PointOrder": { "min": 0, "max": 1, "kind": "Grouping", "description": "Point order (path layer only)" }
       }
+    },
+    "shapeMap": {
+      "description": "Shape map: regions coloured by value, on built-in or custom TopoJSON/GeoJSON shapes (add in Desktop)",
+      "legacy": false,
+      "add_in_desktop": "Microsoft has not published its query role names (its field wells are Location, Legend, Color saturation and Tooltips)",
+      "roles": {}
+    },
+    "kpi": {
+      "description": "KPI: an indicator against a goal, with a trend line",
+      "legacy": false,
+      "roles": {
+        "Indicator": { "min": 1, "max": 1, "kind": "Measure", "description": "The value (a measure or an aggregation)" },
+        "TrendLine": { "min": 0, "max": 1, "kind": "Grouping", "description": "Date or numeric column the trend runs along" },
+        "Goal": { "min": 0, "max": 2, "kind": "Measure", "description": "Target(s)" }
+      }
+    },
+    "textbox": {
+      "description": "Text box (add in Desktop)",
+      "legacy": false,
+      "add_in_desktop": "its text (objects.general.paragraphs) is not a visual set property",
+      "roles": {}
+    },
+    "image": {
+      "description": "Image (add in Desktop)",
+      "legacy": false,
+      "add_in_desktop": "its source (objects.general.imageUrl: a registered resource, a URL or a field) is not a visual set property",
+      "roles": {}
+    },
+    "shape": {
+      "description": "Shape: dividers, accent bars, containers (add in Desktop)",
+      "legacy": false,
+      "add_in_desktop": "its shape and fill (objects.shape.tileShape, objects.fill) are not visual set properties",
+      "roles": {}
+    },
+    "actionButton": {
+      "description": "Button: page navigation, bookmark, back, web URL, ... (add in Desktop)",
+      "legacy": false,
+      "add_in_desktop": "its action (visualContainerObjects.visualLink) and text are not visual set properties",
+      "roles": {}
     },
     "card": {
       "description": "Legacy single-metric card (deprecated)",
@@ -177,12 +244,30 @@
       }
     },
     "map": {
-      "description": "Legacy Bing map visual (deprecated)",
+      "description": "Legacy Bing map visual (deprecated: Bing Maps for Power BI is being retired)",
       "legacy": true,
       "replacement": "azureMap",
       "roles": {
         "Location": { "min": 0, "max": 1, "kind": "Grouping", "description": "Location" }
       }
+    },
+    "filledMap": {
+      "description": "Legacy Bing filled map (deprecated with Bing Maps): azureMap's filled-map layer, or shapeMap for custom shapes",
+      "legacy": true,
+      "replacement": "azureMap",
+      "roles": {}
+    },
+    "multiRowCard": {
+      "description": "Legacy multi-row card (deprecated): one cardVisual with several Data measures",
+      "legacy": true,
+      "replacement": "cardVisual",
+      "roles": {}
+    },
+    "qnaVisual": {
+      "description": "Q&A visual (deprecated December 2026): Power BI Copilot answers questions in natural language instead; no visual replaces it",
+      "legacy": true,
+      "replacement": null,
+      "roles": {}
     }
   },
   "formatting": {

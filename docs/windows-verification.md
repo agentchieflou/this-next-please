@@ -217,10 +217,12 @@ In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-
 ad-pbip capabilities                                                   # probe 8 capabilities (as_port, xmla_local, uia, etc.)
 ad-pbip desktop status                                                 # lists instances with pid, port, pages, unsaved, desktop_version, install
 ad-pbip desktop open <path-to.pbip> --wait 180                         # launches and polls until Analysis Services and UI are ready
-ad-pbip desktop reload --pid <pid>                                     # cleanly closes and reopens, restoring active page
+ad-pbip desktop reload --pid <pid>                                     # Desktop 2.155+: the bridge's file.reload/v1; else closes and reopens
+ad-pbip bridge probe --pid <pid>                                       # dialect: documented, the four methods, drift against 2.157.1354.0
+ad-pbip bridge record --pid <pid> --page <page id>                     # replaces tests/fixtures/bridge/<version>/transcript.jsonl with a recording
 ad-pbip desktop close --pid <pid> --discard                            # closes via WM_CLOSE, discarding unsaved changes
 ```
-Pass: `capabilities` outputs 8 rows with available state and evidence; `status` reports `pages`, `unsaved`, `loaded`, `desktop_version`, `install`; `open --wait` returns instance row once loaded; `reload` returns `reloaded_via: native`; `close` cleanly exits.
+Pass: `capabilities` outputs 8 rows with available state and evidence; `status` reports `pages`, `unsaved`, `loaded`, `desktop_version`, `install`; `open --wait` returns instance row once loaded; on Desktop 2.157 `status` reports `verified: verified` and `bridge: documented`, `reload` returns `reloaded_via: bridge` with `method: file.reload/v1` (and refuses with `fail: unsaved_changes` after an unsaved edit in Desktop until it is saved), and `screenshot` returns `via: bridge`; on an older Desktop without the bridge `reload` returns `reloaded_via: native`; `close` cleanly exits.
 
 ## 13. Desktop screenshots and visual regression (#51)
 ```powershell
@@ -451,6 +453,12 @@ ad-pbip model optimize --measure "Margin %" --pid <pid>
 Pass: `model apply` executes declarative ops over the port through TE2 `-S` or falls back to TMDL file editing with no `lineageTag` written; `--save` triggers UIA session save and waits for Desktop-serialised TMDL to settle; `model audit` returns actionable `fix` snippets; `audit --copilot` outputs a scored checklist; `model optimize` verifies results match before keeping rewrites and rolls back on mismatch.
 
 ## 17. Custom visual: `ad-pbiviz import`, then Desktop opens it
+**Blocked until workspace approval.** The enterprise blocks visuals that are not certified, so while the project's
+`pbi_sdk_visuals` is `blocked` (or absent) the pass is the refusal: `ad-pbiviz new cvcheck` exits 2 with
+`code: sdk_visuals_blocked`, and `ad-pbiviz doctor` reports `sdk_visuals,blocked` and names no install command.
+Run the rest only in a scratch project whose AGENTS.md says `- pbi_sdk_visuals: approved`, on the operator's word
+that the approval exists: the Node and `pbiviz` steps below are the SDK toolchain that approval covers.
+
 `ad-pbiviz import` is for trying a visual in Desktop, never for delivering one (skill `pbi-custom-visual`). It
 writes what Desktop saves for a visual imported from a file: the package's files under the report's
 `CustomVisuals\<guid>\`, and one `CustomVisual` entry in `definition\report.json`. The entry it wrote before broke
@@ -473,8 +481,8 @@ compiles nothing, so what the box shows is not part of the pass. For a box that 
 Microsoft's tools (Node and `pbiviz`, see `ad-pbiviz doctor`): `pbiviz new cvreal` in `visuals\`, fill `author`
 (name and email), `description` and `supportUrl` in its `pbiviz.json` (`pbiviz package` refuses without them), run
 `npm install` and `pbiviz package` in `visuals\cvreal`, then `ad-pbiviz import cvreal --pbip . --page "<page>"`.
-A `custom-visual-tenant-*` row from `check` is the delivery gate working, not a failure. Paste: every Desktop
-dialog verbatim (a schema error names the file and the property), the `import` row, and the whole `git diff`
+A `custom-visual-tenant-*`, `custom-visual-uncertified` or `custom-visual-sdk-workspace*` row from `check` is the
+delivery gate working, not a failure. Paste: every Desktop dialog verbatim (a schema error names the file and the property), the `import` row, and the whole `git diff`
 after the save. Anything Desktop changes under `CustomVisuals\` or in that entry is what `import` should have
 written: it becomes a fix.
 

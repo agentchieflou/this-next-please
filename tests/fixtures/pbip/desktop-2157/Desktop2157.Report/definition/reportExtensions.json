@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/reportExtension/1.0.0/schema.json",
+  "name": "extension",
+  "entities": [
+    {
+      "name": "Sales",
+      "measures": [
+        {
+          "name": "Sales Uplift",
+          "dataType": "Double",
+          "expression": "[Total Sales] * 1.1",
+          "formatString": "$ #,##0",
+          "references": {
+            "measures": [
+              {
+                "entity": "Sales",
+                "name": "Total Sales"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -661,7 +661,7 @@ def import_custom_visual(
         projections[role_name] = [item]
 
     vis_json = {
-        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.4.0/schema.json",
+        "$schema": P.schema_for(report_dir, "visualContainer")[0],
         "name": vis_id,
         "position": {
             "x": position[0],

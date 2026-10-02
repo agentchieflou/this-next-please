@@ -182,7 +182,8 @@ def cmd_desktop(a) -> int:
         return 0 if ok else 1
 
     if cmd == "reload":
-        res = DT.reload(a.pid, save=getattr(a, "save", False), discard=getattr(a, "discard", False), candidates=_candidates())
+        res = DT.reload(a.pid, save=getattr(a, "save", False), discard=getattr(a, "discard", False), candidates=_candidates(),
+                        model=not getattr(a, "report_only", False))
         ok = res.get("ok", False)
         if policy.pretty():
             ui.facts([(k, v) for k, v in res.items() if k != "ok"], title="ad-pbip desktop reload", subtitle="ok" if ok else "fail")
@@ -223,8 +224,9 @@ def cmd_bridge(a) -> int:
         pid = getattr(a, "pid", None)
         res = BR.probe_bridge(pid=pid)
         ops = res.get("operations", [])
+        names = res.get("names") or {}
         t = AgentTable.from_records(
-            [{"operation": op, "status": "declared"} for op in ops],
+            [{"operation": op, "status": "declared", "method": names.get(op, op)} for op in ops],
             name="bridge_operations",
             source="ad-pbip bridge probe",
         )
@@ -235,11 +237,14 @@ def cmd_bridge(a) -> int:
             "pid": res.get("pid"),
             "rtt_ms": res.get("rtt_ms", 0),
             "version": res.get("version", "unknown"),
+            "dialect": res.get("dialect", "unknown"),
             "drift": res.get("drift", "unknown"),
             "drift_summary": res.get("drift_summary", ""),
         }
+        if res.get("policy") not in (None, "unknown"):
+            meta["policy"] = res["policy"]
         if not res.get("pipe_present"):
-            meta["hint"] = res.get("reason") or "bridge pipe not active (toggle preview feature or launch Desktop)"
+            meta["hint"] = res.get("reason") or BR.no_pipe_reason(pid)
         print(render(t, extra=meta))
         return 0
 
@@ -249,12 +254,15 @@ def cmd_bridge(a) -> int:
             print(error("--pid is required to record bridge transcript", "pass --pid <pid>", "ad-pbip bridge record"))
             return 1
         try:
-            out_file = BR.record_transcript(pid=pid, out_dir=getattr(a, "out", None))
+            insts = DT.status(pid=pid, candidates=_candidates())
+            ver = insts[0].desktop_version if insts else None
+            out_file = BR.record_transcript(pid=pid, out_dir=getattr(a, "out", None), version=ver,
+                                            page=getattr(a, "page", None))
             t = AgentTable.from_records([{"path": out_file, "status": "recorded"}], name="record", source="ad-pbip bridge record")
             print(render(t, extra={"ok": True, "source": "ad-pbip bridge record", "pid": pid, "out": out_file}))
             return 0
         except Exception as e:
-            print(error(f"failed to record bridge transcript: {e}", "ensure Desktop bridge is running on pipe", "ad-pbip bridge record"))
+            print(error(f"failed to record bridge transcript: {e}", BR.ENABLE_HINT, "ad-pbip bridge record"))
             return 1
 
     return 0
@@ -1273,6 +1281,34 @@ def cmd_model(a) -> int:
             print(toon.encode({"meta": {"ok": True, "source": "ad-pbip model optimize", **res}}))
         return 0
 
+    elif cmd == "refresh":
+        # After a model-aware Desktop reload: Calculate for calculated objects, Full on each changed import table,
+        # one at a time, through Tabular Editor 2 against Desktop's local instance. Then a DAX query verifies.
+        _resolve_desktop_target(a)
+        server = getattr(a, "server", None)
+        if not server and getattr(a, "pid", None):
+            inst = next((i for i in DT.status(pid=a.pid) if i.port), None)
+            server = f"localhost:{inst.port}" if inst else None
+        if not server:
+            print(error("give --server localhost:<port> (ad-pbip desktop) or --pid <pid>",
+                        "model refresh processes the model a running Desktop hosts", "ad-pbip"))
+            return 2
+        try:
+            res = TOM.model_refresh(server, a.type, tables=a.table, all_tables=a.all, database=getattr(a, "db", None),
+                                    te2_exe=getattr(a, "te2_exe", None), timeout=a.timeout)
+        except ValueError as e:
+            print(error(str(e), "nothing was processed", "ad-pbip"))
+            return 2
+        rows = [[r.get("type", ""), r.get("table") or "(model)", r.get("status", ""), r.get("ms", ""), r.get("error", "")]
+                for r in res["steps"]]
+        rows += [[s["type"], s["table"], "not run", "", "an earlier step failed"] for s in res["not_run"]]
+        meta = {k: v for k, v in res.items() if k not in ("steps", "not_run")}
+        if not res["ok"]:
+            meta["hint"] = "fix what the failed step names (ad-pbip dax shows the model's state), then rerun from that step"
+        t = AgentTable(name="refresh_steps", columns=["type", "table", "status", "ms", "error"], rows=rows, source="ad-pbip model refresh")
+        print(render(t, extra=meta))
+        return 0 if res["ok"] else 1
+
     return 0
 
 
@@ -1360,11 +1396,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_close.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_close.set_defaults(fn=cmd_desktop)
 
-    p_reload = dt_sub.add_parser("reload", help="reload a running Desktop instance after file edits")
+    p_reload = dt_sub.add_parser("reload", help="reload a running Desktop instance after file edits (Desktop Bridge file.reload, else close + open)")
     p_reload.add_argument("--pid", type=int, required=True, help="process id to reload")
     g_rel = p_reload.add_mutually_exclusive_group()
     g_rel.add_argument("--save", action="store_true", help="save changes before reload if prompted")
-    g_rel.add_argument("--discard", action="store_true", help="discard changes before reload if prompted")
+    g_rel.add_argument("--discard", action="store_true", help="discard changes before reload if prompted (through the bridge: overwrite Desktop's unsaved changes)")
+    p_reload.add_argument("--report-only", action="store_true",
+                          help="through the Desktop Bridge: reload the report without re-applying the semantic model definition")
     p_reload.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_reload.set_defaults(fn=cmd_desktop)
 
@@ -1385,6 +1423,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_br_rec = brg_sub.add_parser("record", help="record golden transcript from live bridge pipe")
     p_br_rec.add_argument("--pid", type=int, required=True, help="Power BI Desktop PID")
     p_br_rec.add_argument("--out", help="output directory for transcript (default: tests/fixtures/bridge/<ver>)")
+    p_br_rec.add_argument("--page", help="also record one page snapshot (the PBIR page id)")
     p_br_rec.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_br_rec.set_defaults(fn=cmd_bridge)
 
@@ -1706,6 +1745,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_mo.add_argument("--pbip", help="PBIP root folder")
     p_mo.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_mo.set_defaults(fn=cmd_model)
+
+    # model refresh
+    p_mr = mod_sub.add_parser("refresh", help="process Desktop's model after a model reload (TE2): Calculate, or Full on changed tables")
+    p_mr.add_argument("--type", required=True, choices=list(TOM.REFRESH_TYPES),
+                      help="calculate: calculated columns/tables and calculation groups; full: re-import the --table(s)")
+    p_mr.add_argument("--table", action="append", default=[], help="a table to process (repeatable; run one after the other)")
+    p_mr.add_argument("--all", action="store_true", help="--type full on the whole model (re-imports every table)")
+    p_mr.add_argument("--server", help="Desktop's Analysis Services instance (localhost:<port>)")
+    p_mr.add_argument("--pid", type=int, help="Power BI Desktop PID (its port is looked up)")
+    p_mr.add_argument("--db", help="database name (default: the one Desktop hosts)")
+    p_mr.add_argument("--te2-exe", help="TabularEditor.exe (default: powerbi.tools.te2_exe)")
+    p_mr.add_argument("--timeout", type=int, default=1800, help="seconds for the whole run (default 1800)")
+    p_mr.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_mr.set_defaults(fn=cmd_model)
     return ap
 
 

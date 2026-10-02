@@ -182,7 +182,9 @@ def test_a_message_goes_out_as_send_and_comes_back_as_the_operators_line(fleet_h
         assert spawns["launched"], "send launched a turn"
         argv = spawns["launched"][-1]
         assert "--resume" in argv and argv[argv.index("--resume") + 1] == "sess-2", argv
-        assert page.input_value("#chatmessage") == ""
+        # The composer clears when `send` answers ok, which can land after the stream has already
+        # brought the line back (Windows shard 2/4 on main, 2026-10-02): wait for it, not race it.
+        page.wait_for_function("() => document.getElementById('chatmessage').value === ''", timeout=10000)
 
         page.click("#chatagents [data-rowkey='asks'] .ca-head")
         _settled(page, "() => FleetChat.open.repo === 'asks' && !document.getElementById('chatasks').hidden")

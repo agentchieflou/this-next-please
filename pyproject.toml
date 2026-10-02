@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.17.8"
+version = "0.18.0"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.14"
 dependencies = [
@@ -81,7 +81,7 @@ include = ["agentdata*"]
 
 [tool.setuptools.package-data]
 # the project stub and external tool definitions must ship in the wheel: `ad-setup --project` runs on laptops with no repo checkout
-agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*", "fleet/static/**/*", "fleet/models_shipped.json", "templates/pycharm/*"]
+agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*", "fleet/static/**/*", "fleet/models_shipped.json", "templates/pycharm/*", "pbip/schema/*", "pbip/schema/fabric/**/*"]
 
 [tool.pytest.ini_options]
 norecursedirs = ["tests/fixtures", "fixtures", ".*", "build", "dist"]

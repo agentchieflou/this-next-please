@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import re
 import shutil
 import zipfile
 import pytest
@@ -450,6 +451,15 @@ def test_check_custom_visual_role_kind_mismatch(tmp_path):
 
 
 # ---------------- Where a visual comes from, and whether the tenant renders it ----------------
+#
+# The enterprise blocks every custom visual that is not Microsoft-certified (the operator, release 0.18.0).
+# So a non-certified visual is an error on every tenant, and no fact downgrades it: a .pbiviz built with
+# the SDK while `pbi_sdk_visuals` is blocked, an AppSource visual whose GUID is not in pbi_certified_visuals,
+# an organizational-store visual that is neither certified nor the operator's org pick. Before 0.18.0 a
+# file visual on an `allowed` tenant was only a warning; that warning now needs `pbi_sdk_visuals: approved`.
+
+APPROVED = {"pbi_sdk_visuals": "approved", "pbi_sdk_workspace": "Sales Workspace"}
+
 
 def _imported(tmp_path, name="variance-bars"):
     """A report carrying one visual imported from a .pbiviz file with `ad-pbiviz import`."""
@@ -462,17 +472,33 @@ def _imported(tmp_path, name="variance-bars"):
 
 
 def _registered_as(dest_rep, guid, channel, disabled=False):
-    """Re-register the imported visual the way the PBIR report schema records the other two channels."""
+    """Re-register the imported visual the way a report records the other channels, and return its visualType.
+
+    `appsource`: listed in `publicCustomVisuals`. `org`: what Microsoft's authoring guide says registers a store
+    visual, a `resourcePackages` entry of type `OrganizationalStoreCustomVisual` named `<GUID>_OrgStore`, and
+    the same `<GUID>_OrgStore` as the visual's type. `org-root`: only the root `organizationCustomVisuals`
+    array, which is schema-valid and registers nothing."""
     rj_path = dest_rep / "definition" / "report.json"
     rj = json.loads(rj_path.read_text(encoding="utf-8"))
     rj["resourcePackages"] = [rp for rp in rj.get("resourcePackages", []) if rp.get("name") != guid]
     rj["publicCustomVisuals"] = [g for g in rj.get("publicCustomVisuals", []) if g != guid]
+    vtype = guid
     if channel == "appsource":
         rj["publicCustomVisuals"].append(guid)
+    elif channel == "org":
+        vtype = guid + "_OrgStore"
+        rj["resourcePackages"].append({"name": vtype, "type": "OrganizationalStoreCustomVisual", "items": [
+            {"name": f"resources/{vtype}.pbiviz.json", "path": "", "type": "CustomVisualMetadata"}]})
     else:
         rj["organizationCustomVisuals"] = [{"name": guid, "path": f"orgstore/{guid}", "disabled": disabled}]
     rj_path.write_text(json.dumps(rj), encoding="utf-8")
     shutil.rmtree(dest_rep / "CustomVisuals" / guid)
+    for vj in dest_rep.rglob("visual.json"):
+        data = json.loads(vj.read_text(encoding="utf-8"))
+        if (data.get("visual") or {}).get("visualType") == guid:
+            data["visual"]["visualType"] = vtype
+            vj.write_text(json.dumps(data), encoding="utf-8")
+    return vtype
 
 
 def _cv(dest_rep, facts=None):
@@ -481,98 +507,181 @@ def _cv(dest_rep, facts=None):
     return [f for f in CK.check_report(rep, mod, facts) if f.kind.startswith("custom-visual")]
 
 
-def test_check_a_correctly_imported_visual_is_clean(tmp_path):
+def _kinds(rows):
+    return [(f.severity, f.kind) for f in rows]
+
+
+def test_check_a_correctly_imported_visual_is_registered_and_packaged(tmp_path):
     """Regression: check.py called json.load without importing json, the NameError was swallowed, and
-    report.json was never read -- so every custom visual in every report was 'unregistered'."""
+    report.json was never read -- so every custom visual in every report was 'unregistered'. Registered and
+    packaged, the one finding left is the enterprise floor: it is an SDK visual."""
     dest_rep, _guid = _imported(tmp_path)
-    assert _cv(dest_rep) == []
+    assert _kinds(_cv(dest_rep)) == [("error", "custom-visual-uncertified")]
+    assert _kinds(_cv(dest_rep, {**APPROVED, "pbi_custom_visuals": "allowed"})) == \
+        [("warning", "custom-visual-uncertified")]
+
+
+def test_the_certification_floor_runs_without_facts(tmp_path):
+    """Library callers that pass no facts get the floor (nothing is certified, SDK visuals are blocked), and
+    no tenant rule: they never said what the tenant renders."""
+    dest_rep, guid = _imported(tmp_path)
+    rows = _cv(dest_rep, None)
+    assert _kinds(rows) == [("error", "custom-visual-uncertified")]
+    assert "workspace approval" in rows[0].message and "pbi-custom-visual" in rows[0].hint
+    _registered_as(dest_rep, guid, "appsource")
+    assert _kinds(_cv(dest_rep, None)) == [("error", "custom-visual-certification-unconfirmed")]
+
+
+def test_an_uncertified_visual_is_an_error_on_an_allowed_tenant(tmp_path):
+    """The behaviour change: `pbi_custom_visuals: allowed` no longer downgrades a non-certified visual."""
+    dest_rep, guid = _imported(tmp_path)
+    for facts in ({"pbi_custom_visuals": "allowed"}, {"pbi_custom_visuals": "allowed", "pbi_sdk_visuals": "blocked"}):
+        rows = _cv(dest_rep, facts)
+        assert _kinds(rows) == [("error", "custom-visual-uncertified")]
+        assert "pbi_sdk_visuals: blocked" in rows[0].message
+    _registered_as(dest_rep, guid, "appsource")
+    assert _kinds(_cv(dest_rep, {"pbi_custom_visuals": "allowed"})) == \
+        [("error", "custom-visual-certification-unconfirmed")]
+    assert _cv(dest_rep, {"pbi_custom_visuals": "allowed", "pbi_certified_visuals": guid}) == []
 
 
 def test_check_an_appsource_visual_needs_no_package(tmp_path):
     """Power BI fetches AppSource visuals itself; only a private visual travels inside the report."""
     dest_rep, guid = _imported(tmp_path)
     _registered_as(dest_rep, guid, "appsource")
-    assert _cv(dest_rep) == []
+    assert _cv(dest_rep, {"pbi_custom_visuals": "certified-only", "pbi_certified_visuals": guid}) == []
 
 
-def test_check_an_organizational_store_visual_is_registered_and_needs_no_package(tmp_path):
+def test_an_organizational_store_package_registers_the_visual_and_needs_no_package(tmp_path):
+    """Microsoft's guide: an `OrganizationalStoreCustomVisual` package named `<GUID>_OrgStore` registers it;
+    the certified allow-list is matched on the GUID inside the suffix."""
     dest_rep, guid = _imported(tmp_path)
-    _registered_as(dest_rep, guid, "org")
-    assert _cv(dest_rep) == []
+    vtype = _registered_as(dest_rep, guid, "org")
+    assert vtype.endswith("_OrgStore")
+    assert _cv(dest_rep, {"pbi_custom_visuals": "certified-only", "pbi_certified_visuals": guid}) == []
+    rows = _cv(dest_rep, None)
+    assert _kinds(rows) == [("error", "custom-visual-org-unapproved")]
+    assert "pbi_org_visuals" in rows[0].hint
+
+
+def test_an_org_visual_the_operator_picked_passes_only_where_the_tenant_is_org_only(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    vtype = _registered_as(dest_rep, guid, "org")
+    for listed in (guid, vtype, f"otherVisual, {vtype.upper()}"):
+        assert _cv(dest_rep, {"pbi_custom_visuals": "org-only", "pbi_org_visuals": listed}) == []
+    for tenant in ("allowed", "certified-only", ""):
+        rows = _cv(dest_rep, {"pbi_custom_visuals": tenant, "pbi_org_visuals": guid})
+        assert _kinds(rows) == [("error", "custom-visual-org-unapproved")]
+    assert _kinds(_cv(dest_rep, {"pbi_custom_visuals": "org-only"})) == [("error", "custom-visual-org-unapproved")]
+
+
+def test_a_bare_root_organization_entry_does_not_register_the_visual(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    _registered_as(dest_rep, guid, "org-root")
+    rows = _cv(dest_rep, {"pbi_custom_visuals": "certified-only", "pbi_certified_visuals": guid})
+    assert _kinds(rows) == [("warning", "custom-visual-org-root-entry")]
+    assert "does not register" in rows[0].message and f"{guid}_OrgStore" in rows[0].hint
+
+
+def test_a_bare_guid_next_to_its_orgstore_package_is_unregistered_and_says_why(tmp_path):
+    """A `visualType` without the `_OrgStore` suffix draws the empty placeholder even with the package there."""
+    dest_rep, guid = _imported(tmp_path)
+    vtype = _registered_as(dest_rep, guid, "org")
+    for vj in dest_rep.rglob("visual.json"):
+        data = json.loads(vj.read_text(encoding="utf-8"))
+        if (data.get("visual") or {}).get("visualType") == vtype:
+            data["visual"]["visualType"] = guid
+            vj.write_text(json.dumps(data), encoding="utf-8")
+    rows = _cv(dest_rep, {"pbi_custom_visuals": "certified-only", "pbi_certified_visuals": guid})
+    assert _kinds(rows) == [("error", "custom-visual-guid-unregistered")]
+    assert vtype in rows[0].hint
 
 
 def test_check_a_store_visual_the_admin_switched_off_is_an_error(tmp_path):
     dest_rep, guid = _imported(tmp_path)
-    _registered_as(dest_rep, guid, "org", disabled=True)
-    assert [f.kind for f in _cv(dest_rep)] == ["custom-visual-store-disabled"]
-
-
-def test_tenant_rules_run_only_when_facts_are_given(tmp_path):
-    """Library callers that pass no facts see exactly the findings they saw before."""
-    dest_rep, _guid = _imported(tmp_path)
-    assert [f.kind for f in _cv(dest_rep, None)] == []
+    _registered_as(dest_rep, guid, "org-root", disabled=True)
+    assert _kinds(_cv(dest_rep, {"pbi_certified_visuals": guid})) == \
+        [("warning", "custom-visual-org-root-entry"), ("error", "custom-visual-store-disabled")]
 
 
 def test_org_only_tenant_blocks_a_file_visual_and_an_appsource_visual(tmp_path):
     dest_rep, guid = _imported(tmp_path)
-    blocked = _cv(dest_rep, {"pbi_custom_visuals": "org-only"})
-    assert [(f.severity, f.kind) for f in blocked] == [("error", "custom-visual-tenant-blocked")]
+    blocked = _cv(dest_rep, {**APPROVED, "pbi_custom_visuals": "org-only"})
+    assert _kinds(blocked) == [("error", "custom-visual-tenant-blocked")]
     assert "a .pbiviz file" in blocked[0].message and "pbi-custom-visual" in blocked[0].hint
 
     _registered_as(dest_rep, guid, "appsource")
-    blocked = _cv(dest_rep, {"pbi_custom_visuals": "org-only"})
-    assert [(f.severity, f.kind) for f in blocked] == [("error", "custom-visual-tenant-blocked")]
+    blocked = _cv(dest_rep, {"pbi_custom_visuals": "org-only", "pbi_certified_visuals": guid})
+    assert _kinds(blocked) == [("error", "custom-visual-tenant-blocked")]
     assert "AppSource" in blocked[0].message
 
 
-def test_no_tenant_setting_reaches_an_organizational_store_visual(tmp_path):
+def test_no_tenant_setting_reaches_a_certified_organizational_store_visual(tmp_path):
     """Microsoft: visuals on the Organizational visuals page aren't affected by either setting."""
     dest_rep, guid = _imported(tmp_path)
     _registered_as(dest_rep, guid, "org")
-    for tenant in ("org-only", "certified-only"):
-        assert _cv(dest_rep, {"pbi_custom_visuals": tenant}) == []
+    for tenant in ("org-only", "certified-only", "allowed"):
+        assert _cv(dest_rep, {"pbi_custom_visuals": tenant, "pbi_certified_visuals": guid}) == []
 
 
 def test_certified_only_blocks_a_file_visual_and_an_unconfirmed_appsource_one(tmp_path):
-    """A visual loaded from a file is never the certified one; an AppSource visual passes only once
-    somebody has checked its certified badge and recorded the GUID."""
+    """A visual loaded from a file is never the certified one, even with SDK visuals approved; an AppSource
+    visual passes only once somebody has checked its certified badge and recorded the GUID."""
     dest_rep, guid = _imported(tmp_path)
     facts = {"pbi_custom_visuals": "certified-only"}
-    assert [(f.severity, f.kind) for f in _cv(dest_rep, facts)] == [("error", "custom-visual-tenant-blocked")]
+    assert _kinds(_cv(dest_rep, facts)) == [("error", "custom-visual-uncertified")]
+    assert _kinds(_cv(dest_rep, {**facts, **APPROVED})) == [("error", "custom-visual-tenant-blocked")]
     _registered_as(dest_rep, guid, "appsource")
-    assert [(f.severity, f.kind) for f in _cv(dest_rep, facts)] == \
-        [("error", "custom-visual-certification-unconfirmed")]
+    assert _kinds(_cv(dest_rep, facts)) == [("error", "custom-visual-certification-unconfirmed")]
     assert _cv(dest_rep, {**facts, "pbi_certified_visuals": f"otherVisual1, {guid}"}) == []
 
 
-def test_allowed_tenant_warns_on_a_file_visual_and_passes_appsource(tmp_path):
-    """Files render where the tenant allows them, so it is a warning, not a refusal: the visual still
-    stops the day the tenant turns certified-only."""
-    dest_rep, guid = _imported(tmp_path)
-    rows = _cv(dest_rep, {"pbi_custom_visuals": "allowed"})
-    assert [(f.severity, f.kind) for f in rows] == [("warning", "custom-visual-uncertified")]
-    _registered_as(dest_rep, guid, "appsource")
-    assert _cv(dest_rep, {"pbi_custom_visuals": "allowed"}) == []
+def test_an_approved_sdk_visual_is_held_to_its_workspace(tmp_path):
+    """`pbi_sdk_visuals: approved` is the operator's word once workspace approval exists: the file visual is
+    a warning on an `allowed` tenant, and it ships to the approved workspace only."""
+    dest_rep, _guid = _imported(tmp_path)
+    facts = {"pbi_custom_visuals": "allowed", "pbi_sdk_visuals": "approved"}
+    assert _kinds(_cv(dest_rep, facts)) == [("warning", "custom-visual-uncertified"),
+                                            ("warning", "custom-visual-sdk-workspace-unrecorded")]
+    facts["pbi_sdk_workspace"] = "Sales Workspace"
+    assert _kinds(_cv(dest_rep, facts)) == [("warning", "custom-visual-uncertified")]
+    assert _kinds(_cv(dest_rep, {**facts, "pbi_workspace": "sales workspace"})) == \
+        [("warning", "custom-visual-uncertified")]
+    rows = _cv(dest_rep, {**facts, "pbi_workspace": "Ops Workspace"})
+    assert _kinds(rows) == [("warning", "custom-visual-uncertified"), ("error", "custom-visual-sdk-workspace")]
+    assert "Sales Workspace" in rows[1].message and "Ops Workspace" in rows[1].message
+    rep = P.load_report(str(dest_rep))
+    assert [f.kind for f in CK.custom_visual_delivery(rep, facts, ("ws-1", "Ops Workspace"))
+            if f.severity == "error"] == ["custom-visual-sdk-workspace"]
+    assert [f.kind for f in CK.custom_visual_delivery(rep, {**facts, "pbi_workspace": "Ops Workspace"}, ())
+            if f.severity == "error"] == []
 
 
 def test_an_unrecorded_tenant_fails_closed(tmp_path):
-    """Nobody wrote down what the tenant renders, so nothing from a file or AppSource passes."""
+    """Nobody wrote down what the tenant renders, so even a certified AppSource visual does not pass."""
     dest_rep, guid = _imported(tmp_path)
-    for facts in ({}, {"pbi_custom_visuals": "unknown"}):
+    _registered_as(dest_rep, guid, "appsource")
+    for facts in ({"pbi_certified_visuals": guid}, {"pbi_certified_visuals": guid, "pbi_custom_visuals": "unknown"}):
         rows = _cv(dest_rep, facts)
-        assert [(f.severity, f.kind) for f in rows] == [("error", "custom-visual-tenant-unknown")]
+        assert _kinds(rows) == [("error", "custom-visual-tenant-unknown")]
         assert guid in rows[0].message and "pbi_custom_visuals" in rows[0].hint
 
 
 def test_a_misspelt_tenant_fact_warns_and_still_fails_closed(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    _registered_as(dest_rep, guid, "appsource")
+    rows = _cv(dest_rep, {"pbi_custom_visuals": "blocked", "pbi_certified_visuals": guid})
+    assert _kinds(rows) == [("warning", "custom-visual-tenant-fact-invalid"), ("error", "custom-visual-tenant-unknown")]
+
+
+def test_a_misspelt_sdk_fact_is_read_as_blocked(tmp_path):
     dest_rep, _guid = _imported(tmp_path)
-    rows = _cv(dest_rep, {"pbi_custom_visuals": "blocked"})
-    assert [(f.severity, f.kind) for f in rows] == [("warning", "custom-visual-tenant-fact-invalid"),
-                                                   ("error", "custom-visual-tenant-unknown")]
+    rows = _cv(dest_rep, {"pbi_custom_visuals": "allowed", "pbi_sdk_visuals": "yes"})
+    assert _kinds(rows) == [("warning", "custom-visual-sdk-fact-invalid"), ("error", "custom-visual-uncertified")]
 
 
-def test_cli_check_reads_the_tenant_fact_from_agents_md(tmp_path, monkeypatch, capsys):
-    """`ad-pbip check` runs from the project root, where AGENTS.md holds the fact."""
+def test_cli_check_reads_the_facts_from_agents_md(tmp_path, monkeypatch, capsys):
+    """`ad-pbip check` runs from the project root, where AGENTS.md holds the facts."""
     import sys
     from agentdata import cli_pbip
     project = tmp_path / "project"
@@ -581,25 +690,54 @@ def test_cli_check_reads_the_tenant_fact_from_agents_md(tmp_path, monkeypatch, c
     shutil.rmtree(_imported_into)
     dest_rep, _guid = _imported(tmp_path)
     shutil.copytree(dest_rep, _imported_into)
-    (project / "AGENTS.md").write_text("## Project facts\n- pbi_custom_visuals: org-only\n", encoding="utf-8")
     monkeypatch.chdir(project)
-    monkeypatch.setattr(sys, "argv", ["ad-pbip", "check", "reports"])
-    with pytest.raises(SystemExit) as ei:
-        cli_pbip.main()
-    out = capsys.readouterr().out
-    assert ei.value.code == 1 and "custom-visual-tenant-blocked" in out
+    for facts, kind in (("- pbi_custom_visuals: allowed\n", "custom-visual-uncertified"),
+                        ("- pbi_custom_visuals: org-only\n- pbi_sdk_visuals: approved\n",
+                         "custom-visual-tenant-blocked")):
+        (project / "AGENTS.md").write_text("## Project facts\n" + facts, encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["ad-pbip", "check", "reports"])
+        with pytest.raises(SystemExit) as ei:
+            cli_pbip.main()
+        out = capsys.readouterr().out
+        assert ei.value.code == 1 and kind in out
+
+
+def test_the_authoring_catalog_holds_no_custom_or_script_visual():
+    """`ad-pbip visual add` takes catalog types only, so it can never add a custom visual (or an R or Python
+    one, which needs a runtime and packages: external packaging). Deneb has its own verb."""
+    types = set(CAT.load_catalog()["visuals"])
+    assert not types & {"rScript", "pythonVisual", "scriptVisual"}
+    assert not any(t.endswith("_OrgStore") or "deneb" in t.lower() or re.search(r"[0-9A-F]{16}", t) for t in types)
+
+
+def test_visual_add_refuses_a_custom_visual_type(tmp_path):
+    from agentdata.pbip import author as AU
+    from agentdata.pbip import deneb as DN
+    dest_rep = tmp_path / "Native.Report"
+    shutil.copytree(FIXTURE_REPORT, dest_rep)
+    for vtype in (DN.GUID, DN.GUID + "_OrgStore", "pythonVisual"):
+        with pytest.raises(KeyError, match="not found in catalog"):
+            AU.visual_add(str(dest_rep), "Overview", vtype)
 
 
 # ---------------- CLI Tests ----------------
 
-def test_cli_pbiviz_commands(capsys, tmp_path, monkeypatch):
-    """ad-pbiviz doctor, new, roles, package commands execute cleanly via CLI."""
-    monkeypatch.chdir(tmp_path)
-
-    # 1. doctor
+def _pbiviz(argv, capsys):
     with pytest.raises(SystemExit) as exc:
-        cli_pbiviz.main(["doctor"])
-    assert exc.value.code in (0, 1)
+        cli_pbiviz.main(argv)
+    return exc.value.code, capsys.readouterr().out
+
+
+def test_cli_pbiviz_commands(capsys, tmp_path, monkeypatch):
+    """ad-pbiviz doctor, new, roles, package commands execute cleanly via CLI, once the operator has written
+    `pbi_sdk_visuals: approved` (workspace approval for SDK visuals)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("- pbi_sdk_visuals: approved\n- pbi_sdk_workspace: Sales\n", encoding="utf-8")
+
+    # 1. doctor: the gate first, then the toolchain
+    code, out = _pbiviz(["doctor"], capsys)
+    assert code in (0, 1)
+    assert out.index("sdk_visuals,ok") < out.index("node,")
 
     # 2. new
     with pytest.raises(SystemExit) as exc:
@@ -619,3 +757,63 @@ def test_cli_pbiviz_commands(capsys, tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         cli_pbiviz.main(["package", "cli-chart", "--bump", "patch"])
     assert exc.value.code == 0
+
+
+@pytest.mark.parametrize("facts", ["", "- pbi_sdk_visuals: blocked\n", "- pbi_sdk_visuals: yes please\n"])
+def test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals(capsys, tmp_path, monkeypatch, facts):
+    """The enterprise blocks non-certified visuals; SDK visuals wait on workspace approval, and their toolchain
+    (Node.js, npm, powerbi-visuals-tools) is outside te2, dscmd and az. Absent or misspelt reads as blocked."""
+    monkeypatch.chdir(tmp_path)
+    if facts:
+        (tmp_path / "AGENTS.md").write_text(facts, encoding="utf-8")
+    PV.scaffold_visual("kept", base_dir="visuals")
+    for argv in (["new", "cli-chart"], ["dev", "kept"], ["package", "kept"],
+                 ["import", "kept", "--pbip", str(tmp_path), "--page", "Overview"]):
+        code, out = _pbiviz(argv, capsys)
+        assert code == 2, argv
+        assert "code: sdk_visuals_blocked" in out and f"ad-pbiviz {argv[0]} refused" in out
+        assert "workspace approval" in out and "pbi_sdk_visuals: approved" in out
+        assert "te2, dscmd and az" in out and "npm install" not in out
+    assert not (tmp_path / "visuals" / "cli-chart").exists()
+    assert not (tmp_path / "visuals" / "kept" / "dist").exists()
+    # Stopping is never refused: a dev server a run before the gate left behind can still be ended.
+    code, out = _pbiviz(["stop", "kept"], capsys)
+    assert code == 0 and "sdk_visuals_blocked" not in out and "not_running" in out
+
+
+def test_doctor_reports_the_gate_first_and_offers_no_toolchain_while_blocked(capsys, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    def probed(*_a, **_k):
+        raise AssertionError("the SDK toolchain was probed while SDK visuals are blocked")
+
+    monkeypatch.setattr(PV, "doctor", probed)
+    code, out = _pbiviz(["doctor"], capsys)
+    assert code == 1 and "ok: false" in out and "code: sdk_visuals_blocked" in out
+    assert out.index("sdk_visuals,blocked") < out.index("toolchain,not_offered")
+    for install in ("npm install", "nodejs.org", "--install-cert"):
+        assert install not in out
+
+
+def test_the_verbs_that_need_no_sdk_still_work_while_blocked(capsys, tmp_path, monkeypatch):
+    """`roles` and `bind` read a visual's capabilities.json; `candidate(s)` log a need. None needs Node."""
+    monkeypatch.chdir(tmp_path)
+    PV.scaffold_visual("kept", base_dir="visuals")
+    code, out = _pbiviz(["roles", "kept"], capsys)
+    assert code == 0 and "category,Grouping" in out
+    code, out = _pbiviz(["bind", "kept", "--pbip", FIXTURE_PBIP, "--role", "category='Dates'[MonthName]",
+                         "--role", "measure=[Total Sales]"], capsys)
+    assert code == 0 and "bindings" in out
+    code, out = _pbiviz(["candidates"], capsys)
+    assert code == 0 and "count: 0" in out
+
+
+def test_the_desktop_capability_row_does_not_offer_npm_while_blocked(tmp_path, monkeypatch):
+    from agentdata.pbip import desktop as DT
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(DT.shutil, "which", lambda name: f"/opt/{name}")
+    row = next(c for c in DT.capabilities(run=lambda *a, **k: (1, "", "")) if c["capability"] == "pbiviz")
+    assert row["available"] is False and row["via"] == "blocked" and "not offered" in row["evidence"]
+    (tmp_path / "AGENTS.md").write_text("- pbi_sdk_visuals: approved\n", encoding="utf-8")
+    row = next(c for c in DT.capabilities(run=lambda *a, **k: (1, "", "")) if c["capability"] == "pbiviz")
+    assert row["available"] is True and row["via"] == "npm" and row["evidence"] == "/opt/pbiviz"

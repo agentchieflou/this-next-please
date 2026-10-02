@@ -14,7 +14,7 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | layout, chart choice, colours, theme, looks wrong | `pbi-report-design` |
 | add visual, edit visual, add page, remove visual, report authoring | `pbi-report-author` |
 | PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
-| add / fix a measure, column, format string, relationship, TMDL edit | `tmdl-edit` |
+| add / fix a measure, column, format string, relationship, DAX user-defined function (UDF), TMDL edit | `tmdl-edit` |
 | audit the model, best practices, prepare for Copilot, slow measure, optimize DAX | `pbi-model-audit` |
 | slow visual, query trace, DMV, memory usage, page cost, "why is this page slow" | `pbi-observe` |
 | validate the report, broken visual, "does the report still work", before deploy | `pbi-validate` |

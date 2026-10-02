@@ -28,6 +28,10 @@ from agentdata.setup.steps import powerbi
 TRANSCRIPT_PATH = os.path.join(
     os.path.dirname(__file__), "fixtures", "bridge", "2.138.1452.0", "transcript.jsonl"
 )
+#: The documented contract (Desktop 2.155+, verified against 2.157): bridge.manifest and /v1 methods.
+DOCUMENTED_PATH = os.path.join(
+    os.path.dirname(__file__), "fixtures", "bridge", "2.157.1354.0", "transcript.jsonl"
+)
 
 
 # ---------------- Framing & Protocol Tests ----------------
@@ -160,25 +164,31 @@ def test_client_jsonrpc_error():
 # ---------------- Replay Stream & Golden Transcript Tests ----------------
 
 def test_replay_stream_golden_transcript():
-    """ReplayStream successfully replays manifest, status, reload, and screenshot from golden transcript."""
+    """The pre-release bridge still works: `bridge.manifest` is answered -32601, the client asks the
+    legacy `manifest`, and status, reload and screenshot replay from the 2.138 transcript."""
     assert os.path.exists(TRANSCRIPT_PATH)
     replay = BR.ReplayStream.from_jsonl(TRANSCRIPT_PATH)
     client = BR.BridgeClient(replay, pid=1234)
 
-    # 1. Manifest
+    # 1. Manifest: the documented method first, the legacy one after its -32601
     man = client.manifest()
+    assert [r["method"] for r in replay.requests] == ["bridge.manifest", "manifest"]
+    assert man["dialect"] == "legacy"
     assert man["version"] == "2.138.1452.0"
     assert "reload" in man["operations"]
     assert "screenshot" in man["operations"]
+    assert man["names"]["state"] == "status"
 
     # 2. Status
     st = client.status()
     assert "Sales.pbip" in st["file"]
+    assert st["unsaved"] is False
     assert len(st["pages"]) == 2
     assert st["pages"][0]["id"] == "ReportSection1"
 
-    # 3. Reload
+    # 3. Reload: the pre-release method takes no parameters
     rel = client.reload()
+    assert replay.requests[-1] == {"jsonrpc": "2.0", "id": 4, "method": "reload", "params": {}}
     assert rel["ok"] is True
     assert rel["reloaded"] is True
     assert rel["elapsed_ms"] == 142
@@ -188,7 +198,131 @@ def test_replay_stream_golden_transcript():
     assert shot["page"] == "ReportSection1"
     assert shot["width"] == 1280
     assert shot["height"] == 720
-    assert "image_base64" in shot
+    assert shot["png"].startswith(b"\x89PNG")
+
+
+# ---------------- The documented contract (Desktop 2.155+, verified against 2.157) ----------------
+
+def test_the_documented_bridge_is_spoken_first_and_in_its_own_words():
+    """Microsoft Learn's contract: `bridge.manifest` lists versioned methods; state, reload and
+    snapshot are `application.state.get/v1`, `file.reload/v1` and `report.snapshot.capture/v1`."""
+    replay = BR.ReplayStream.from_jsonl(DOCUMENTED_PATH)
+    client = BR.BridgeClient(replay, pid=4321)
+
+    man = client.manifest()
+    assert [r["method"] for r in replay.requests] == ["bridge.manifest"], "one call: no legacy fallback"
+    assert man["dialect"] == "documented"
+    assert man["names"] == {"manifest": "bridge.manifest", "state": "application.state.get/v1",
+                            "reload": "file.reload/v1", "screenshot": "report.snapshot.capture/v1"}
+    assert man["operations"] == ["manifest", "reload", "screenshot", "state"]
+
+    st = client.state()
+    assert st["file"].endswith("Sales.pbip") and st["unsaved"] is False
+
+    rel = client.reload(model=False)
+    assert replay.requests[-1]["method"] == "file.reload/v1"
+    assert replay.requests[-1]["params"] == {"reloadModelDefinition": False}
+    assert rel["ok"] is True and rel["model"] is False
+
+    shot = client.screenshot(page="ReportSection1", scale=5)
+    assert replay.requests[-1]["method"] == "report.snapshot.capture/v1"
+    assert replay.requests[-1]["params"] == {"pageId": "ReportSection1", "scale": 3.0}, "scale is clamped to 1-3"
+    assert shot["png"].startswith(b"\x89PNG")
+    assert (shot["width"], shot["height"]) == (2, 1), "the size is read from the PNG, which the result does not repeat"
+    assert shot["displayName"] == "Overview" and shot["mime"] == "image/png"
+
+
+def test_a_documented_snapshot_needs_a_page_and_the_newest_method_version_wins():
+    replay = BR.ReplayStream.from_jsonl(DOCUMENTED_PATH)
+    client = BR.BridgeClient(replay, pid=4321)
+    client.manifest()
+    with pytest.raises(BR.BridgeError, match="page id"):
+        client.screenshot()
+
+    man = BR.normalize_manifest({"methods": [{"name": "bridge.manifest"}, {"name": "file.reload/v1"},
+                                             {"name": "file.reload/v2"}, {"name": "file.reloadAll/v9"}]})
+    assert man["names"]["reload"] == "file.reload/v2"
+    assert "state" not in man["operations"] and "screenshot" not in man["operations"]
+    assert BR.normalize_manifest(man) is man, "normalising a normalised manifest changes nothing"
+
+
+def test_a_busy_bridge_is_waited_out_and_an_undeclared_operation_is_refused(monkeypatch):
+    """Only one operation runs at a time; a second is answered with an error until the first ends."""
+    monkeypatch.setattr(BR, "BUSY_BACKOFF", 0)
+    replay = BR.ReplayStream.from_jsonl(DOCUMENTED_PATH)
+    client = BR.BridgeClient(replay, pid=4321)
+    client.manifest()
+    real = client.call
+    answers = iter([BR.BridgeError("Another operation is in progress", code=-32000)])
+
+    def flaky(method, params=None, timeout=5.0):
+        for e in answers:
+            raise e
+        return real(method, params=params, timeout=timeout)
+
+    monkeypatch.setattr(client, "call", flaky)
+    assert client.state()["unsaved"] is False
+
+    client.man = BR.normalize_manifest({"methods": [{"name": "bridge.manifest"}]})
+    with pytest.raises(BR.BridgeUnsupported, match="not declared"):
+        client.reload()
+
+
+def test_reload_refuses_to_overwrite_unsaved_changes_and_names_the_next_step(monkeypatch):
+    """A reload replaces Desktop's state with the files on disk: on unsaved (or unknown) state it is
+    refused unless --discard says to overwrite, and a model reload says what to refresh next."""
+    def client_with(unsaved):
+        replay = BR.ReplayStream.from_jsonl(DOCUMENTED_PATH)
+        c = BR.BridgeClient(replay, pid=4321)
+        c.manifest()
+        monkeypatch.setattr(c, "state", lambda **kw: {"file": "C:/x.pbip", "unsaved": unsaved})
+        return c, replay
+
+    for unsaved in (True, None):
+        c, replay = client_with(unsaved)
+        monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (c, c.man, "ok"))
+        res = DT.reload(4321)
+        assert res["ok"] is False and res["fail"] == "unsaved_changes" and "--discard" in res["hint"], res
+        assert not any(r["method"] == "file.reload/v1" for r in replay.requests)
+
+    c, replay = client_with(True)
+    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (c, c.man, "ok"))
+    res = DT.reload(4321, discard=True)
+    assert res["ok"] is True and res["via"] == "bridge" and res["method"] == "file.reload/v1"
+    assert replay.requests[-1]["params"] == {"reloadModelDefinition": True}
+    assert "ad-pbip model refresh --type calculate" in res["next"]
+
+    c, replay = client_with(False)
+    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (c, c.man, "ok"))
+    res = DT.reload(4321, model=False)
+    assert res["ok"] is True and res["model"] is False and "next" not in res
+    assert replay.requests[-1]["params"] == {"reloadModelDefinition": False}
+
+
+def test_the_newest_transcript_is_the_baseline_and_a_dialect_change_is_drift():
+    t_path, base = BR.find_baseline_transcript()
+    assert t_path == DOCUMENTED_PATH
+    assert base["dialect"] == "documented" and base["version"] == "2.157.1354.0"
+    legacy = {"version": "2.138.1452.0", "operations": ["manifest", "status", "reload", "screenshot"]}
+    diff = BR.compare_manifests(legacy, base)
+    assert diff["drift"] is True and "dialect: documented -> legacy" in diff["summary"]
+    assert BR.compare_manifests(base, base)["drift"] is False
+
+
+def test_no_pipe_says_where_the_switch_is_and_off_windows_there_is_no_policy():
+    assert BR.policy() == "unknown"
+    why = BR.no_pipe_reason(4321)
+    assert "pipe for pid 4321 not found" in why
+    assert "Security > Desktop Bridge" in why and "on by default" in why
+    assert BR.list_pipes() == []
+
+
+def test_desktop_versions_are_told_against_the_verified_release():
+    assert DT.VERIFIED_DESKTOP == (2, 157)
+    assert DT.verified_label("2.157.1354.0") == "verified"
+    assert DT.verified_label("2.158.700.0") == "newer"
+    assert DT.verified_label("2.138.1004.0") == "older"
+    assert DT.verified_label(None) == "unknown" and DT.verified_label("") == "unknown"
 
 
 # ---------------- Capability Negotiation & Fallback Classes ----------------
@@ -229,7 +363,7 @@ def test_reload_via_bridge_when_negotiated(monkeypatch):
     replay = BR.ReplayStream.from_jsonl(TRANSCRIPT_PATH)
     client = BR.BridgeClient(replay, pid=1234)
 
-    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (client, {"version": "2.138", "operations": ["reload"]}, "ok"))
+    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (client, {"version": "2.138", "operations": ["status", "reload"]}, "ok"))
 
     res = DT.reload(1234)
     assert res["ok"] is True
@@ -273,12 +407,14 @@ def test_reload_fallback_bridge_error(monkeypatch):
     monkeypatch.setattr(DT, "open_and_wait", lambda *a, **kw: {"ok": True, "pid": 1234, "file": "C:/fake/Report.pbip"})
 
     class FailingClient:
-        def reload(self):
+        def state(self):
+            return {"file": "C:/fake/Report.pbip", "unsaved": False}
+        def reload(self, **kw):
             raise BR.BridgeTimeoutError("pipe timed out")
         def close(self):
             pass
 
-    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (FailingClient(), {"operations": ["reload"]}, "ok"))
+    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (FailingClient(), {"operations": ["status", "reload"]}, "ok"))
 
     res = DT.reload(1234)
     assert res["ok"] is True
@@ -396,8 +532,54 @@ def test_cli_bridge_probe(capsys, monkeypatch):
     assert "reload,declared" in out
 
 
+def test_cli_bridge_probe_names_each_operations_method_and_a_missing_pipe_says_where_the_switch_is(capsys, monkeypatch):
+    monkeypatch.setattr(BR, "probe_bridge", lambda **kw: {
+        "pipe_present": True, "pid": 5678, "rtt_ms": 4, "version": "2.157.1354.0", "dialect": "documented",
+        "operations": ["manifest", "reload", "screenshot", "state"],
+        "names": {"manifest": "bridge.manifest", "reload": "file.reload/v1",
+                  "screenshot": "report.snapshot.capture/v1", "state": "application.state.get/v1"},
+        "drift": "none", "drift_summary": "none"})
+    with pytest.raises(SystemExit) as exc:
+        cli_pbip.main(["bridge", "probe"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "dialect: documented" in out
+    assert "reload,declared,file.reload/v1" in out
+    assert "state,declared,application.state.get/v1" in out
+
+    monkeypatch.setattr(BR, "probe_bridge", lambda **kw: {"pipe_present": False, "operations": [], "reason": ""})
+    with pytest.raises(SystemExit):
+        cli_pbip.main(["bridge", "probe"])
+    assert "Security > Desktop Bridge" in capsys.readouterr().out
+
+
+def test_cli_desktop_reload_can_leave_the_model_alone():
+    a = cli_pbip.build_parser().parse_args(["desktop", "reload", "--pid", "7", "--report-only"])
+    assert a.report_only is True and a.pid == 7
+
+
 def test_cli_bridge_record_requires_pid(capsys):
     """ad-pbip bridge record fails when --pid is omitted."""
     with pytest.raises(SystemExit) as exc:
         cli_pbip.main(["bridge", "record"])
     assert exc.value.code == 2  # argparse missing required argument
+
+
+def test_a_screenshot_session_on_2157_writes_desktops_own_png(tmp_path, monkeypatch):
+    """`ad-pbip screenshot` on a 2.157 bridge: one `report.snapshot.capture/v1` per page, by PBIR page id."""
+    replay = BR.ReplayStream.from_jsonl(DOCUMENTED_PATH)
+    client = BR.BridgeClient(replay, pid=4321)
+
+    class FakeInst:
+        pid = 4321
+        file = None
+        matched = None
+        pages = [{"id": "ReportSection1", "displayName": "Overview", "active": True, "order": 0}]
+
+    monkeypatch.setattr(DT, "status", lambda **kw: [FakeInst()])
+    monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (client, client.manifest(), "ok"))
+    rows, _ = SC.screenshot_session(4321, out_dir=str(tmp_path / "shots"))
+    assert [(r["via"], r["width"], r["height"], r["displayName"]) for r in rows] == [("bridge", 2, 1, "Overview")]
+    with open(rows[0]["path"], "rb") as f:
+        assert f.read(8) == b"\x89PNG\r\n\x1a\n"
+    assert [r["method"] for r in replay.requests][-1] == "report.snapshot.capture/v1"

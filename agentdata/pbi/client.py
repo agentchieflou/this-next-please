@@ -21,6 +21,14 @@ POWERBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
 GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
+#: PBIR is generally available and the default report format: Desktop (and the service) converts a
+#: PBIR-Legacy report on its next save, keeping a backup (30 days in Desktop, 28 in the service). There
+#: is no preview switch to turn on any more (Desktop 2.157).
+PBIR_LEGACY_HINT = ("open the report in Power BI Desktop and save it -- PBIR is the default format and Desktop "
+                    "converts a PBIR-Legacy report on save, keeping a PBIR-Legacy backup for 30 days -- or edit "
+                    "and save it once in the service; then publish or read it again")
+
+
 class FabricClient:
     """Client for Fabric item-definition transport (reports and semantic models)."""
 
@@ -275,7 +283,7 @@ class FabricClient:
             fmt = data.get("format", "")
             if fmt == "PBIR-Legacy":
                 raise FabricError("pbir_legacy_format", "report definition is in PBIR-Legacy format",
-                                  "convert report to PBIR in Power BI Desktop (File -> Options -> Preview features -> Store reports using enhanced metadata format (PBIR))")
+                                  PBIR_LEGACY_HINT)
 
         op_id = headers.get("x-ms-operation-id")
         if not op_id and isinstance(data, dict) and data.get("status") in ("Running", "NotStarted"):
@@ -292,7 +300,7 @@ class FabricClient:
         for part in parts:
             if part.get("path") == "report.json" and not any(p.get("path", "").startswith("definition/") for p in parts):
                 raise FabricError("pbir_legacy_format", "report definition is in PBIR-Legacy format",
-                                  "convert report to PBIR in Power BI Desktop (File -> Options -> Preview features -> Store reports using enhanced metadata format (PBIR))")
+                                  PBIR_LEGACY_HINT)
 
         return definition
 

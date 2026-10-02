@@ -34,9 +34,11 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - ws_id: <workspace guid>
 - ds_id: <dataset guid>
 - deploy_roles: false
-- pbi_custom_visuals: <unknown>             # what the tenant renders for this report's VIEWERS: allowed | certified-only | org-only (Fabric tenant settings "Allow visuals created using the Power BI SDK", "Add and use certified visuals only"). Unrecorded, ad-pbip check and ad-pbi publish pass nothing from a file or AppSource
-- pbi_certified_visuals: deneb7E15AEF80B9E4D4F8E12924291ECE89A   # AppSource visuals whose Microsoft-certified badge was checked, by GUID, comma-separated; a certified-only tenant passes only these. Preset: Deneb, certified as of 2026-09
-- pbi_org_visuals: <Deneb>                  # organizational-store visuals viewers can use, comma-separated (Desktop: Visualizations pane → … → Get more visuals → My organization)
+- pbi_custom_visuals: certified-only        # what the tenant renders for this report's VIEWERS: allowed | certified-only | org-only (Fabric tenant settings "Allow visuals created using the Power BI SDK", "Add and use certified visuals only"). Unrecorded, ad-pbip check and ad-pbi publish pass nothing from a file or AppSource. No value lets a non-certified visual through: the enterprise blocks them
+- pbi_certified_visuals: deneb7E15AEF80B9E4D4F8E12924291ECE89A   # AppSource visuals whose Microsoft-certified badge was checked, by GUID, comma-separated; every tenant passes only these (and an org-store visual whose GUID is here). Preset: Deneb, certified as of 2026-09
+- pbi_org_visuals: <GUID, GUID>             # organizational-store visuals the operator approved, by GUID (with or without _OrgStore), comma-separated; they pass uncertified only when pbi_custom_visuals is org-only
+- pbi_sdk_visuals: blocked                  # blocked | approved. SDK (.pbiviz) visuals are not certified: blocked (also when absent) refuses ad-pbiviz new/dev/stop/package/import and any private visual in a report. approved: the operator's to write, only once the enterprise grants workspace approval; it also approves the SDK toolchain (Node.js, npm, powerbi-visuals-tools), which is outside te2, dscmd and az
+- pbi_sdk_workspace: <Workspace Name or id> # with pbi_sdk_visuals: approved, the one workspace the approval covers; ad-pbi publish report refuses an SDK visual anywhere else
 - dpm_run_root: <\\share\dpm\runs\RUN-id>     # ad-dpm: one DPM run root (orchestrator.db + text_analysis/)
 - dpm_runs_dir: <\\share\dpm\runs>            # ad-dpm --run-id / --latest picks under this folder
 - dpm_artifact_dir: <artifacts/dpm>            # consumer's governed artifact directory, relative to this repo; ad-dpm writes only here

@@ -1,8 +1,16 @@
 upstream: https://github.com/microsoft/json-schemas
-commit: 9eb8c36a074061018fa7e570b267fd56315e1c26
+commit: 5e9ded2dd4cb2207c572644b9dce4c3f0c49a517 (every file below is byte for byte the same at this commit; the
+  first four were taken at 9eb8c36a074061018fa7e570b267fd56315e1c26)
 licence: LICENSE (MIT), copied from the same commit
-files: item/report/definition/report/3.1.0/schema.json and the three schemas its $refs reach
-  (filterConfiguration/1.2.0/schema-embedded.json, formattingObjectDefinitions/1.4.0/schema.json,
-  semanticQuery/1.3.0/schema.json), each at the path it has upstream and in its URL,
-  https://developer.microsoft.com/json-schemas/fabric/<path>
-why: tests/pbir_schema.py validates what `ad-pbiviz import` writes to definition/report.json without the network
+files: each at the path it has upstream and in its URL, https://developer.microsoft.com/json-schemas/fabric/<path>
+  item/report/definition/report/3.1.0/schema.json and the three schemas its $refs reach
+    (filterConfiguration/1.2.0/schema-embedded.json, formattingObjectDefinitions/1.4.0/schema.json,
+    semanticQuery/1.3.0/schema.json)
+  the set Power BI Desktop 2.157 (August 2026) writes, and every schema their $refs reach:
+    visualContainer/2.12.0, page/2.1.0, report/3.3.0, bookmark/2.1.0, pagesMetadata/1.1.0, bookmarksMetadata/1.0.0,
+    versionMetadata/1.0.0, reportExtension/1.0.0 (all schema.json), item/report/definitionProperties/2.0.0/schema.json,
+    visualConfiguration/2.7.0/schema-embedded.json, filterConfiguration/1.3.0/schema-embedded.json,
+    formattingObjectDefinitions/1.5.0/schema.json, semanticQuery/1.4.0/schema.json
+  agentdata/pbip/pbir.py DESKTOP_SCHEMAS names the versions; a new Desktop release vendors its set here the same way
+why: tests/pbir_schema.py validates what `ad-pbip page|visual|bookmark add` and `ad-pbiviz import` write, without the
+  network

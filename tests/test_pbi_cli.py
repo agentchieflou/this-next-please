@@ -224,7 +224,7 @@ def test_get_report_refuses_legacy_format(fake_az, capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "pbir_legacy_format" in err
-    assert "Store reports using enhanced metadata format (PBIR)" in err
+    assert "PBIR is the default format" in err and "converts a PBIR-Legacy report on save" in err
 
 
 def test_get_report_extracts_parts_with_forward_slashes(fake_az, tmp_path):
@@ -438,7 +438,8 @@ def test_publish_report_refuses_a_visual_the_tenant_blocks_before_any_call(fake_
     """The incident: a custom visual the tenant blocks reached the service. Publish now refuses it
     offline, before a single az call, and has no flag to force it through."""
     rep = _report_with_a_file_visual(tmp_path)
-    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: certified-only\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: certified-only\n- pbi_sdk_visuals: approved\n",
+                                        encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample"])
     err = capsys.readouterr().err
@@ -449,6 +450,7 @@ def test_publish_report_refuses_a_visual_the_tenant_blocks_before_any_call(fake_
 
 def test_publish_report_refuses_when_nobody_recorded_the_tenant(fake_az, capsys, tmp_path, monkeypatch):
     rep = _report_with_a_file_visual(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("- pbi_sdk_visuals: approved\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample",
                        "--dry-run"])
@@ -456,13 +458,45 @@ def test_publish_report_refuses_when_nobody_recorded_the_tenant(fake_az, capsys,
     assert fake_az.calls == []
 
 
-def test_publish_report_lets_a_file_visual_through_where_the_tenant_allows_files(fake_az, capsys, tmp_path, monkeypatch):
+@pytest.mark.parametrize("facts", ["", "- pbi_custom_visuals: allowed\n",
+                                   "- pbi_custom_visuals: allowed\n- pbi_sdk_visuals: blocked\n"])
+def test_publish_report_refuses_an_sdk_visual_on_every_tenant_while_sdk_visuals_are_blocked(
+        fake_az, capsys, tmp_path, monkeypatch, facts):
+    """The enterprise blocks non-certified visuals. Before 0.18.0 an `allowed` tenant let a file visual
+    through; now `pbi_custom_visuals: allowed` downgrades nothing, and the refusal comes before any az call."""
     rep = _report_with_a_file_visual(tmp_path)
-    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: allowed\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text(facts, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample",
+                       "--dry-run"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "custom_visual_blocked" in err and "custom-visual-uncertified" in err
+    assert "workspace approval" in err
+    assert fake_az.calls == []
+
+
+@pytest.mark.parametrize("approved_for", ["Sales Workspace", "ws-1111-2222", "sales workspace"])
+def test_publish_report_lets_an_approved_sdk_visual_through_to_its_workspace(fake_az, capsys, tmp_path, monkeypatch,
+                                                                              approved_for):
+    rep = _report_with_a_file_visual(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: allowed\n- pbi_sdk_visuals: approved\n"
+                                        f"- pbi_sdk_workspace: {approved_for}\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample",
                        "--dry-run"])
     assert rc == 0 and "dry_run: true" in capsys.readouterr().out
+
+
+def test_publish_report_refuses_an_approved_sdk_visual_outside_its_workspace(fake_az, capsys, tmp_path, monkeypatch):
+    """The approval names one workspace; the target is resolved first (name or id), then held to it."""
+    rep = _report_with_a_file_visual(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: allowed\n- pbi_sdk_visuals: approved\n"
+                                        "- pbi_sdk_workspace: Ops Workspace\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "custom_visual_blocked" in err and "custom-visual-sdk-workspace" in err
+    assert not [c for c in fake_az.calls if "POST" in c]
 
 
 def _clean_report(tmp_path):

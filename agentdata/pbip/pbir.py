@@ -22,6 +22,40 @@ AGG = {0: "Sum", 1: "Avg", 2: "DistinctCount", 3: "Min", 4: "Max", 5: "Count", 6
 HEX20 = re.compile(r"^[0-9a-f]{20}$")
 FILTER_NAME = re.compile(r"^Filter[0-9a-f]{24}$")
 
+# The `$schema` version of each PBIR file kind that Power BI Desktop 2.157 (August 2026, 2.157.1354.0) writes in a new
+# report: the release months in microsoft/json-schemas fabric/item/report/definition/<kind>/CHANGELOG.md. Its
+# definition.pbir is definitionProperties 2.0.0 with "version": "4.0". A file we add copies the `$schema` its kind
+# already has in the project, because the version Desktop chose is one the operator's Desktop reads (schema_for); these
+# apply only to a kind the project has no file of. The next Desktop release is one edit here, plus its schemas vendored
+# under schema/fabric/ (see schema/fabric/SOURCE) so tests/pbir_schema.py can validate what we write.
+DESKTOP_RELEASE = "2.157"
+DESKTOP_SCHEMAS = {
+    "report": "3.3.0",
+    "page": "2.1.0",
+    "pagesMetadata": "1.1.0",
+    "visualContainer": "2.12.0",
+    "visualContainerMobileState": "2.7.0",
+    "bookmark": "2.1.0",
+    "bookmarksMetadata": "1.0.0",
+    "versionMetadata": "1.0.0",
+    "reportExtension": "1.0.0",
+}
+SCHEMA_BASE = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/"
+# where each kind lives under definition/. `reportExtensions.json` is the name Microsoft's PBIR folder table gives
+# (learn.microsoft.com/power-bi/developer/projects/projects-report); the singular is what this loader used to read.
+KIND_FILES = {
+    "report": ("report.json",),
+    "page": ("pages/*/page.json",),
+    "pagesMetadata": ("pages/pages.json",),
+    "visualContainer": ("pages/*/visuals/*/visual.json",),
+    "visualContainerMobileState": ("pages/*/visuals/*/mobile.json",),
+    "bookmark": ("bookmarks/*.json",),
+    "bookmarksMetadata": ("bookmarks/bookmarks.json",),
+    "versionMetadata": ("version.json",),
+    "reportExtension": ("reportExtensions.json", "reportExtension.json"),
+}
+SCHEMA_URL = re.compile(r"/definition/(?P<kind>[A-Za-z]+)/(?P<version>\d+(?:\.\d+)*)/schema\.json$")
+
 
 @dataclass
 class FieldRef:
@@ -100,6 +134,45 @@ def _load(path: str) -> Any:
 
 def _rel(root: str, p: str) -> str:
     return textio.norm_path(os.path.relpath(p, root))
+
+
+# ---------- $schema of a file we write ----------
+def schema_url(kind: str, version: str | None = None) -> str:
+    return f"{SCHEMA_BASE}{kind}/{version or DESKTOP_SCHEMAS[kind]}/schema.json"
+
+
+def schema_version(url: str | None) -> str | None:
+    m = SCHEMA_URL.search(url or "")
+    return m["version"] if m else None
+
+
+def schema_for(report_root: str, kind: str) -> tuple[str, str]:
+    """The `$schema` for a new `kind` file in the report, and why: copied from the file of that kind declaring the
+    highest version (`copied from <file>`), or Desktop 2.157's when the report has none (`2.157 default`).
+
+    The highest, because a project mixing versions got the newer one from a Desktop that reads both."""
+    best: tuple[tuple[int, ...], str, str] | None = None
+    for pattern in KIND_FILES[kind]:
+        for path in sorted(glob.glob(os.path.join(glob.escape(report_root), "definition", pattern))):
+            if kind == "bookmark" and os.path.basename(path) == "bookmarks.json":
+                continue
+            try:
+                url = _load(path).get("$schema")
+            except (OSError, ValueError, AttributeError):
+                continue
+            m = SCHEMA_URL.search(url) if isinstance(url, str) else None
+            if m and m["kind"] == kind:
+                key = tuple(int(n) for n in m["version"].split("."))
+                if best is None or key > best[0]:
+                    best = (key, url, path)
+    if best:
+        return best[1], f"copied from {_rel(report_root, best[2])}"
+    return schema_url(kind), f"{DESKTOP_RELEASE} default"
+
+
+def schema_note(kind: str, url: str, why: str) -> str:
+    """What a write reports about the `$schema` it chose: `visualContainer 2.12.0, 2.157 default`."""
+    return f"{kind} {schema_version(url) or url}, {why}"
 
 
 # ---------- reference walk ----------
@@ -242,8 +315,10 @@ def _load_pbir(rep: Report, defn: str) -> None:
     if os.path.exists(rj):
         d = _load(rj)
         rep.filters = _filters(d.get("filterConfig"), _rel(root, rj), "report")
-    ext = os.path.join(defn, "reportExtension.json")
-    if os.path.exists(ext):
+    for name in KIND_FILES["reportExtension"]:
+        ext = os.path.join(defn, name)
+        if not os.path.exists(ext):
+            continue
         for ent in (_load(ext).get("entities") or []):
             for m in ent.get("measures") or []:
                 rep.extension_measures.append({"entity": ent.get("name"), "name": m.get("name"), "expression": m.get("expression"), "file": _rel(root, ext)})

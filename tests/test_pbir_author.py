@@ -265,7 +265,7 @@ def test_bookmark_add_and_theme_set(tmp_path):
     # Bookmark add
     res_bm = AU.bookmark_add(str(target), "Default View", "page1", visuals=["f1a2b3c4d5e6f7a8b9c0"])
     assert res_bm["ok"] is True
-    bm_file = target / "Sample.Report" / "definition" / "bookmarks" / f"{res_bm['name']}.json"
+    bm_file = target / "Sample.Report" / "definition" / "bookmarks" / f"{res_bm['name']}.bookmark.json"
     assert bm_file.exists()
 
     # Theme set

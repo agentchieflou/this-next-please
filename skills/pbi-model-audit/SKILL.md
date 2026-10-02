@@ -13,11 +13,13 @@ Inputs: `pbip_path` / `tmdl_path` facts, or live Desktop connection via `--pid` 
    - `summarize-by-numeric-key`: numeric ID / key columns with default summarization
    - `missing-format-string`: measures lacking explicit format strings
    - `bi-directional-relationship`: bi-directional cross-filtering relationships
-   - `unused-columns`: columns not referenced in measures, hierarchies, relationships, or visuals
+   - `unused-columns`: columns not referenced in measures, DAX user-defined function bodies, hierarchies, relationships, or visuals
    - `dax-anti-pattern-filter-all`: `FILTER(ALL(Table))` scans across entire tables
    - `implicit-measures-used`: report visuals using implicit aggregations instead of explicit measures
    - `missing-description-used-measure`: report-used measures without descriptions
-   Every row includes an op-list `fix` snippet that `ad-pbip model apply` accepts directly.
+   - `udf-missing-description`: functions without the `///` description (and `@param` / `@returns` lines) IntelliSense shows at every call
+   - `unused-function`: functions no measure, column, calculation item or other function calls (fix: `function.delete`)
+   Every row includes an op-list `fix` snippet that `ad-pbip model apply` accepts directly. A function's signature, argument count, recursion and the compatibility level it needs are `ad-pbip check` rules (`udf-*`), not audit rows.
 
 2. Run Copilot AI readiness audit:
    `ad-pbip model audit [<definition>|--server <host:port>] --copilot`

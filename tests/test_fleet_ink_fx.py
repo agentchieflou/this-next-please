@@ -635,9 +635,10 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
                                timeout=20000)
         _armed(page)
         page.wait_for_function("() => !Ink.inspect().layer.busy", timeout=20000)
+        at = _hover(page, "alpha")
         observe_quiet(page, passes=2, drive=False)
         before = page.evaluate(POINTED)
-        _moves(page, _hover(page, "alpha"))
+        _moves(page, at)
         observe_quiet(page, passes=2, drive=False)
         after = page.evaluate(POINTED)
         assert after["renders"] == before["renders"] and after["fx"] is None, (before, after)
@@ -679,9 +680,13 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
                                " && 'pointer' in window.__example.helpers()", timeout=20000)
         _armed(page)
         page.wait_for_function("() => !Ink.inspect().layer.busy", timeout=20000)
+        # The pointer enters the pane before the count starts: this page is new, so that first move
+        # changes what is hovered, and a hover may move a box the layer follows (main, Windows shard
+        # 3/4, 2026-10-02: one render). What is measured is the moves, which keep the same hover.
+        at = _hover(page, "alpha")
         observe_quiet(page, passes=2, drive=False)
         before = page.evaluate(POINTED)
-        _moves(page, _hover(page, "alpha"))
+        _moves(page, at)
         observe_quiet(page, passes=2, drive=False)
         after = page.evaluate(POINTED)
         assert after["renders"] == before["renders"], (before, after)

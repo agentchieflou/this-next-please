@@ -1,0 +1,23 @@
+table Sales
+	lineageTag: 21570000-0000-0000-0000-000000000001
+
+	measure 'Total Sales' = SUM ( Sales[Amount] )
+		formatString: $ #,##0
+		lineageTag: 21570000-0000-0000-0000-000000000010
+
+	column Region
+		dataType: string
+		lineageTag: 21570000-0000-0000-0000-000000000020
+		summarizeBy: none
+		sourceColumn: Region
+
+	column Amount
+		dataType: decimal
+		lineageTag: 21570000-0000-0000-0000-000000000021
+		summarizeBy: sum
+		sourceColumn: Amount
+
+	partition Sales = m
+		mode: import
+		source = #table(type table [Region = text, Amount = number], {{"North", 10}, {"South", 20}})
+

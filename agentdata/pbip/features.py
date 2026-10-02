@@ -1,6 +1,6 @@
 """Native Power BI features detector, check rules, and live verification.
 
-Harden the gallery for all 20 native Power BI features:
+Harden the gallery for all 21 native Power BI features (DAX user-defined functions, GA in Desktop 2.155, are the 21st):
 Each feature has:
 1. Detection logic (is it used in this model/report?)
 2. A check rule catching how it breaks
@@ -39,6 +39,7 @@ NATIVE_FEATURES = [
     "report_level_measures",
     "themes",
     "agg_tables",
+    "udf",
 ]
 
 
@@ -55,7 +56,7 @@ class FeatureUsage:
 
 
 def detect_features(model: Model, report: P.Report | None) -> list[FeatureUsage]:
-    """Inspect model and report to detect which of the 20 native features are present."""
+    """Inspect model and report to detect which of the 21 native features are present."""
     results = []
     idx = ModelIndex(model, report)
     table_names = {t["name"] for t in model.tables}
@@ -256,6 +257,10 @@ def detect_features(model: Model, report: P.Report | None) -> list[FeatureUsage]
         aggs = [t["name"] for t in model.tables if "agg" in t["name"].lower()]
     results.append(FeatureUsage("agg_tables", bool(aggs), aggs))
 
+    # 21. udf (DAX user-defined functions; their rules are check.check_functions)
+    fns = [f["name"] for f in model.functions]
+    results.append(FeatureUsage("udf", bool(fns), fns))
+
     return results
 
 
@@ -266,8 +271,8 @@ def check_model_features(model: Model) -> list[Any]:
     idx = ModelIndex(model)
     table_names = {t["name"] for t in model.tables}
 
-    # Rule 5: field_parameters (fieldparam-nameof-mismatch)
-    nameof_re = re.compile(r"NAMEOF\s*\(\s*(?:'([^']+)'|([A-Za-z0-9_]+))\s*\[([^\]]+)\]\s*\)", re.I)
+    # Rule 5: field_parameters (fieldparam-nameof-mismatch); NAMEOF ( <object> [, <component> [, <escaped>]] )
+    nameof_re = re.compile(r"NAMEOF\s*\(\s*(?:'([^']+)'|([A-Za-z0-9_]+))\s*\[([^\]]+)\]\s*[,)]", re.I)
     for tf in model.files.values():
         for node in tf.nodes:
             if node.kind == "table":
@@ -626,6 +631,7 @@ def verify_feature_live(
         "sort_by": "EVALUATE TOPN(5, Dates, [MonthNumber])",
         "hierarchies": "EVALUATE TOPN(5, SUMMARIZE(Dates, Dates[Year], Dates[Quarter]))",
         "agg_tables": "EVALUATE TOPN(5, SalesAgg)",
+        "udf": "EVALUATE INFO.USERDEFINEDFUNCTIONS()",
     }
 
     q = queries.get(feature)

@@ -45,9 +45,29 @@ class Instance:
     loaded: bool = False
     desktop_version: str | None = None
     install: str = "unknown"
+    verified: str = "unknown"
+    bridge: str = "unknown"
 
     def row(self) -> dict:
         return asdict(self)
+
+
+#: The Desktop release this package's Power BI path was last verified against (0.18.0: the August 2026
+#: release, 2.157.1354.0). Not a gate -- capabilities are probed, never assumed from a version string
+#: (docs/power-bi-agentic.md) -- but a session on an older Desktop is told so, because the PBIR schema
+#: versions and the Desktop Bridge methods it writes and calls are the ones this release writes.
+VERIFIED_DESKTOP = (2, 157)
+
+
+def verified_label(version: str | None) -> str:
+    """`verified` (the release named above), `newer`, `older`, or `unknown` for one Desktop version."""
+    parts = [int(p) for p in str(version or "").split(".")[:2] if p.isdigit()]
+    if len(parts) < 2:
+        return "unknown"
+    got = tuple(parts)
+    if got == VERIFIED_DESKTOP:
+        return "verified"
+    return "newer" if got > VERIFIED_DESKTOP else "older"
 
 
 def default_run(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
@@ -282,7 +302,8 @@ def discover(run: Runner | None = None, localappdata: str | None = None, candida
         ver, install = probe_desktop_version(ppid, proc_items.get(ppid), run=run)
         out.append(Instance(ppid, port, f"localhost:{port}" if port else None, ws, args.get("n"), title,
                             files[0] if files else None, matched, "cim",
-                            pages=pages, unsaved=unsaved, loaded=loaded, desktop_version=ver, install=install))
+                            pages=pages, unsaved=unsaved, loaded=loaded, desktop_version=ver, install=install,
+                            verified=verified_label(ver)))
     if not out:
         root = localappdata or os.environ.get("LOCALAPPDATA") or ""
         for pf in sorted(glob.glob(os.path.join(root, WORKSPACE_GLOB))) if root else []:
@@ -295,11 +316,48 @@ def discover(run: Runner | None = None, localappdata: str | None = None, candida
 
 
 def status(pid: int | None = None, candidates: list[str] | None = None, run: Runner | None = None) -> list[Instance]:
-    """List running Power BI Desktop instances, optionally filtered by pid."""
+    """List running Power BI Desktop instances, optionally filtered by pid.
+
+    Where an instance serves the Desktop Bridge, its answer replaces the window-title guess: the open
+    file and whether it has unsaved changes come from `application.state.get` (0.18.0).
+    """
     insts = discover(run=run, candidates=candidates)
     if pid is not None:
-        return [i for i in insts if i.pid == pid]
+        insts = [i for i in insts if i.pid == pid]
+    for inst in insts:
+        bridge_state(inst)
     return insts
+
+
+def bridge_state(inst: Instance, client=None) -> Instance:
+    """Fill `bridge`, and `unsaved`/`file` from the bridge, for one instance; a missing pipe is `none`."""
+    from . import bridge as BR
+    if inst.pid is None:
+        return inst
+    c = client
+    if c is None:
+        if sys.platform != "win32" or not os.path.exists(f"{BR.PIPE_PREFIX}{inst.pid}"):
+            inst.bridge = "none"
+            return inst
+        c = BR.open_pipe(inst.pid)
+        if c is None:
+            inst.bridge = "none"
+            return inst
+    try:
+        man = c.manifest(timeout=3.0) if c.man is None else c.man
+        inst.bridge = man.get("dialect", "unknown")
+        if "state" in man.get("operations", []):
+            st = c.state()
+            if st.get("unsaved") is not None:
+                inst.unsaved = "true" if st["unsaved"] else "false"
+            if st.get("file") and not inst.file:
+                inst.file = st["file"]
+    except Exception:
+        inst.bridge = "error"
+    finally:
+        if client is None:
+            c.close()
+    return inst
 
 
 # --------------------------------------------------------- which window does the human mean (#116)
@@ -657,25 +715,54 @@ def close(pid: int, save: bool = False, discard: bool = False, run: Runner | Non
     return {"ok": True, "source": "ad-pbip desktop close", "pid": pid, "closed": True}
 
 
-def reload(pid: int, save: bool = False, discard: bool = False, candidates: list[str] | None = None, run: Runner | None = None) -> dict:
-    """Reload instance: bridge pipe when available and negotiated, else native close + open."""
+def reload(pid: int, save: bool = False, discard: bool = False, candidates: list[str] | None = None, run: Runner | None = None,
+           model: bool = True) -> dict:
+    """Reload instance: the Desktop Bridge when it declares a reload, else native close + open.
+
+    Through the bridge (0.18.0, the documented `file.reload/v1`): its state is read first, and a
+    reload that would overwrite unsaved changes in Desktop is refused unless `discard` says to
+    overwrite them -- the PBIP on disk is the source of truth, and Desktop's unsaved state is not on
+    disk. `model=False` reloads the report without re-applying the semantic model definition; after a
+    model reload, calculated objects still need a Calculate refresh before their values are current.
+    """
     from . import bridge as BR
     b_client, b_man, b_reason = BR.get_bridge_manifest(pid=pid)
     warn_reason = None
     if b_client:
         try:
-            if "reload" in b_man.get("operations", []):
-                res = b_client.reload()
-                b_client.close()
-                return {
+            if hasattr(b_client, "bind"):
+                b_client.bind(b_man)
+            man = BR.normalize_manifest(b_man)
+            if "reload" in man.get("operations", []):
+                unsaved = None
+                if "state" in man.get("operations", []):
+                    unsaved = b_client.state().get("unsaved")
+                if unsaved is not False and not discard:
+                    said = "has unsaved changes" if unsaved else "did not say whether it has unsaved changes"
+                    return {"ok": False, "source": "ad-pbip desktop reload", "pid": pid, "fail": "unsaved_changes",
+                            "via": "bridge", "unsaved": "unknown" if unsaved is None else "true",
+                            "hint": (f"Desktop {said}, and a reload overwrites them with the files on disk: save in "
+                                     "Desktop first (Ctrl+S), or pass --discard to overwrite them")}
+                res = b_client.reload(model=model)
+                if not res.get("ok"):
+                    raise BR.BridgeError(f"reload answered {res.get('raw', res)}")
+                out = {
                     "ok": True,
                     "source": "ad-pbip desktop reload",
                     "pid": pid,
                     "reloaded": True,
                     "reloaded_via": "bridge",
                     "via": "bridge",
+                    "method": man["names"].get("reload", "reload"),
+                    "model": res.get("model"),
                     "elapsed_ms": res.get("elapsed_ms", 0),
                 }
+                if res.get("model"):
+                    out["next"] = ("the model definition was reloaded, not processed: `ad-pbip model refresh --type "
+                                   "calculate` after measure, function or calculated-object edits, `--type full --table "
+                                   "<T>` for each changed import table, then the DAX query it prints, before trusting "
+                                   "a screenshot")
+                return out
             else:
                 warn_reason = "operation 'reload' not declared in bridge manifest"
         except Exception as e:
@@ -1042,9 +1129,10 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
         pipe_avail = os.path.exists(pipe_path)
         pipe_ev = pipe_path if pipe_avail else f"pipe for pid {pid} not found"
     else:
-        pipes = glob.glob(r"\\.\pipe\pbi-desktop-bridge-*")
+        from . import bridge as _BR
+        pipes = _BR.list_pipes()
         pipe_avail = len(pipes) > 0
-        pipe_ev = pipes[0] if pipe_avail else "no bridge pipe active"
+        pipe_ev = pipes[0] if pipe_avail else _BR.no_pipe_reason()
     out.append({
         "capability": "bridge_pipe",
         "available": pipe_avail,
@@ -1056,13 +1144,14 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
     from . import bridge as BR
     b_client, b_man, b_reason = BR.get_bridge_manifest(pid=pid)
     if b_client and b_man:
-        ops_str = ", ".join(b_man.get("operations", []))
-        ver = b_man.get("version", "unknown")
+        man = BR.normalize_manifest(b_man)
+        ops_str = ", ".join(f"{op}={name}" for op, name in sorted(man.get("names", {}).items()))
+        ver = man.get("version", "unknown")
         out.append({
             "capability": "bridge_manifest",
             "available": True,
             "via": "named_pipe",
-            "evidence": f"operations: {ops_str} (v{ver})",
+            "evidence": f"{man.get('dialect')} methods: {ops_str} (v{ver})",
         })
         b_client.close()
     else:
@@ -1088,13 +1177,17 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
         "evidence": dev_ev,
     })
 
-    # 9. pbiviz
-    pbiviz_path = shutil.which("pbiviz") or shutil.which("pbiviz.cmd")
+    # 9. pbiviz: the SDK toolchain (npm) is neither offered nor probed while `pbi_sdk_visuals` is not `approved`
+    # (agentdata/pbiviz/gate.py; read here from the fact itself, so the desk's import closure stays as it is)
+    from .. import config as C
+    sdk = str(C.project_facts().get("pbi_sdk_visuals") or "").strip().lower() == "approved"
+    pbiviz_path = (shutil.which("pbiviz") or shutil.which("pbiviz.cmd")) if sdk else None
     out.append({
         "capability": "pbiviz",
         "available": bool(pbiviz_path),
-        "via": "npm",
-        "evidence": pbiviz_path or "pbiviz not found on PATH",
+        "via": "npm" if sdk else "blocked",
+        "evidence": pbiviz_path or ("pbiviz not found on PATH" if sdk else "not offered: pbi_sdk_visuals is "
+                                    "blocked (non-certified visuals; npm is outside te2, dscmd, az)"),
     })
 
     return out
