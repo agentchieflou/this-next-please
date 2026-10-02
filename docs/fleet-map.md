@@ -82,6 +82,15 @@ Ten projects of forty branches and twenty checkouts answer in under 160 KB.
 Built on the default for "branches per agent": an agent's branch is its checkout's current branch, on the lanes of
 the project's local branches (one list, at most 40, unmerged first); ticket carriers marked.
 
+### The branch and the chat (operator request, 2026-10)
+
+Each checkout carries a chip with its current branch, and *uncommitted* beside it when the tree is
+dirty; its agent carries the same branch, read from the checkout (`agent.branch` is empty off the
+lanes). Each agent has an **open chat** button: the desk opens with that agent's pane open
+(`POST /api/window`, then `#tile=<repo>`, which also reopens a hidden pane), and a console agent's
+own terminal window is raised as well (`POST /api/focus`). Clicking the words or pressing Enter does
+the same, as before.
+
 ## The network
 
 "Our network", read locally (#404): what this desk server knows about itself and about what it talks to. `GET

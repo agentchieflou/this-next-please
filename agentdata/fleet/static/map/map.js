@@ -17,24 +17,25 @@ function mapClasses(pairs) {
   return pairs.filter(function (p) { return p[1]; }).map(function (p) { return p[0]; }).join(" ");
 }
 
-function mapAgent(a) {
+function mapAgent(a, c) {
+  var branch = (c && c.branch) || a.branch || "";
   return {
-    id: a.id, say: a.says,
+    id: a.id, say: a.says, branch: branch, chat: c ? c.repo : String(a.id).slice(2),
     cls: mapClasses([["kind-" + mapWord(a.kind), mapWord(a.kind)],
                      ["state-" + mapWord(a.state), mapWord(a.state)],
                      ["role-" + mapWord(a.role), mapWord(a.role)],
                      ["needs-human", a.needs_human], ["live", a.live], ["stale", a.stale]]),
-    data: { subagents: String(a.subagents || 0) }
+    data: { subagents: String(a.subagents || 0), branch: branch, kind: mapWord(a.kind) }
   };
 }
 
 function mapCheckout(c) {
   return {
-    id: c.id, say: c.says,
+    id: c.id, say: c.says, branch: c.branch ? c.branch + (c.dirty ? " \u00b7 uncommitted" : "") : "",
     cls: mapClasses([["main", c.main], ["worktree", c.worktree_of || c.worktree_of_unregistered],
                      ["dirty", c.dirty]]),
-    data: { name: c.repo, on: c.on || "" },
-    kids: c.agent ? [mapAgent(c.agent)] : []
+    data: { name: c.repo, on: c.on || "", branch: c.branch || "" },
+    kids: c.agent ? [mapAgent(c.agent, c)] : []
   };
 }
 
@@ -92,9 +93,16 @@ function mapUpdate(li, row) {
   text(li.querySelector(".say"), row.say);
   setClass(li, row.cls || "");
   var data = row.data || {};
-  ["name", "on", "default", "subagents"].forEach(function (k) {
+  ["name", "on", "default", "subagents", "branch", "kind"].forEach(function (k) {
     if (k in data) setData(li, k, data[k]); else attr(li, "data-" + k, null);
   });
+  var branch = li.querySelector(":scope > .branch");
+  text(branch, row.branch || "");
+  hide(branch, !row.branch);
+  attr(branch, "title", row.branch ? "on branch " + row.branch : null);
+  var chat = li.querySelector(":scope > .mapchat");
+  hide(chat, !row.chat);
+  attr(chat, "title", row.chat ? "open " + row.chat + "'s chat on the desk" : null);
   var group = li.querySelector(":scope > ul");
   if (group) mapLevel(group, row.kids || []);
 }
@@ -166,8 +174,12 @@ function mapExpand(li, open) {
 function mapOpen(li) {
   var id = li.dataset.node || "";
   if (!/^[ca]:/.test(id)) return;
-  post("window", { w: PARAMS.get("w") || "main", open: id.slice(2) }).then(function () {
-    location.href = pageUrl("/");
+  var name = id.slice(2);
+  var raised = li.dataset.kind === "console"
+    ? post("focus", { repo: name }).catch(function () {}) : Promise.resolve();
+  var opened = post("window", { w: PARAMS.get("w") || "main", open: name });
+  Promise.all([opened, raised]).then(function () {
+    location.href = pageUrl("/") + "#tile=" + encodeURIComponent(name);
   });
 }
 
@@ -203,6 +215,11 @@ function mapOnTwisty(say, e) {
 mapTree.addEventListener("click", function (e) {
   var li = /** @type {HTMLElement} */ (e.target).closest('[role="treeitem"]');
   if (!li) return;
+  if (/** @type {HTMLElement} */ (e.target).closest(".mapchat")) {
+    mapGo(li);
+    mapOpen(li);
+    return;
+  }
   var say = /** @type {HTMLElement} */ (e.target).closest(".say");
   var opens = !!say && /^[ca]:/.test(li.dataset.node || "") && e.button === 0 &&
     !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && !mapOnTwisty(say, e);

@@ -32,6 +32,19 @@ Above `var MAP_BRANCHING = /^(p|c|bs):|^n:network$/;`:
 The item keeps a `ul` for the ids that hold others; everything else is a leaf. Decided by the
 id's kind, never by whether it has children today, so an item never has to change its shape.
 
+### `function mapAgent`
+
+The agent's branch is its checkout's (`checkout.branch`, from the git poll), passed in rather than
+read from `agent.branch`: that one is `""` whenever the branch is not one of the project's lanes
+(before the side cache fills, or past its cap), and an agent with no branch chip reads as an agent
+on no branch. `chat` is the repository the *open chat* button opens; `kind` rides as data so
+`mapOpen` can tell a console (a window of its own to raise) from a headless agent.
+
+### `function mapCheckout`
+
+The checkout's chip says its branch and, when the tree has uncommitted changes, says so beside it:
+the two facts the operator reads together before cleaning a tree up.
+
 ### `function mapRows`
 
 Above `function mapRows(graph) {`:
@@ -60,6 +73,19 @@ Deleted branches (#406). A branch the previous graph had and this one lacks keep
 lack. It stays until a later graph changes that project's branch list again. This is the only
 thing the tree carries from one graph to the next; it lives in memory and is not persisted.
 ```
+
+### `function mapUpdate`
+
+`branch` and `kind` join the data keys the item carries. The chip and the *open chat* button are in
+both templates and only shown when the row has one, through `hide`, so a redraw with nothing new
+still writes nothing.
+
+### `function mapOpen`
+
+Opens the agent's pane on the desk the way Enter always did (`POST /api/window {w, open}`), and lands
+on `#tile=<repo>` so a pane the operator had hidden is reopened (`followHash` on the desk) rather
+than silently left hidden. A console agent's chat is its own terminal window, so it is also raised
+(`POST /api/focus`); a refusal there (the window closed) does not stop the desk from opening.
 
 ### `function mapOnTwisty`
 

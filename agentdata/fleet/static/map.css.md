@@ -41,3 +41,20 @@ Above `@media (pointer: coarse) {`:
 
 A finger (#578): every row 44 px tall, its words 16 px. A mouse keeps the 21 px rows, so the
 tree still reads at a glance on a desktop.
+
+### `#maptree .branch`
+
+The branch a checkout and its agent are on, as a chip after the sentence: the branch glyph, the name
+in the mono face, dashed when the tree has uncommitted changes. Muted, because the sentence is still
+what the item says; the chip is the fact you scan for.
+
+### `#maptree .mapchat`
+
+*open chat* on each agent: a button rather than a link because it may raise a console window as well
+as open the pane. Not a tab stop of its own (`tabindex="-1"`): the tree keeps one roving stop, and
+Enter on the item does the same thing.
+
+### `#maptree [data-node^="c:"] > .say, #maptree [data-node^="a:"] > .say`
+
+The words of a checkout or an agent open it (#578), so they look like it: a pointer, and an
+underline under the pointer.
