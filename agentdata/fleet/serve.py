@@ -106,8 +106,12 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
 # `tidy.js`.
+#
+# `/world` (#626) brings `world.css`, `world/hero.js` (the player's character) and `world/world.js`,
+# which imports the vendored three.js itself, through `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js")
+          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "world.css",
+          "world/hero.js", "world/world.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -128,8 +132,15 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 #
 # `/tidy` is the sixth: the cleanup guide, opened from the map in a window of its own. It walks the
 # dirty working trees one decision at a time; every write is one press on a decision it showed.
+#
+# `/world` (#626, the operator's verdict on #400) is a 3D space walked with a controller or the
+# keyboard: a rainy plaza, day or night by the local clock, one figure per agent, and talking to an
+# agent only within reach of it. It reads `/api/fleet` and the stream and posts the desk's own
+# verbs, so it adds no route. Unlike the desk's ink and the map's scene it draws every frame: that is
+# what moving through a place is. It wears `ink-off` (the probe's gate is the desk's and the map's);
+# the palette and skin reach its HUD through `_page`, never its scene.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html"}
+         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/world": "world.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.

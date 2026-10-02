@@ -156,3 +156,16 @@ included. The palette keeps its shipped slug, title ('NFL Browns') and why.
 Under `body.ink-off` (WebGL not measured as hardware, or `?ink=off`) the playbook is the one plain look every skin
 shares, with the same table drawn as CSS by the layer's fallback: the running name underlined solid in the pen's
 ink, the option route's underline dashed, the needs-you name tinted. No canvas, and three.js is never fetched.
+
+## Decisions
+
+From the laptop sitting (#400). One verdict so far:
+
+- **Which parked concept next** (2026-10-02). None of the parked palette concepts (zen garden,
+  observatory, darkroom, sonar) for now. The operator: *"the next thing we're going to explore is the 3d
+  space ... Just assume it is a rainy day. And that it can be day or night, depending on what the local
+  time is."* Built as the world, `/world` (#626, [fleet-world.md](fleet-world.md)).
+
+#400's other questions are still open: the palette's title beside the playbook, the play sheet on
+`sand`, whether reduced motion is enough of an off switch, the stick of chalk, and anything that reads
+badly.
