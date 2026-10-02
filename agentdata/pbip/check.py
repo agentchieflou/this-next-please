@@ -88,7 +88,7 @@ def check_report(report: P.Report, model: Model, facts: dict | None = None) -> l
     seen_pages: dict[str, str] = {}
     filter_names: dict[str, str] = {}
     all_visual_ids: dict[str, str] = {}
-    legacy_types = {"card": "cardVisual", "table": "tableEx", "matrix": "pivotTable", "map": "azureMap"}
+    legacy_types = _legacy_visual_types()
 
     # Anti-pattern: page-not-in-pages-json
     if report.root:
@@ -136,8 +136,7 @@ def check_report(report: P.Report, model: Model, facts: dict | None = None) -> l
                 # Anti-pattern: legacy-visual-type
                 if v.type and v.type in legacy_types:
                     out.append(Finding("warning", "legacy-visual-type", v.file, v.id,
-                                       f"visual uses deprecated legacy type '{v.type}'",
-                                       f"replace with modern '{legacy_types[v.type]}'"))
+                                       f"visual uses deprecated legacy type '{v.type}'", legacy_types[v.type]))
 
                 # Anti-pattern: visualcalc-missing-nativequeryref
                 raw_qs = ((v.raw.get("visual") or {}).get("query") or {}).get("queryState") or {}
@@ -247,13 +246,23 @@ def _private_package_on_disk(report: P.Report, vtype: str) -> bool:
                                           glob.escape(vtype) + "*.pbiviz")))
 
 
+def _legacy_visual_types() -> dict[str, str]:
+    """Each deprecated type in the catalog → the fix: its replacement, or why none (Q&A gives way to Copilot)."""
+    from .catalog import load_catalog
+    return {t: f"replace with modern '{d['replacement']}'" if d.get("replacement") else d.get("description", "")
+            for t, d in load_catalog().get("visuals", {}).items() if d.get("legacy")}
+
+
 def _standard_visual_types() -> set[str]:
     from .catalog import load_catalog
     return set(load_catalog().get("visuals", {}).keys()) | {
         "actionButton", "textbox", "image", "shape", "basicShape", "group", "kpi",
         "waterfallChart", "funnel", "filledMap", "shapeMap", "decompositionTreeVisual",
         "keyDriversVisual", "qnaVisual", "smartNarrative", "paginatedReportBearer",
-        "rScript", "pythonVisual", "scriptVisual"
+        "rScript", "pythonVisual", "scriptVisual",
+        # native types Microsoft's PBIR authoring references name (microsoft/skills-for-fabric, powerbi-report-cli)
+        "pageNavigator", "bookmarkNavigator", "filterSlicer", "stackedAreaChart", "hundredPercentStackedAreaChart",
+        "hundredPercentStackedBarChart", "lineStackedColumnComboChart", "lineClusteredColumnComboChart", "ribbonChart",
     }
 
 

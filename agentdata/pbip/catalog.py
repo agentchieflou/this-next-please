@@ -123,7 +123,8 @@ def describe_visual(visual_type: str, report_dir: str | None = None) -> AgentTab
 
     cols = ["role", "min", "max", "allowed_kinds", "description", "schema_path"]
     table = AgentTable(f"visual_{visual_type}", cols, rows, source=f"schema {schema_path}")
-    table.raw = {"visual_type": visual_type, "legacy": vdata.get("legacy", False), "replacement": vdata.get("replacement")}
+    table.raw = {"visual_type": visual_type, "legacy": vdata.get("legacy", False), "replacement": vdata.get("replacement"),
+                 **({"add_in_desktop": vdata["add_in_desktop"]} if vdata.get("add_in_desktop") else {})}
     return table
 
 
