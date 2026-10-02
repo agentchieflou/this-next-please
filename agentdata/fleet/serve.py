@@ -107,11 +107,11 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
 # `tidy.js`.
 #
-# `/world` (#626) brings `world.css` and its one script, `world/world.js`, which imports the
-# vendored three.js itself, through `q()`, like the ink layer.
+# `/world` (#626) brings `world.css`, `world/hero.js` (the player's character) and `world/world.js`,
+# which imports the vendored three.js itself, through `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
           "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "world.css",
-          "world/world.js")
+          "world/hero.js", "world/world.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk

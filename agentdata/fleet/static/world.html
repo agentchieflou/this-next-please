@@ -17,13 +17,14 @@
   <p id="wneed" class="wneed" aria-live="polite"></p>
   <span class="spacer"></span>
   <p id="wstats" class="wstats" hidden></p>
+  <button type="button" id="wwhobtn" title="your character: who you are in the world (C, or Start)">character</button>
   <a id="todesk" class="linkbtn" title="the desk: every agent side by side">desk</a>
   <a id="tochat" class="linkbtn" title="the chat view: one conversation at a time">chat</a>
 </header>
 
 <p id="wcompass" class="wcompass" aria-live="polite" hidden><span id="warrow" class="warrow" aria-hidden="true">&#x2191;</span> <span id="wcompasswords"></span></p>
 <p id="wprompt" class="wprompt" role="status" hidden></p>
-<p id="whelp" class="whelp">WASD or the left stick to move &middot; the mouse (click to look) or the right stick to look &middot; Shift or RT to run &middot; E or A to talk &middot; Esc or B to step back</p>
+<p id="whelp" class="whelp">WASD or the left stick to move &middot; the mouse (click to look) or the right stick to look &middot; Shift or RT to run &middot; E or A to talk &middot; Esc or B to step back &middot; V or Y to change the view &middot; C or Start for your character</p>
 
 <section id="wpanel" class="wpanel" role="dialog" aria-labelledby="wname" hidden>
   <div class="wp-head">
@@ -52,6 +53,17 @@
   <p id="wsaid" class="wp-said" role="status" aria-live="polite"></p>
 </section>
 
+<section id="wwho" class="wwho" role="dialog" aria-labelledby="wwhohead" hidden>
+  <div class="wp-head">
+    <h2 id="wwhohead">Who are you in the world?</h2>
+    <span class="spacer"></span>
+    <button type="button" id="wwhodone" title="done (Esc, B or Start)">Done</button>
+  </div>
+  <p class="wwho-say">Pick a look, then change anything you like. Your character is kept in this browser.</p>
+  <div id="wpresets" class="ww-row ww-presets" role="radiogroup" aria-label="looks"></div>
+  <div id="wopts"></div>
+</section>
+
 <section id="wnogl" class="wnogl" hidden>
   <h2>This browser cannot draw the world</h2>
   <p id="wnoglwhy"></p>
@@ -61,9 +73,11 @@
 <ul id="wlist" class="sr" aria-label="the agents in the world"></ul>
 
 <template id="wtag"><div class="wtag"><span class="wtag-name"></span><span class="wtag-state"></span></div></template>
+<template id="wwrow"><div class="ww-row" role="radiogroup"><span class="ww-label"></span><div class="ww-choices"></div></div></template>
 <template id="wq"><li class="wq"><p class="wq-q"></p><div class="wq-choices"></div><input class="wq-answer" type="text" autocomplete="off" aria-label="your answer"></li></template>
 
 <script src="/static/common.js"></script>
+<script src="/static/world/hero.js"></script>
 <script src="/static/world/world.js"></script>
 </body>
 </html>

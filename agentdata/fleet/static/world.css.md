@@ -49,10 +49,29 @@ A conversation is a panel on the right, so the agent you are talking to stays in
 
 A heavy ring: with a controller the focus ring is the only cursor there is.
 
+### `.wwho`
+
+The character picker is a panel on the left, so the character it dresses stays in view on the right,
+where the camera turns to face it (`vCamera`). It scrolls inside itself when the options outgrow the
+window.
+
+### `.ww-choice[aria-checked="true"]`
+
+The chosen option is ringed in the focus colour and set in bold, so it reads without colour.
+
+### `.ww-swatch`
+
+A colour choice is a swatch of that colour (`--swatch`, set per button); chosen, it gets a double
+ring, panel then focus, so the ring shows whatever the colour under it.
+
+### `.wwho :focus-visible`
+
+The same heavy ring as in a conversation: with a controller it is the only cursor.
+
 ### `.wnogl`
 
 Said in words when the browser cannot draw the world, with the way to the same agents elsewhere.
 
 ### `@media (pointer: coarse)`
 
-44 px targets and 16 px fields on a touch screen, as on /m.
+44 px targets and 16 px fields on a touch screen, as on /m; the picker's swatches are 44 px square.

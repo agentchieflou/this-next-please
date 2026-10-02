@@ -1,7 +1,7 @@
 # The world
 
-`/world` (#626) is the fleet as a place: a wet plaza in the rain, one figure per agent, walked in
-first person with a controller or the keyboard. The operator chose it as the next thing to explore
+`/world` (#626) is the fleet as a place: a wet plaza in the rain, one figure per agent, and you, a
+character you choose, walked with a controller or the keyboard. The operator chose it as the next thing to explore
 when asked which parked concepts came next (#400, 2026-10-02):
 
 > the next thing we're going to explore is the 3d space. We have users that want the traditional setup
@@ -15,7 +15,8 @@ when asked which parked concepts came next (#400, 2026-10-02):
 
 It is one more page beside the desk (`/`), the chat view (`/chat`) and the map (`/map`), never a
 replacement for any of them. The desk's toolbar links it (*world*), and `/open?page=world` lands
-there.
+there. On a phone-width desk (640 px and under) the link gives its room to the others: the world is
+walked with keys or a controller, and `/world` still opens there.
 
 ## Moving
 
@@ -27,7 +28,45 @@ there.
 | talk to the agent in front of you | E or Enter | A |
 | in a conversation | Tab | the D-pad (or the left stick) between buttons, A to press |
 | step back | Esc | B |
+| third or first person | V | Y |
+| choose your character | C (Esc closes) | Start (B or Start closes; the D-pad moves, A picks) |
 | show fps and frame time | F3 or \` | — |
+
+## Your character
+
+The operator, with a picture of a friendly cartoon figure in a light-grey shirt and navy trousers, one
+arm out, presenting: *"Use some one like this as the main character. Create diverse character options
+so everyone feels included."*
+
+You see your character from behind and over its shoulder (third person, the default), or through its
+eyes (first person, V or Y). It walks with you: legs swinging with the distance walked, so the feet
+do not slide, arms against the legs. When you talk to an agent you turn to face it, the camera swings
+to the side, and your character presents to it, one arm out, palm up, as in the picture.
+
+The first visit opens **Who are you in the world?** (C or Start opens it again). Start from one of ten
+looks, then change anything:
+
+| | |
+| --- | --- |
+| skin | eight tones, deep to light |
+| hair | a side part, curls, coils, long, a bun, locs, a buzz cut, none, a headscarf, a wrap |
+| hair colour | black, browns, auburn, blond, silver, and blue |
+| scarf or wrap | its own colour, when the hair is covered |
+| face | none, a beard, a moustache |
+| glasses | none, round, square |
+| shirt, trousers | eight and five colours |
+| build | slim, regular, broad |
+| moves by | walking, or a wheelchair whose wheels turn as it rolls and whose rims the arms push |
+
+No option or look is named for a gender: they are looks a person chooses, not a box they are put in.
+The ten looks (*side part*, the operator's picture, then *curls*, *headscarf*, *locs*, *silver bun*,
+*beard*, *wheelchair*, *long hair*, *wrap*, *bald*) between them span every skin tone, every hair
+texture, both coverings, both kinds of glasses, all three builds and a wheelchair user. A colour is a
+swatch named by its place in the row (*skin 3 of 8*), never by a word for a person's colour.
+
+Your choice is kept in this browser (`localStorage`, `fleet.world.look`), not on the server: it is
+how you appear to yourself on this machine. `?who=0..9` starts from a look, `?view=first` in first
+person.
 
 ## The agents
 
@@ -65,7 +104,9 @@ The frame budget is **10 ms**: 100 frames a second.
   144 Hz display runs the world at its own rate; a 60 Hz display caps it at 60, whatever the GPU.
 - **The page keeps every frame within the budget.**
   - The scene is 13 draw calls however many agents there are. The rain is one draw call, the figures
-    are instanced (each part is one draw call for every agent), and the names are page text.
+    are instanced (each part is one draw call for every agent), and the names are page text. Your
+    character adds ten (twelve in a wheelchair): the parts that move together are one mesh each, all
+    sharing one material, so a change of look compiles no shader.
   - It has no shadows and no post-processing.
   - The wet ground's reflection of the sky is rendered once, not per frame.
   - When frames run long it lowers its render resolution. Once a second it compares the median frame
@@ -77,14 +118,14 @@ The frame budget is **10 ms**: 100 frames a second.
 per frame), `scale`, `calls` and `triangles`; F3 shows the same in the toolbar.
 
 CI draws in SwiftShader, on the CPU, at a few frames a second, so the tests measure what does not
-depend on the machine: the draw calls (at most 13), the triangles (under
-60,000), the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames),
+depend on the machine: the draw calls (at most 13, plus the character's ten or twelve), the
+triangles (under 80,000), the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames),
 reach, and the verbs a conversation posts. **The frame rate is the laptop's to measure:** open
 `/world`, press F3, and read the fps line in Edge or Chrome on the operator's GPU.
 
 ## What it is not (yet)
 
-- No multiplayer, physics or avatar body.
+- No multiplayer or physics; nobody else sees your character.
 - No on-screen keyboard for free text with a controller.
 - The scene is not themed.
 - It is not the map's scene (#409–#414): that is a different page that draws zero frames at rest.

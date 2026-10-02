@@ -17,7 +17,8 @@ on what the local time is."*
 A classic script after `common.js` (its `q`, `post`, `pageUrl`, `patchList` and setters), which
 imports the vendored three.js r160 itself with `import(q(...))`, as the ink layer does: nothing from a
 CDN, and the token on the URL. It reads `/api/fleet` and the stream like the phone page and the chat
-view, and posts the desk's own verbs, so it adds no route and no rule.
+view, and posts the desk's own verbs, so it adds no route and no rule. The player's character is
+`world/hero.js` (`WorldHero`), loaded before this script.
 
 Unlike the desk's ink and the map's scene, which draw zero frames at rest, the world draws every
 display frame: moving through a place is the point of it. It stops when the tab is hidden, because
@@ -57,7 +58,18 @@ the vertex shader from `uTime`, so no drop is touched on the CPU after it is mad
 
 The figures are instanced: every agent's base, body, ring, visor and beacon is one draw call each,
 however many agents there are, up to 64. The scene is 13 draw calls whatever the fleet's size: the
-names are words on the page, not in the scene (`drawLabels`).
+names are words on the page, not in the scene (`drawLabels`). Your character adds its own ten (twelve
+in a wheelchair, `WorldHero`), whatever the fleet's size too.
+
+### `var V_LOOK_KEY`
+
+Your character's look is kept in the browser (`localStorage`), as the desk keeps a skin: it is how you
+appear to yourself on this machine, not a fact about the fleet, so the server never stores it.
+
+### `var V_STRIDE`
+
+Radians of leg swing per metre walked: about a 0.9 m stride at the character's height, so the feet
+do not slide on the ground at a walk or a run.
 
 ### `function vHour`
 
@@ -123,14 +135,75 @@ It is made again only when the weather is (once a minute without `?hour=`), neve
 ### `function vPad`
 
 The first connected gamepad, in the Gamepad API's standard mapping: axes 0 and 1 the left stick,
-2 and 3 the right; buttons 0 A, 1 B, 7 RT, 10 L3, 12 to 15 the D-pad.
+2 and 3 the right; buttons 0 A, 1 B, 3 Y, 7 RT, 9 Start, 10 L3, 12 to 15 the D-pad.
 
 ### `function vStep`
 
 One step of the walk: the left stick or WASD moves (Shift, RT or L3 runs), the right stick, the
 mouse (with pointer lock) or Q and the arrows turn. The agents are solid (you stop a metre from
 one), and the world ends 20 m past the circle. A new press of A beside an agent opens it. With a
-conversation open, the pad drives the panel instead (`vPanelPad`).
+conversation open, the pad drives the panel instead (`vPanelPad`); with the character picker open it
+drives the picker (`vWhoPad`). Start opens and closes the picker, Y changes the view.
+
+The distance walked is what the character's legs swing by (`vState.walk`, backwards when you back
+up) and what a wheelchair's wheels turn by (`vState.rolled`); the speed, as a share of a walk, is how
+far they swing.
+
+### `function vCamera`
+
+Third person by default, as the operator's picture is a character you see: the camera 3.4 m behind
+and 2 m up, looking past the character's shoulder to a point ahead of it, and tilted by the pitch.
+In a conversation it swings 1.3 m to the side, so you see your character presenting to the agent and
+the agent beside it. First person (V, or Y) is the eye at 1.6 m, as before. While you choose who you
+are, the camera stands in front of the character and looks at it.
+
+### `function vHeroFrame`
+
+The character stands where you stand and faces where you face. Standing still, the stride eases to
+the nearest step where both feet are down, so it never stops mid-stride. `talk` blends into the
+presenting pose over about an eighth of a second, and at once under reduced motion. In first person
+the character is hidden: you are behind its eyes.
+
+### `function vLoadLook`
+
+`?who=N` starts from the Nth preset (for tests and screenshots); otherwise the look kept in this
+browser, read through `WorldHero.normal` so a stale or hand-edited one cannot break the build. None
+means a first visit.
+
+### `function vLook`
+
+A choice in the picker builds the character again and keeps the look at once: there is no "save",
+what you see is who you are.
+
+### `function vView`
+
+The view is also written on `body[data-view]`, where a test or a stylesheet can read it.
+
+### `function vWho`
+
+The picker: the keys and pointer lock let go and a conversation closes, so nothing walks or answers
+while you choose, and the keyboard lands on the preset you are wearing. Closing it hands the keyboard
+back to the scene. A first visit opens it (`vStart`): you choose who you are before you walk.
+
+### `function vLookKey`
+
+Two looks are the same when their normal forms are; a preset reads as chosen only when every option
+matches it.
+
+### `function drawWho`
+
+The presets, then one row of choices per option, each row a radio group with its label. Colours are
+swatches named by their place in the row ("skin 3 of 8"), never by a word for a person's colour.
+The scarf colour row shows only when the hair is a headscarf or a wrap.
+
+### `function vWhoRows`
+
+The picker as a grid for the pad: Done, the presets, then each visible option row.
+
+### `function vWhoPad`
+
+Up and down move between rows, left and right along one (wrapping), A chooses, B or Start closes.
+The left stick moves too, with a repeat delay, as in a conversation.
 
 ### `function vNearest`
 
@@ -173,7 +246,8 @@ header.
 ### `function vTalk`
 
 A conversation: the panel opens, the keys and pointer lock let go, and the keyboard lands on the
-first choice, else Approve, else the message box, so a controller can answer at once.
+first choice, else Approve, else the message box, so a controller can answer at once. You turn to face
+the agent, so your character presents to it.
 
 ### `function vPanelPad`
 
@@ -189,6 +263,7 @@ happens next, never every agent's history again.
 ### `window.FleetWorld`
 
 What the tests and the laptop read: `inspect()` (the agents, the player, who is near, day or night,
-the lamps, the draw calls and triangles, fps, frame and work time, the render scale), `hold()` and
+the lamps, the draw calls and triangles, fps, frame and work time, the render scale, the view, the
+picker, the look, and the character's place, turn and pose), `hold()` and
 `step()` to walk without depending on the frame rate (CI draws in SwiftShader), and `teleport(repo)`
 to stand within reach of an agent.

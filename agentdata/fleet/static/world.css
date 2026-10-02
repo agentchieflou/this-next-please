@@ -64,6 +64,24 @@ body.world-page { overflow: hidden; background: var(--bg); }
 .wp-said { margin: 0; min-height: 1.45em; font-size: 12px; overflow-wrap: anywhere; }
 .wpanel :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
+.wwho {
+  position: fixed; z-index: 3; left: 16px; top: 64px; bottom: 16px; width: min(460px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 10px; overflow: auto;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent); color: var(--text);
+}
+#wwhohead { margin: 0; font-size: 16px; }
+.wwho-say { margin: 0; font-size: 12px; }
+.ww-row { display: flex; flex-direction: column; gap: 4px; }
+.ww-presets { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.ww-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.ww-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.ww-choice { min-height: 30px; }
+.ww-choice[aria-checked="true"] { border-color: var(--focus); background: var(--select); font-weight: 600; }
+.ww-swatch { width: 34px; min-width: 34px; padding: 0; background: var(--swatch); border-width: 2px; }
+.ww-swatch[aria-checked="true"] { background: var(--swatch); box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--focus); }
+.wwho :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
 .wnogl {
   position: fixed; z-index: 3; inset: 25% 16px auto; max-width: 36rem; margin: 0 auto;
   padding: 16px 20px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
@@ -71,5 +89,6 @@ body.world-page { overflow: hidden; background: var(--bg); }
 .wnogl h2 { margin: 0 0 8px; font-size: 16px; }
 
 @media (pointer: coarse) {
-  .wpanel button, .wpanel input { min-height: 44px; font-size: 16px; }
+  .wpanel button, .wpanel input, .wwho button { min-height: 44px; font-size: 16px; }
+  .ww-swatch { width: 44px; min-width: 44px; }
 }

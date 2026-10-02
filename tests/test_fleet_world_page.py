@@ -66,11 +66,13 @@ def _asks(tmp_path):
     ])
 
 
-def _open(browser, port, token, query="", n=2):
+def _open(browser, port, token, query="", n=2, who="&who=0"):
+    """The world with a character already chosen (`?who=`, a preset), unless `who` is empty: then the
+    page opens on the character picker, as a first visit does."""
     page = browser.new_page(viewport={"width": 1280, "height": 720})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto(f"http://127.0.0.1:{port}/world?t={token}{query}", wait_until="domcontentloaded")
+    page.goto(f"http://127.0.0.1:{port}/world?t={token}{query}{who}", wait_until="domcontentloaded")
     page.wait_for_function(READY, arg=n, timeout=30000)
     return page, errors
 
@@ -116,6 +118,7 @@ def test_the_world_is_a_page_of_its_own_and_the_desk_opens_it(fleet_home):
     world = open(os.path.join(STATIC, "world", "world.js"), encoding="utf-8").read()
     assert 'id="worldbtn"' in desk and 'worldLink.href = pageUrl("/world")' in app
     assert 'V_THREE = "/static/vendor/three/three.module.min.js"' in world and "import(q(V_THREE))" in world
+    assert html.index("/static/world/hero.js") < html.index("/static/world/world.js"), "the character loads first"
     assert not re.search(r"\bimport\s+[\w{*]", world), "a classic script: three.js is imported with import(), never a static import"
 
 
@@ -126,7 +129,8 @@ def test_the_world_is_a_page_of_its_own_and_the_desk_opens_it(fleet_home):
 def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, browser):
     """One figure per agent, its name over its head; the one that needs you has a beacon and the
     compass points to it. `?hour=13` is overcast day with the lamps out; `?hour=23` is night with the
-    lamps lit. The scene is 13 draw calls, however many agents and however much rain."""
+    lamps lit. The scene is 13 draw calls however many agents and however much rain, and the player's
+    character at most 10 more."""
     _repo(tmp_path, "alpha")
     _asks(tmp_path)
     server, token, port = _serve()
@@ -138,7 +142,7 @@ def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, brow
         assert day["daylight"] == 1 and day["night"] is False and day["lamps"] == 0, day
         page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=30000)
         drawn = _inspect(page)
-        assert 0 < drawn["calls"] <= 13 and drawn["triangles"] < 60000, drawn
+        assert 0 < drawn["calls"] <= 13 + 10 and drawn["triangles"] < 80000, drawn
         tags = page.evaluate("() => [...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.className, t.hidden])")
         assert [(n, "needs" in c) for n, c, _ in tags] == [("alpha", False), ("asks", True)], tags
         assert not dict((n, hid) for n, _, hid in tags)["asks"], "the agent you face is labelled"
@@ -235,6 +239,104 @@ def test_a_controller_walks_there_and_answers_without_a_keyboard(fleet_home, tmp
         assert asked.value.post_data_json == {"repo": "asks", "answers": [{"id": "q1", "answer": "calendar"}]}
         tap(1)
         assert _inspect(page)["open"] == ""
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_you_choose_who_you_are_and_the_world_keeps_it(fleet_home, tmp_path, browser):
+    """A first visit opens on the character picker: looks that between them span skin tones, hair
+    textures, a headscarf and a wrap, glasses, facial hair, builds and a wheelchair, every one of them
+    changeable. The choice is kept in this browser, and the next visit opens straight into the rain."""
+    _repo(tmp_path, "alpha")
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13", n=1, who="")
+        page.wait_for_function("() => FleetWorld.inspect().who && !document.getElementById('wwho').hidden", timeout=10000)
+        presets = page.eval_on_selector_all("#wpresets .ww-choice", "els => els.map(e => e.textContent)")
+        assert len(presets) >= 10 and {"headscarf", "wrap", "locs", "wheelchair"} <= set(presets), presets
+        rows = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('#wopts .ww-row')]
+            .map(r => [r.getAttribute('aria-label'), r.querySelectorAll('.ww-choice').length]))""")
+        assert rows["skin"] >= 8 and rows["hair"] >= 9 and rows["moves by"] == 2, rows
+        assert all(n >= 2 for n in rows.values()), rows
+
+        page.click("#wpresets .ww-choice >> text=wheelchair")
+        page.wait_for_function("() => FleetWorld.inspect().hero.seated && FleetWorld.inspect().hero.wheels", timeout=10000)
+        page.click("#wopts .ww-row[aria-label='skin'] .ww-choice >> nth=0")
+        page.click("#wopts .ww-row[aria-label='glasses'] .ww-choice >> text=round")
+        look = _inspect(page)["look"]
+        assert look["move"] == "wheelchair" and look["glasses"] == "round" and look["skin"] == "#3b2219", look
+        assert page.eval_on_selector("#wopts .ww-row[aria-label='glasses'] .ww-choice[aria-checked='true']",
+                                     "e => e.textContent") == "round"
+        page.click("#wwhodone")
+        page.wait_for_function("() => !FleetWorld.inspect().who && document.getElementById('wwho').hidden", timeout=10000)
+        assert _inspect(page)["view"] == "third" and _inspect(page)["hero"]["visible"] is True
+
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function(READY, arg=1, timeout=30000)
+        again = _inspect(page)
+        assert again["who"] is False and again["look"] == look, "kept in this browser"
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_your_character_walks_turns_to_the_agent_and_presents(fleet_home, tmp_path, browser, spawns):
+    """In the third person the character is where you are and faces where you face; its legs swing as
+    it walks and settle when it stops; talking to an agent turns it to the agent and opens its arm, the
+    pose of the character it was modelled on. V switches to the first person, which hides it. With a
+    controller, Start opens the picker, the D-pad moves through it, A chooses and B closes it."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13")
+        page.evaluate(PAD)
+        page.evaluate("() => FleetWorld.hold(true)")
+        hero = _inspect(page)["hero"]
+        assert hero["visible"] and not hero["seated"] and abs(hero["legL"]) < 0.01, hero
+
+        page.keyboard.down("KeyW")
+        page.evaluate("() => FleetWorld.step(0.3)")
+        page.wait_for_function("() => Math.abs(FleetWorld.inspect().hero.legL) > 0.05", timeout=10000)
+        page.keyboard.up("KeyW")
+        page.evaluate("() => FleetWorld.step(0.5)")
+        page.wait_for_function("() => Math.abs(FleetWorld.inspect().hero.legL) < 0.05", timeout=10000)
+        player = _inspect(page)["player"]
+        hero = _inspect(page)["hero"]
+        assert abs(hero["x"] - player["x"]) < 1e-6 and abs(hero["z"] - player["z"]) < 1e-6 and abs(hero["yaw"] - player["yaw"]) < 1e-6
+
+        page.keyboard.down("KeyW")
+        assert _until_near(page, "asks") == "asks"
+        page.keyboard.up("KeyW")
+        page.keyboard.press("KeyE")
+        page.wait_for_function("() => FleetWorld.inspect().open === 'asks' && FleetWorld.inspect().hero.armR > 0.8",
+                               timeout=10000)
+        page.keyboard.press("Escape")
+        page.wait_for_function("() => FleetWorld.inspect().hero.armR < 0.4", timeout=10000)
+
+        page.keyboard.press("KeyV")
+        assert _inspect(page)["view"] == "first"
+        page.wait_for_function("() => FleetWorld.inspect().hero.visible === false", timeout=10000)
+        page.keyboard.press("KeyV")
+        assert _inspect(page)["view"] == "third"
+
+        def tap(button):
+            page.evaluate(f"() => {{ window.__press({button}, true); FleetWorld.step(1 / 60);"
+                          f" window.__press({button}, false); FleetWorld.step(1 / 60); }}")
+
+        tap(9)
+        assert _inspect(page)["who"] is True
+        first = page.evaluate("() => document.activeElement.textContent")
+        tap(15)
+        tap(0)
+        chosen = page.evaluate("() => document.querySelector('#wpresets .ww-choice[aria-checked=true]').textContent")
+        assert chosen != first and chosen == "curls", (first, chosen)
+        assert _inspect(page)["look"]["hair"] == "curls"
+        tap(1)
+        assert _inspect(page)["who"] is False
         assert errors == [], errors
     finally:
         _stop(server)

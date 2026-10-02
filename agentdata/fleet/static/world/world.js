@@ -26,6 +26,8 @@ var V_SPLASH = 160;
 var V_LAMPS = 8;
 var V_CAP = 64;
 var V_REDUCED = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+var V_LOOK_KEY = "fleet.world.look";
+var V_STRIDE = 3.4;
 
 /**
  * @typedef {Object} Agent
@@ -38,7 +40,7 @@ var V_REDUCED = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: 
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -46,6 +48,7 @@ var vState = {
   near: "", open: "", hour: null, daylight: 1, held: false, time: 0, last: 0,
   frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0,
   ready: false, why: "", record: null, pmrem: null,
+  hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0
 };
 
@@ -429,7 +432,10 @@ function vStep(dt) {
   vState.padWas = vState.pad;
   vState.pad = pad ? pad.buttons : [];
   vState.padAxes = pad ? pad.axes : [0, 0, 0, 0];
-  if (vState.open) { vPanelPad(dt); return; }
+  if (vPressed(9)) { vWho(!vState.who); return; }
+  if (vState.who) { vState.speed = 0; vWhoPad(dt); return; }
+  if (vState.open) { vState.speed = 0; vPanelPad(dt); return; }
+  if (vPressed(3)) vView(vState.view === "third" ? "first" : "third");
   var k = vState.keys, P = vState.player, ax = vState.padAxes;
   var fwd = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - vDead(ax[1] || 0);
   var side = (k.KeyD ? 1 : 0) - (k.KeyA ? 1 : 0) + vDead(ax[0] || 0);
@@ -442,7 +448,7 @@ function vStep(dt) {
   if (len > 1) { fwd /= len; side /= len; }
   var run = k.ShiftLeft || k.ShiftRight || vState.pad[7] || vState.pad[10];
   var speed = (run ? V_RUN : V_WALK) * dt;
-  var sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+  var sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), x0 = P.x, z0 = P.z;
   P.x += (-sy * fwd + cy * side) * speed;
   P.z += (-cy * fwd - sy * side) * speed;
   vState.agents.forEach(function (ag) {
@@ -451,8 +457,173 @@ function vStep(dt) {
   });
   var lim = vState.radius + 20, r = Math.hypot(P.x, P.z);
   if (r > lim) { P.x *= lim / r; P.z *= lim / r; }
+  var went = Math.hypot(P.x - x0, P.z - z0);
+  vState.walk += went * V_STRIDE * (fwd < 0 ? -1 : 1);
+  vState.rolled += went * (fwd < 0 ? -1 : 1);
+  vState.speed = dt > 0 ? went / dt / V_WALK : 0;
   vNearest();
   if (vPressed(0) && vState.near) vTalk(vState.near);
+}
+
+/** @param {{x: number, z: number, yaw: number, pitch: number}} P @param {any} cam */
+function vCamera(P, cam) {
+  var fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+  if (vState.who && vState.hero) {
+    cam.position.set(P.x + fx * 2.5, 1.3, P.z + fz * 2.5);
+    cam.lookAt(P.x, vState.hero.seated ? 0.95 : 1.15, P.z);
+  } else if (vState.view === "third" && vState.hero) {
+    var up = Math.sin(P.pitch), d = 3.4, side = 1.3 * vState.talk;
+    cam.position.set(P.x - fx * d - fz * side, Math.max(0.45, 2.0 - up * d), P.z - fz * d + fx * side);
+    cam.lookAt(P.x + fx * 2.6, 1.35 + up * 2.6, P.z + fz * 2.6);
+  } else {
+    cam.position.set(P.x, V_EYE, P.z);
+    cam.rotation.set(P.pitch, P.yaw, 0);
+  }
+}
+
+/** @param {number} dt */
+function vHeroFrame(dt) {
+  var h = vState.hero;
+  if (!h) return;
+  var P = vState.player;
+  h.group.visible = vState.view === "third" || vState.who;
+  h.group.position.set(P.x, 0, P.z);
+  h.group.rotation.y = P.yaw;
+  var want = vState.open ? 1 : 0;
+  vState.talk = vReduced() ? want : vState.talk + (want - vState.talk) * Math.min(1, dt * 8);
+  if (vState.speed < 0.05 && !vReduced()) vState.walk += (Math.round(vState.walk / Math.PI) * Math.PI - vState.walk) * Math.min(1, dt * 10);
+  WorldHero.pose(h, { phase: vState.walk, speed: vState.speed, talk: vState.talk, t: vState.time, reduced: vReduced(),
+                      rolled: vState.rolled });
+}
+
+/** @returns {Object} */
+function vLoadLook() {
+  var forced = PARAMS.get("who");
+  if (forced !== null && forced !== "" && isFinite(Number(forced))) return WorldHero.preset(Number(forced));
+  try {
+    var kept = localStorage.getItem(V_LOOK_KEY);
+    if (kept) return WorldHero.normal(JSON.parse(kept));
+  } catch (e) {}
+  return null;
+}
+
+/** @param {Object} look */
+function vLook(look) {
+  vState.avatar = WorldHero.normal(look);
+  try { localStorage.setItem(V_LOOK_KEY, JSON.stringify(vState.avatar)); } catch (e) {}
+  if (!vState.T) return;
+  WorldHero.dispose(vState.hero);
+  vState.hero = WorldHero.build(vState.T, vState.avatar);
+  vState.scene.add(vState.hero.group);
+  drawWho();
+}
+
+/** @param {string} view */
+function vView(view) {
+  vState.view = view === "first" ? "first" : "third";
+  setData(document.body, "view", vState.view);
+}
+
+/** @param {boolean} on */
+function vWho(on) {
+  vState.who = !!on;
+  vState.keys = {};
+  if (vState.who && document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+  if (vState.who && vState.open) vStepBack();
+  drawWho();
+  if (vState.who) {
+    var first = /** @type {HTMLElement} */ (document.querySelector("#wpresets .ww-choice[aria-checked='true']")
+      || document.querySelector("#wpresets .ww-choice"));
+    if (first) first.focus();
+  } else {
+    var canvas = document.querySelector("#world canvas");
+    if (canvas) /** @type {HTMLElement} */ (canvas).focus();
+  }
+}
+
+/** @param {Object} look @returns {string} */
+function vLookKey(look) {
+  return JSON.stringify(WorldHero.normal(look));
+}
+
+function drawWho() {
+  hide(document.getElementById("wwho"), !vState.who);
+  if (!vState.who) return;
+  var L = vState.avatar || WorldHero.preset(0), now = vLookKey(L);
+  patchList(document.getElementById("wpresets"), WorldHero.PRESETS, function (p) { return p.name; }, function (p, key, i) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "ww-choice ww-preset";
+    attr(b, "role", "radio");
+    b.addEventListener("click", function () { vLook(WorldHero.preset(i)); });
+    return b;
+  }, function (b, p, i) {
+    text(b, p.name);
+    attr(b, "aria-checked", String(vLookKey(WorldHero.preset(i)) === now));
+  });
+  patchList(document.getElementById("wopts"), WorldHero.OPTIONS, function (o) { return o.key; }, function (o) {
+    var tpl = /** @type {HTMLTemplateElement} */ (document.getElementById("wwrow"));
+    var row = /** @type {HTMLElement} */ (tpl.content.firstElementChild.cloneNode(true));
+    attr(row, "aria-label", o.label);
+    return row;
+  }, function (row, o) {
+    text(row.querySelector(".ww-label"), o.label);
+    hide(row, o.key === "scarf" && L.hair !== "scarf" && L.hair !== "wrap");
+    patchList(row.querySelector(".ww-choices"), o.values, function (v) { return v; }, function (v) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "ww-choice" + (o.swatch ? " ww-swatch" : "");
+      attr(b, "role", "radio");
+      b.addEventListener("click", function () {
+        var next = Object.assign({}, vState.avatar || WorldHero.preset(0));
+        next[o.key] = v;
+        vLook(next);
+      });
+      return b;
+    }, function (b, v, i) {
+      if (o.swatch) {
+        style(b, "--swatch", v);
+        attr(b, "aria-label", o.label + " " + (i + 1) + " of " + o.values.length);
+      } else {
+        text(b, v);
+      }
+      attr(b, "aria-checked", String(L[o.key] === v));
+    });
+  });
+}
+
+/** @returns {Array<Array<HTMLElement>>} */
+function vWhoRows() {
+  var rows = [Array.prototype.slice.call(document.querySelectorAll("#wwho .wp-head button"))];
+  rows.push(Array.prototype.slice.call(document.querySelectorAll("#wpresets .ww-choice")));
+  Array.prototype.forEach.call(document.querySelectorAll("#wopts .ww-row"), function (row) {
+    if (!row.hidden) rows.push(Array.prototype.slice.call(row.querySelectorAll(".ww-choice")));
+  });
+  return rows.filter(function (r) { return r.length; });
+}
+
+/** @param {number} dt */
+function vWhoPad(dt) {
+  if (vPressed(1)) { vWho(false); return; }
+  var ax = vState.padAxes, dx = vPressed(15) ? 1 : vPressed(14) ? -1 : 0, dy = vPressed(13) ? 1 : vPressed(12) ? -1 : 0;
+  vState.repeat = Math.max(0, vState.repeat - dt);
+  if (!dx && !dy && vState.repeat === 0) {
+    var sx = vDead(ax[0] || 0), sy = vDead(ax[1] || 0);
+    if (Math.abs(sx) > 0.6) { dx = sx > 0 ? 1 : -1; vState.repeat = 0.22; }
+    else if (Math.abs(sy) > 0.6) { dy = sy > 0 ? 1 : -1; vState.repeat = 0.22; }
+  }
+  if (dx || dy) {
+    var rows = vWhoRows(), el = /** @type {HTMLElement} */ (document.activeElement), r = -1, c = -1;
+    rows.forEach(function (row, i) { var j = row.indexOf(el); if (j >= 0) { r = i; c = j; } });
+    if (r < 0) { r = Math.min(1, rows.length - 1); c = 0; }
+    else if (dy) { r = Math.max(0, Math.min(rows.length - 1, r + dy)); c = Math.min(c, rows[r].length - 1); }
+    else c = (c + dx + rows[r].length) % rows[r].length;
+    rows[r][c].focus();
+  }
+  if (vPressed(0)) {
+    var b = /** @type {HTMLElement} */ (document.activeElement);
+    if (b && b.tagName === "BUTTON" && b.closest("#wwho")) b.click();
+  }
 }
 
 function vNearest() {
@@ -473,8 +644,8 @@ function vFrame(now) {
   vState.time += vReduced() ? dt * 0.35 : dt;
   if (!vState.held) vStep(dt);
   var P = vState.player, cam = vState.camera;
-  cam.position.set(P.x, V_EYE, P.z);
-  cam.rotation.set(P.pitch, P.yaw, 0);
+  vCamera(P, cam);
+  vHeroFrame(dt);
   var rain = vState.parts.rain.material.uniforms, splash = vState.parts.splash.material.uniforms;
   rain.uTime.value = splash.uTime.value = vState.time;
   rain.uCam.value.copy(cam.position);
@@ -531,7 +702,7 @@ function drawLabels() {
     text(el.querySelector(".wtag-state"), (V_GLYPHS[ag.state] || "·") + " " + (ag.needs ? "needs you" : ag.state.replace(/_/g, " ")));
     var d = Math.hypot(ag.x - P.x, ag.z - P.z);
     at.set(ag.x, 2.75, ag.z).project(vState.camera);
-    var shown = at.z < 1 && d < 48 && Math.abs(at.x) < 1.2 && Math.abs(at.y) < 1.2 && !vState.open;
+    var shown = at.z < 1 && d < 48 && Math.abs(at.x) < 1.2 && Math.abs(at.y) < 1.2 && !vState.open && !vState.who;
     hide(el, !shown);
     if (!shown) return;
     var x = Math.round((at.x + 1) / 2 * w), y = Math.round((1 - at.y) / 2 * h);
@@ -544,7 +715,7 @@ function drawHud() {
   var P = vState.player;
   var near = vState.near && vState.agents.get(vState.near);
   var prompt = document.getElementById("wprompt");
-  hide(prompt, !near || !!vState.open);
+  hide(prompt, !near || !!vState.open || vState.who);
   if (near) text(prompt, "E or A — talk to " + near.repo + (near.needs ? " (it needs you)" : ""));
   var target = null, dist = Infinity;
   vState.agents.forEach(function (ag) {
@@ -553,7 +724,7 @@ function drawHud() {
     if (d < dist) { dist = d; target = ag; }
   });
   var compass = document.getElementById("wcompass");
-  hide(compass, !target || !!vState.open);
+  hide(compass, !target || !!vState.open || vState.who);
   if (target) {
     var bearing = Math.atan2(-(target.x - P.x), -(target.z - P.z)) - P.yaw;
     var deg = Math.round(((bearing * 180 / Math.PI) % 360 + 540) % 360 - 180);
@@ -582,6 +753,8 @@ function drawList() {
 /** @param {string} repo */
 function vTalk(repo) {
   vState.open = repo;
+  var ag = vState.agents.get(repo), P = vState.player;
+  if (ag) P.yaw = Math.atan2(-(ag.x - P.x), -(ag.z - P.z));
   vState.keys = {};
   if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
   text(document.getElementById("wsaid"), "");
@@ -686,6 +859,8 @@ function vPost(what, body) {
 }
 
 document.getElementById("wclose").addEventListener("click", vStepBack);
+document.getElementById("wwhobtn").addEventListener("click", function () { vWho(true); });
+document.getElementById("wwhodone").addEventListener("click", function () { vWho(false); });
 document.getElementById("wapprove").addEventListener("click", function () {
   vPost("approve", { id: document.getElementById("wapproval").dataset.id,
                      reason: /** @type {HTMLInputElement} */ (document.getElementById("wreason")).value.trim() });
@@ -717,9 +892,14 @@ document.getElementById("wmessage").addEventListener("keydown", function (e) {
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(/** @type {HTMLElement} */ (document.activeElement).tagName);
-  if (e.key === "Escape") { if (vState.open) { vStepBack(); e.preventDefault(); } return; }
+  if (e.key === "Escape") {
+    if (vState.who) { vWho(false); e.preventDefault(); } else if (vState.open) { vStepBack(); e.preventDefault(); }
+    return;
+  }
   if (e.code === "F3" || (e.key === "`" && !typing)) { var s = document.getElementById("wstats"); hide(s, !s.hidden); e.preventDefault(); return; }
-  if (typing || vState.open) return;
+  if (typing || vState.open || vState.who) return;
+  if (e.code === "KeyC") { vWho(true); e.preventDefault(); return; }
+  if (e.code === "KeyV") { vView(vState.view === "third" ? "first" : "third"); return; }
   if ((e.code === "KeyE" || e.key === "Enter") && vState.near) { vTalk(vState.near); e.preventDefault(); return; }
   vState.keys[e.code] = true;
   if (/^Arrow/.test(e.code) || e.code === "Space") e.preventDefault();
@@ -802,6 +982,10 @@ function vStart() {
     vBuild();
     vState.ready = true;
     vLayout();
+    var kept = vLoadLook();
+    vLook(kept || WorldHero.preset(0));
+    vView(PARAMS.get("view") === "first" ? "first" : "third");
+    if (!kept) vWho(true);
     var first = vState.rows.filter(function (r) { return r.needs_human; })[0] || vState.rows[0];
     var ag = first && vState.agents.get(first.repo);
     if (ag) vState.player.yaw = Math.atan2(-ag.x, -ag.z);
@@ -833,7 +1017,12 @@ window.FleetWorld = Object.freeze({
       rain: V_RAIN, calls: r ? r.info.render.calls : 0, triangles: r ? r.info.render.triangles : 0,
       fps: vState.intervals.length ? Math.round(1000 / vPct(vState.intervals.slice(-120), 0.5)) : 0,
       frameMs: vPct(vState.intervals.slice(-120), 0.5), workMs: vPct(vState.work.slice(-120), 0.5),
-      scale: vState.scale, refreshMs: vState.refresh, budgetMs: V_BUDGET_MS
+      scale: vState.scale, refreshMs: vState.refresh, budgetMs: V_BUDGET_MS,
+      view: vState.view, who: vState.who, look: vState.avatar && Object.assign({}, vState.avatar),
+      hero: vState.hero ? { visible: vState.hero.group.visible, seated: vState.hero.seated, wheels: !!vState.hero.wheels,
+                            x: vState.hero.group.position.x, z: vState.hero.group.position.z, yaw: vState.hero.group.rotation.y,
+                            legL: vState.hero.limbs.legL.rotation.x, armR: vState.hero.limbs.armR.rotation.z,
+                            hips: vState.hero.hips.position.y } : null
     };
   },
   hold: function (on) { vState.held = !!on; vState.keys = {}; },
