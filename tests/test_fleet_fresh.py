@@ -125,8 +125,8 @@ def test_every_fresh_verdict(fleet_home, copilot_home, tmp_path, monkeypatch, sp
     }, verdicts
     assert got["stale"]["leaves"]["session"] == "s-stale" and got["stale"]["leaves"]["origin"] == "fleet"
     assert got["stale"]["leaves"]["stale"]["stale"] is True
-    assert got["stale"]["starts"] == {"ticket": "RDSD-201", "model": "", "effort": "",
-                                      "model_source": "cli-auto", "effort_source": "cli-auto"}
+    assert got["stale"]["starts"] == {"ticket": "RDSD-201", "model": "auto", "effort": "",
+                                      "model_source": "default", "effort_source": "cli-auto"}
     assert got["chat"]["leaves"] == {**got["chat"]["leaves"], "session": "native-chat", "origin": "adopted"}
     assert "matched by session file" in got["chat"]["why"] and "--closed" in got["chat"]["hint"]
     assert f"pid {CHAT_PID}" in got["named"]["why"] and "close it there" in got["named"]["why"]
@@ -155,7 +155,8 @@ def test_fresh_is_new_never_resume_and_on_the_configured_model(fleet_home, copil
     assert len(spawns["launched"]) == 1
     argv = spawns["launched"][0]
     assert "--resume" not in argv
-    assert "--model" not in argv and "--effort" not in argv, "cli-auto: the CLI chooses"
+    assert argv[argv.index("--model") + 1] == "auto" and "--effort" not in argv, \
+        "nothing configured: the operator's default, auto (2026-10-02)"
     said = _prompt(argv)
     assert said.startswith("Ticket RDSD-201.") and "This is a fresh session" in said
     assert "left session s-luna (a fleet session; started on 0.13.1" in said
@@ -274,7 +275,7 @@ def test_the_row_says_when_to_offer_it_without_a_listing(fleet_home, copilot_hom
     assert all(kw.get("wait") is False and kw.get("max_age", 1) != 0 for kw in asked), asked
     assert (rows["stale"]["offer"], rows["stale"]["because"], rows["stale"]["verdict"]) == (True, "old skills", "now")
     assert rows["stale"]["starts"] == {**rows["stale"]["starts"], "ticket": "RDSD-201",
-                                       "model_label": "", "model_source": "cli-auto"}
+                                       "model_label": "auto", "model_source": "default"}
     assert (rows["chat"]["offer"], rows["chat"]["because"], rows["chat"]["verdict"]) == \
         (True, "your own chat", "second_press")
     assert (rows["quiet"]["offer"], rows["quiet"]["because"]) == (True, "began outside the fleet")

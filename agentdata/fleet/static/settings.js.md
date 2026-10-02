@@ -417,14 +417,44 @@ and saved whole: the fleet's entries with every agent picked, the agent's own wi
 fleet's entries still show under an agent, unremovable there, because they are on its launch too. A
 broad entry (`powershell`, `bash`: every command that tool runs) is marked every time it is shown.
 
-### `function renderCopilotConfig`
+### `function copilotPost`
 
-Copilot's own settings as the installed CLI documents them (`copilot help config`, cached by the model
-refresh). A key a fleet setting covers is set per agent as a flag; every other one lives in
-`~/.copilot/config.json`, which the operator's own chats share and the fleet never writes. Saying which
-is which, key by key, is the answer to "my fleet settings and my Copilot settings are mashing up".
+One change to one of Copilot's own files (`act("copilot")`, `fleet/copilot_files.py`), then a reload.
+A refusal (a file that is not JSON, a kind the fleet does not compose, a relative directory) is said
+in the section's own note line, never as a toast, because it names what to fix there.
+
+### `function renderCopilotGlobal`
+
+The operator, 2026-10-02: "When a user does /config in an individual repository in regular copilot
+cli, they're first setting global permissions. What we're trying to do is have the repo permissions
+be accessible from the fleet screen in addition to the global settings." This is the global half:
+`~/.copilot/settings.json` (or `$COPILOT_HOME`), exactly the file `/config` writes. Every documented
+key and every key already in the file is a row; a yes/no is a checkbox, anything else text (a list as
+commas, any other shape as JSON). Emptying a box is `/config unset`, and so is *unset*. A key the
+table lacks goes in the two boxes under it.
+
+### `function renderCopilotRepo`
+
+The repository half, shown when an agent is picked: the approvals Copilot keeps for that checkout's
+Git root in `permissions-config.json` -- what *always allow* in a window there saves -- and its
+allowed directories. Any approval can be removed; the fleet adds only `commands` (named the way
+Copilot writes them, `git:*`), `read` and `write`, the kinds the reference documents. With the agent's
+*tool access* at `repo` these approvals are exactly what it runs on; at `all`, the default, it has
+every tool anyway, and they still serve the operator's own windows.
+
+### `function wireCopilot`
+
+The three buttons, bound once: *set* (a global key), *allow* (an approval for the picked repository)
+and *save directories*. The identifiers box hides for `read` and `write`, which take none.
 
 ### `function draw`
 
 One redraw of everything the scope changes, so picking an agent needs no second request: `lastData`
 already holds every agent's view.
+
+
+With *tool access* `all` (the default since 2026-10-02) the allowed column leads with one row,
+*every tool a Copilot window would ask about*, because the launch line carries `--allow-all-tools`
+and no enumerated list; the extras the operator added still follow it, as they still go on the argv.
+With `repo` it leads with *what this repository's Copilot approvals allow*: those are listed, and
+edited, in the repository's own Copilot section.

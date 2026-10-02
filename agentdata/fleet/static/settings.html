@@ -81,30 +81,60 @@
     <p class="why">How the fleet launches the Copilot CLI, and how long it waits. Each row says when
       a change takes effect. Pick one agent to give it values of its own: each of its rows says
       whether the value is <em>this agent's</em>, <em>every agent's</em> or the default, and
-      <em>use every agent's</em> puts one back. Every value here becomes a flag on that agent's own
-      command line at every launch, its console included &mdash; never a write to Copilot's own
-      <code>~/.copilot/config.json</code>, which your own Copilot chats share.</p>
+      <em>use every agent's</em> puts one back. Every value in this list becomes a flag on that
+      agent's own command line at every launch, its console included. Copilot's own settings are
+      below it: global, and the picked agent's repository.</p>
     <div class="setrow">
       <label for="scope">settings for</label>
       <select id="scope" title="every agent, or one agent's own values"><option value="">every agent</option></select>
       <span class="why inline" id="scopenote"></span>
     </div>
     <div id="cfgrows"></div>
-    <h3>Copilot's own settings <span id="copilotcount" class="count"></span></h3>
-    <p class="why" id="copilotnote">What the installed Copilot CLI documents for its own
-      <code>/config</code> (<code>copilot help config</code>). A row with a fleet setting beside it is
-      set per agent from this page; the others live in <code>~/.copilot/config.json</code>, shared
-      with your own chats, and the fleet never writes that file &mdash; change them with
-      <code>/config</code> in a Copilot window.</p>
-    <table class="settable" id="copilotcfg">
-      <thead><tr><th>Copilot setting</th><th>per agent, from</th><th>what it is</th></tr></thead>
-      <tbody id="copilotrows"></tbody>
+    <h3>Copilot, global <span id="cgcount" class="count"></span></h3>
+    <p class="why">Copilot's own settings for every repository: <code id="cgpath">~/.copilot/settings.json</code>,
+      exactly the file <code>/config</code> writes in any Copilot window. Your own windows and the
+      fleet's agents read the same file; a repository's <code>.github/copilot/settings.json</code> and
+      <code>settings.local.json</code> override it there, and a flag on a launch overrides all three.</p>
+    <table class="settable" id="cgtable">
+      <thead><tr><th>Copilot setting</th><th>value</th><th>what it is</th><th></th></tr></thead>
+      <tbody id="cgrows"></tbody>
     </table>
+    <div class="setrow">
+      <input id="cgkey" type="text" placeholder="another key, e.g. footer.showBranch" aria-label="a settings.json key">
+      <input id="cgvalue" type="text" placeholder="its value (JSON or text)" aria-label="its value">
+      <button type="button" id="cgset" class="addone">set</button>
+      <span class="why inline" id="cgnote"></span>
+    </div>
+    <div id="crblock" hidden>
+      <h3>Copilot, this repository: <span id="crname"></span></h3>
+      <p class="why">The approvals Copilot keeps for <code id="crloc"></code> in
+        <code id="crpath">~/.copilot/permissions-config.json</code>: what <em>always allow</em> in a
+        Copilot window there saves, and what this agent runs on when its <strong>tool access</strong>
+        is <code>repo</code>. With <code>all</code>, every agent's default, it has every tool anyway.</p>
+      <ul id="crapprovals" class="patterns"></ul>
+      <div class="setrow">
+        <select id="crkind" aria-label="what to allow">
+          <option value="commands">commands</option><option value="read">read</option><option value="write">write</option>
+        </select>
+        <input id="crids" type="text" placeholder="git:*, npm:*" aria-label="the commands, as Copilot names them">
+        <button type="button" id="cradd" class="addone">allow</button>
+      </div>
+      <h4>allowed directories</h4>
+      <div class="setrow">
+        <textarea id="crdirs" rows="3" aria-label="absolute paths, one per line"></textarea>
+        <button type="button" id="crdirsave" class="addone">save directories</button>
+      </div>
+      <span class="why inline" id="crnote"></span>
+    </div>
   </section>
 
   <!-- ------------------------------------------------------------------ permissions -->
   <section class="setblock">
     <h2>What an agent may run</h2>
+    <p class="why">By default an agent has what a Copilot CLI window has: every tool it would ask about
+      is allowed (<code>--allow-all-tools</code>), and only the fleet's own commands are denied. Set
+      <strong>tool access</strong> to <code>strict</code> above, for every agent or one, to use the
+      enumerated list below instead.</p>
     <p class="why">The base allow-list is read-only here, deliberately. It is the boundary and
       configuration <em>replaces</em> it rather than adding to it, so a list saved from this page
       would become the whole boundary &mdash; and you would silently stop receiving any command a

@@ -309,7 +309,9 @@ def test_inside_a_fleet_a_deny_pushes_nothing(as_agent, capsys):
 
 
 def test_the_agent_may_run_ad_git_push_and_still_never_git_push():
-    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    """For an agent set to `fleet.permissions: strict`; the default is a Copilot window's tools."""
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs",
+                                 cfg={"fleet": {"permissions": "strict"}})
     allowed = [argv[i + 1] for i, a in enumerate(argv) if a == "--allow-tool"]
     denied = [argv[i + 1] for i, a in enumerate(argv) if a == "--deny-tool"]
     assert "shell(ad-git push)" in allowed

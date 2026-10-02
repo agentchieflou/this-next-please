@@ -222,9 +222,10 @@ def test_a_question_is_answered_by_talking_to_the_agent(fleet, monkeypatch):
 def test_a_denied_tool_is_refused_exactly_as_the_real_cli_refused_it(fleet, monkeypatch):
     """The fake reproduces the spike's measured behaviour: the tool is attempted, refused, reported
     on `tool.execution_complete`, and the turn still exits 0. A fake that were *safer* than the real
-    thing would hide the reason the allow-list has to be an enumerated whitelist."""
+    thing would hide the reason the allow-list has to be an enumerated whitelist. (`strict`: by
+    default since 2026-10-02 an agent has a Copilot window's tools, and `git push` is not refused.)"""
     monkeypatch.setenv("AGENTDATA_FAKE_CASE", "denied-tool")
-    supervisor.start("alpha", key="RDSD-9", cfg={"fleet": {"notify": {"toast": False}}})
+    supervisor.start("alpha", key="RDSD-9", cfg={"fleet": {"permissions": "strict", "notify": {"toast": False}}})
     _settle(["alpha"])
     _refresh(fleet)
 
