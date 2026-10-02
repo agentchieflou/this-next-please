@@ -93,27 +93,63 @@ every refusal is the server's, in its words. The page adds no route.
 
 ## The place
 
-The plaza is paved in rings of stone, with a brass compass at its centre, inside a kerb at the edge of
-the agents' circle. Outside the kerb stand eight cast-iron street lamps, a wooden bench between each
-pair and a tree in a stone planter behind each bench; the circle and its furniture grow with the
-fleet. You walk around the benches, trees and lamp posts, not through them. Beyond the plaza is
-asphalt, and puddles everywhere, which ripple in the rain and mirror the sky. A ring of 44 buildings,
-62 to 120 m out, makes the skyline: facades in eight colours, windows and shopfronts, parapets,
-setbacks and rooftop boxes. The sky is overcast with moving cloud.
+The operator, 2026-10-02: *"We're looking for a far cry 3 / rdr2 / gta 6 / cyberpunk quality world
+with rich assets and quality features that can run in browser."* The plaza is the middle of a
+district you can walk into.
 
-Every asset is built in the page from three.js's own shapes and a few lines of shader
-(`world/scenery.js`, `world/bots.js`): no model file, no texture, nothing fetched and no package.
-The detail is in merged geometry and the shaders, never in more objects, so it costs no draw calls.
+- **The plaza** is paved in rings of granite, with a brass compass at its centre. Eight cast-iron
+  lamps stand round the agents' circle, with a bench between each pair and a tree behind each bench.
+  The circle, the plaza and everything round it grow with the fleet.
+- **The streets.** A ring road goes round the plaza and four avenues lead out of it, crossed by side
+  streets every 64 m. They have:
+  - lane markings, zebra crossings, stop lines and manhole covers;
+  - granite kerbs, and gutters where the water gathers;
+  - street lamps every 24 m (sodium orange or LED white), each with a cone of light in the rain;
+  - traffic lights at every crossing, cycling red, amber and green;
+  - trees, hydrants, bins, newspaper boxes, parking meters and bus shelters.
+- **The buildings.** About 150 of them, in five styles: brick walk-ups with fire escapes and water
+  tanks, stucco with balconies, concrete, stone with cornices, and glass towers further out. They
+  have:
+  - windows set into the walls;
+  - shopfronts with awnings, lit signs and neon;
+  - rooftop air-conditioning units, antennas and billboards.
+
+  Behind every window there is a room: its walls, floor, ceiling and furniture are drawn by the glass
+  itself (interior mapping). By night some rooms are lit, warm or cool, switching on and off over the
+  evening; some show only a television's flicker.
+- **Life.** Cars drive the avenues and the ring road. They keep their distance and stop at red
+  lights, with their headlights on the wet road at night. Cars are parked along the side streets,
+  and people with umbrellas walk the sidewalks.
+- **Walking.** You walk up to 150 m from the plaza. Buildings, benches, trees, lamp posts and street
+  furniture are solid.
+
+Every asset is built in the page from code: three.js's own shapes, merged by material, and shaders.
+There is no model file, no image, nothing fetched and no package. The surfaces are real materials
+(brick, concrete, stucco, stone, asphalt, sidewalk, granite, metal, roofing, wood and leaves) with
+colour, roughness, occlusion and relief. They are baked on the GPU when the page loads
+(`world/bake.js`), so they cost what a texture costs and nothing on the wire. The whole world is
+57 KiB of script.
 
 ## Rain, day and night
 
-It is always raining. The rain is 6,000 streaks in a box around you, plus rings where drops land in
-the puddles. The local clock decides the light. Overcast day runs from about 07:30 to 18:30, with
-dawn from 06:00 and dusk until 20:00. By night the lamps are lit, with a halo round each, they light
-the rain falling past them and reflect in the wet ground; the city's windows light up, some warm and
-some cool, and its glow shows on the low cloud.
-`?hour=0..23` pins the clock, for tests and screenshots. The scene is the world's own look: a palette
-or skin you chose dresses the HUD, never the rain.
+It is always raining. There are 6,000 streaks in a box around you and rings where drops land, and
+the streaks are lit by the lights they fall past. Everything is wet:
+
+- surfaces are darker and glossier;
+- puddles gather in the gutters and the low spots, and drops ring them;
+- the street is a mirror of the city above it, sharp in a puddle and smeared on wet asphalt.
+
+The local clock decides the light. Overcast day runs from about 07:30 to 18:30, with dawn from 06:00
+and dusk until 20:00. By night:
+
+- the lamps, the shop signs, the neon, the billboards and the cars' headlights light the street
+  round them in their own colours;
+- the windows light up;
+- the city's glow shows on the low cloud.
+
+Hundreds of lights, and a pixel adds up the nearest few. `?hour=0..23` pins the clock, for tests and
+screenshots. The scene is the world's own look: a palette or skin you chose dresses the HUD, never
+the rain.
 
 ## Frames
 
@@ -121,31 +157,57 @@ The frame budget is **10 ms**: 100 frames a second.
 
 - **The display sets the ceiling.** The browser draws at most once per display refresh. A 120 or
   144 Hz display runs the world at its own rate; a 60 Hz display caps it at 60, whatever the GPU.
+- **The frame is drawn the way open-world games draw theirs** (`world/render.js`): light in high
+  dynamic range, a reflection of the scene for the wet street, ambient occlusion, bloom round every
+  light, the ACES tone curve and a grade. There are no shadow maps: under overcast cloud and in the
+  rain, occlusion is the shadow.
+- **The quality fits the GPU.** `?quality=low|medium|high|ultra` chooses; otherwise the GPU decides:
+  - **high** for a discrete GPU: 4x MSAA, the mirror at half resolution, 24 lights a pixel;
+  - **medium** for an integrated one: FXAA, the mirror at a third, 16 lights;
+  - **low** for WebGL1 or a software renderer: straight to the screen, no mirror, plainer facades,
+    8 lights;
+  - **ultra** only when asked for.
+
+  Each tier draws the same scene, at a different cost.
 - **The page keeps every frame within the budget.**
-  - The scene is at most 12 draw calls however many agents there are. The city, the plaza's
-    furniture and each robot are merged into one mesh each, the robots are instanced (four draw calls
-    for every agent), the rain is one draw call, and the names are page text. Your
-    character adds ten (twelve in a wheelchair): the parts that move together are one mesh each, all
-    sharing one material, so a change of look compiles no shader.
-  - It has no shadows and no post-processing.
-  - The wet ground's reflection of the sky is rendered once, not per frame.
+  - The draw calls do not grow with the fleet. The city is merged by material (a dozen draw calls
+    for every building), and the robots, cars and people are instanced (four draw calls for every
+    agent, every car and every walker). The names are page text.
+  - Your character adds ten draw calls (twelve in a wheelchair). The parts that move together are
+    one mesh each, all sharing one material, so a change of look compiles no shader.
   - When frames run long it lowers its render resolution. Once a second it compares the median frame
-    with the display's rate (or the 10 ms budget on a display faster than 100 Hz), steps down to half
-    resolution at worst, and back up when there is room.
+    with the display's rate (or the 10 ms budget on a display faster than 100 Hz), and steps down to
+    half resolution at worst. If that is not enough, it drops a quality tier. It steps back up when
+    there is room.
+  - The surfaces are baked once at load, and the sky's environment once a minute, never per frame.
 - **It stops drawing when the tab is hidden.**
 
-`FleetWorld.inspect()` reports `fps`, `frameMs` (the median interval), `workMs` (the script's own time
-per frame), `scale`, `calls` and `triangles`; F3 shows the same in the toolbar.
+`FleetWorld.inspect()` reports:
 
-CI draws in SwiftShader, on the CPU, at a few frames a second, so the tests measure what does not
-depend on the machine: the draw calls (at most 12, plus the character's ten or twelve), the
-triangles (under 80,000), the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames),
-reach, and the verbs a conversation posts. **The frame rate is the laptop's to measure:** open
-`/world`, press F3, and read the fps line in Edge or Chrome on the operator's GPU.
+- `fps`, `frameMs` (the median interval) and `workMs` (the script's own time per frame);
+- `scale` and `quality`;
+- `calls` and `triangles` (the scene), and `passes` (the whole frame's draw calls);
+- `town` (buildings, lights, cars, parked cars, people).
+
+F3 shows the frame figures in the toolbar.
+
+**On a software renderer** (SwiftShader in CI, or a virtual desktop without a GPU), the page draws
+its lightest path: the `low` quality, plainer facades, no parked cars or walkers, half resolution, and
+the scene at most about ten times a second. The walk keeps the display's pace. The tests therefore
+measure what does not depend on the machine:
+
+- the draw calls (at most 64) and triangles (under 400,000) on that path;
+- that the full pipeline compiles and draws (`?quality=high`);
+- the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames), reach, and
+  the verbs a conversation posts.
+
+**The frame rate is the laptop's to measure:** open `/world`, press F3, and read the fps line in Edge
+or Chrome on the operator's GPU.
 
 ## What it is not (yet)
 
-- No multiplayer or physics; nobody else sees your character.
+- No multiplayer or physics; nobody else sees your character. The cars do not hit you, nor you them.
+- You cannot enter the buildings: their rooms are drawn by the glass.
 - No on-screen keyboard for free text with a controller.
 - The scene is not themed.
 - It is not the map's scene (#409–#414): that is a different page that draws zero frames at rest.

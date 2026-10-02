@@ -731,10 +731,16 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: `world/world.js` 12.4 KiB (the scene, the rain, the walk, the pad, a conversation, the character
 #: picker) and `world/hero.js` 4.2 KiB (the player's character); three.js is the vendored copy, counted
 #: nowhere here, as for the ink layer and the map. The asset pass (2026-10-02) added
-#: `world/scenery.js` 5.2 KiB (the ground, the city, the sky, the plaza's furniture) and
-#: `world/bots.js` 2.2 KiB (the agents as robots), all of it geometry and shader built in the page
-#: instead of a model file or a texture: 23.5 KiB, so the budget moved from 22 KiB to 28 KiB.
-WORLD_BUDGET = 28 * 1024
+#: `world/scenery.js` (the sky and the plaza's furniture) and `world/bots.js` (the agents as robots):
+#: 23.5 KiB, and the budget moved from 22 KiB to 28 KiB. The operator then asked for "a far cry 3 /
+#: rdr2 / gta 6 / cyberpunk quality world ... that can run in browser" (2026-10-02), which added the
+#: renderer (`world/render.js`: HDR, the wet street's mirror, ambient occlusion, bloom, the grade, the
+#: quality tiers), the materials baked on the GPU at load (`world/bake.js`), the shared kit and its
+#: many lights (`world/kit.js`), the streets and buildings (`world/city.js`) and what is on them
+#: (`world/street.js`): 56.8 KiB in all. Every asset is still built in the page from code, with no
+#: model, texture or package fetched, which is why the whole city costs less on the wire than one
+#: texture would; the budget moved to 72 KiB.
+WORLD_BUDGET = 72 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -748,7 +754,8 @@ def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_ow
     page = wire("world.html") + wire("world.css")
     assert page < 4 * 1024, page
     scripts_ = world_scripts()
-    assert scripts_ == ["world/bots.js", "world/hero.js", "world/scenery.js", "world/world.js"], scripts_
+    assert scripts_ == ["world/bake.js", "world/bots.js", "world/city.js", "world/hero.js", "world/kit.js", "world/render.js",
+                        "world/scenery.js", "world/street.js", "world/world.js"], scripts_
     sent = sum(wire(n) for n in scripts_)
     print(f"\n  world page {page} bytes gzipped; world scripts {sent} bytes gzipped {scripts_}")
     assert sent < WORLD_BUDGET, (sent, scripts_)
@@ -878,8 +885,8 @@ PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("m.html", ["m/m.js", "common.js"]),
                 ("tidy.html", ["tidy.js", "common.js"]),
                 ("chat.html", ["chat/chat.js", "common.js"]),
-                ("world.html", ["world/world.js", "world/hero.js", "world/bots.js", "world/scenery.js",
-                                "common.js"])]
+                ("world.html", ["world/world.js", "world/hero.js", "world/bots.js", "world/scenery.js", "world/city.js",
+                                "world/street.js", "world/render.js", "world/bake.js", "world/kit.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])

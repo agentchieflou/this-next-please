@@ -50,11 +50,11 @@ var WorldHero = (function () {
     if (shared.T !== T || !shared.mat) {
       shared.T = T;
       shared.mat = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0 });
-      shared.mat.onBeforeCompile = function (/** @type {any} */ sh) {
+      WorldKit.lit(shared.mat, "hero", { porous: 0.6, extra: function (/** @type {any} */ sh) {
         sh.uniforms.uFill = shared.fill;
         sh.fragmentShader = "uniform float uFill;\n" + sh.fragmentShader.replace("#include <emissivemap_fragment>",
           "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill;");
-      };
+      } });
     }
     return shared.mat;
   }

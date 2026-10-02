@@ -10,7 +10,7 @@ var WorldBots = (function () {
 
   /** @param {any} T @param {number} cap @returns {{shell: any, glow: any, ring: any, beacon: any}} */
   function build(T, cap) {
-    var P = WorldScenery.piece, list = [], lights = [];
+    var P = WorldKit.piece, list = [], lights = [];
     var body = new T.LatheGeometry([[0, 0.36], [0.2, 0.38], [0.31, 0.47], [0.36, 0.64], [0.35, 0.84], [0.29, 1.0],
       [0.18, 1.1], [0, 1.13]].map(function (p) { return new T.Vector2(p[0], p[1]); }), 28);
     list.push(P(T, body, SHELL, [0, 0, 0]));
@@ -33,13 +33,13 @@ var WorldBots = (function () {
     lights.push(P(T, new T.TorusGeometry(0.08, 0.011, 6, 16, Math.PI), "#ffffff", [0, 1.37, 0.33], [1, 0.6, 1], [0, 0, Math.PI]));
 
     var smat = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.05 });
-    smat.onBeforeCompile = function (/** @type {any} */ sh) {
+    WorldKit.lit(smat, "bots", { porous: 0.4, extra: function (/** @type {any} */ sh) {
       sh.uniforms.uFill = fill;
       sh.fragmentShader = "uniform float uFill;\n" + sh.fragmentShader.replace("#include <emissivemap_fragment>",
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill;");
-    };
-    var shell = new T.InstancedMesh(WorldScenery.merge(T, list), smat, cap);
-    var glow = new T.InstancedMesh(WorldScenery.merge(T, lights), new T.MeshBasicMaterial({ vertexColors: true }), cap);
+    } });
+    var shell = new T.InstancedMesh(WorldKit.merge(T, list), smat, cap);
+    var glow = new T.InstancedMesh(WorldKit.merge(T, lights), new T.MeshBasicMaterial({ vertexColors: true }), cap);
     var ring = new T.InstancedMesh(new T.TorusGeometry(0.6, 0.011, 5, 48), new T.MeshBasicMaterial({ color: 0xffffff }), cap);
     var bmat = new T.ShaderMaterial({
       uniforms: { uTime: beat.time, uOpacity: beat.opacity, uColor: { value: new T.Color(0xe8485c) } },

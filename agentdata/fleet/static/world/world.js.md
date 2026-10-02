@@ -18,8 +18,11 @@ A classic script after `common.js` (its `q`, `post`, `pageUrl`, `patchList` and 
 imports the vendored three.js r160 itself with `import(q(...))`, as the ink layer does: nothing from a
 CDN, and the token on the URL. It reads `/api/fleet` and the stream like the phone page and the chat
 view, and posts the desk's own verbs, so it adds no route and no rule. The player's character is
-`world/hero.js` (`WorldHero`), the agents are `world/bots.js` (`WorldBots`) and the place is
-`world/scenery.js` (`WorldScenery`), all loaded before this script.
+`world/hero.js` (`WorldHero`) and the agents are `world/bots.js` (`WorldBots`). The place is
+`world/city.js` (the streets and buildings), `world/street.js` (what is on them) and
+`world/scenery.js` (the sky and the plaza's furniture); the frame is drawn by `world/render.js`,
+the surfaces are baked by `world/bake.js`, and `world/kit.js` holds what they share, the lights
+above all. All are loaded before this script.
 
 Unlike the desk's ink and the map's scene, which draw zero frames at rest, the world draws every
 display frame: moving through a place is the point of it. It stops when the tab is hidden, because
@@ -58,10 +61,10 @@ the vertex shader from `uTime`, so no drop is touched on the CPU after it is mad
 ### `var V_CAP`
 
 The robots are instanced: every agent's shell, glow, ring and beacon is one draw call each, however
-many agents there are, up to 64 (`WorldBots`). The scene is at most 12 draw calls whatever the
-fleet's size (the sky, the ground, the city, the plaza's furniture, its lamp glass, the lamps' halos,
-the robots' four, the rain and the splashes): the names are words on the page, not in the scene
-(`drawLabels`). Your character adds its own ten (twelve
+many agents there are, up to 64 (`WorldBots`). The scene's draw calls do not depend on the fleet's
+size: the city is merged by material, the cars and people are instanced, and the names are words on
+the page, not in the scene (`drawLabels`). About fifty on the `low` path; the mirror draws the scene
+a second time on the others. Your character adds its own ten (twelve
 in a wheelchair, `WorldHero`), whatever the fleet's size too.
 
 ### `var V_LOOK_KEY`
@@ -94,8 +97,9 @@ Each streak is two vertices sharing a drop's random `xyz`; `w` says which end. T
 22 m high) follows the camera through `fract`, so a drop stays where it is in the world until it
 leaves the box and comes in on the other side: walking through the rain, not carrying it. Streaks
 fade with distance in the shader rather than through the scene's fog, which a `ShaderMaterial`
-would have to include. By night a streak within 5.5 m of a lamp's glass turns warm and brighter
-(`uLamps`), so the rain shows in the lamplight, as it does on a street.
+would have to include. A streak is lit by the same lights as everything else (the kit's nearest
+lights, `uWkP` and `uWkC`), in their colour, so the rain shows in the lamplight, the neon and the
+headlights, as it does on a street.
 
 ### `function vSplash`
 
@@ -105,10 +109,10 @@ the square of its age: a splash is a ripple on a wet street, not a white disc.
 
 ### `function vProps`
 
-The ground (paving, asphalt and puddles, `WorldScenery.ground`), the city (`WorldScenery.city`) and
-the lamps' halos (`WorldScenery.glows`), made once. The plaza's furniture waits for the circle's
-size (`vPlaza`). Four point lights, at every other lamp, light the wet ground at night and are off by
-day: eight would cost every lit material eight lights' work per pixel.
+The ground (`WorldCity.ground`: plaza, roads and sidewalks in one shader) and the plaza lamps' halos,
+made once. The plaza, the city and the street wait for the circle's size (`vPlaza`). There are no
+three.js lights for the lamps: every lamp, sign and headlight is one of the kit's lights, and a pixel
+adds up the nearest few (`WorldKit.pick`).
 
 ### `function vFigures`
 
@@ -118,9 +122,12 @@ lights) in its state's colour, the ring and, for an agent that needs a person, t
 ### `function vPlaza`
 
 The plaza's kerb, lamps, benches and trees for the circle's edge, 3.5 m outside the agents, made
-again only when the edge moves by a tenth of a metre or more. The lamps' glass places the halos, the
-point lights and the rain's lamplight; the benches, trees and lamp posts become `vState.solids`,
-which you walk around (`vStep`).
+again only when the edge moves by a tenth of a metre or more. The lamps' glass places the halos and
+the plaza's lights; the benches, trees and lamp posts become `vState.solids`, which you walk around
+(`vStep`). The plaza's paving ends 6 m further out, where the ring road begins: when that changes
+(by half a metre or more) the city and the street are built again round it (`WorldCity.build`,
+`WorldStreet.build`), their lights replace the old ones, and the buildings' footprints become
+`vState.boxes`. On the `low` path both are built plainer (`lod` 0).
 
 ### `function vLayout`
 
@@ -137,8 +144,9 @@ unless motion is reduced, when they hold still.
 Day and night move together: the sky (its clouds, and the city's glow on them by night), the fog,
 the light, the lamps (their glass, halos and point lights), the city's lit windows, the beacon, the
 rain's colour and lamplight, and the fill of your character (`WorldHero.fill`) and the robots
-(`WorldBots.fill`). By night the sun becomes a dim blue moonlight rather than going out, so the
-robots and the buildings keep their shape.
+(`WorldBots.fill`), the share of windows lit, and the exposure, which opens up at night as an eye
+does. By night the sun becomes a dim blue moonlight rather than going out, so the robots and the
+buildings keep their shape.
 The fog thins by day (0.014) so the towers read as shapes in the rain; it thickens at night.
 
 ### `function vReflect`
@@ -155,8 +163,9 @@ The first connected gamepad, in the Gamepad API's standard mapping: axes 0 and 1
 
 One step of the walk: the left stick or WASD moves (Shift, RT or L3 runs), the right stick, the
 mouse (with pointer lock) or Q and the arrows turn. The agents are solid (you stop a metre from
-one), as are the plaza's benches, trees and lamp posts (`vState.solids`), and the world ends 20 m
-past the circle. A new press of A beside an agent opens it. With a
+one), as are the plaza's benches, trees and lamp posts and the street's furniture (`vState.solids`)
+and the buildings (`vState.boxes`, pushed out to the nearest side), and you walk up to 150 m from
+the plaza (`WorldCity.LIMIT`). A new press of A beside an agent opens it. With a
 conversation open, the pad drives the panel instead (`vPanelPad`); with the character picker open it
 drives the picker (`vWhoPad`). Start opens and closes the picker, Y changes the view.
 
@@ -228,7 +237,11 @@ The agent within reach and in front of you, the nearest if several: the one E or
 
 The simulation steps with the frame, capped at 50 ms so a stall does not throw you across the plaza.
 The robots move and the ground's ripples and the beacon's bands run with the frame's time; under
-reduced motion they hold still.
+reduced motion they hold still. The traffic and the people move (`WorldStreet.frame`), the nearest
+lights are picked, and `WorldRender` draws the frame. On a software renderer (`WorldRender.soft`)
+the scene is drawn at most about ten times a second, while the walk and the labels keep the
+display's pace: SwiftShader on a CPU cannot draw a city faster, and a page that tried would starve
+everything else on the machine, the tests included.
 `FleetWorld.hold(true)` stops the steps (the frame still draws) so a test can drive `step()` itself.
 
 ### `function vTune`
@@ -237,7 +250,8 @@ Once a second. The display's own frame interval is the fastest the page has seen
 percentile). On a display at 100 Hz or slower the target is that interval: hold the display's rate.
 On a faster one the target is the 10 ms budget: a 144 Hz display may run at 100 fps before the
 resolution drops. A median frame 15% over the target lowers the render scale by 15%, down to half
-resolution; one under it raises it again, up to the device's pixel ratio or 1.5, whichever is lower.
+resolution; one under it raises it again, up to the device's pixel ratio or the tier's cap. When
+half resolution is still too slow, the quality steps down a tier (`WorldRender.step`).
 
 ### `function drawLabels`
 
@@ -245,7 +259,7 @@ Each agent's name and state are a label on the page (`#wlabels`), placed over it
 that point through the camera every frame, and scaled by distance. Words in the DOM rather than
 textures in the scene: nothing under `static/` asks for a 2D context (#257, held by
 `tests/test_fleet_trace.py`), a label is as sharp as the page's own text at any resolution scale, and
-the scene stays a dozen draw calls whatever the fleet's size. A label behind you, beyond 48 m, off the
+the scene's draw calls do not grow with the fleet. A label behind you, beyond 48 m, off the
 screen or under an open conversation is hidden. The transform is rounded to the pixel and the scale to
 a twentieth, so a label is written only when it moves visibly: standing still writes nothing.
 
@@ -280,7 +294,9 @@ happens next, never every agent's history again.
 ### `window.FleetWorld`
 
 What the tests and the laptop read: `inspect()` (the agents, the player, who is near, day or night,
-the lamps, the draw calls and triangles, fps, frame and work time, the render scale, the view, the
-picker, the look, and the character's place, turn and pose), `hold()` and
+the lamps, the quality and whether the renderer is software, the town (buildings, lights, cars,
+parked cars, people), the scene's draw calls and triangles and the whole frame's draw calls
+(`passes`), fps, frame and work time, the render scale, the view, the picker, the look, and the
+character's place, turn and pose), `hold()` and
 `step()` to walk without depending on the frame rate (CI draws in SwiftShader), and `teleport(repo)`
 to stand within reach of an agent.

@@ -108,12 +108,16 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `tidy.js`.
 #
 # `/chat` (operator request, 2026-10), the chat view, brings `chat.css` and its one script,
-# `chat/chat.js`. `/world` (#626) brings `world.css`, `world/scenery.js` (the plaza and the city),
-# `world/bots.js` (the agents), `world/hero.js` (the player's character) and `world/world.js`,
-# which imports the vendored three.js itself, through `q()`, like the ink layer.
+# `chat/chat.js`. `/world` (#626) brings `world.css`, `world/kit.js` (what the world's scripts share,
+# its lights above all), `world/bake.js` (its materials, baked on the GPU), `world/render.js` (how a
+# frame is drawn), `world/scenery.js` (the sky and the plaza), `world/city.js` (the streets and
+# buildings), `world/street.js` (what is on them), `world/bots.js` (the agents), `world/hero.js` (the
+# player's character) and `world/world.js`, which imports the vendored three.js itself, through
+# `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
           "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "chat.css", "chat/chat.js",
-          "world.css", "world/scenery.js", "world/bots.js", "world/hero.js", "world/world.js")
+          "world.css", "world/kit.js", "world/bake.js", "world/render.js", "world/scenery.js", "world/city.js",
+          "world/street.js", "world/bots.js", "world/hero.js", "world/world.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk

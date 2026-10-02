@@ -12,7 +12,7 @@ The agents as robots (#626, *"the agents become objects"*). The operator, 2026-1
 improve the asset quality of our 3d world."* A capsule on a plinth read as a placeholder; a small
 robot with a face reads as someone you walk up to and talk to.
 
-A classic script loaded after `world/scenery.js` (its `piece` and `merge`) and before
+A classic script loaded after `world/kit.js` (its `piece` and `merge`) and before
 `world/world.js`. It defines one global, `WorldBots`. Every agent shares four instanced meshes, so
 the fleet costs four draw calls whatever its size, as before.
 
@@ -38,7 +38,8 @@ The robot, merged into two geometries:
 - the glow: two eyes and a smile on the visor, the antenna tip, a chest light and a ring of light
   under the base.
 
-The shell is lit (`MeshStandardMaterial`, with the fill); the glow is unlit, so it shines in the
+The shell is lit (`MeshStandardMaterial`, with the fill and the kit's lights, so a robot under a
+lamp or by a neon sign takes its colour); the glow is unlit, so it shines in the
 dark, and it takes the agent's state colour. The ring floats at the waist in the state's colour.
 The beacon, for an agent that needs a person, is a tall soft beam added to what is behind it,
 banded and fading up and down, ignoring the fog so it is seen across the plaza, and fading out near

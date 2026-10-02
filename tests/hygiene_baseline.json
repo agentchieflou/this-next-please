@@ -716,7 +716,7 @@
       "tests": 13
     },
     "tests/test_fleet_world_page.py": {
-      "tests": 6
+      "tests": 7
     },
     "tests/test_fleet_wrapup.py": {
       "tests": 27

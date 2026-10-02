@@ -11,7 +11,7 @@ var V_STATE = {
   blocked: 0xe8485c, error: 0xe8485c, done: 0x3db874, idle: 0x8c99a6
 };
 var V_DAY = { top: 0xc3cbd2, horizon: 0x9aa5ae, ground: 0x2b3136, fog: 0x9aa5ae, rain: 0xd5dde4 };
-var V_NIGHT = { top: 0x03060b, horizon: 0x101a26, ground: 0x0d1216, fog: 0x0c141d, rain: 0x7f99b8 };
+var V_NIGHT = { top: 0x03060b, horizon: 0x101a26, ground: 0x0d1216, fog: 0x0c141d, rain: 0x6f7a88 };
 var V_REACH = 3.2;
 var V_FACING = 0.55;
 var V_WALK = 4.5;
@@ -40,7 +40,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -49,7 +49,8 @@ var vState = {
   frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0,
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0,
-  source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: []
+  source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
+  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
@@ -120,18 +121,19 @@ function vRain(T) {
   var mat = new T.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() },
                 uAlpha: { value: 0.35 }, uSpeed: { value: 14 }, uNight: { value: 0 },
-                uLamps: { value: Array.from({ length: V_LAMPS }, function () { return new T.Vector3(0, -99, 0); }) } },
-    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; uniform vec3 uLamps[" + V_LAMPS + "];"
-      + " uniform float uNight; attribute vec4 aDrop; varying float vA; varying float vLit;"
+                uWkP: { value: WorldKit.L.pos }, uWkC: { value: WorldKit.L.col } },
+    defines: { WK_N: WorldKit.L.n },
+    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; uniform vec4 uWkP[WK_N]; uniform vec3 uWkC[WK_N];"
+      + " uniform float uNight; attribute vec4 aDrop; varying float vA; varying vec3 vLit;"
       + " void main() { float box = 44.0; float high = 22.0;"
       + " vec2 xz = uCam.xz + (fract(aDrop.xz - uCam.xz / box) - 0.5) * box;"
       + " float y = uCam.y - 6.0 + fract(aDrop.y - uTime * uSpeed / high) * high;"
       + " vec3 p = vec3(xz.x + aDrop.w * 0.08, y - aDrop.w * 0.55, xz.y + aDrop.w * 0.03);"
       + " vec4 mv = modelViewMatrix * vec4(p, 1.0); vA = (1.0 - smoothstep(6.0, 22.0, -mv.z)) * (0.4 + 0.6 * aDrop.w);"
-      + " vLit = 0.0; for (int i = 0; i < " + V_LAMPS + "; i++) vLit += 1.0 - smoothstep(0.0, 5.5, distance(p, uLamps[i]));"
-      + " vLit = min(vLit, 1.0) * uNight; gl_Position = projectionMatrix * mv; }",
-    fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA; varying float vLit;"
-      + " void main() { gl_FragColor = vec4(mix(uColor, vec3(1.0, 0.82, 0.58), vLit), uAlpha * vA * (1.0 + 1.6 * vLit)); }",
+      + " vLit = vec3(0.0); for (int i = 0; i < WK_N; i++) { float r = uWkP[i].w * 0.42; float w = 1.0 - smoothstep(0.0, r, distance(p, uWkP[i].xyz));"
+      + " vLit += uWkC[i] * w * w * 0.028; } gl_Position = projectionMatrix * mv; }",
+    fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA; varying vec3 vLit;"
+      + " void main() { float l = min(dot(vLit, vec3(0.33)), 2.0); gl_FragColor = vec4(uColor * (1.0 - 0.4 * min(l, 1.0)) + vLit, uAlpha * vA * (1.0 + 1.8 * l)); }",
     transparent: true, depthWrite: false, fog: false
   });
   var lines = new T.LineSegments(g, mat);
@@ -169,17 +171,10 @@ function vSplash(T) {
 
 /** @param {any} T @param {any} scene */
 function vProps(T, scene) {
-  vState.parts.ground = WorldScenery.ground(T);
-  vState.parts.city = WorldScenery.city(T);
+  vState.parts.ground = WorldCity.ground(T, vState.lib, vState.tier === "low" ? 0 : 1);
   vState.parts.glows = WorldScenery.glows(T);
-  scene.add(vState.parts.ground, vState.parts.city, vState.parts.glows);
-  var bulbs = [];
-  for (var j = 0; j < 4; j++) {
-    var bulb = new T.PointLight(0xffc98a, 0, 22, 1.6);
-    scene.add(bulb);
-    bulbs.push(bulb);
-  }
-  vState.lights.bulbs = bulbs;
+  scene.add(vState.parts.ground, vState.parts.glows);
+  vState.parts.ground.layers.set(1);
   vState.edge = 0;
   vState.solids = [];
 }
@@ -196,23 +191,37 @@ function vPlaza(edge) {
   var T = vState.T, p = vState.parts;
   if (vState.edge === edge) return;
   vState.edge = edge;
-  [p.props, p.glass].forEach(function (m) {
+  [p.props, p.glass, p.leaves].forEach(function (m) {
     if (!m) return;
     vState.scene.remove(m);
     m.geometry.dispose();
-    m.material.dispose();
+    if (m !== p.leaves) m.material.dispose();
   });
-  var made = WorldScenery.plaza(T, edge);
+  var made = WorldScenery.plaza(T, edge, vState.lib);
   p.props = made.props;
   p.glass = made.glass;
-  vState.scene.add(made.props, made.glass);
+  p.leaves = made.leaves;
+  vState.scene.add(made.props, made.glass, made.leaves);
   vState.solids = made.solids;
   WorldScenery.placeGlows(p.glows, T, made.lamps);
-  made.lamps.forEach(function (l, i) {
-    p.rain.material.uniforms.uLamps.value[i].set(l[0], l[1], l[2]);
-    if (i % 2 === 0) vState.lights.bulbs[i / 2].position.set(l[0], l[1] - 0.3, l[2]);
-  });
-  WorldScenery.uniforms.radius.value = edge;
+  WorldKit.forget("plaza");
+  made.lamps.forEach(function (l) { WorldKit.light([l[0], l[1] - 0.25, l[2]], [16, 11.5, 6.8], 17, "plaza"); });
+  var P = Math.round((edge + 6) * 2) / 2;
+  if (vState.cityP !== P) {
+    vState.cityP = P;
+    var lod = vState.tier === "low" ? 0 : 1;
+    var city = WorldCity.build(T, vState.lib, vState.scene, P, lod);
+    vState.boxes = city.solids;
+    WorldKit.forget("city");
+    city.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "city", { f: l.f }); });
+    p.ground.userData.P.value = P;
+    var street = WorldStreet.build(T, vState.lib, vState.scene, P, lod);
+    WorldKit.forget("street");
+    street.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "street", { f: l.f }); });
+    vState.streetSolids = street.solids;
+    vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people };
+  }
+  vState.solids = vState.solids.concat(vState.streetSolids || []);
   vWeather();
 }
 
@@ -274,16 +283,17 @@ function vWeather() {
   vState.lights.sun.color.copy(mix(0x6f86b8, 0xdfe6ec));
   WorldHero.fill(0.08 + 0.17 * d);
   WorldBots.fill.value = 0.1 + 0.12 * d;
-  vState.lights.bulbs.forEach(function (b) { b.intensity = 14 * night; });
-  WorldScenery.uniforms.night.value = night;
-  WorldScenery.uniforms.lit.value = 0.32 + 0.1 * night;
+  vState.lamp = 16 * night;
+  vState.exposure = 1 + 0.45 * night;
+  WorldKit.uniforms.night.value = night;
+  WorldKit.uniforms.lit.value = 0.3 + 0.06 * night;
   if (vState.parts.glass) vState.parts.glass.material.color.copy(mix(0xffd9a0, 0xb9c2c9));
   vState.parts.glows.material.uniforms.uOpacity.value = night * 0.9;
   vState.parts.glows.visible = night > 0.05;
   WorldBots.beat.opacity.value = 0.32 + 0.3 * night;
   var rain = vState.parts.rain.material.uniforms, splash = vState.parts.splash.material.uniforms;
   rain.uColor.value.copy(mix(V_NIGHT.rain, V_DAY.rain));
-  rain.uAlpha.value = 0.3 + 0.15 * night;
+  rain.uAlpha.value = 0.26 - 0.06 * night;
   rain.uNight.value = night;
   rain.uSpeed.value = vReduced() ? 5 : 14;
   splash.uColor.value.copy(rain.uColor.value);
@@ -304,9 +314,7 @@ function vBuild() {
   var ctx = vContext();
   var renderer = new T.WebGLRenderer({ canvas: ctx.canvas, context: ctx.gl, antialias: false, powerPreference: "high-performance" });
   renderer.outputColorSpace = T.SRGBColorSpace;
-  vState.maxScale = Math.min(window.devicePixelRatio || 1, 1.5);
-  vState.scale = vState.maxScale;
-  renderer.setPixelRatio(vState.scale);
+  renderer.setPixelRatio(1);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   document.getElementById("world").appendChild(ctx.canvas);
   ctx.canvas.tabIndex = 0;
@@ -317,6 +325,15 @@ function vBuild() {
   vState.renderer = renderer;
   vState.scene = scene;
   vState.camera = camera;
+  vState.tier = WorldRender.create(T, renderer, scene, camera, PARAMS.get("quality") || "auto");
+  vState.topTier = vState.tier;
+  vState.maxScale = Math.min(window.devicePixelRatio || 1, WorldRender.cfg.cap);
+  vState.scale = WorldRender.soft ? 0.5 : vState.maxScale;
+  renderer.setPixelRatio(vState.scale);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  WorldRender.resize();
+  WorldKit.lights(T, WorldRender.TIERS[vState.tier].lights, renderer.capabilities.isWebGL2 && WorldRender.cfg.reflect > 0);
+  vState.lib = WorldBake.make(T, renderer, vState.tier === "low" ? 256 : 512);
   vState.lights.hemi = new T.HemisphereLight(0xc4ccd4, 0x20262b, 1);
   vState.lights.sun = new T.DirectionalLight(0xdfe6ec, 0.5);
   vState.lights.sun.position.set(-30, 60, 20);
@@ -324,6 +341,8 @@ function vBuild() {
   vState.parts.sky = WorldScenery.sky(T);
   vState.parts.rain = vRain(T);
   vState.parts.splash = vSplash(T);
+  vState.parts.rain.layers.set(1);
+  vState.parts.splash.layers.set(1);
   scene.add(vState.parts.sky, vState.parts.rain, vState.parts.splash);
   vProps(T, scene);
   vFigures(T, scene);
@@ -333,6 +352,7 @@ function vBuild() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight, false);
+    WorldRender.resize();
   });
   ctx.canvas.addEventListener("click", function () {
     if (!vState.open && ctx.canvas.requestPointerLock) {
@@ -405,7 +425,13 @@ function vStep(dt) {
     var dx = P.x - o[0], dz = P.z - o[1], d = Math.hypot(dx, dz), r = o[2] + 0.3;
     if (d < r && d > 0.0001) { P.x = o[0] + dx / d * r; P.z = o[1] + dz / d * r; }
   });
-  var lim = vState.radius + 20, r = Math.hypot(P.x, P.z);
+  (vState.boxes || []).forEach(function (b) {
+    var x0 = b[0] - 0.35, z0 = b[1] - 0.35, x1 = b[2] + 0.35, z1 = b[3] + 0.35;
+    if (P.x <= x0 || P.x >= x1 || P.z <= z0 || P.z >= z1) return;
+    var dl = P.x - x0, dr = x1 - P.x, dn = P.z - z0, df = z1 - P.z, m = Math.min(dl, dr, dn, df);
+    if (m === dl) P.x = x0; else if (m === dr) P.x = x1; else if (m === dn) P.z = z0; else P.z = z1;
+  });
+  var lim = WorldCity.LIMIT, r = Math.hypot(P.x, P.z);
   if (r > lim) { P.x *= lim / r; P.z *= lim / r; }
   var went = Math.hypot(P.x - x0, P.z - z0);
   vState.walk += went * V_STRIDE * (fwd < 0 ? -1 : 1);
@@ -600,12 +626,17 @@ function vFrame(now) {
   rain.uTime.value = splash.uTime.value = vState.time;
   rain.uCam.value.copy(cam.position);
   splash.uCam.value.copy(cam.position);
+  WorldStreet.frame(vState.time, dt, 1 - vState.daylight, vReduced());
   if (!vReduced()) {
     vBots(vState.time);
-    WorldScenery.uniforms.time.value = WorldBots.beat.time.value = vState.time;
+    WorldKit.uniforms.time.value = WorldBots.beat.time.value = vState.time;
   }
   drawHud();
-  vState.renderer.render(vState.scene, cam);
+  if (!WorldRender.soft || now - vState.drawn > 95 || !vState.drawn) {
+    vState.drawn = now;
+    WorldKit.pick(cam, vState.time, 1 - vState.daylight);
+    WorldRender.render(vState.time, 1 - vState.daylight, vState.exposure);
+  }
   drawLabels();
   vState.frames += 1;
   vState.work.push(performance.now() - t0);
@@ -633,9 +664,15 @@ function vTune(now) {
   var was = vState.scale;
   if (mid > target * 1.15 && vState.scale > 0.5) vState.scale = Math.max(0.5, vState.scale * 0.85);
   else if (mid < target * 1.03 && vState.scale < vState.maxScale) vState.scale = Math.min(vState.maxScale, vState.scale * 1.08);
+  if (mid > target * 1.15 && was <= 0.5 && WorldRender.step(-1)) {
+    vState.tier = WorldRender.tier;
+    vState.maxScale = Math.min(window.devicePixelRatio || 1, WorldRender.cfg.cap);
+    vState.scale = Math.max(0.5, vState.maxScale * 0.8);
+  }
   if (vState.scale !== was) {
     vState.renderer.setPixelRatio(vState.scale);
     vState.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    WorldRender.resize();
   }
 }
 
@@ -963,8 +1000,8 @@ window.FleetWorld = Object.freeze({
       beacons: vState.parts.beacon ? vState.parts.beacon.count : 0,
       player: Object.assign({}, vState.player), near: vState.near, open: vState.open,
       daylight: vState.daylight, night: vState.daylight < 0.5,
-      lamps: vState.lights.bulbs ? vState.lights.bulbs[0].intensity : 0,
-      rain: V_RAIN, calls: r ? r.info.render.calls : 0, triangles: r ? r.info.render.triangles : 0,
+      lamps: vState.lamp || 0, quality: vState.tier, soft: WorldRender.soft, town: vState.town && Object.assign({}, vState.town),
+      rain: V_RAIN, calls: WorldRender.calls, triangles: WorldRender.triangles, passes: WorldRender.frameCalls,
       fps: vState.intervals.length ? Math.round(1000 / vPct(vState.intervals.slice(-120), 0.5)) : 0,
       frameMs: vPct(vState.intervals.slice(-120), 0.5), workMs: vPct(vState.work.slice(-120), 0.5),
       scale: vState.scale, refreshMs: vState.refresh, budgetMs: V_BUDGET_MS,
