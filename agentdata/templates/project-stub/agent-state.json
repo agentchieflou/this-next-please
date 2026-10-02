@@ -1,4 +1,5 @@
 {
+  "schema": 2,
   "project": "<PROJECT_KEY>",
   "phase": "idle",
   "active_ticket": null,

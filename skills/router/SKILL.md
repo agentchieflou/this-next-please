@@ -8,6 +8,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 2. Run `ad-state blocking --ticket <the key this request names, else omit the flag>`. It lists only the questions that stop **this** ticket's work; questions parked on other tickets are counted, never shown, and never stop you.
    - `blocking: 0` → continue.
    - The user's message answers a listed question → `ad-state answer <id> "<their words>"`. It orders work that makes the question moot → `ad-state supersede <id> "<their instruction>"`. Either way, one line, then continue.
+   - A listed question with `want: access` is an environment blocker: run the one command it names, once. It works now → `ad-state answer <id> "fixed: <command> ran <today>"`, continue. Still refused → as below.
    - Otherwise print `blocked — <id>: <question>` and STOP. Do not run `friction-log` again: the question was logged when it was asked.
 3. Decide how this work is tracked before matching. The user picks per request; the project's `ticket_policy` fact sets the default.
    - The request names a ticket key, or `active_ticket` is set → that ticket. Nothing to do.

@@ -463,3 +463,37 @@ def test_publish_report_lets_a_file_visual_through_where_the_tenant_allows_files
     rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample",
                        "--dry-run"])
     assert rc == 0 and "dry_run: true" in capsys.readouterr().out
+
+
+def _clean_report(tmp_path):
+    """The sample report without its one visual the target model cannot bind."""
+    clean_dir = tmp_path / "Clean.Report"
+    shutil.copytree(SAMPLE_REPORT_DIR, clean_dir)
+    shutil.rmtree(clean_dir / "definition" / "pages" / "page1" / "visuals" / "aaaaaaaaaaaaaaaaaaaa")
+    return str(clean_dir)
+
+
+def test_a_publish_the_service_does_not_hold_is_unverified_not_done(fake_az, capsys, tmp_path, monkeypatch):
+    """Friction scan 1.2: the operation said Succeeded, so the publish said done. Now the live
+    definition is read back, and a part this publish sent that the service lacks is
+    `publish_unverified`, status Indeterminate, exit 1."""
+    real = FabricClient.report_definition_by_id
+
+    def short(self, ws_id, rep_id):
+        live = real(self, ws_id, rep_id)
+        return {**live, "parts": [p for p in live["parts"] if p["path"] != "definition.pbir"]}
+
+    monkeypatch.setattr(FabricClient, "report_definition_by_id", short)
+    rc = cli_pbi.main(["publish", "report", _clean_report(tmp_path), "--workspace", "Sales Workspace",
+                       "--model", "TargetModel", "--name", "BrandNewReport"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "publish_unverified" in err and "Indeterminate" in err and "definition.pbir" in err
+
+
+def test_a_publish_reads_its_report_back_before_it_says_done(fake_az, capsys, tmp_path):
+    rc = cli_pbi.main(["publish", "report", _clean_report(tmp_path), "--workspace", "Sales Workspace",
+                       "--model", "TargetModel", "--name", "BrandNewReport"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "verified: true" in out and "parts_live:" in out

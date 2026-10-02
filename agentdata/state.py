@@ -8,6 +8,12 @@ from datetime import datetime, timedelta, timezone
 from . import textio
 
 PATH = os.path.join(".agent", "state.json")
+# The shape of `state.json`, stamped on every write (friction scan 1.6, §3 item 6). 1 is everything
+# before the number existed: questions as bare strings. 2: questions as records with ids, answered
+# and superseded questions kept, and each question scoped to its ticket. A file stamped newer than
+# this `ad-state` knows is refused rather than half-understood: a skill and the CLI that disagree
+# about the file is the drift the scan found, and it should fail by name, not as a missing key.
+SCHEMA = 2
 PHASES = ("idle", "triaged", "querying", "optimizing", "validating", "documenting", "pr_open", "blocked", "done", "closed", "merged")
 STRING_KEYS = ("active_ticket", "branch", "pr_url", "confluence_url", "project")
 TOOL_KEYS = ("doctor_verified", "pncli_verified", "graph_approved")
@@ -167,6 +173,13 @@ def load(path: str = PATH) -> dict:
         raise StateError(str(e), hint="restore the file from git, or delete it and run `ad-setup --project .`") from None
     if not isinstance(data, dict):
         raise StateError(f"{path}: top level must be an object", hint="delete it and run `ad-setup --project .`")
+    try:
+        written = int(data.get("schema") or 1)
+    except (TypeError, ValueError):
+        written = 1
+    if written > SCHEMA:
+        raise StateError(f"{path} was written by a newer ad-state (schema {written}; this one reads up to {SCHEMA})",
+                         hint="`ad-update` brings the CLI and the skills to the same version, then start a new chat")
     return data
 
 
@@ -177,6 +190,7 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     """Validate and merge. `sets` keys: phase, active_ticket, branch, pr_url, confluence_url, project."""
     was_phase = state.get("phase") or ""
     was_ticket = state.get("active_ticket")
+    state["schema"] = SCHEMA
     give_ids(state, today)
     for k, v in sets.items():
         if k == "phase":

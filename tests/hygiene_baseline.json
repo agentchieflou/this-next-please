@@ -830,7 +830,7 @@
       "tests": 24
     },
     "tests/test_pbi_cli.py": {
-      "tests": 16
+      "tests": 18
     },
     "tests/test_pbi_probe.py": {
       "skips": 3,
@@ -895,7 +895,7 @@
       "tests": 22
     },
     "tests/test_routing_friction.py": {
-      "tests": 7
+      "tests": 9
     },
     "tests/test_screenshot.py": {
       "tests": 11
@@ -921,6 +921,9 @@
     "tests/test_skill_argv.py": {
       "skips": 2,
       "tests": 9
+    },
+    "tests/test_skill_contracts.py": {
+      "tests": 4
     },
     "tests/test_skill_handoffs.py": {
       "tests": 7
@@ -962,7 +965,7 @@
       "tests": 11
     },
     "tests/test_state.py": {
-      "tests": 12
+      "tests": 13
     },
     "tests/test_stress_one.py": {
       "tests": 4

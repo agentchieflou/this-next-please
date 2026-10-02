@@ -32,7 +32,7 @@ Inputs: `pbip_path` fact or report directory, target workspace (`--workspace <na
    - Records the 202 operation ID to `.agent/out/pbi-ops/<op-id>.json` before polling.
    - If publish fails or operation reports `Failed`, record error details and invoke `friction-log`.
 
-4. **Verify deployment** — a publish is done only when this step shows it. Exit 0 or a 202 alone is status Indeterminate.
+4. **Verify deployment** — a publish is done only when this step shows it. Exit 0 or a 202 alone is status Indeterminate. The publish itself reads the definition back and prints `verified: true`; `code: publish_unverified` → `friction-log` type `tool-error`, never call it done.
    Verify the published report appears in the workspace:
    `ad-pbi ls --workspace <workspace> --kind report`
    If XMLA is configured on the workspace, verify live model queries using:

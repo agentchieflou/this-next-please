@@ -230,3 +230,22 @@ def test_a_followup_is_recorded_and_never_stops_the_agent(tmp_path, monkeypatch,
     st = json.load(open(p, encoding="utf-8"))
     access = st["open_questions"][-1]
     assert access["want"] == "access" and access["ticket"] is None and st["phase"] == "blocked"
+
+
+def test_the_file_carries_its_schema_and_a_newer_one_is_refused_by_name(tmp_path, monkeypatch, capsys):
+    """Friction scan 1.6 / §3 item 6: version the state.json schema. Every write stamps it; a file a
+    newer `ad-state` wrote is refused with the fix, never read as if its keys meant what they used to."""
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "phase=querying"]) == 0
+    assert json.load(open(p, encoding="utf-8"))["schema"] == S.SCHEMA
+    future = dict(STUB, schema=S.SCHEMA + 1)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(future, f)
+    capsys.readouterr()
+    assert cli_state.main(["show"]) == 2
+    out = capsys.readouterr().out
+    assert "newer ad-state" in out and "ad-update" in out
+    stub = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                       "agentdata", "templates", "project-stub", "agent-state.json"),
+                          encoding="utf-8"))
+    assert stub["schema"] == S.SCHEMA, "a new project starts on the schema the CLI writes"

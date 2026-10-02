@@ -66,3 +66,18 @@ def test_1_2_success_is_proven_not_inferred_from_an_exit_code():
 def test_2_x_test_regress_has_a_scoped_mode_for_a_dirty_worktree():
     text = skill("test-regress")
     assert "scoped mode" in text and "git stash push --include-untracked --" in text
+
+
+def test_2_6_first_run_setup_never_waits_on_a_keyboard():
+    """data_remediation_foundry_dpm_fork: the interactive Jira key prompt timed out on first-time
+    setup. The command is always `--non-interactive`; the key is inferred or asked through ad-state."""
+    one = step(skill("session-bootstrap"), 1)
+    assert "--non-interactive" in one and "Never run `ad-setup` without `--non-interactive`" in one
+    assert "git log -20 --format=%s" in one and '--want value' in one
+
+
+def test_2_6_a_cleared_environment_blocker_has_a_way_out():
+    """The bootstrap loop: an environment blocker that later cleared had no defined recovery
+    transition, so every session stopped on it again."""
+    two = step(skill("router"), 2)
+    assert "want: access" in two and "fixed: <command> ran <today>" in two
