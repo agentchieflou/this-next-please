@@ -80,6 +80,17 @@ thing the tree carries from one graph to the next; it lives in memory and is not
 both templates and only shown when the row has one, through `hide`, so a redraw with nothing new
 still writes nothing.
 
+### `function mapGuide`
+
+The cleanup guide (`/tidy`) in a window of its own, named so a second press reuses it rather than
+stacking windows; `?repo=` when it came from one checkout's *clean up*, so that tree is decided first.
+A shell that refuses pop-ups (an IDE view) gets the guide in this tab instead of nothing.
+
+### `function mapDirty`
+
+The toolbar's *clean up N dirty trees*: shown only when the graph has a dirty checkout, counted from
+the same `checkout.dirty` the chips read, so the button and the tree never disagree.
+
 ### `function mapOpen`
 
 Opens the agent's pane on the desk the way Enter always did (`POST /api/window {w, open}`), and lands

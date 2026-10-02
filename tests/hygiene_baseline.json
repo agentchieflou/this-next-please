@@ -224,6 +224,9 @@
     "tests/regressions/test_20260927_any_a_post_cut_off_before_its_body_is_not_acted_on.py": {
       "tests": 1
     },
+    "tests/regressions/test_20261002_any_chrome_check_drawn_over_struck_cross.py": {
+      "tests": 1
+    },
     "tests/regressions/test_convention.py": {
       "tests": 3
     },

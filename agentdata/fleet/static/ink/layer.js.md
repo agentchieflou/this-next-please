@@ -64,6 +64,12 @@ Beside `const FOLLOW_MS = 400;`:
 
 how long a transition is followed: --motion-slow and a margin
 
+### `const MARGIN_SHAPES`
+
+The three shapes drawn at one anchor in a pane's margin (`shapes.margin`): the check, the bang and the
+cross. They share a spot, so two of them on one element are drawn over each other -- the red cross and
+the green check the operator saw overlapping (2026-10).
+
 ### `const TOKENS`
 
 Beside `const REVEAL_BLEED = 14;`:
@@ -426,6 +432,18 @@ In `compile`, above `const row = m.row, old = row.history.get(m.el);`:
 
 One struck mark kept per row and element: the history stays visible, and a state that
 comes and goes all day does not stack a hundred strikes on one name.
+
+Except in the margin: a margin mark (`MARGIN_SHAPES`) struck while another margin mark on the same
+element is already drawing or drawn is dropped at once (`marginTaken`), because both sit at one
+anchor and the struck one would be drawn under the new one -- the check over the cross. History is
+kept for every other mark, and for a margin mark nothing replaces.
+
+Above `clearMargin(el, keep) {`:
+
+The other half, for the order the lane usually runs in (the strike first, then the draw): when a
+margin mark starts drawing, any struck margin mark on its element is taken up first, so the spot is
+empty when the new mark lands. A struck margin mark nobody replaces -- a pane that left done for
+running -- keeps its strike as before.
 
 Above `lift(m) {`:
 

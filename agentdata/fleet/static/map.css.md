@@ -58,3 +58,8 @@ Enter on the item does the same thing.
 
 The words of a checkout or an agent open it (#578), so they look like it: a pointer, and an
 underline under the pointer.
+
+### `#maptree .maptidy`
+
+*clean up* on a dirty checkout, the same shape as *open chat* and dashed like the dirty branch chip it
+sits beside: it is about the uncommitted changes, and it opens the guide rather than changing anything.
