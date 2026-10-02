@@ -224,7 +224,7 @@ def test_get_report_refuses_legacy_format(fake_az, capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "pbir_legacy_format" in err
-    assert "Store reports using enhanced metadata format (PBIR)" in err
+    assert "PBIR is the default format" in err and "converts a PBIR-Legacy report on save" in err
 
 
 def test_get_report_extracts_parts_with_forward_slashes(fake_az, tmp_path):
