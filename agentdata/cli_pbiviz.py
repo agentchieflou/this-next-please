@@ -24,15 +24,43 @@ def utf8_stdout() -> None:
 from .policy import error, render
 
 
+SDK_ONLY = " (an SDK visual: refused until AGENTS.md says pbi_sdk_visuals: approved)"
+
+
+def _sdk_gate():
+    from . import config as C
+    from .pbiviz import gate as SG
+    return SG.gate(C.project_facts())
+
+
+def _sdk_refused(verb: str) -> int | None:
+    """Refuse a verb that builds, serves, packages or imports an SDK visual while `pbi_sdk_visuals` is not
+    `approved`: the enterprise blocks non-certified visuals (agentdata/pbiviz/gate.py). Exit 2: a refusal."""
+    from .pbiviz import gate as SG
+    g = _sdk_gate()
+    if g.approved:
+        return None
+    print(toon.encode({"meta": SG.refusal(verb, g)}))
+    return 2
+
+
 def cmd_doctor(a) -> int:
-    checks = PV.doctor()
+    from .pbiviz import gate as SG
+    g = _sdk_gate()
+    # the gate first; while blocked, the toolchain is neither probed nor offered
+    checks = SG.doctor_rows(g) + (PV.doctor() if g.approved else [])
     t = AgentTable.from_records(checks, name="doctor", source="ad-pbiviz doctor")
-    has_fail = any(c["status"] == "fail" for c in checks)
-    print(render(t, extra={"ok": not has_fail, "source": "ad-pbiviz doctor"}))
+    has_fail = any(c["status"] in ("fail", "blocked") for c in checks)
+    extra = {"ok": not has_fail, "source": "ad-pbiviz doctor", SG.FACT: g.state}
+    if not g.approved:
+        extra["code"] = SG.CODE
+    print(render(t, extra=extra))
     return 1 if has_fail else 0
 
 
 def cmd_new(a) -> int:
+    if (refused := _sdk_refused("new")) is not None:
+        return refused
     try:
         res = PV.scaffold_visual(a.name, template=a.template)
         t = AgentTable.from_records([res], name="new", source="ad-pbiviz new")
@@ -75,6 +103,8 @@ def cmd_bind(a) -> int:
 
 
 def cmd_dev(a) -> int:
+    if (refused := _sdk_refused("dev")) is not None:
+        return refused
     try:
         res = PV.start_dev_server(a.name, pbip_dir=a.pbip, port=a.port)
         t = AgentTable.from_records([res], name="dev", source="ad-pbiviz dev")
@@ -86,6 +116,8 @@ def cmd_dev(a) -> int:
 
 
 def cmd_stop(a) -> int:
+    if (refused := _sdk_refused("stop")) is not None:
+        return refused
     res = PV.stop_dev_server(a.name)
     t = AgentTable.from_records([res], name="stop", source="ad-pbiviz stop")
     print(render(t, extra={"ok": True, "source": "ad-pbiviz stop", "visual": a.name, "status": res["status"]}))
@@ -93,6 +125,8 @@ def cmd_stop(a) -> int:
 
 
 def cmd_package(a) -> int:
+    if (refused := _sdk_refused("package")) is not None:
+        return refused
     try:
         res = PV.package_visual(a.name, bump=a.bump)
         t = AgentTable.from_records([res], name="package", source="ad-pbiviz package")
@@ -104,6 +138,8 @@ def cmd_package(a) -> int:
 
 
 def cmd_import(a) -> int:
+    if (refused := _sdk_refused("import")) is not None:
+        return refused
     pos = (100, 100, 400, 300)
     if a.position:
         try:
@@ -134,6 +170,7 @@ def cmd_candidate(a) -> int:
                         "ad-pbiviz candidate"))
             return 1
         tried[rid.strip().upper()] = reason.strip()
+    tried = CV.complete(tried)
     try:
         res = CV.record(a.requirement, tried, where=a.where, ticket=a.ticket,
                         tenant=C.project_facts().get("pbi_custom_visuals"))
@@ -158,19 +195,22 @@ def cmd_candidates(a) -> int:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ad-pbiviz",
-        description="Power BI custom visual development loop (pbiviz): scaffold, dev, bind, package, import",
+        description="Power BI custom visuals: log a candidate a certified visual cannot draw; the SDK loop (new, "
+                    "dev, stop, package, import) refuses with sdk_visuals_blocked until AGENTS.md says "
+                    "pbi_sdk_visuals: approved",
     )
     from .version import add_version
     add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     # doctor
-    p_doc = sub.add_parser("doctor", help="probe node, pbiviz, and dev certificate status")
+    p_doc = sub.add_parser("doctor", help="the SDK gate (pbi_sdk_visuals) first; once approved, node, pbiviz "
+                                          "and the dev certificate")
     p_doc.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_doc.set_defaults(fn=cmd_doctor)
 
     # new
-    p_new = sub.add_parser("new", help="scaffold custom visual under visuals/<name>/")
+    p_new = sub.add_parser("new", help="scaffold custom visual under visuals/<name>/" + SDK_ONLY)
     p_new.add_argument("name", help="visual project name")
     p_new.add_argument("--template", default="default", choices=["default", "circlecard"], help="visual template")
     p_new.add_argument("--pretty", action="store_true", help="draw it as a table")
@@ -191,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bind.set_defaults(fn=cmd_bind)
 
     # dev
-    p_dev = sub.add_parser("dev", help="start background pbiviz dev server on localhost:8080")
+    p_dev = sub.add_parser("dev", help="start background pbiviz dev server on localhost:8080" + SDK_ONLY)
     p_dev.add_argument("name", help="visual project name")
     p_dev.add_argument("--pbip", help="optional PBIP path")
     p_dev.add_argument("--port", type=int, default=8080, help="dev server port (default: 8080)")
@@ -199,20 +239,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_dev.set_defaults(fn=cmd_dev)
 
     # stop
-    p_stop = sub.add_parser("stop", help="stop running dev server")
+    p_stop = sub.add_parser("stop", help="stop running dev server" + SDK_ONLY)
     p_stop.add_argument("name", help="visual project name")
     p_stop.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_stop.set_defaults(fn=cmd_stop)
 
     # package
-    p_pkg = sub.add_parser("package", help="package visual into .pbiviz bundle")
+    p_pkg = sub.add_parser("package", help="package visual into .pbiviz bundle" + SDK_ONLY)
     p_pkg.add_argument("name", help="visual project name")
     p_pkg.add_argument("--bump", choices=["patch", "minor"], help="bump version in pbiviz.json before packaging")
     p_pkg.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_pkg.set_defaults(fn=cmd_package)
 
     # import
-    p_imp = sub.add_parser("import", help="register .pbiviz into PBIP and instantiate on page")
+    p_imp = sub.add_parser("import", help="register .pbiviz into PBIP and instantiate on page" + SDK_ONLY)
     p_imp.add_argument("name", help="visual project name")
     p_imp.add_argument("--pbip", required=True, help="path to PBIP root directory")
     p_imp.add_argument("--page", required=True, help="target page id or display name")
@@ -226,7 +266,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "a reason per route")
     p_cand.add_argument("requirement", help="what a viewer must see, e.g. \"variance label at each bar end\"")
     p_cand.add_argument("--tried", action="append", required=True,
-                        help="<route id>=<what the requirement needs that the route lacks>; one per route N1-N7, C1-C2")
+                        help="<route id>=<what the requirement needs that the route lacks>; one per route N1-N6, C1-C2 "
+                             "(N7 is recorded as unavailable)")
     p_cand.add_argument("--where", help="the report, page and visual it was for")
     p_cand.add_argument("--ticket", help="the ticket it was for")
     p_cand.add_argument("--pretty", action="store_true", help="draw it as a table")

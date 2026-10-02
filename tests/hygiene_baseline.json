@@ -845,7 +845,7 @@
       "tests": 24
     },
     "tests/test_pbi_cli.py": {
-      "tests": 18
+      "tests": 20
     },
     "tests/test_pbi_probe.py": {
       "skips": 3,
@@ -855,7 +855,7 @@
       "tests": 13
     },
     "tests/test_pbip_deneb.py": {
-      "tests": 9
+      "tests": 12
     },
     "tests/test_pbip_features.py": {
       "tests": 25
@@ -873,10 +873,10 @@
       "tests": 22
     },
     "tests/test_pbiviz.py": {
-      "tests": 34
+      "tests": 45
     },
     "tests/test_pbiviz_candidate.py": {
-      "tests": 6
+      "tests": 7
     },
     "tests/test_perf_loop.py": {
       "skips": 1,

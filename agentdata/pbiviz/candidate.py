@@ -28,11 +28,19 @@ ROUTES: tuple[tuple[str, str], ...] = (
     ("N4", "analytics and conditional formatting: reference lines, error bars, bands, colour rules, icons"),
     ("N5", "composition: combo chart, small multiples, field parameters, visual calculations, tooltip pages"),
     ("N6", "paginated report visual: labels and shapes from expressions"),
-    ("N7", "R or Python visual, where the tenant enables them"),
+    ("N7", "R or Python visual: unavailable, it needs an R or Python runtime and packages"),
     ("C1", "Deneb: a Vega or Vega-Lite specification in the certified visual"),
     ("C2", "another Microsoft-certified visual"),
 )
 ROUTE_IDS = tuple(r for r, _ in ROUTES)
+
+# Routes nobody may take, so nobody has to try them: the reason is written for the agent. An R or Python visual
+# draws with a runtime and packages installed on the machine, external packaging the enterprise has not approved
+# (the approved tools are te2, dscmd and az).
+UNAVAILABLE = {
+    "N7": "unavailable: an R or Python visual needs an R or Python runtime and its packages, external packaging "
+          "outside the approved tool set (te2, dscmd, az)",
+}
 
 # A reason has to name what the requirement needs that the route lacks. These say nothing of the kind.
 THIN = {"n/a", "na", "no", "none", "nope", "-", "tried", "tried it", "not possible", "impossible", "can't",
@@ -54,6 +62,15 @@ class CandidateError(RuntimeError):
 def _thin(reason: str) -> bool:
     text = " ".join(reason.split()).strip().strip(".").lower()
     return len(text) < MIN_REASON or text in THIN
+
+
+def complete(tried: dict[str, str]) -> dict[str, str]:
+    """`tried` with every unavailable route's reason filled in, unless the caller gave one of their own."""
+    out = dict(tried)
+    for rid, why in UNAVAILABLE.items():
+        if rid not in out or _thin(out[rid]):
+            out[rid] = why
+    return out
 
 
 def validate(requirement: str, tried: dict[str, str]) -> None:
@@ -85,6 +102,7 @@ def _slug(text: str) -> str:
 def record(requirement: str, tried: dict[str, str], *, where: str | None = None, ticket: str | None = None,
            tenant: str | None = None, root: str = DEFAULT_ROOT, today: str | None = None) -> dict[str, Any]:
     """Write `<root>/<yyyymmdd>-<slug>.md` and return what was written."""
+    tried = complete(tried)
     validate(requirement, tried)
     day = today or _dt.date.today().isoformat()
     os.makedirs(root, exist_ok=True)

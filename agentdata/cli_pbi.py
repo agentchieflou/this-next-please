@@ -102,15 +102,18 @@ def cmd_get(args: argparse.Namespace) -> int:
         return 1
 
 
-def _custom_visual_refusal(report_dir: str) -> int | None:
+def _custom_visual_refusal(report_dir: str, workspace: tuple[str, ...] = ()) -> int | None:
     """Refuse to publish a report that carries a visual its viewers may not see.
 
     A blocked custom visual reached the service once, because nothing between the report and the
     publish looked at where its visuals come from. There is deliberately no override flag: the way
-    through is a route the tenant renders, or the truth about the tenant recorded in AGENTS.md."""
+    through is a route the tenant renders, or the truth about the tenant recorded in AGENTS.md. A visual
+    that is not Microsoft-certified is refused on every tenant (the enterprise floor); with `workspace`
+    (the resolved target, id and name), an SDK visual is refused outside the workspace its approval names;
+    the offline call passes none, so the project's own `pbi_workspace` never stands in for `--workspace`."""
     from .pbip import check as CK
     from .pbip import pbir as P
-    blocking = [f for f in CK.custom_visual_delivery(P.load_report(report_dir), C.project_facts())
+    blocking = [f for f in CK.custom_visual_delivery(P.load_report(report_dir), C.project_facts(), workspace)
                 if f.severity == "error"]
     if not blocking:
         return None
@@ -150,6 +153,11 @@ def cmd_publish_report(args: argparse.Namespace) -> int:
     client = FabricClient(tenant=args.tenant)
     try:
         ws_id, ws_name = client.resolve_workspace(args.workspace)
+        from .pbiviz import gate as SG
+        if SG.gate(C.project_facts()).workspace:   # an SDK approval names its workspace: hold the target to it
+            refused = _custom_visual_refusal(report_dir, (ws_id, ws_name))
+            if refused is not None:
+                return refused
         report_name = args.name or default_name
 
         # Resolve model

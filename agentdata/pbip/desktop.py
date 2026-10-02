@@ -1176,13 +1176,17 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
         "evidence": dev_ev,
     })
 
-    # 9. pbiviz
-    pbiviz_path = shutil.which("pbiviz") or shutil.which("pbiviz.cmd")
+    # 9. pbiviz: the SDK toolchain (npm) is neither offered nor probed while `pbi_sdk_visuals` is not `approved`
+    # (agentdata/pbiviz/gate.py; read here from the fact itself, so the desk's import closure stays as it is)
+    from .. import config as C
+    sdk = str(C.project_facts().get("pbi_sdk_visuals") or "").strip().lower() == "approved"
+    pbiviz_path = (shutil.which("pbiviz") or shutil.which("pbiviz.cmd")) if sdk else None
     out.append({
         "capability": "pbiviz",
         "available": bool(pbiviz_path),
-        "via": "npm",
-        "evidence": pbiviz_path or "pbiviz not found on PATH",
+        "via": "npm" if sdk else "blocked",
+        "evidence": pbiviz_path or ("pbiviz not found on PATH" if sdk else "not offered: pbi_sdk_visuals is "
+                                    "blocked (non-certified visuals; npm is outside te2, dscmd, az)"),
     })
 
     return out

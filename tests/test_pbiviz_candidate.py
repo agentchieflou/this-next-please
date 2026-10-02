@@ -93,3 +93,16 @@ def test_every_route_has_a_section_in_the_reference_and_nothing_else_does():
     that exists in one and not the other sends the agent to a section that is not there."""
     headings = re.findall(r"(?m)^### ([NC]\d)\b", open(REFERENCE, encoding="utf-8").read())
     assert headings == list(CV.ROUTE_IDS)
+
+
+def test_an_unavailable_route_needs_no_reason_and_is_recorded_as_unavailable(tmp_path, monkeypatch, capsys):
+    """N7 draws with an R or Python runtime and packages: external packaging outside te2, dscmd and az. Nobody
+    may take it, so nobody has to try it; the candidate says why."""
+    monkeypatch.chdir(tmp_path)
+    without_n7 = {k: v for k, v in REASONS.items() if k != "N7"}
+    code, out = _run(["candidate", "second axis inside each bar", *_tried(without_n7)], capsys)
+    assert code == 0 and "status: logged" in out
+    text = open(re.search(r"path: (\S+)", out).group(1), encoding="utf-8").read()
+    assert re.search(r"\| N7 \| R or Python visual: unavailable.*\| unavailable: .*R or Python runtime", text)
+    assert CV.complete({"N7": "n/a"})["N7"] == CV.UNAVAILABLE["N7"]
+    assert CV.complete({"N7": REASONS["N7"]})["N7"] == REASONS["N7"]

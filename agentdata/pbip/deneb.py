@@ -97,12 +97,22 @@ def _register(report_root: str) -> str:
 def add(pbip_path: str, page: str, spec_path: str, fields: list[str], *, provider: str = "vegaLite",
         title: str | None = None, position: tuple[int, int, int, int] | None = None,
         cross_filter: bool = False, cross_highlight: bool = False, facts: dict | None = None) -> dict[str, Any]:
-    """A new Deneb visual on `page`, its Values filled with `fields`, drawing the specification."""
+    """A new Deneb visual on `page`, its Values filled with `fields`, drawing the specification.
+
+    With `facts` (the CLI always passes AGENTS.md's), it refuses what `ad-pbip check` would: Deneb whose
+    certification nobody recorded (its GUID missing from `pbi_certified_visuals`), and AppSource Deneb on a
+    tenant that renders the organizational store only."""
     if (facts or {}).get("pbi_custom_visuals", "").strip().lower() == "org-only":
         raise DenebError("this tenant renders organizational-store visuals only, so Deneb from AppSource would "
                          "not render",
                          "add Deneb from My organization in Desktop once, then "
                          "`ad-pbip visual deneb --visual <id> --spec <file>` sets its specification")
+    certified = {g.strip().lower() for g in str((facts or {}).get("pbi_certified_visuals") or "").split(",")}
+    if facts is not None and GUID.lower() not in certified:
+        raise DenebError("Deneb's certification is not recorded: pbi_certified_visuals does not list "
+                         f"{GUID}, and the enterprise blocks visuals that are not certified",
+                         "check the certified badge on Deneb's AppSource listing, then add the GUID to "
+                         "pbi_certified_visuals in AGENTS.md (the project stub presets it)")
     if not fields:
         raise DenebError("a Deneb visual needs at least one field", "--fields 'Table'[Column] [Measure] ...")
     _spec, spec_text = load_spec(spec_path)

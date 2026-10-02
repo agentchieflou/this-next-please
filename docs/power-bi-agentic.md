@@ -76,7 +76,7 @@ The Fabric REST item-definition API (`/v1/workspaces/{ws}/reports`, `/getDefinit
 | Backslash path separators | API rejects payloads with backslashes with `MissingDefinitionParts`. | Every part path is normalized to forward slashes (`/`) regardless of local OS conventions. |
 | Local `byPath` semantic model reference | Service reports cannot use local relative paths (`byPath`); visual rendering fails. | `definition.pbir` is dynamically rewritten in memory to `byConnection` referencing the cloud model ID; the file on disk stays `byPath`. |
 | Out-of-sync model entities | If a table or column was renamed in the target model, visual fields break silently upon publish. | Binding verification diff: `ad-pbi` fetches the target model TMDL and diffs PBIR field references against `ModelIndex` before publishing. Unbound references halt publish unless `--allow-unbound`. |
-| A custom visual the tenant will not render | Desktop follows Group Policy and the service follows the tenant settings, so the visual works locally and every viewer gets an error in its place. | `ad-pbi publish report` reads where each custom visual comes from and refuses (`custom_visual_blocked`) before any call, when the `pbi_custom_visuals` fact says the tenant blocks it or nobody recorded the tenant. There is no override flag. |
+| A custom visual the tenant will not render | Desktop follows Group Policy and the service follows the tenant settings, so the visual works locally and every viewer gets an error in its place. | `ad-pbi publish report` reads where each custom visual comes from and refuses (`custom_visual_blocked`) before any call, when the visual is not certified (the enterprise floor: its GUID not in `pbi_certified_visuals`, or a private `.pbiviz` while `pbi_sdk_visuals` is blocked), when the `pbi_custom_visuals` fact says the tenant blocks it, or when nobody recorded the tenant. There is no override flag. |
 | Credential leakage in logs/traces | Bearer tokens exposed in CLI output, logs, or error traces. | Tokens obtained through `az account get-access-token` are held in memory only, never printed to stdout/stderr, and scrubbed from error output. The token Tabular Editor is handed rides in its argv; `auth.redact` runs on the deploy log, every error tail, every result's `source` line and the doctor rows. |
 | `az login` that signs nothing in | The Azure CLI has a token cache; Tabular Editor 2 and DAX Studio (AMO / ADOMD.NET) have another, filled only by their own sign-in window. REST works, `TabularEditor.exe powerbi://…` stalls until a person opens the GUI and connects. | `powerbi.auth.mode: token` (default): every Tabular Editor launch gets a connection string carrying a token az just minted for the Power BI audience (`Password=<token>`, empty `User ID`), so no cache is consulted. Service DAX goes through Tabular Editor (`ad-pbi dax`); dscmd keeps Desktop and `.vpax`. A signed-out CLI is signed in by the command (`az login --allow-no-subscriptions`, once). `ad-pbi auth --probe` proves it; `interactive` is the way back. |
 
@@ -162,56 +162,39 @@ was verified against), `newer`, or `older`. It is a fact to report, not a gate.
 
 ## 3. Custom Visuals (`pbiviz`)
 
-The development loop for Power BI custom visualizations connects custom TypeScript/D3 rendering with live semantic model DAX measures.
+The enterprise blocks every custom visual that is not Microsoft-certified, and does not approve the packaging an
+SDK visual needs: the tools this package may ask a machine for are Tabular Editor 2, dscmd and the Azure CLI. So
+the routing never builds a visual of its own to deliver a report, and the custom TypeScript/D3 loop is **blocked
+until workspace approval**. The evidence and every route are in
+`skills/pbi-custom-visual/references/delivery-routes.md`.
 
-### The Loop
-1. **Scaffold**: `ad-pbiviz new <name>` creates `visuals/<name>/` with standard `pbiviz.json`, `capabilities.json` (`dataRoles`, `dataViewMappings`), and `src/visual.ts`.
-2. **Inspect & Bind**:
-   - `ad-pbiviz roles <name>` reviews declared `dataRoles` and their kinds (`Grouping` vs. `Measure`).
-   - `ad-pbiviz bind <name> --pbip <dir> --role category='Sales'[Product] --role measure=[Total Sales]` validates kinds against the projected model:
-     - `Grouping` roles require a bare column reference `'Table'[Column]`.
-     - `Measure` roles require a measure `[Measure]` or aggregated column `Sum('Table'[Column])`.
-     - Refuses invalid bindings and records `.agent/pbiviz/<name>.binding.json`.
-3. **Local Dev Server**: `ad-pbiviz dev <name>` starts `pbiviz start` on `https://localhost:8080/webpack-dev-server/`.
-4. **Desktop Live Developer Visual**:
-   - In Power BI Desktop: *Format -> Report settings -> Develop a visual: ON*.
-   - Add Developer Visual to the canvas to view real-time changes served from localhost.
-5. **Verify & Audit**:
-   - `ad-pbip visual-query --visual <custom_id>` executes `SUMMARIZECOLUMNS` over the visual's bound roles.
-   - `ad-pbip screenshot --visual <name>` captures cropped visual render.
-6. **Package & Import**:
-   - `ad-pbiviz package <name> [--bump patch|minor]` bundles `dist/<guid>.<version>.pbiviz` in the layout `pbiviz package` builds: `package.json`, and `resources/<guid>.pbiviz.json` holding the visual's metadata, capabilities and code. It compiles nothing, so that code is empty; `pbiviz package` in `visuals/<name>/` builds the same file with code.
-   - `ad-pbiviz import <name> --pbip <dir> --page <page_name>` installs the newest package in `dist/` the way Desktop saves *Import a visual from a file*: its files under the report's `CustomVisuals/<guid>/`, and one `resourcePackages` entry in `definition/report.json`, `{"name": "<guid>", "type": "CustomVisual", "items": [{"name": "<guid>.pbiviz.json", "path": "<guid>.pbiviz.json", "type": "CustomVisualMetadata"}]}`. It leaves `publicCustomVisuals` alone, since the report schema keeps that list for AppSource visuals. Then it places the visual container on the target page. It is for a Desktop test only.
-7. **Validation**:
-   - `ad-pbip check` enforces custom visual rules: `custom-visual-guid-unregistered`, `custom-visual-package-missing` (a private visual only: AppSource and store visuals are fetched by Power BI), `custom-visual-role-unfilled`, `custom-visual-role-kind-mismatch`, `custom-visual-store-disabled`, and, from the `pbi_custom_visuals` and `pbi_certified_visuals` facts, `custom-visual-tenant-unknown`, `custom-visual-tenant-blocked` and `custom-visual-certification-unconfirmed` (errors), `custom-visual-uncertified` and `custom-visual-tenant-fact-invalid` (warnings). `ad-pbi publish report` refuses on the same errors.
-   - `ad-pbip catalog describe <guid>` inspects capabilities directly from the imported package.
+### The enterprise floor
+- **Certified means listed.** A visual is certified when its GUID is in `pbi_certified_visuals` (the project stub
+  presets Deneb's). `ad-pbip check` and `ad-pbi publish report` refuse any other custom visual on every tenant:
+  `pbi_custom_visuals: allowed` no longer downgrades it to a warning, and a caller passing no facts gets the floor.
+- **Organizational store**: registered as a `resourcePackages` entry of type `OrganizationalStoreCustomVisual`
+  named `<GUID>_OrgStore` (the `visualType` too); a root `organizationCustomVisuals` entry registers nothing and is
+  a warning. A store visual passes when its GUID is certified, or when `pbi_org_visuals` lists it on a tenant
+  recorded as `org-only`.
+- **Native first, then certified.** N1–N6 need no admin (data-label fields, format strings, SVG measures,
+  analytics, composition, the paginated report visual); N7, an R or Python visual, is unavailable because its
+  runtime and packages are external packaging. Deneb draws any Vega or Vega-Lite specification, and
+  `ad-pbip visual deneb` writes it exactly as Deneb's PBIR guide describes, refusing while Deneb's GUID is not
+  listed. A specification is proved in Desktop with `ad-pbip screenshot`, never with a Node renderer.
+- **"Can't" costs a reason per route.** A need no route meets is logged with `ad-pbiviz candidate`: a proposal to
+  build it for AppSource and certification, never a visual in a report.
 
-### What Stays Manual
-- **Develop a visual toggle**: Desktop requires enabling *Format -> Report settings -> Develop a visual* once per report file.
-- **Localhost Certificate**: Running `pbiviz --install-cert` once in an administrative terminal to trust the development certificate.
-- **Organizational store**: a Fabric administrator (or Power Platform administrator) adds a certified visual such as
-  Deneb in the Fabric admin portal, *Organizational visuals*, for a tenant that renders store visuals only. Nobody
-  else can, and no API here does it for them.
+### SDK visuals: `pbi_sdk_visuals`
+`blocked` (the default, also when absent or misspelt): `ad-pbiviz new`, `dev`, `stop`, `package` and `import`
+refuse with `sdk_visuals_blocked`, `ad-pbiviz doctor` reports the gate and probes no toolchain, and
+`ad-pbip capabilities` reports its `pbiviz` row `via: blocked`. `roles`, `bind`, `candidate` and `candidates` need
+no Node and keep working. `approved` is the operator's to write once the enterprise grants workspace approval,
+with `pbi_sdk_workspace` naming the workspace; it approves Node.js, npm and `powerbi-visuals-tools` too. Then
+the loop (`skills/pbi-custom-visual/references/delivery-routes.md` §The SDK loop) runs for a logged candidate, a
+private visual is held to the tenant facts, and `ad-pbi publish report` resolves the target workspace and refuses
+any but `pbi_sdk_workspace` (`ad-pbip check` compares it with the project's `pbi_workspace` / `ws_id`).
 
-### Delivery under tenant policy
-A custom visual the tenant blocked reached production once: it worked in Desktop, which follows Group Policy, and
-failed for every viewer in the service, which follows the tenant settings. The routing now works in this order, and
-the evidence for each route is in `skills/pbi-custom-visual/references/delivery-routes.md`:
-- **Native first.** Data-label fields, format strings, SVG measures, analytics, composition, the paginated report
-  visual, script visuals (N1–N7). None needs an admin. The bar-end variance label that sent a chart to a custom
-  visual is a native data label.
-- **Then Microsoft-certified, customized to the limit.** Deneb draws any Vega or Vega-Lite specification, and
-  `ad-pbip visual deneb` writes one into a report exactly as Deneb's PBIR guide describes: no hand-written visual
-  JSON, and never the uncertified Standalone edition.
-- **Never a non-certified visual of our own.** A need that survives every route is logged with
-  `ad-pbiviz candidate`, which refuses without a reason per route: a proposal to build it and publish it to
-  AppSource for certification. The development loop runs only for a candidate the operator chose to build.
-- **Nothing ships that viewers may not see.** `pbi_custom_visuals` in the project's AGENTS.md records what the
-  tenant renders for the report's viewers (`allowed`, `certified-only`, `org-only`), and `pbi_certified_visuals`
-  the AppSource visuals whose certified badge was checked. `ad-pbip check` and `ad-pbi publish report` read which
-  registry each custom visual comes from (`publicCustomVisuals` for AppSource, `organizationCustomVisuals` for the
-  store, a `CustomVisual` resource package for a file) and fail closed: with the tenant unrecorded, nothing from a
-  file or AppSource passes, and publish refuses before it calls the service, with no flag to force it.
+The rule ids, severities and conditions: `skills/pbi-custom-visual/references/delivery-routes.md` §The gate.
 
 ---
 
