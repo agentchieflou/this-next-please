@@ -858,10 +858,13 @@
       "tests": 9
     },
     "tests/test_pbip_features.py": {
-      "tests": 25
+      "tests": 26
     },
     "tests/test_pbip_handoff_cli.py": {
       "tests": 29
+    },
+    "tests/test_pbip_udf.py": {
+      "tests": 18
     },
     "tests/test_pbir_author.py": {
       "tests": 16

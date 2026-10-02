@@ -42,7 +42,13 @@ VALID_OPS = {
     "object.describe",
     "object.hide",
     "object.delete",
+    "function.set",
+    "function.delete",
 }
+FUNCTION_OPS = {"function.set", "function.delete"}
+# Tabular Editor 2 has DAX user-defined functions (Model.Functions / Model.AddFunction) from 2.27.0 (AMO/TOM 19.104.1).
+NO_UDF = ("this Tabular Editor 2 has no DAX user-defined functions (2.27.0 or later has them): apply the op to the TMDL "
+          "files instead (ad-pbip model apply --model <definition>), then reload the model in Desktop")
 
 
 def validate_ops(ops: list[dict[str, Any]]) -> None:
@@ -55,194 +61,274 @@ def validate_ops(ops: list[dict[str, Any]]) -> None:
         op_type = op.get("op")
         if not op_type or op_type not in VALID_OPS:
             raise ValueError(f"Op at index {i} has unsupported op type: '{op_type}' (valid: {', '.join(sorted(VALID_OPS))})")
+        if op_type in FUNCTION_OPS:
+            _validate_function_op(i, op)
 
 
-def build_te2_script(ops: list[dict[str, Any]], out_json_path: str, ops_json_path: str | None = None) -> str:
-    """Generate a self-contained C# script for Tabular Editor 2 to execute with -S."""
-    ops_json = json.dumps(ops)
-    escaped_ops = ops_json.replace('"', '""')
-    escaped_out = textio.norm_path(out_json_path).replace('"', '""')
+def _validate_function_op(i: int, op: dict[str, Any]) -> None:
+    """`function.set` {name, expression: "( params ) => body", description} / `function.delete` {name}: refuse what
+    the engine would refuse, before Tabular Editor or the TMDL writer touches anything."""
+    name = op.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"Op at index {i} ({op['op']}) needs the function's name")
+    for msg in N.function_name_problems(name):
+        raise ValueError(f"Op at index {i}: function '{name}': {msg}")
+    if "isHidden" in op:
+        raise ValueError(f"Op at index {i}: function '{name}': a DAX user-defined function cannot be hidden")
+    expr = op.get("expression")
+    if op["op"] == "function.set" and expr is not None:
+        sig = N.parse_function(expr) if isinstance(expr, str) else None
+        if sig is None:
+            raise ValueError(f"Op at index {i}: function '{name}': the expression must be `( parameters ) => body`, "
+                             f"e.g. ( amount : NUMERIC, rate : NUMERIC = 0.1 ) => amount * ( 1 + rate )")
+        for p in sig["params"]:
+            for msg in N.function_param_problems(p):
+                raise ValueError(f"Op at index {i}: function '{name}': {msg}")
 
-    script = f'''// Generated Tabular Editor 2 script for declarative model apply
+
+# The script Tabular Editor 2 runs with -S. TE2 compiles it with its default (legacy, C# 5) compiler, with
+# TabularEditor.TOMWrapper and `TOM = Microsoft.AnalysisServices.Tabular` already imported: no string interpolation,
+# no `using Microsoft.AnalysisServices.Tabular;` (it would make CalculatedColumn, ModeType ... ambiguous), and the
+# wrapper has no SaveChanges -- the TOM database it wraps does. Only the cases the op list uses are emitted, so one op
+# type's code never stops another's from compiling.
+_TE2_HEAD = r'''// Generated Tabular Editor 2 script for declarative model apply
+// TE2 compiles it with TabularEditor.TOMWrapper and TOM = Microsoft.AnalysisServices.Tabular imported (C# 5)
 using System;
 using System.IO;
 using System.Text;
 using System.Collections.Generic;
-using Microsoft.AnalysisServices.Tabular;
 
-var outPath = @"{escaped_out}";
-var opsJson = @"{escaped_ops}";
+var outPath = @"__OUT__";
+var opsJson = @"__OPS__";
 
 var results = new List<string>();
 bool overallOk = true;
+Func<string, string> J = s => s == null ? "null" : "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t") + "\"";
+Func<int, string, string, string> OkRow = (i, action, obj) => "{\"op\": " + i + ", \"status\": \"ok\", \"action\": " + J(action) + ", \"object\": " + J(obj) + "}";
+Func<int, string, string, string> FailRow = (i, stage, err) => "{\"op\": " + i + ", \"status\": \"fail\"" + (stage == null ? "" : ", \"stage\": " + J(stage)) + ", \"error\": " + J(err) + "}";
 
 try
-{{
+{
     dynamic ops = Newtonsoft.Json.JsonConvert.DeserializeObject(opsJson);
     int idx = 0;
     foreach (var op in ops)
-    {{
+    {
         string opType = (string)op.op;
         try
-        {{
+        {
             switch (opType)
-            {{
-                case "measure.set":
-                    {{
+            {
+'''
+
+_TE2_TAIL = r'''                default:
+                    results.Add(FailRow(idx, null, "Unsupported op type: " + opType));
+                    overallOk = false;
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            results.Add(FailRow(idx, null, ex.Message));
+            overallOk = false;
+        }
+        idx++;
+    }
+
+    if (overallOk)
+    {
+        try
+        {
+            Model.Database.TOMDatabase.Model.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            results.Add(FailRow(-1, "SaveChanges", ex.Message));
+        }
+    }
+}
+catch (Exception ex)
+{
+    results.Add(FailRow(-1, "ScriptExecution", ex.Message));
+}
+
+File.WriteAllText(outPath, "[" + string.Join(",\n", results) + "]", Encoding.UTF8);
+'''
+
+# Functions go through `dynamic`: a TE2 older than 2.27.0 has no Model.Functions, and a typed reference to it would
+# stop the whole script from compiling. The reflection test makes that TE2 fail the op with NO_UDF instead.
+_UDF_GUARD = r'''                        if (Model.GetType().GetProperty("Functions") == null || Model.Database.TOMDatabase.Model.GetType().GetProperty("Functions") == null)
+                            throw new InvalidOperationException("__NO_UDF__");
+                        if (Model.Database.TOMDatabase.CompatibilityLevel < __MIN_CL__)
+                            throw new InvalidOperationException("DAX user-defined functions need compatibilityLevel __MIN_CL__ or higher; this model is " + Model.Database.TOMDatabase.CompatibilityLevel);
+                        dynamic fns = ((dynamic)Model).Functions;
+'''
+
+_TE2_CASES = {
+    "measure.set": r'''                case "measure.set":
+                    {
                         string tName = (string)op.table;
                         string mName = (string)op.name;
                         string expr = (string)op.expression;
                         var tbl = Model.Tables[tName];
-                        if (tbl == null) throw new InvalidOperationException($"Table '{{tName}}' not found");
+                        if (tbl == null) throw new InvalidOperationException("Table '" + tName + "' not found");
                         var m = tbl.Measures[mName] ?? tbl.AddMeasure(mName, expr ?? "");
                         if (expr != null) m.Expression = expr;
                         if (op.formatString != null) m.FormatString = (string)op.formatString;
                         if (op.displayFolder != null) m.DisplayFolder = (string)op.displayFolder;
                         if (op.description != null) m.Description = (string)op.description;
                         if (op.isHidden != null) m.IsHidden = (bool)op.isHidden;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"measure.set\\", \\"object\\": \\"{{tName}}[{{mName}}]\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "measure.set", tName + "[" + mName + "]"));
+                    }
                     break;
 
-                case "column.calc.set":
-                    {{
+''',
+    "column.calc.set": r'''                case "column.calc.set":
+                    {
                         string tName = (string)op.table;
                         string cName = (string)op.name;
                         string expr = (string)op.expression;
                         var tbl = Model.Tables[tName];
-                        if (tbl == null) throw new InvalidOperationException($"Table '{{tName}}' not found");
+                        if (tbl == null) throw new InvalidOperationException("Table '" + tName + "' not found");
                         var col = tbl.Columns[cName] as CalculatedColumn ?? tbl.AddCalculatedColumn(cName, expr ?? "");
                         if (expr != null) col.Expression = expr;
                         if (op.formatString != null) col.FormatString = (string)op.formatString;
                         if (op.description != null) col.Description = (string)op.description;
                         if (op.isHidden != null) col.IsHidden = (bool)op.isHidden;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"column.calc.set\\", \\"object\\": \\"{{tName}}[{{cName}}]\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "column.calc.set", tName + "[" + cName + "]"));
+                    }
                     break;
 
-                case "relationship.set":
-                    {{
+''',
+    "relationship.set": r'''                case "relationship.set":
+                    {
                         string fTbl = (string)op.fromTable;
                         string fCol = (string)op.fromColumn;
                         string tTbl = (string)op.toTable;
                         string tCol = (string)op.toColumn;
                         var fromTable = Model.Tables[fTbl];
                         var toTable = Model.Tables[tTbl];
-                        if (fromTable == null) throw new InvalidOperationException($"From table '{{fTbl}}' not found");
-                        if (toTable == null) throw new InvalidOperationException($"To table '{{tTbl}}' not found");
+                        if (fromTable == null) throw new InvalidOperationException("From table '" + fTbl + "' not found");
+                        if (toTable == null) throw new InvalidOperationException("To table '" + tTbl + "' not found");
                         var rel = Model.Relationships.Add(fromTable.Columns[fCol], toTable.Columns[tCol]);
                         if (op.crossFilteringBehavior != null)
-                        {{
+                        {
                             string cfb = ((string)op.crossFilteringBehavior).ToLower();
                             rel.CrossFilteringBehavior = (cfb == "bothdirections" || cfb == "both")
                                 ? CrossFilteringBehavior.BothDirections : CrossFilteringBehavior.OneDirection;
-                        }}
+                        }
                         if (op.isActive != null) rel.IsActive = (bool)op.isActive;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"relationship.set\\", \\"object\\": \\"{{fTbl}}[{{fCol}}] -> {{tTbl}}[{{tCol}}]\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "relationship.set", fTbl + "[" + fCol + "] -> " + tTbl + "[" + tCol + "]"));
+                    }
                     break;
 
-                case "hierarchy.set":
-                    {{
+''',
+    "hierarchy.set": r'''                case "hierarchy.set":
+                    {
                         string tName = (string)op.table;
                         string hName = (string)op.name;
                         var tbl = Model.Tables[tName];
-                        if (tbl == null) throw new InvalidOperationException($"Table '{{tName}}' not found");
+                        if (tbl == null) throw new InvalidOperationException("Table '" + tName + "' not found");
                         var hier = tbl.Hierarchies[hName] ?? tbl.AddHierarchy(hName);
                         if (op.levels != null)
-                        {{
+                        {
                             hier.Levels.Clear();
                             foreach (var lvl in op.levels)
-                            {{
+                            {
                                 string lvlName = (string)lvl.name;
                                 string lvlCol = (string)lvl.column;
                                 hier.AddLevel(tbl.Columns[lvlCol], lvlName);
-                            }}
-                        }}
+                            }
+                        }
                         if (op.description != null) hier.Description = (string)op.description;
                         if (op.isHidden != null) hier.IsHidden = (bool)op.isHidden;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"hierarchy.set\\", \\"object\\": \\"{{tName}}[{{hName}}]\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "hierarchy.set", tName + "[" + hName + "]"));
+                    }
                     break;
 
-                case "calcgroup.set":
-                    {{
+''',
+    "calcgroup.set": r'''                case "calcgroup.set":
+                    {
                         string tName = (string)op.table;
                         var tbl = Model.Tables[tName] ?? Model.AddCalculationGroupTable(tName);
                         var cg = tbl.CalculationGroup;
                         if (op.precedence != null) cg.Precedence = (int)op.precedence;
                         if (op.items != null)
-                        {{
+                        {
                             foreach (var item in op.items)
-                            {{
+                            {
                                 string iName = (string)item.name;
                                 string iExpr = (string)item.expression;
                                 var ci = cg.CalculationItems[iName] ?? cg.AddCalculationItem(iName, iExpr ?? "");
                                 if (iExpr != null) ci.Expression = iExpr;
                                 if (item.formatStringExpression != null) ci.FormatStringExpression = (string)item.formatStringExpression;
                                 if (item.ordinal != null) ci.Ordinal = (int)item.ordinal;
-                            }}
-                        }}
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"calcgroup.set\\", \\"object\\": \\"{{tName}}\\"}}");
-                    }}
+                            }
+                        }
+                        results.Add(OkRow(idx, "calcgroup.set", tName));
+                    }
                     break;
 
-                case "fieldparam.set":
-                    {{
+''',
+    "fieldparam.set": r'''                case "fieldparam.set":
+                    {
                         string tName = (string)op.table;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"fieldparam.set\\", \\"object\\": \\"{{tName}}\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "fieldparam.set", tName));
+                    }
                     break;
 
-                case "role.set":
-                    {{
+''',
+    "role.set": r'''                case "role.set":
+                    {
                         string rName = (string)op.name;
                         var r = Model.Roles[rName] ?? Model.AddRole(rName);
                         if (op.modelPermission != null) r.ModelPermission = ModelPermission.Read;
                         if (op.tablePermissions != null)
-                        {{
+                        {
                             foreach (var tp in op.tablePermissions)
-                            {{
+                            {
                                 string tpTbl = (string)tp.table;
                                 string tpFilter = (string)tp.filterExpression;
                                 var tPerm = r.TablePermissions[tpTbl] ?? r.TablePermissions.Add(Model.Tables[tpTbl]);
                                 tPerm.FilterExpression = tpFilter;
-                            }}
-                        }}
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"role.set\\", \\"object\\": \\"{{rName}}\\"}}");
-                    }}
+                            }
+                        }
+                        results.Add(OkRow(idx, "role.set", rName));
+                    }
                     break;
 
-                case "partition.set":
-                    {{
+''',
+    "partition.set": r'''                case "partition.set":
+                    {
                         string tName = (string)op.table;
                         string pName = (string)op.name;
                         var tbl = Model.Tables[tName];
-                        if (tbl == null) throw new InvalidOperationException($"Table '{{tName}}' not found");
+                        if (tbl == null) throw new InvalidOperationException("Table '" + tName + "' not found");
                         var p = tbl.Partitions[pName] ?? tbl.AddPartition(pName);
                         if (op.mode != null)
-                        {{
+                        {
                             string mode = ((string)op.mode).ToLower();
                             p.Mode = (mode == "directlake") ? ModeType.DirectLake : ModeType.Import;
-                        }}
+                        }
                         if (op.source != null && op.source.query != null)
-                        {{
+                        {
                             p.Expression = (string)op.source.query;
-                        }}
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"partition.set\\", \\"object\\": \\"{{tName}}[{{pName}}]\\"}}");
-                    }}
+                        }
+                        results.Add(OkRow(idx, "partition.set", tName + "[" + pName + "]"));
+                    }
                     break;
 
-                case "perspective.set":
-                    {{
+''',
+    "perspective.set": r'''                case "perspective.set":
+                    {
                         string pName = (string)op.name;
                         var p = Model.Perspectives[pName] ?? Model.AddPerspective(pName);
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"perspective.set\\", \\"object\\": \\"{{pName}}\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "perspective.set", pName));
+                    }
                     break;
 
-                case "object.describe":
-                    {{
+''',
+    "object.describe": r'''                case "object.describe":
+                    {
                         string tName = (string)op.table;
                         string oType = (string)op.objectType;
                         string name = (string)op.name;
@@ -251,12 +337,13 @@ try
                         if (oType == "measure" && tbl != null) tbl.Measures[name].Description = desc;
                         else if (oType == "column" && tbl != null) tbl.Columns[name].Description = desc;
                         else if (oType == "table" && tbl != null) tbl.Description = desc;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"object.describe\\", \\"object\\": \\"{{name}}\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "object.describe", name));
+                    }
                     break;
 
-                case "object.hide":
-                    {{
+''',
+    "object.hide": r'''                case "object.hide":
+                    {
                         string tName = (string)op.table;
                         string oType = (string)op.objectType;
                         string name = (string)op.name;
@@ -264,12 +351,13 @@ try
                         var tbl = tName != null && Model.Tables.Contains(tName) ? Model.Tables[tName] : null;
                         if (oType == "measure" && tbl != null) tbl.Measures[name].IsHidden = hide;
                         else if (oType == "column" && tbl != null) tbl.Columns[name].IsHidden = hide;
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"object.hide\\", \\"object\\": \\"{{name}}\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "object.hide", name));
+                    }
                     break;
 
-                case "object.delete":
-                    {{
+''',
+    "object.delete": r'''                case "object.delete":
+                    {
                         string tName = (string)op.table;
                         string oType = (string)op.objectType;
                         string name = (string)op.name;
@@ -277,44 +365,49 @@ try
                         if (oType == "measure" && tbl != null && tbl.Measures.Contains(name)) tbl.Measures[name].Delete();
                         else if (oType == "column" && tbl != null && tbl.Columns.Contains(name)) tbl.Columns[name].Delete();
                         else if (oType == "table" && tbl != null) tbl.Delete();
-                        results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"ok\\", \\"action\\": \\"object.delete\\", \\"object\\": \\"{{name}}\\"}}");
-                    }}
+                        results.Add(OkRow(idx, "object.delete", name));
+                    }
                     break;
 
-                default:
-                    results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"fail\\", \\"error\\": \\"Unsupported op type: {{opType}}\\"}}");
-                    overallOk = false;
+''',
+    "function.set": r'''                case "function.set":
+                    {
+                        string fName = (string)op.name;
+                        string expr = (string)op.expression;
+__UDF_GUARD__                        bool exists = fns.Contains(fName);
+                        if (!exists && expr == null) throw new InvalidOperationException("function '" + fName + "' does not exist; give its expression to create it");
+                        dynamic fn = exists ? fns[fName] : ((dynamic)Model).AddFunction(fName);
+                        if (expr != null) fn.Expression = expr;
+                        if (op.description != null) fn.Description = (string)op.description;
+                        results.Add(OkRow(idx, exists ? "updated" : "added", fName));
+                    }
                     break;
-            }}
-        }}
-        catch (Exception ex)
-        {{
-            results.Add($"{{\\"op\\": {{idx}}, \\"status\\": \\"fail\\", \\"error\\": \\"{{ex.Message.Replace("\\"", "\\\\\\")}}\\"}}");
-            overallOk = false;
-        }}
-        idx++;
-    }}
 
-    if (overallOk)
-    {{
-        try
-        {{
-            Model.SaveChanges();
-        }}
-        catch (Exception ex)
-        {{
-            results.Add($"{{\\"op\\": -1, \\"status\\": \\"fail\\", \\"stage\\": \\"SaveChanges\\", \\"error\\": \\"{{ex.Message.Replace("\\"", "\\\\\\")}}\\"}}");
-        }}
-    }}
-}}
-catch (Exception ex)
-{{
-    results.Add($"{{\\"op\\": -1, \\"status\\": \\"fail\\", \\"stage\\": \\"ScriptExecution\\", \\"error\\": \\"{{ex.Message.Replace("\\"", "\\\\\\")}}\\"}}");
-}}
+''',
+    "function.delete": r'''                case "function.delete":
+                    {
+                        string fName = (string)op.name;
+__UDF_GUARD__                        if (!fns.Contains(fName)) throw new InvalidOperationException("function '" + fName + "' not found");
+                        fns[fName].Delete();
+                        results.Add(OkRow(idx, "deleted", fName));
+                    }
+                    break;
 
-File.WriteAllText(outPath, "[" + string.Join(",\\n", results) + "]", Encoding.UTF8);
-'''
-    return script
+''',
+}
+
+
+def build_te2_script(ops: list[dict[str, Any]], out_json_path: str, ops_json_path: str | None = None) -> str:
+    """Generate a self-contained C# script for Tabular Editor 2 to execute with -S."""
+    escaped_ops = json.dumps(ops).replace('"', '""')
+    escaped_out = textio.norm_path(out_json_path).replace('"', '""')
+    used: list[str] = []
+    for op in ops:
+        if op.get("op") in _TE2_CASES and op["op"] not in used:
+            used.append(op["op"])
+    guard = _UDF_GUARD.replace("__NO_UDF__", NO_UDF).replace("__MIN_CL__", str(N.UDF_MIN_COMPATIBILITY))
+    cases = "".join(_TE2_CASES[t].replace("__UDF_GUARD__", guard) for t in used)
+    return _TE2_HEAD.replace("__OUT__", escaped_out).replace("__OPS__", escaped_ops) + cases + _TE2_TAIL
 
 
 def apply_live(server: str, ops: list[dict[str, Any]], database: str | None = None,
@@ -343,6 +436,49 @@ def apply_live(server: str, ops: list[dict[str, Any]], database: str | None = No
         return [{"op": -1, "status": "fail", "error": f"Tabular Editor execution failed (code {rc}): {err or out}"}]
 
 
+def _function_tmdl(model: N.Model, definition_dir: str, idx: int, op: dict[str, Any]) -> dict[str, Any]:
+    """`function.set` / `function.delete` on functions.tmdl, where Desktop keeps every function of the model. The file
+    is re-read after the edit so the next function op sees the lines as they are now."""
+    name = op["name"]
+    found = [(f, n) for f in model.files.values() for n in f.nodes if n.kind == "function" and (n.name or "").lower() == name.lower()]
+    if op["op"] == "function.delete":
+        if not found:
+            raise LookupError(f"function '{name}' not found (functions: {', '.join(f['name'] for f in model.functions) or 'none'})")
+        tf, node = found[0]
+        T.remove_block(tf, node)
+        action = "deleted"
+    else:
+        try:
+            level = int(str(model.compatibility or "").strip())
+        except ValueError:
+            level = None
+        if level is not None and level < N.UDF_MIN_COMPATIBILITY:
+            raise ValueError(f"DAX user-defined functions need compatibilityLevel {N.UDF_MIN_COMPATIBILITY} or higher; database.tmdl "
+                             f"says {level}. Raising it cannot be undone on a published model: ask the operator, then edit "
+                             f"database.tmdl and run the op again")
+        expr, desc = op.get("expression"), op.get("description")
+        if found:
+            tf, node = found[0]
+            block = T.function_block(tf, node.name or name, expr if expr is not None else (node.expr or ""),
+                                     desc if desc is not None else ("\n".join(node.desc) if node.desc else None),
+                                     node.props.get("lineageTag"))  # keep the existing tag; never invent one
+            tf.lines[(node.desc_start or node.line_start) - 1:node.line_end] = block
+            action = "updated"
+        else:
+            if expr is None:
+                raise ValueError(f"function '{name}' does not exist; function.set needs its expression to create it")
+            path = os.path.join(definition_dir, "functions.tmdl")
+            same = lambda p: os.path.normcase(os.path.abspath(p)) == os.path.normcase(os.path.abspath(path))  # noqa: E731
+            tf = next((f for p, f in model.files.items() if same(p)), None) or model.files.setdefault(path, T.TmdlFile(path, []))
+            if tf.lines and tf.lines[-1].strip():
+                tf.lines.append("")
+            tf.lines.extend(T.function_block(tf, name, expr, desc))
+            action = "added"
+    tf.nodes = T.parse_text(tf.text, tf.path, bom=tf.bom).nodes
+    return {"op": idx, "status": "ok", "action": action, "object": name,
+            "file": textio.norm_path(os.path.relpath(tf.path, definition_dir))}
+
+
 def apply_tmdl(definition_dir: str, ops: list[dict[str, Any]], dry_run: bool = False) -> list[dict[str, Any]]:
     """Tier 2 fallback: Apply declarative ops directly to TMDL files."""
     model, _, _ = N.load_all(definition_dir, legacy_ok=True)
@@ -366,6 +502,10 @@ def apply_tmdl(definition_dir: str, ops: list[dict[str, Any]], dry_run: bool = F
                             break
                     if target_tf:
                         break
+
+            if op_type in FUNCTION_OPS:
+                results.append(_function_tmdl(model, definition_dir, idx, op))
+                continue
 
             if op_type == "measure.set":
                 if not target_tf or not target_node:
@@ -696,6 +836,102 @@ def model_apply(ops: list[dict[str, Any]], server: str | None = None, pid: int |
         }
 
     raise ValueError("Neither live Desktop target (--server/--pid) nor valid definition folder (--model) provided")
+
+
+# ---------- processing the model Desktop hosts, after a reload ----------
+# A model-aware reload (Desktop reloading the PBIP with its TMDL) only loads definitions. Calculated columns, calculated
+# tables and calculation groups need a Calculate; a changed import table (new source column, edited M, new partition)
+# needs a Full on that table. Each runs alone, one after the other, and a DAX query verifies the result.
+REFRESH_TYPES = ("calculate", "full")
+
+_REFRESH_CSX = r'''// Generated Tabular Editor 2 script: process the model Desktop hosts, one request at a time
+// TE2 compiles it with TOM = Microsoft.AnalysisServices.Tabular imported (C# 5)
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+
+var outPath = @"__OUT__";
+var steps = new string[][] { __STEPS__ };
+var rows = new List<string>();
+Func<string, string> J = s => s == null ? "null" : "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t") + "\"";
+var tom = Model.Database.TOMDatabase.Model;
+foreach (var step in steps)
+{
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    try
+    {
+        var kind = step[0] == "full" ? TOM.RefreshType.Full : TOM.RefreshType.Calculate;
+        if (step[1].Length == 0) tom.RequestRefresh(kind);
+        else
+        {
+            var table = tom.Tables.Find(step[1]);
+            if (table == null) throw new InvalidOperationException("table '" + step[1] + "' is not in the model");
+            table.RequestRefresh(kind);
+        }
+        tom.SaveChanges();
+        rows.Add("{\"type\": " + J(step[0]) + ", \"table\": " + J(step[1]) + ", \"status\": \"ok\", \"ms\": " + sw.ElapsedMilliseconds + "}");
+    }
+    catch (Exception ex)
+    {
+        rows.Add("{\"type\": " + J(step[0]) + ", \"table\": " + J(step[1]) + ", \"status\": \"fail\", \"ms\": " + sw.ElapsedMilliseconds + ", \"error\": " + J(ex.Message) + "}");
+        break;
+    }
+}
+File.WriteAllText(outPath, "[" + string.Join(",\n", rows) + "]", Encoding.UTF8);
+'''
+
+
+def refresh_steps(refresh_type: str, tables: list[str] | None = None, all_tables: bool = False) -> list[tuple[str, str]]:
+    """What `ad-pbip model refresh` runs, in order: [(type, table)], table "" meaning the whole model. A model-wide Full
+    re-imports every table, so it needs `all_tables`; a targeted Full on the changed tables is the normal case."""
+    if refresh_type not in REFRESH_TYPES:
+        raise ValueError(f"refresh type must be one of {', '.join(REFRESH_TYPES)}, not {refresh_type!r}")
+    tables = [t for t in (tables or []) if t]
+    if tables and all_tables:
+        raise ValueError("give the tables (--table) or the whole model (--all), not both")
+    if refresh_type == "full" and not tables and not all_tables:
+        raise ValueError("a model-wide Full re-imports every table: name each table whose source, M or partition changed with "
+                         "--table (repeatable), or pass --all if the whole model really has to be re-imported")
+    return [(refresh_type, t) for t in dict.fromkeys(tables)] or [(refresh_type, "")]
+
+
+def build_refresh_script(steps: list[tuple[str, str]], out_json_path: str) -> str:
+    literal = ", ".join("new string[] { %s, %s }" % (json.dumps(k), json.dumps(t)) for k, t in steps)
+    return _REFRESH_CSX.replace("__OUT__", textio.norm_path(out_json_path).replace('"', '""')).replace("__STEPS__", literal)
+
+
+def model_refresh(server: str, refresh_type: str, tables: list[str] | None = None, all_tables: bool = False,
+                  database: str | None = None, te2_exe: str | None = None, run: Runner | None = None,
+                  timeout: int = 1800) -> dict[str, Any]:
+    """Process the model a running Desktop hosts (`localhost:<port>`) through Tabular Editor 2: one TOM refresh request
+    per SaveChanges, in order, stopping at the first failure. The result names the DAX query that verifies it."""
+    steps = refresh_steps(refresh_type, tables, all_tables)
+    cfg = C.load()
+    te2 = te2_exe or C.get(cfg, "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe") or "TabularEditor.exe"
+    run_fn = run or DT.default_run
+    with tempfile.TemporaryDirectory() as td:
+        out_json = textio.norm_path(os.path.join(td, "refresh.json"))
+        csx = os.path.join(td, "refresh.csx")
+        with open(csx, "w", encoding="utf-8") as f:
+            f.write(build_refresh_script(steps, out_json))
+        res = run_fn([te2, server, database or "", "-S", csx], timeout)
+        rc, out, err = res[0], res[1], res[2]
+        if os.path.exists(out_json):
+            with open(out_json, encoding="utf-8-sig") as f:
+                rows = json.load(f)
+        else:
+            rows = [{"type": steps[0][0], "table": steps[0][1], "status": "fail",
+                     "error": f"Tabular Editor 2 did not run the script (exit {rc}): {((err or '') + (out or '')).strip()[-300:]}"}]
+    ok = len(rows) == len(steps) and all(r.get("status") == "ok" for r in rows)
+    first = next((t for _k, t in steps if t), None)
+    query = ("EVALUATE { COUNTROWS('" + first.replace("'", "''") + "') }") if first else "EVALUATE { [<the measure you changed>] }"
+    out_meta: dict[str, Any] = {"ok": ok, "server": server, "type": refresh_type, "steps": rows,
+                                "not_run": [{"type": k, "table": t or "(model)"} for k, t in steps[len(rows):]]}
+    if ok:
+        out_meta["next"] = (f"verify with DAX, then screenshot the affected pages: ad-pbip dax --server {server} --query \"{query}\"; "
+                            "Desktop now holds unsaved changes, so save or discard them before another reload")
+    return out_meta
 
 
 def model_optimize(measure: str, pid: int | None = None, server: str | None = None,

@@ -232,6 +232,35 @@ try
                         }
                         break;
 
+                    // DAX user-defined functions: Tabular Editor 2.27.0+ (Model.Functions / Model.AddFunction), model at
+                    // compatibilityLevel 1702+. Through `dynamic`, so an older TE2 fails the op instead of the compile.
+                    case "function.set":
+                    case "function.delete":
+                        {
+                            string fName = (string)op.name;
+                            if (Model.GetType().GetProperty("Functions") == null)
+                                throw new InvalidOperationException("this Tabular Editor 2 has no DAX user-defined functions (2.27.0 or later has them): edit definition/functions.tmdl, then reload the model in Desktop");
+                            if (Model.Database.TOMDatabase.CompatibilityLevel < 1702)
+                                throw new InvalidOperationException("DAX user-defined functions need compatibilityLevel 1702 or higher");
+                            dynamic fns = ((dynamic)Model).Functions;
+                            bool exists = fns.Contains(fName);
+                            if (opType == "function.delete")
+                            {
+                                if (!exists) throw new InvalidOperationException($"function '{fName}' not found");
+                                fns[fName].Delete();
+                            }
+                            else
+                            {
+                                string expr = (string)op.expression;
+                                if (!exists && expr == null) throw new InvalidOperationException($"function '{fName}' does not exist; give its expression");
+                                dynamic fn = exists ? fns[fName] : ((dynamic)Model).AddFunction(fName);
+                                if (expr != null) fn.Expression = expr;
+                                if (op.description != null) fn.Description = (string)op.description;
+                            }
+                            results.Add($"{{\"op\": {idx}, \"status\": \"ok\", \"action\": \"{opType}\", \"object\": \"{fName}\"}}");
+                        }
+                        break;
+
                     default:
                         results.Add($"{{\"op\": {idx}, \"status\": \"fail\", \"error\": \"Unsupported op type: {opType}\"}}");
                         overallOk = false;
@@ -250,7 +279,7 @@ try
         {
             try
             {
-                Model.SaveChanges();
+                Model.Database.TOMDatabase.Model.SaveChanges();   // the TOMWrapper has no SaveChanges; the TOM model it wraps does
             }
             catch (Exception ex)
             {
