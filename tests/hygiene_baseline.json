@@ -466,7 +466,7 @@
       "tests": 21
     },
     "tests/test_fleet_handoff_ask.py": {
-      "tests": 18
+      "tests": 22
     },
     "tests/test_fleet_handoff_pickup.py": {
       "tests": 11

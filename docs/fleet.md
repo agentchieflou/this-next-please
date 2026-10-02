@@ -395,6 +395,16 @@ The UAT steps that needed a tool a headless turn is never given are commands now
 `ad-uat rollup` (it was a ≤10-line Python script), a Desktop DAX query is `ad-pbip dax` (it was
 `dscmd` run by hand), and a dscmd `.csv` is read by `ad-view` (it was `python -m agentdata.csv2toon`).
 
+**An answer is recorded the moment you send it** (operator report, 2026-10-02: a reply did not stamp
+the question answered, so the router found it still blocking and the agent stopped again). The reply
+box's answer -- and the phone's -- runs `ad-state answer` in the checkout before the agent is
+resumed, and the resume says the answers are already recorded; while a headless turn is running
+nothing is written under it. `ad-state answer` takes `1` or `Q1` for `q1`, needs no id when one
+question blocks, and reports an id already answered instead of refusing it. `ad-state ask` with
+words already answered on this ticket hands that answer back (`already_answered`) instead of
+blocking again; `--again` asks anew. And the router reads your message as the reply whenever it
+says anything about the work; only a greeting or a bare *status* leaves it stopped.
+
 **Nothing is announced twice, and nothing routine is announced at all.** Four agents working
 normally produce zero notifications; see [fleet-notifications.md](fleet-notifications.md).
 

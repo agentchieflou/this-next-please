@@ -219,9 +219,78 @@ def test_the_card_answers_a_console_by_typing_into_it(fleet_home, tmp_path, monk
     monkeypatch.setattr(supervisor, "send", lambda *a, **k: pytest.fail("a console is never sent to"))
     out = S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "prod"},
                                                        {"id": "q2", "answer": "sprint_2026"}]})
-    assert out == {"repo": "luna", "pid": 42, "answered": ["q1", "q2"], "via": "console"}
+    assert out == {"repo": "luna", "pid": 42, "answered": ["q1", "q2"], "recorded": [], "via": "console"}
     assert said == [("luna", lifecycle.answers_prompt([("q1", "prod"), ("q2", "sprint_2026")]))]
     assert said[0][1].startswith("Answers to your questions"), "the words session-bootstrap step 5 reads"
+
+
+def test_the_desk_records_the_answer_before_it_resumes_the_agent(fleet_home, tmp_path, monkeypatch):
+    """Operator report, 2026-10-02: a reply did not stamp the question answered, so the router found
+    it still blocking and the agent stopped again. The stamp waited on the agent choosing to run
+    `ad-state answer`. Now the desk asks `ad-state` itself before the resume, and says so."""
+    from agentdata.fleet import serve as S, supervisor
+
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    Registry().add(repo, name="luna")
+    assert _state_cli(repo, "ask", "Which workspace?", "--choice", "uat", "--choice", "prod").returncode == 0
+    sent = []
+    monkeypatch.setattr(supervisor, "live", lambda name: {})
+    monkeypatch.setattr(supervisor, "send", lambda name, text, cfg=None, force=False:
+                        sent.append(text) or {"pid": 7})
+    out = S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "uat"}]})
+    assert out["recorded"] == ["q1"], out
+    saved = json.load(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8"))
+    assert saved["open_questions"] == [] and saved["phase"] == "querying", saved
+    (done,) = saved["answered_questions"]
+    assert done["id"] == "q1" and done["answer"] == "uat" and done["answered"], done
+    assert sent == [lifecycle.answers_prompt([("q1", "uat")], ["q1"])]
+    assert "Already recorded" in sent[0] and "Record each" not in sent[0]
+
+
+def test_a_running_turn_is_not_written_under_and_its_answer_is_left_to_it(fleet_home, tmp_path, monkeypatch):
+    from agentdata.fleet import serve as S, supervisor
+
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    Registry().add(repo, name="luna")
+    _state_cli(repo, "ask", "Which workspace?")
+    monkeypatch.setattr(supervisor, "live", lambda name: {"pid": 9, "kind": "turn"})
+    monkeypatch.setattr(supervisor, "send", lambda name, text, cfg=None, force=False: {"pid": 9})
+    assert S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "uat"}]})["recorded"] == []
+    saved = json.load(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8"))
+    assert [q["id"] for q in saved["open_questions"]] == ["q1"], "nothing written under a live turn"
+
+
+def test_answering_is_forgiving_about_the_id_and_never_fails_twice(fleet_home, tmp_path):
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    _state_cli(repo, "ask", "Which workspace?")
+    done = _state_cli(repo, "answer", "uat")                         # one question open: no id needed
+    assert done.returncode == 0 and "answered: q1" in done.stdout, done.stdout + done.stderr
+    again = _state_cli(repo, "answer", "Q1", "uat")                   # the desk already recorded it
+    assert again.returncode == 0 and "already_answered: q1" in again.stdout, again.stdout + again.stderr
+    _state_cli(repo, "ask", "Which sprint?")
+    _state_cli(repo, "ask", "Which board?")
+    refused = _state_cli(repo, "answer", "the last sprint")         # two open: it must say which
+    assert refused.returncode != 0 and "say which one" in (refused.stdout + refused.stderr)
+    assert _state_cli(repo, "answer", "3", "the team board").returncode == 0     # `3` is q3
+    last = _state_cli(repo, "answer", "the last sprint")             # one left: q2
+    assert last.returncode == 0 and "answered: q2" in last.stdout, last.stdout
+
+
+def test_a_question_already_answered_on_this_ticket_is_not_asked_again(fleet_home, tmp_path):
+    repo = make_project(tmp_path / "luna", phase="querying", ticket="RDSD-118")
+    _state_cli(repo, "ask", "Which workspace?", "--choice", "uat", "--choice", "prod")
+    _state_cli(repo, "answer", "q1", "uat")
+    asked = _state_cli(repo, "ask", "which  workspace")
+    assert asked.returncode == 0 and "already_answered: q1" in asked.stdout and "answer: uat" in asked.stdout
+    saved = json.load(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8"))
+    assert saved["open_questions"] == [] and saved["phase"] == "querying", "nothing re-blocked"
+    forced = _state_cli(repo, "ask", "Which workspace?", "--again")
+    assert "already_answered" not in forced.stdout and "blocking: 1" in forced.stdout, forced.stdout
+    _state_cli(repo, "answer", "q2", "prod")
+    _state_cli(repo, "set", "active_ticket=RDSD-119")
+    other = _state_cli(repo, "ask", "Which workspace?")
+    assert "already_answered" not in other.stdout and "blocking: 1" in other.stdout, \
+        "another ticket's answer is not this one's"
 
 
 def test_a_turn_that_answers_one_and_asks_another_reports_both(fleet_home, tmp_path):

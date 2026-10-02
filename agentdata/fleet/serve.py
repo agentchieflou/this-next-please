@@ -2620,17 +2620,25 @@ def act(what: str, body: dict) -> dict:
         if not answers:
             raise ServeError("nothing to answer",
                              "pick a choice or type an answer for at least one question")
-        if supervisor.live(repo).get("kind") == "console":
+        live = supervisor.live(repo)
+        # Recorded here, with `ad-state answer`, before the agent is resumed (2026-10-02): the
+        # answered stamp no longer waits on the agent choosing to run the command. Not while a
+        # headless turn is running -- `send` refuses that `mid_turn` anyway, and two writers of
+        # one state.json at once is how an answer gets lost.
+        recorded = (lifecycle.record_answers_for(repo, answers)
+                    if not live or live.get("kind") == "console" else [])
+        if live.get("kind") == "console":
             # A console is typed into, never sent to (#190), and `send` refused it -- so the card
             # did nothing, the operator answered in the chat instead, the agent cleared rather than
             # recorded, and the tile went on counting (#231). The same sentence, typed into the
-            # window: session-bootstrap turns it into `ad-state answer`, the agent's own writer.
-            said = supervisor.say(repo, lifecycle.answers_prompt(answers), cfg=C.load())
+            # window.
+            said = supervisor.say(repo, lifecycle.answers_prompt(answers, recorded), cfg=C.load())
             return {"repo": repo, "pid": said["pid"], "answered": [qid for qid, _ in answers],
-                    "via": "console"}
-        lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load(),
+                    "recorded": recorded, "via": "console"}
+        lock = supervisor.send(repo, lifecycle.answers_prompt(answers, recorded), cfg=C.load(),
                                force=bool(body.get("force")))
-        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers]}
+        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers],
+                "recorded": recorded}
     if what == "stop":
         return supervisor.stop(repo)
     if what == "reset":

@@ -79,7 +79,8 @@ def _kind(st: dict, q: dict) -> str:
     return "blocking" if S.blocks_scope(q, st.get("active_ticket")) else "parked"
 
 
-def _questions_report(st: dict, source: str, path: str, questions: list | None = None) -> int:
+def _questions_report(st: dict, source: str, path: str, questions: list | None = None,
+                      extra: dict | None = None) -> int:
     rows = [[q.get("id", ""), S.question_text(q),
              " | ".join(q.get("choices") or []) or "-",
              q.get("default") or "-", q.get("want") or "-",
@@ -89,7 +90,8 @@ def _questions_report(st: dict, source: str, path: str, questions: list | None =
     head = ["id", "question", "choices", "default", "want", "kind", "ticket"]
     if policy.pretty():
         ui.facts([("path", path), ("phase", st.get("phase")),
-                  ("open_questions", len(st.get("open_questions") or []))], title=source)
+                  ("open_questions", len(st.get("open_questions") or []))] + list((extra or {}).items()),
+                 title=source)
         if rows:
             ui.table(head, rows, title="open questions")
         ui.note(S.line(st))
@@ -98,7 +100,7 @@ def _questions_report(st: dict, source: str, path: str, questions: list | None =
                                     "phase": st.get("phase"),
                                     "blocked_from": st.get("blocked_from") or "",
                                     "open_questions": len(st.get("open_questions") or []),
-                                    "blocking": len(S.blocking_for(st))}}))
+                                    "blocking": len(S.blocking_for(st)), **(extra or {})}}))
         if rows:
             print(toon.table("open_questions", head, rows))
         print(S.line(st))
@@ -129,9 +131,33 @@ def cmd_ask(a) -> int:
             record["ticket"] = None
         else:
             record["ticket"] = "" if scope.lower() in ("untracked", "none", "") else scope
+    prior = None if (a.again or not record["blocking"]) else _asked_before(st, record)
+    if prior is not None:
+        # The operator already answered this, on this ticket. Asking again re-blocked the agent on a
+        # question it had its answer to (operator report, 2026-10-02: "we get blocked more often
+        # than we want to be"). The answer is handed back instead; `--again` asks anew.
+        return _questions_report(st, "ad-state ask", textio.norm_path(a.file),
+                                 extra={"already_answered": prior.get("id") or "",
+                                        "answer": str(prior.get("answer") or ""),
+                                        "hint": "use this answer and continue; `--again` asks the operator anew"})
     S.apply(st, {}, asks=[record])
     path = S.save(st, a.file)
     return _questions_report(st, "ad-state ask", path)
+
+
+def _same_words(text: str) -> str:
+    return " ".join(str(text or "").casefold().split()).rstrip("?.! ")
+
+
+def _asked_before(st: dict, record: dict) -> dict | None:
+    """The answered question with these words on this ticket's scope, newest first, or None."""
+    scope = record["ticket"] if "ticket" in record else str(st.get("active_ticket") or "")
+    words = _same_words(record["q"])
+    for q in reversed(st.get("answered_questions") or []):
+        if (isinstance(q, dict) and _same_words(S.question_text(q)) == words and not q.get("superseded")
+                and S.question_scope(q) == (None if scope is None else str(scope or ""))):
+            return q
+    return None
 
 
 def _known(st: dict, qid: str) -> None:
@@ -142,13 +168,52 @@ def _known(st: dict, qid: str) -> None:
                            + (f"; open now: {', '.join(sorted(known))}" if known else ""))
 
 
+def _norm_id(qid: str) -> str:
+    """`q3`, however it was typed: `3`, `Q3`, ` q3 `."""
+    text = str(qid or "").strip()
+    if text.isdigit():
+        return f"q{int(text)}"
+    if text[:1] in ("q", "Q") and text[1:].isdigit():
+        return f"q{int(text[1:])}"
+    return text
+
+
+def _answer_target(st: dict, args: list[str]) -> tuple[str, str]:
+    """(id, answer) from `[<id>] <answer>`. Without an id, the one question blocking this ticket."""
+    if len(args) == 2:
+        return _norm_id(args[0]), args[1]
+    if len(args) != 1:
+        raise S.StateError("ad-state answer takes an id and the answer, or the answer alone",
+                           'ad-state answer q1 "<their words>", or ad-state answer "<their words>" '
+                           "when one question is open")
+    stops = [q for q in S.blocking_for(st) if isinstance(q, dict) and q.get("id")]
+    if len(stops) != 1:
+        raise S.StateError(f"{len(stops)} questions are blocking; say which one this answers",
+                           "ad-state answer <id> \"<their words>\"; open now: "
+                           + (", ".join(str(q["id"]) for q in stops) or "none"))
+    return str(stops[0]["id"]), args[0]
+
+
 def cmd_answer(a) -> int:
-    """Record the operator's answer, and leave `blocked` when nothing blocking is left."""
+    """Record the operator's answer, and leave `blocked` when nothing blocking is left.
+
+    Idempotent: an id already answered is reported, not refused. The desk records an answer before
+    it resumes the agent (`lifecycle.record_answers`), and the agent, told so or not, may record it
+    again -- a refusal there read as a failure and sent the agent back to `blocked`.
+    """
     st = S.load(a.file)
-    _known(st, a.id)
-    S.apply(st, {}, answers={a.id: a.answer})
+    qid, text = _answer_target(st, list(a.args))
+    is_open = any(isinstance(q, dict) and str(q.get("id") or "") == qid for q in st.get("open_questions") or [])
+    if not is_open:
+        done = next((q for q in reversed(st.get("answered_questions") or [])
+                     if isinstance(q, dict) and str(q.get("id") or "") == qid), None)
+        if done is not None:
+            return _questions_report(st, "ad-state answer", textio.norm_path(a.file),
+                                     extra={"already_answered": qid, "answer": str(done.get("answer") or "")})
+    _known(st, qid)
+    S.apply(st, {}, answers={qid: text})
     path = S.save(st, a.file)
-    return _questions_report(st, "ad-state answer", path)
+    return _questions_report(st, "ad-state answer", path, extra={"answered": qid})
 
 
 def cmd_supersede(a) -> int:
@@ -159,8 +224,9 @@ def cmd_supersede(a) -> int:
     would bring it back.
     """
     st = S.load(a.file)
-    _known(st, a.id)
-    S.apply(st, {}, superseded={a.id: a.instruction})
+    qid = _norm_id(a.id)
+    _known(st, qid)
+    S.apply(st, {}, superseded={qid: a.instruction})
     path = S.save(st, a.file)
     return _questions_report(st, "ad-state supersede", path)
 
@@ -236,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="state a safe, reversible default and CONTINUE instead of blocking")
     p.add_argument("--followup", action="store_true",
                    help="an optional follow-up: recorded for the operator, never a stop, nothing assumed")
+    p.add_argument("--again", action="store_true",
+                   help="ask even though the operator already answered these words on this ticket "
+                        "(by default their answer is handed back and nothing blocks)")
     p.add_argument("--ticket", metavar="KEY",
                    help="the ticket this question belongs to (default: the active ticket); "
                         "`untracked` for work without one, `any` to block every ticket")
@@ -243,8 +312,9 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_ask)
 
     p = sub.add_parser("answer", help="record the operator's answer to an open question")
-    p.add_argument("id", help="the question's id, e.g. q1")
-    p.add_argument("answer", help="what the operator said")
+    p.add_argument("args", nargs="+", metavar="[id] answer",
+                   help="the question's id (q1, or 1) and what the operator said; the id may be left out "
+                        "when one question is blocking")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
     p.set_defaults(func=cmd_answer)
 

@@ -7,9 +7,10 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 1. Use the `phase`, `active_ticket` and `open_questions` `session-bootstrap` handed you **if it invoked you in this same turn**. Otherwise read `.agent/state.json` — on every later task in the session you must, because a skill has run since and state changes.
 2. Run `ad-state blocking --ticket <the key this request names, else omit the flag>`. It lists only the questions that stop **this** ticket's work; questions parked on other tickets are counted, never shown, and never stop you.
    - `blocking: 0` → continue.
-   - The user's message answers a listed question → `ad-state answer <id> "<their words>"`. It orders work that makes the question moot → `ad-state supersede <id> "<their instruction>"`. Either way, one line, then continue.
+   - **The user's message is the reply** whenever it says anything about the work -- a choice, a value, "yes", "use UAT", "go ahead with X" -- even when it does not repeat the question. One question listed → `ad-state answer "<their words>"` (no id needed); several → `ad-state answer <id> "<their words>"` for each it addresses. "Continue" / "go on" and the question has a `default` → answer with the default. An instruction that makes it moot → `ad-state supersede <id> "<their instruction>"`. One line, then continue. Unsure whether it answers? It does: a wrong reading costs one correction, a wrong stop costs a turn.
+   - The prompt says the answers are **already recorded** (the desk recorded them) → `blocking: 0` already; continue.
    - A listed question with `want: access` is an environment blocker: run the one command it names, once. It works now → `ad-state answer <id> "fixed: <command> ran <today>"`, continue. Still refused → as below.
-   - Otherwise print `blocked — <id>: <question>` and STOP. Do not run `friction-log` again: the question was logged when it was asked.
+   - Only a message that says nothing about the work (a greeting, "start", "status") → print `blocked — <id>: <question>` and STOP. Do not run `friction-log` again: the question was logged when it was asked.
 3. Decide how this work is tracked before matching. The user picks per request; the project's `ticket_policy` fact sets the default.
    - The request names a ticket key, or `active_ticket` is set → that ticket. Nothing to do.
    - "new ticket", "open a ticket", "file this", "create a Jira" → invoke `jira-create` first; it hands back here.
