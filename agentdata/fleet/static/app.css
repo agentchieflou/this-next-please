@@ -93,7 +93,7 @@ header, footer {
   color: var(--muted); white-space: nowrap;
 }
 .toolbar-group > * { white-space: nowrap; }
-#find { flex: 0 1 auto; width: clamp(120px, 16vw, 240px); min-width: 90px; }
+#find { flex: 0 1 auto; width: clamp(120px, 12vw, 240px); min-width: 90px; }
 #notice { color: var(--waiting-text); font: 11px var(--mono); }
 @media (max-width: 1100px) { .toolbar-group .glabel { display: none; } }
 .segmented {

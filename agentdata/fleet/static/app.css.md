@@ -105,6 +105,13 @@ Above `.toolbar-group .glabel {`:
 HIG *Toolbars*: a group of commands says what it is for. Twelve controls in one unlabelled row
 is a settings panel, which is what the toolbar is not.
 
+### `#find`
+
+The search field gives up width before the toolbar wraps: 12% of the window, between 120 and
+240 px. It was 16% until the desk's toolbar gained the chat view's and the world's links beside the
+map's; at 1280 px the widest skins' toolbar was then 27 px over one row
+(`test_the_toolbar_is_one_row_at_1280_in_every_look`).
+
 ### `@media (max-width: 1100px)`
 
 Above `@media (max-width: 1100px) { .toolbar-group .glabel { display: none; } }`:

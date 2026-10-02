@@ -358,6 +358,9 @@
       "skips": 6,
       "tests": 44
     },
+    "tests/test_fleet_chat_page.py": {
+      "tests": 4
+    },
     "tests/test_fleet_checkouts.py": {
       "tests": 19
     },
@@ -639,7 +642,7 @@
     },
     "tests/test_fleet_serve.py": {
       "skips": 2,
-      "tests": 46
+      "tests": 47
     },
     "tests/test_fleet_served_comments.py": {
       "skips": 3,

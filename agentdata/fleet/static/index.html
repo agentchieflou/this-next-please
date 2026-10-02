@@ -44,6 +44,9 @@
     <!-- #407: the door to the map, the same kind of link as settings and for the same reason: its
          href is set by `app.js` at boot, never static, and keeps the desk's `w`/`shell`/`ink`. -->
     <a id="mapbtn" class="linkbtn" title="the map: projects, worktrees, branches, agents and the network (g)">map</a>
+    <!-- The chat view (operator request, 2026-10): the agents in a sidebar, their sessions beneath,
+         one conversation at a time. Beside the panes, never instead of them; href set at boot. -->
+    <a id="chatbtn" class="linkbtn" title="the chat view: agents in a sidebar, their sessions beneath, one conversation at a time (c)">chat</a>
     <!-- #626: the world, a 3D space walked with a controller or the keys; href set at boot. -->
     <a id="worldbtn" class="linkbtn" title="the world: walk to your agents in the rain, with a controller or the keyboard">world</a>
     <a id="setbtn" class="linkbtn" title="settings: the palette, the model each agent runs, and how Copilot is launched">settings</a>
@@ -306,6 +309,7 @@
     </div>
     <div class="keys-group"><strong>this page</strong>
       <span><kbd>g</kbd> the map</span>
+      <span><kbd>c</kbd> the chat view, on the open pane</span>
       <span><kbd>Shift</kbd>+<kbd>N</kbd> a fresh day for every pane (preview)</span>
       <span><kbd>?</kbd> these keys</span>
       <span><kbd>Esc</kbd> the last one, or close what is open</span>

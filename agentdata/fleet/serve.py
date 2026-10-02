@@ -107,11 +107,12 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
 # `tidy.js`.
 #
-# `/world` (#626) brings `world.css`, `world/hero.js` (the player's character) and `world/world.js`,
-# which imports the vendored three.js itself, through `q()`, like the ink layer.
+# `/chat` (operator request, 2026-10), the chat view, brings `chat.css` and its one script,
+# `chat/chat.js`. `/world` (#626) brings `world.css`, `world/hero.js` (the player's character)
+# and `world/world.js`, which imports the vendored three.js itself, through `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "world.css",
-          "world/hero.js", "world/world.js")
+          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "chat.css", "chat/chat.js",
+          "world.css", "world/hero.js", "world/world.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -133,14 +134,22 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 # `/tidy` is the sixth: the cleanup guide, opened from the map in a window of its own. It walks the
 # dirty working trees one decision at a time; every write is one press on a decision it showed.
 #
-# `/world` (#626, the operator's verdict on #400) is a 3D space walked with a controller or the
+# `/chat` is the seventh (operator request, 2026-10: "a view where agents are tracked in a left
+# sidebar, and all of their active sessions sit beneath each agent, where one session's chat is
+# readable at a time"): the traditional layout beside the desk's panes, never instead of them. It
+# reads what the desk reads (`/api/fleet`, `/api/sessions`, `/api/transcript`, the stream) and posts
+# the desk's own verbs, so it adds no route and no rule. Not inked, like the map: it wears `ink-off`,
+# and the palette and the skin reach it through `_page` like every other page.
+#
+# `/world` is the eighth (#626, the operator's verdict on #400): a 3D space walked with a controller or the
 # keyboard: a rainy plaza, day or night by the local clock, one figure per agent, and talking to an
 # agent only within reach of it. It reads `/api/fleet` and the stream and posts the desk's own
 # verbs, so it adds no route. Unlike the desk's ink and the map's scene it draws every frame: that is
 # what moving through a place is. It wears `ink-off` (the probe's gate is the desk's and the map's);
 # the palette and skin reach its HUD through `_page`, never its scene.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/world": "world.html"}
+         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/chat": "chat.html",
+         "/world": "world.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
