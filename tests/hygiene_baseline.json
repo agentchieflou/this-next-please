@@ -381,6 +381,9 @@
       "skips": 2,
       "tests": 32
     },
+    "tests/test_fleet_copilot_files.py": {
+      "tests": 9
+    },
     "tests/test_fleet_demo_branches.py": {
       "tests": 2
     },

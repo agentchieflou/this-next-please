@@ -362,7 +362,7 @@ stops at [the approval gate](fleet-approvals.md) and shows you the dry-run paylo
 **By default an agent has what a Copilot CLI window has, on autopilot, on `auto`** (the operator,
 2026-10-02: "I accept fleet agents running --allow-all-tools by default. Default settings for all
 agents should be autopilot enabled, model mode auto - efficiency, with all tool access enabled").
-Every launch, headless or console, carries `--allow-all-tools` (`fleet.permissions: copilot`) and
+Every launch, headless or console, carries `--allow-all-tools` (`fleet.permissions: all`) and
 `--autopilot` (`fleet.copilot.autopilot`, with `fleet.copilot.autopilot_max` as
 `--max-autopilot-continues` when set), keeps the built-in MCP servers a window has, and runs
 `--model auto` unless a model is chosen (a blank `fleet.model` is still "no `--model` at all"). The
@@ -373,6 +373,25 @@ its own commands (`ad-fleet`, `ad-update`, `ad-setup`), plus whatever you deny o
 Writes made through `ad-*` commands still wait on the approval gate, which is in the command; a
 bare `pncli` or `curl` write is the agent's, as it is in a window where you said yes. Each of these
 is on the settings page, fleet-wide and per agent; `fleet.permissions: strict` is everything below.
+
+**Copilot's own settings, global and per repository, are on the settings page** (the operator,
+2026-10-02: "When a user does /config in an individual repository in regular copilot cli, they're
+first setting global permissions. What we're trying to do is have the repo permissions be accessible
+from the fleet screen in addition to the global settings"). *Copilot, global* edits
+`~/.copilot/settings.json` (or `$COPILOT_HOME`), exactly the file `/config` writes from any window;
+*Copilot, this repository* (pick an agent) edits the approvals Copilot keeps for that checkout's Git
+root in `~/.copilot/permissions-config.json`, the ones *always allow* in a window there saves, and its
+allowed directories. Your own windows and the fleet's agents read the same two files. A write changes
+one key or one entry, keeps everything else, copies the old file to `<file>.bak`, and refuses to
+touch a file that is not JSON. The fleet adds `commands` (`git:*`), `read` and `write` approvals, the
+kinds Copilot's reference documents; any approval can be removed.
+
+`--allow-all-tools` is the global default, and a repository can turn it off: set that agent's *tool
+access* to `repo` and it launches with no permission flag of the fleet's own, running on exactly the
+repository's Copilot approvals. Its refused card then saves the approval there
+(*save commands dscmd.exe:\* to luna's Copilot approvals, then retry*) instead of to the fleet's own
+list. A model set with `/config model …` (or in the repository's settings files) is Copilot's to
+apply: the fleet passes no `--model` over it unless you choose one for the agent or the fleet.
 
 **With `strict`, the agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
 deny-list. The spike measured Copilot's own permission classifier refusing three spellings of a

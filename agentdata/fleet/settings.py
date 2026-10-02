@@ -132,7 +132,8 @@ EDITABLE: dict[str, dict] = {
     "fleet.permissions": {
         "agent": True, "label": "tool access", "type": "enum", "default": LAUNCH.DEFAULT_PERMISSIONS,
         "scope": NEXT_TURN, "choices": list(LAUNCH.PERMISSIONS),
-        "why": "copilot: every tool a Copilot window would ask about is allowed (`--allow-all-tools`); "
+        "why": "all: every tool a Copilot window would ask about is allowed (`--allow-all-tools`); "
+               "repo: only what this repository's Copilot approvals allow (set below, per repository); "
                "strict: only the fleet's enumerated list, with its deny floor"},
     "fleet.copilot.autopilot": {
         "agent": True, "label": "autopilot", "type": "bool", "default": True, "scope": NEXT_TURN,

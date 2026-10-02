@@ -261,7 +261,7 @@ def test_the_terminal_verb_is_the_same_action_and_refuses_the_floor_by_name(home
 
 
 def test_with_a_windows_tools_only_the_fleets_own_commands_are_refused_and_never_granted(home):
-    cfg = {"fleet": {"permissions": "copilot"}}
+    cfg = {"fleet": {"permissions": "all"}}
     assert G.grant(cfg, "luna", ["shell(pncli)"], known={"luna"})["allowed"] == ["shell(pncli)"], \
         "nothing on the strict floor is denied here, so nothing stops it"
     with pytest.raises(G.GrantError) as e:

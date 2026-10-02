@@ -73,7 +73,7 @@ def test_the_tool_lists_come_back_with_their_provenance(fleet_home, tmp_path):
     snap = S.settings_snapshot()
     # The default (2026-10-02): a Copilot window's tools -- no list of the fleet's own, and only the
     # fleet's own commands denied.
-    assert snap["tools"]["permissions"] == "copilot"
+    assert snap["tools"]["permissions"] == "all"
     assert snap["tools"]["allow"] == []
     assert [r["pattern"] for r in snap["tools"]["deny"]] == L.FLEET_SELF
 
