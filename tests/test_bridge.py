@@ -290,7 +290,7 @@ def test_reload_refuses_to_overwrite_unsaved_changes_and_names_the_next_step(mon
     res = DT.reload(4321, discard=True)
     assert res["ok"] is True and res["via"] == "bridge" and res["method"] == "file.reload/v1"
     assert replay.requests[-1]["params"] == {"reloadModelDefinition": True}
-    assert "Calculate" in res["next"]
+    assert "ad-pbip model refresh --type calculate" in res["next"]
 
     c, replay = client_with(False)
     monkeypatch.setattr(BR, "get_bridge_manifest", lambda **kw: (c, c.man, "ok"))

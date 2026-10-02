@@ -25,7 +25,7 @@ Author Power BI reports mechanically via `ad-pbip` verbs without handwriting vis
 3. **Validate**: Run pre-flight lint:
    - `ad-pbip check <pbip>`: Must pass with 0 errors. Checks schema rules, field references, and anti-patterns.
 4. **Reload & Verify**:
-   - `ad-pbip desktop reload --pid <pid>`: Trigger live refresh in running Desktop.
+   - `ad-pbip desktop reload --pid <pid> --report-only`: Reload the running Desktop after PBIR-only edits (Desktop Bridge `file.reload`; without `--report-only` it re-applies the model too — use that, then `tmdl-edit` step 4b, only when TMDL changed). It refuses while Desktop has unsaved changes: ask the human to save; never pass `--discard` on your own.
    - `ad-pbip screenshot --pid <pid> --page <p> [--visual <id>]`: Visually inspect rendered result.
    - `ad-pbip screenshot --compare <before.png> <after.png>`: Confirm intentional visual diff.
 5. **Commit**: Format Conventional Commit (`feat:`, `fix:`).

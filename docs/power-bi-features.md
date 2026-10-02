@@ -5,6 +5,12 @@ Hardened native Power BI features matrix: each row specifies the test fixture pa
 > [!NOTE]
 > `ad-doctor --online` validates that `verified_on` dates for features used by the project have not decayed beyond `powerbi.feature_recheck_days` (default 30 days).
 
+0.18.0 targets **Power BI Desktop 2.157** (August 2026, 2.157.1354.0): PBIR as the default format at the schema
+versions 2.157 writes (`agentdata/pbip/pbir.py` `DESKTOP_SCHEMAS`), the documented Desktop Bridge, and DAX user-defined
+functions (generally available since 2.155). The dates below are live checks, and a fixture is not one: a row is
+re-dated only when `ad-pbip check --server localhost:<port> --features` passes for it against a running Desktop.
+`udf` is new in 0.18.0 and waits for that first live check on the laptop; `ad-doctor` skips a row that is not dated.
+
 | Feature | Fixture Path | Rule IDs | Live Check | Verified On |
 |---|---|---|---|---|
 | `bookmarks` | `tests/fixtures/pbip/native/Native.Report/definition/bookmarks/b1.json` | `bookmark-visual-missing`, `bookmark-page-missing` | Screenshot diff / UIA state interaction | 2026-09-04 |
@@ -24,6 +30,7 @@ Hardened native Power BI features matrix: each row specifies the test fixture pa
 | `mobile_layout` | `tests/fixtures/pbip/native/Native.Report/definition/pages/overview/page.json` | `mobile-visual-not-on-page` | Mobile layout layout container inspection | 2026-09-04 |
 | `visual_interactions` | `tests/fixtures/pbip/native/Native.Report/definition/report.json` | `interaction-visual-missing` | Slicer selection cross-filter screenshot diff | 2026-09-04 |
 | `relationships` | `tests/fixtures/pbip/native/Native.SemanticModel/definition/relationships.tmdl` | `userelationship-inactive-missing` | `EVALUATE ROW("DeliveryDate", [Sales Delivery Date])` | 2026-09-04 |
-| `report_level_measures` | `tests/fixtures/pbip/native/Native.Report/definition/reportExtension.json` | `extension-entity-missing`, `report-measure-entity-missing` | Report measure evaluation against model | 2026-09-04 |
+| `report_level_measures` | `tests/fixtures/pbip/native/Native.Report/definition/reportExtension.json` (Desktop writes `reportExtensions.json`; both names are read) | `extension-entity-missing`, `report-measure-entity-missing` | Report measure evaluation against model | 2026-09-04 |
 | `themes` | `tests/fixtures/pbip/native/Native.Report/definition/report.json` | `theme-resource-missing` | Palette color evaluation & visual style inspection | 2026-09-04 |
+| `udf` | `tests/fixtures/pbip/native/Native.SemanticModel/definition/functions.tmdl` | `udf-compatibility-level`, `udf-signature`, `udf-name-invalid`, `udf-name-dup`, `udf-parameter`, `udf-parameter-type`, `udf-recursive`, `udf-call-arity` | `EVALUATE INFO.USERDEFINEDFUNCTIONS()` | pending: first live check on Desktop 2.157 |
 | `agg_tables` | `tests/fixtures/pbip/native/Native.SemanticModel/definition/tables/SalesAgg.tmdl` | `agg-table-hidden` | `EVALUATE TOPN(5, SalesAgg)` query direct execution | 2026-09-04 |

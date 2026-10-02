@@ -758,9 +758,10 @@ def reload(pid: int, save: bool = False, discard: bool = False, candidates: list
                     "elapsed_ms": res.get("elapsed_ms", 0),
                 }
                 if res.get("model"):
-                    out["next"] = ("the model definition was reloaded: refresh what changed (Calculate for measures, "
-                                   "calculated columns and tables; a targeted Full for changed import tables), then "
-                                   "verify a value with ad-pbip dax before trusting a screenshot")
+                    out["next"] = ("the model definition was reloaded, not processed: `ad-pbip model refresh --type "
+                                   "calculate` after measure, function or calculated-object edits, `--type full --table "
+                                   "<T>` for each changed import table, then the DAX query it prints, before trusting "
+                                   "a screenshot")
                 return out
             else:
                 warn_reason = "operation 'reload' not declared in bridge manifest"
