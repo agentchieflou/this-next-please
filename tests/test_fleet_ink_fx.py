@@ -689,10 +689,13 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
         # ... nor does a hover that only recolours a button: reduced motion gives every element a
         # 0.01 ms transition, and a border colour's was followed for `FOLLOW_MS` (`PAINT_ONLY`).
         # On a button whatever the fonts, which is where Windows' pointer above happened to land.
-        send = page.locator('.tile[data-repo="alpha"] .send').bounding_box()
-        _moves(page, (round(send["x"] + 4), round(send["y"] + send["height"] / 2)), n=4)
-        observe_quiet(page, passes=2, drive=False)
-        assert page.evaluate(POINTED)["renders"] == after["renders"], (after, page.evaluate(POINTED))
+        # And one that only fades: the pane's trace brightens on hover (`opacity`), which moves no box.
+        for target in ('.tile[data-repo="alpha"] .send', '.tile[data-repo="alpha"] .trace'):
+            held = page.evaluate(POINTED)["renders"]
+            box = page.locator(target).bounding_box()
+            _moves(page, (round(box["x"] + 4), round(box["y"] + box["height"] / 2)), n=4)
+            observe_quiet(page, passes=2, drive=False)
+            assert page.evaluate(POINTED)["renders"] == held, (target, held, page.evaluate(POINTED))
         _choose(page, "example")
         page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=20000)
         # ... and no pane moves (#374): `animate` answers false, and nothing animates.

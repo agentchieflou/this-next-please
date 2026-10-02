@@ -7,7 +7,7 @@ const DEG = Math.PI / 180;
 const FOLLOW_MS = 400;
 const REVEAL_BLEED = 14;
 const MARGIN_SHAPES = new Set(["check", "bang", "cross"]);
-const PAINT_ONLY = /(^|-)color$|^(box|text)-shadow$|^outline(-|$)/;
+const PAINT_ONLY = /(^|-)color$|^(box|text)-shadow$|^outline(-|$)|^opacity$/;
 const TOKENS = ["bg", "panel", "text", "line", "select", "muted", "accent", "focus", "running",
                 "waiting", "human", "done", "idle"];
 
