@@ -182,3 +182,15 @@ def test_zero_collected_and_unreadable_output_are_not_a_pass(tmp_path):
     assert unreadable["ok"] is False and unreadable["verdict"] == "indeterminate"
     real = run("3 passed in 0.02s")
     assert real["ok"] is True and real["verdict"] == "pass" and real["passed"] == 3
+
+
+def test_a_quoted_word_reaches_the_command_without_its_quotes_on_windows_too():
+    """`shlex` with `posix=False` (Windows) keeps a quoted word's quotes, so `python -c "print(1)"`
+    ran the string literal `"print(1)"` and printed nothing: the test above read `indeterminate`
+    on every Windows runner. Checked here for both splits, on whatever machine runs it."""
+    from agentdata.testing.runner import split_command
+
+    line = 'python -c "print(\'0 passed in 0.01s\')"'
+    assert split_command(line, nt=False) == ["python", "-c", "print('0 passed in 0.01s')"]
+    assert split_command(line, nt=True) == ["python", "-c", "print('0 passed in 0.01s')"]
+    assert split_command("pytest -q 'tests/x y.py'", nt=True) == ["pytest", "-q", "tests/x y.py"]

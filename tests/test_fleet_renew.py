@@ -334,7 +334,8 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         fresh = '.tile[data-repo="old"] .freshtoggle'
         page.wait_for_selector(fresh + ":not([hidden])", timeout=10000)
         title = page.get_attribute(fresh, "title")
-        assert "on RDSD-1" in title and "cli-auto" in title and "Alt+N" in title, title
+        # Nothing chosen is the operator's default, `auto` (2026-10-02).
+        assert "on RDSD-1" in title and "auto (default)" in title and "Alt+N" in title, title
         # #509: the button is drawn on every pane with a verdict, and offered (`is-offer`) only
         # where #489 offers it; off a compact pane, one that is not offered is not shown.
         assert page.evaluate("""() => { const b = document.querySelector('.tile[data-repo="fresh"] .freshtoggle');
@@ -366,7 +367,8 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         assert (day["asking"]["disabled"], day["asking"]["verdict"]) == (True, "needs_you")
         assert day["asking"]["question"] == "“which workspace?”" and day["asking"]["answer"], day["asking"]
         assert day["asking"]["why"].startswith("answer it first")
-        assert day["yday"]["model"] == "auto · cli-auto" and "no --model flag" in day["yday"]["model_title"]
+        # Nothing chosen is the operator's default, `--model auto` (2026-10-02), and it says so.
+        assert day["yday"]["model"] == "auto · default" and "configured auto (default)" in day["yday"]["model_title"]
         assert day["yday"]["began"].startswith("began yesterday"), day["yday"]
         assert page.is_visible("#day-strip .day-keyless")
         assert page.inner_text("#daygo") == "start 4 fresh — about 4 premium turns", "yday, sent, fresh, old"

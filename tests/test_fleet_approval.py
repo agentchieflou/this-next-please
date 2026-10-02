@@ -338,11 +338,14 @@ def test_deny_needs_a_reason_at_the_command_line(as_agent, capsys):
 @pytest.mark.parametrize("pattern", ["shell(pncli)", "shell(curl)", "shell(Invoke-RestMethod)",
                                      "shell(wget)", "shell(Invoke-WebRequest)"])
 def test_the_launch_line_denies_every_way_round_the_gate(pattern):
-    """Layer 1. None of these is on the allow-list either -- this is the second line, because the
-    boundary otherwise is a model's own classifier, which the spike measured being talked around."""
-    deny = launch.deny_tools({})
+    """Layer 1, for an agent set to `fleet.permissions: strict`. None of these is on the allow-list
+    either -- this is the second line, because the boundary otherwise is a model's own classifier,
+    which the spike measured being talked around. (The default since 2026-10-02 is a Copilot window's
+    tools, where layer 2 -- the gate inside every `ad-*` write -- is the boundary.)"""
+    strict = {"fleet": {"permissions": "strict"}}
+    deny = launch.deny_tools(strict)
     assert pattern in deny
-    assert not any(p.startswith(f"shell({pattern[6:-1].split()[0]}") for p in launch.allow_tools({}))
+    assert not any(p.startswith(f"shell({pattern[6:-1].split()[0]}") for p in launch.allow_tools(strict))
 
 
 def test_the_contract_lists_every_refusal_code_and_every_gated_verb():

@@ -49,12 +49,15 @@ def test_a_repos_model_goes_with_the_fleets_effort():
     assert _flags(cfg) == ["--model", "gpt-5.6-luna", "--effort", "low"]
 
 
-def test_nothing_set_passes_neither_flag_and_a_fleet_effort_alone_passes_only_its_own():
-    assert L.model_for("luna", {}) == ("", "", "cli-auto") and _flags({}) == []
+def test_nothing_set_is_auto_with_no_effort_and_a_fleet_effort_alone_passes_only_its_own():
+    """Nothing chosen is `--model auto` (the operator's default, 2026-10-02) and no effort; a blank
+    `fleet.model` chosen on purpose is no model flag at all, as it always was."""
+    assert L.model_for("luna", {}) == ("auto", "", "default") and _flags({}) == ["--model", "auto"]
     assert L.effort_source("luna", {}) == "cli-auto"
-    only = {"fleet": {"effort": "medium"}}
+    only = {"fleet": {"model": "", "effort": "medium"}}
     assert L.model_for("luna", only) == ("", "medium", "cli-auto")
     assert _flags(only) == ["--effort", "medium"]
+    assert _flags({"fleet": {"model": ""}}) == []
 
 
 def test_a_refused_pair_is_named_on_the_pane(fleet_home, tmp_path, monkeypatch):

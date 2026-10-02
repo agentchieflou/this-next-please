@@ -35,6 +35,10 @@ MODEL_KEY = re.compile(r"^\s+`model`:")
 ITEM = re.compile(r'^\s+-\s+"([^"\s]+)"\s*$')
 EFFORT = re.compile(r"--reasoning-effort <level>\s+[^\[(]*?(?:\[possible values:|\(choices:)\s*([^\])]*)[\])]")
 COMPLETION = re.compile(r'--model\)[^;]*?compgen\s+-W\s+"([^"]*)"', re.S)
+# Any `--option <arg>` with a value list, the list kept to its own option (the span may not run into
+# the next `--option`), for finding which option takes the auto tier (`parse_auto_tier_flag`).
+OPTION_VALUES = re.compile(r"(--[a-z][a-z0-9-]*)\s+<[^>]+>((?:(?!\n\s*-)[^\[(])*?)"
+                           r"(?:\[possible values:|\(choices:)\s*([^\])]*)[\])]")
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 
 # (key, title, id prefixes), in the order a picker shows them. The titles are an operator decision
@@ -146,6 +150,23 @@ def parse_efforts(text: str) -> list[str]:
     return [v.strip().strip('"') for v in " ".join(m.group(1).split()).split(",") if v.strip()]
 
 
+def parse_auto_tier_flag(text: str) -> str:
+    """The option `copilot --help` says takes an auto tier (one whose values include `efficiency`),
+    or "". Read, never assumed: the tier's spelling on the command line is not documented, and an
+    option the CLI does not know stops it before the agent says a word (the operator's default of
+    2026-10-02 is `auto` on the `efficiency` tier; `launch.model_flags` adds it only under this)."""
+    for m in OPTION_VALUES.finditer(text or ""):
+        values = [v.strip().strip('"').lower() for v in " ".join(m.group(3).split()).split(",")]
+        if "efficiency" in values and m.group(1) not in ("--reasoning-effort", "--context"):
+            return m.group(1)
+    return ""
+
+
+def auto_tier_flag() -> str:
+    """The auto-tier option the installed CLI named when it was last asked (`refresh`), or ""."""
+    return str((load_cache() or {}).get("auto_tier_flag") or "")
+
+
 def parse_completion(text: str) -> list[str]:
     """The ids after `--model)` in `copilot completion bash`, without `auto` (the catalogue adds it)."""
     m = COMPLETION.search(text or "")
@@ -218,7 +239,9 @@ def discover_help(timeout: int = TIMEOUT, *, cli_version: str | None = None,
         config_text = _run(["copilot", "help", "config"], timeout, stop)
         ids, source = parse_help_config(config_text), "help"
         config = parse_config_keys(config_text)
-        efforts = parse_efforts(_run(["copilot", "--help"], timeout, stop))
+        help_text = _run(["copilot", "--help"], timeout, stop)
+        efforts = parse_efforts(help_text)
+        tier_flag = parse_auto_tier_flag(help_text)
         if not ids:
             ids, source = parse_completion(_run(["copilot", "completion", "bash"], timeout, stop)), "completion"
     except proc.ProcError as e:
@@ -226,7 +249,7 @@ def discover_help(timeout: int = TIMEOUT, *, cli_version: str | None = None,
     if not ids:
         return {"ok": False, "why": "copilot help config and completion bash listed no models", "code": "no_models"}
     return {"ok": True, "source": source, "cli_version": version, "models": ids, "efforts": efforts,
-            "config": config}
+            "config": config, "auto_tier_flag": tier_flag}
 
 
 # ------------------------------------------------------------------------------------ the cache
@@ -291,7 +314,7 @@ def refresh(cfg: dict | None = None, *, cli_version: str | None = None, path: st
     if got["ok"]:
         cache = {"source": got["source"], "cli_version": got["cli_version"], "fetched_at": _now(),
                  "models": got["models"], "efforts": got["efforts"], "why": "",
-                 "config": got.get("config") or []}
+                 "config": got.get("config") or [], "auto_tier_flag": got.get("auto_tier_flag") or ""}
         textio.write_json(path, cache)
         return cache
     cache = _read(path)

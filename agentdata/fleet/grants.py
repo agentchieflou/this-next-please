@@ -213,6 +213,27 @@ def grant(cfg: dict, repo: str, patterns, *, scope: str = "agent", known=None) -
             "now": value, "broad": [p for p in patterns if is_broad(p)]}
 
 
+def approval_for(pattern: str) -> dict | None:
+    """The Copilot approval (`permissions-config.json`) that allows what `pattern` allows, or None.
+
+    `write` is the `write` kind. A `shell(<command> …)` is a `commands` approval on the command, in
+    the one identifier form the reference documents (`git:*`): the whole command, so it is never
+    narrower than what the card offered, and the card names it before anyone presses."""
+    text = str(pattern or "").strip()
+    if text == "write":
+        return {"kind": "write"}
+    inner = _prefixes([text])
+    if inner and inner[0].split(" ")[0]:
+        return {"kind": "commands", "commandIdentifiers": [inner[0].split(" ")[0] + ":*"]}
+    return None
+
+
+def describe_approval(item: dict) -> str:
+    """`commands git:*`, `write`: an approval in one short phrase."""
+    ids = item.get("commandIdentifiers") or []
+    return " ".join([str(item.get("kind") or "?"), *[str(i) for i in ids]])
+
+
 def retry_message(patterns) -> str:
     """What the agent is told after a grant, so the turn picks up where the refusal stopped it."""
     named = ", ".join(f"`{p}`" for p in patterns)

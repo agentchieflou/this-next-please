@@ -67,7 +67,8 @@ def test_every_draw_function_is_named_in_the_inventory():
     came to paint the same tile's accent on two different edges."""
     doc = open(INVENTORY, encoding="utf-8").read()
     missing = []
-    for page in ("app.js", "settings.js", "map/map.js", "picker.js", "m/m.js"):
+    for page in ("app.js", "settings.js", "map/map.js", "picker.js", "m/m.js", "chat/chat.js",
+                 "world/world.js", "world/hero.js"):
         js = open(os.path.join(STATIC, page), encoding="utf-8").read()
         for name in sorted(set(re.findall(r"(?m)^function (draw[A-Za-z]*)\(", js))):
             if name not in doc:
@@ -79,9 +80,9 @@ def test_every_component_class_the_inventory_names_really_exists():
     """The other direction: a row for a component that is not on the page is a row that will rot."""
     doc = open(INVENTORY, encoding="utf-8").read()
     html = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                   for n in ("index.html", "map.html", "m.html"))
+                   for n in ("index.html", "map.html", "m.html", "chat.html", "world.html"))
     css = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                  for n in ("app.css", "map.css", "m.css"))
+                  for n in ("app.css", "map.css", "m.css", "chat.css", "world.css"))
     # Only the `Styled in` column, which is the one that names classes and ids.
     named = set()
     for row in doc.splitlines():

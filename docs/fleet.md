@@ -163,6 +163,27 @@ also its own verb ([setup.md](setup.md) §Several projects at once). The scan **
 confirm each one — it hands the human a list, never an agent a folder — and registration goes
 through the same `repo add` a hand-typed path would.
 
+### The chat view: one conversation at a time
+
+The desk shows every agent side by side. Some days you want the other shape, the one every chat app
+has: **`/chat`** (the toolbar's *chat*, or `c` on a pane) puts the agents in a left sidebar, each
+one's sessions beneath it, and one session's conversation in the rest of the window. Choose an
+agent to follow its current session, or choose any session under it to read that one. An earlier
+session is read-only, and *Resume here* makes it the live one again. *+ new session* is the desk's
+*start fresh*. Messages, answers and approvals go through the same verbs the desk uses, so nothing
+here is a second set of rules, and the palette and skin you chose apply here too. It is an addition
+beside the desk, never a replacement for it; bookmark `/open?page=chat` to land there.
+
+### The world: walk to your agents
+
+**`/world`** (the toolbar's *world*) is the fleet as a place to walk: a plaza in the rain, by day or by
+night as your clock says. Each agent stands there as a figure. You move with a controller or the
+keyboard, and an agent that needs you raises a beacon and shows on the compass. To answer it,
+approve its write or send it a message, you walk up to it: nothing in the world acts from a
+distance. It is built to draw each frame within 10 ms (100 frames a second, or your display's rate
+if that is lower). [fleet-world.md](fleet-world.md) has the controls and how the frame budget is
+kept.
+
 ### The catalogue
 
 `ad-fleet index` reads what every registered repository already publishes into one local SQLite
@@ -359,7 +380,41 @@ still asked of `ad-state` rather than written behind its back.
 **Reads run unattended; writes wait for a click.** Every write to Jira, Confluence or Bitbucket
 stops at [the approval gate](fleet-approvals.md) and shows you the dry-run payload first.
 
-**The agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
+**By default an agent has what a Copilot CLI window has, on autopilot, on `auto`** (the operator,
+2026-10-02: "I accept fleet agents running --allow-all-tools by default. Default settings for all
+agents should be autopilot enabled, model mode auto - efficiency, with all tool access enabled").
+Every launch, headless or console, carries `--allow-all-tools` (`fleet.permissions: all`) and
+`--autopilot` (`fleet.copilot.autopilot`, with `fleet.copilot.autopilot_max` as
+`--max-autopilot-continues` when set), keeps the built-in MCP servers a window has, and runs
+`--model auto` unless a model is chosen (a blank `fleet.model` is still "no `--model` at all"). The
+auto tier, `efficiency` by default (`fleet.copilot.auto_tier`), is passed only under the option the
+installed CLI's own `--help` lists for it; the tier's command-line spelling is not documented, and an
+option the CLI did not know would stop every agent before its first word. The fleet's only deny is
+its own commands (`ad-fleet`, `ad-update`, `ad-setup`), plus whatever you deny on the settings page.
+Writes made through `ad-*` commands still wait on the approval gate, which is in the command; a
+bare `pncli` or `curl` write is the agent's, as it is in a window where you said yes. Each of these
+is on the settings page, fleet-wide and per agent; `fleet.permissions: strict` is everything below.
+
+**Copilot's own settings, global and per repository, are on the settings page** (the operator,
+2026-10-02: "When a user does /config in an individual repository in regular copilot cli, they're
+first setting global permissions. What we're trying to do is have the repo permissions be accessible
+from the fleet screen in addition to the global settings"). *Copilot, global* edits
+`~/.copilot/settings.json` (or `$COPILOT_HOME`), exactly the file `/config` writes from any window;
+*Copilot, this repository* (pick an agent) edits the approvals Copilot keeps for that checkout's Git
+root in `~/.copilot/permissions-config.json`, the ones *always allow* in a window there saves, and its
+allowed directories. Your own windows and the fleet's agents read the same two files. A write changes
+one key or one entry, keeps everything else, copies the old file to `<file>.bak`, and refuses to
+touch a file that is not JSON. The fleet adds `commands` (`git:*`), `read` and `write` approvals, the
+kinds Copilot's reference documents; any approval can be removed.
+
+`--allow-all-tools` is the global default, and a repository can turn it off: set that agent's *tool
+access* to `repo` and it launches with no permission flag of the fleet's own, running on exactly the
+repository's Copilot approvals. Its refused card then saves the approval there
+(*save commands dscmd.exe:\* to luna's Copilot approvals, then retry*) instead of to the fleet's own
+list. A model set with `/config model …` (or in the repository's settings files) is Copilot's to
+apply: the fleet passes no `--model` over it unless you choose one for the agent or the fleet.
+
+**With `strict`, the agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
 deny-list. The spike measured Copilot's own permission classifier refusing three spellings of a
 file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
 `git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
@@ -417,6 +472,7 @@ normally produce zero notifications; see [fleet-notifications.md](fleet-notifica
 | [fleet-approvals.md](fleet-approvals.md) | what is gated, and the two layers behind it |
 | [fleet-dashboard.md](fleet-dashboard.md) | the page, its endpoints, the token model |
 | [fleet-map.md](fleet-map.md) | the fleet map: `GET /api/map`, the graph of projects, checkouts and agents, and the page that draws it; each agent's branch and *open chat*; the cleanup guide for dirty trees (`/tidy`, `<fleet dir>/cleanup.jsonl`) |
+| [fleet-world.md](fleet-world.md) | the world (`/world`, #626): the controls, the agents as figures, reach, rain and the local clock, and the frame budget |
 | [fleet-notifications.md](fleet-notifications.md) | when you are interrupted, and when you are not |
 | [fleet-intake.md](fleet-intake.md) | the Jira board and the start guard rails |
 | [fleet-layouts.md](fleet-layouts.md) | the one arrangement and how four became one, `desk.json` schema 2 and its migration, a window's widths, hiding |

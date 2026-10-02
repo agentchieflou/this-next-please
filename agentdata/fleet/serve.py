@@ -106,8 +106,13 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `/tidy` (operator request, 2026-10), the cleanup guide the map pops out, brings `tidy.css` and
 # `tidy.js`.
+#
+# `/chat` (operator request, 2026-10), the chat view, brings `chat.css` and its one script,
+# `chat/chat.js`. `/world` (#626) brings `world.css`, `world/hero.js` (the player's character)
+# and `world/world.js`, which imports the vendored three.js itself, through `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
-          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js")
+          "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "chat.css", "chat/chat.js",
+          "world.css", "world/hero.js", "world/world.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -128,8 +133,23 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 #
 # `/tidy` is the sixth: the cleanup guide, opened from the map in a window of its own. It walks the
 # dirty working trees one decision at a time; every write is one press on a decision it showed.
+#
+# `/chat` is the seventh (operator request, 2026-10: "a view where agents are tracked in a left
+# sidebar, and all of their active sessions sit beneath each agent, where one session's chat is
+# readable at a time"): the traditional layout beside the desk's panes, never instead of them. It
+# reads what the desk reads (`/api/fleet`, `/api/sessions`, `/api/transcript`, the stream) and posts
+# the desk's own verbs, so it adds no route and no rule. Not inked, like the map: it wears `ink-off`,
+# and the palette and the skin reach it through `_page` like every other page.
+#
+# `/world` is the eighth (#626, the operator's verdict on #400): a 3D space walked with a controller or the
+# keyboard: a rainy plaza, day or night by the local clock, one figure per agent, and talking to an
+# agent only within reach of it. It reads `/api/fleet` and the stream and posts the desk's own
+# verbs, so it adds no route. Unlike the desk's ink and the map's scene it draws every frame: that is
+# what moving through a place is. It wears `ink-off` (the probe's gate is the desk's and the map's);
+# the palette and skin reach its HUD through `_page`, never its scene.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
-         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html"}
+         "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/chat": "chat.html",
+         "/world": "world.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
 #: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
@@ -825,6 +845,9 @@ def fleet_snapshot() -> dict:
                      # What it edited against what it was given (#168). Advice to the model and a
                      # report to the human: nothing here refuses an edit, it only says what happened.
                      "scope_report": _scope_report(row.get("path", ""), derived),
+                     "tool_access": _tool_access(name, cfg),
+                     "refused_tools": _with_approvals(derived.get("refused_tools") or [],
+                                                      _tool_access(name, cfg)),
                      # Which model this agent is launched with, and which one the last turn
                      # actually ran on -- the two differ whenever a tenant pins one. Computed by the
                      # same functions the settings page calls, so the tile and the page cannot
@@ -2747,6 +2770,31 @@ def act(what: str, body: dict) -> dict:
             # draws them from this answer, so its chip says the switch within a frame of the save.
             answer["rows"] = [row for row in fleet_snapshot().get("repos", []) if row.get("repo") in named]
         return answer
+    if what == "copilot":
+        # Copilot's own files, one change per press (`copilot_files`): `global` is what `/config`
+        # writes, `repo` the approvals Copilot keeps for this checkout's Git root.
+        from . import copilot_files as CF
+
+        try:
+            if body.get("scope") == "global":
+                if body.get("unset"):
+                    return {"copilot_global": CF.unset_global(str(body["unset"]))}
+                return {"copilot_global": CF.set_global(str(body.get("key") or ""), body.get("value"))}
+            if body.get("scope") == "repo":
+                target = _repo_record(repo)
+                if isinstance(body.get("add"), dict):
+                    add = body["add"]
+                    out = CF.add_approval(target.path, CF.approval(add.get("kind"), add.get("identifiers")))
+                elif isinstance(body.get("remove"), dict):
+                    out = CF.remove_approval(target.path, body["remove"])
+                elif isinstance(body.get("directories"), list):
+                    out = CF.set_directories(target.path, body["directories"])
+                else:
+                    raise ServeError("nothing to change", "add, remove or directories", code="bad_request")
+                return {"repo": target.name, "copilot_repo": out}
+        except CF.CopilotFileError as e:
+            raise ServeError(e.msg, e.hint, code=e.code) from None
+        raise ServeError("which Copilot settings?", "scope: global or repo", code="bad_request")
     if what == "grant":
         # The desk's *yes* to a refused tool (operator report 2026-10-02): what a local `copilot`
         # would have asked, added to this agent's (or every agent's) extra allowed tools, through
@@ -2760,6 +2808,35 @@ def act(what: str, body: dict) -> dict:
             known = {r.name for r in Registry().sorted()}
         except (RegistryError, OSError):
             known = {target.name}
+        from . import overrides as OV
+
+        scope_of = str(body.get("scope") or "agent")
+        if scope_of == "agent" and LAUNCH.permissions(OV.for_agent(C.load(), target.name)) == "repo":
+            # This repository runs on its own Copilot approvals: the *yes* goes where a window's
+            # "always allow" goes, so the operator's own windows here get it too.
+            from . import copilot_files as CF
+
+            saved = []
+            try:
+                for pattern in body.get("patterns") or []:
+                    item = G.approval_for(str(pattern))
+                    if item is None:
+                        raise ServeError(f"{pattern} has no Copilot approval to save",
+                                         "set this repository's tool access to all, or grant it on the settings page",
+                                         code="no_approval")
+                    CF.add_approval(target.path, item)
+                    saved.append(item)
+            except CF.CopilotFileError as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            done = {"key": "copilot approvals", "scope": "repo", "repo": target.name,
+                    "allowed": [G.describe_approval(a) for a in saved], "approvals": saved, "retried": False}
+            if body.get("retry") and not supervisor.live(target.name):
+                try:
+                    supervisor.send(target.name, G.retry_message(done["allowed"]), cfg=C.load())
+                    done["retried"] = True
+                except supervisor.SupervisorError as e:
+                    done["note"] = f"allowed, not retried: {e.msg}" + (f" — {e.hint}" if e.hint else "")
+            return {"repo": target.name, **done}
         with C.LOCK:
             cfg = C.load()
             try:
@@ -2849,7 +2926,7 @@ def act(what: str, body: dict) -> dict:
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load | wrapup | tidy | grant")
+                     "measure | load | wrapup | tidy | grant | copilot")
 
 
 def _write_settings(C, SET, body: dict) -> None:
@@ -4001,10 +4078,58 @@ def settings_snapshot() -> dict:
         # draws from this, so "what does luna run with, and why" is one lookup, not a join.
         "agents": [SET.describe_agent(cfg, repo.name) for repo in repos],
         # What Copilot itself keeps in `~/.copilot/config.json` (its `/config`), read from
-        # `copilot help config`, and which fleet setting covers each key. Read-only here: that file
-        # is shared with the operator's own chats and the fleet never writes it.
+        # `copilot help config`, and which fleet setting covers each key.
         "copilot_config": MODELS.config_keys(),
+        # Copilot's own settings, global (`settings.json`, what `/config` writes) and per
+        # repository (the approvals saved for its Git root): edited from the page, read by the
+        # operator's windows and the fleet's agents alike (`copilot_files`, 2026-10-02).
+        "copilot_global": _copilot_global(),
+        "copilot_repos": {repo.name: _copilot_repo(repo.path) for repo in repos},
     }
+
+
+def _tool_access(name: str, cfg: dict) -> str:
+    """The agent's `fleet.permissions`, for the refused card: under `repo` its *yes* is saved to
+    the repository's Copilot approvals and the card says so."""
+    from . import overrides as OV
+
+    try:
+        return LAUNCH.permissions(OV.for_agent(cfg, name))
+    except LAUNCH.LaunchError:
+        return ""
+
+
+def _with_approvals(refused: list, mode: str) -> list:
+    """Each refused command, and under `repo` the Copilot approvals its grant would save (`grants`),
+    so the card names what a press writes before it is pressed."""
+    if mode != "repo":
+        return refused
+    from . import grants as G
+
+    out = []
+    for item in refused:
+        items = [G.approval_for(p) for p in item.get("patterns") or []]
+        out.append({**item, "approvals": [G.describe_approval(a) for a in items if a]})
+    return out
+
+
+def _copilot_global() -> dict:
+    from . import copilot_files as CF
+
+    try:
+        return CF.global_settings()
+    except CF.CopilotFileError as e:
+        return {"path": textio.norm_path(CF.path_of(CF.SETTINGS)), "rows": [], "error": e.msg, "hint": e.hint}
+
+
+def _copilot_repo(path: str) -> dict:
+    from . import copilot_files as CF
+
+    try:
+        return CF.repo_permissions(path)
+    except CF.CopilotFileError as e:
+        return {"path": textio.norm_path(CF.path_of(CF.PERMISSIONS)), "location": "", "tool_approvals": [],
+                "allowed_directories": [], "error": e.msg, "hint": e.hint}
 
 
 def models_snapshot() -> dict:

@@ -595,8 +595,9 @@ function grantRefusal(el, li, r, scope) {
         return got;
       }
       toggle(li, "is-granted", true);
-      text(li.querySelector(".refusal-note"), "allowed " + (got.allowed || []).join(", ")
-           + (scope === "fleet" ? " for every agent" : " for " + (el.dataset.repo || "this agent"))
+      var where = got.scope === "repo" ? " in " + (el.dataset.repo || "this repository") + "'s Copilot approvals"
+        : scope === "fleet" ? " for every agent" : " for " + (el.dataset.repo || "this agent");
+      text(li.querySelector(".refusal-note"), "allowed " + (got.allowed || []).join(", ") + where
            + (got.retried ? " — retrying" : "") + (got.note ? " — " + got.note : "")
            + " · settings lists it, to take back");
       return got;
@@ -630,12 +631,18 @@ function drawRefused(el, row) {
     if (li.classList.contains("is-granted")) return;
     var named = (r.patterns || []).join(", ");
     var allow = li.querySelector(".refusal-allow");
+    var all = li.querySelector(".refusal-all");
     text(li.querySelector(".refusal-what"), r.what || r.message || "a tool it may not run");
     text(li.querySelector(".refusal-note"), r.grantable ? (r.broad ? "broad: " + r.why_broad : "")
          : (r.instead || r.message || ""));
     hide(li.querySelector(".refusal-row"), !r.grantable);
-    text(allow, "allow " + named + " for " + (row.repo || "this agent") + ", then retry");
-    attr(allow, "title", "adds " + named + " to this agent's *also allowed* tools; the next turn launches with it");
+    var saving = row.tool_access === "repo" && (r.approvals || []).length;
+    text(allow, saving ? "save " + r.approvals.join(", ") + " to " + (row.repo || "this repository")
+                         + "'s Copilot approvals, then retry"
+                       : "allow " + named + " for " + (row.repo || "this agent") + ", then retry");
+    attr(allow, "title", saving ? "the same approval an \"always allow\" in a Copilot window saves, for this repository"
+                                : "adds " + named + " to this agent's *also allowed* tools; the next turn launches with it");
+    hide(all, !!saving);
   });
 }
 
@@ -1788,6 +1795,10 @@ var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"
 if (setLink) setLink.href = pageUrl("/settings");
 var mapLink = /** @type {HTMLAnchorElement} */ (document.getElementById("mapbtn"));
 if (mapLink) mapLink.href = pageUrl("/map");
+var chatLink = /** @type {HTMLAnchorElement} */ (document.getElementById("chatbtn"));
+if (chatLink) chatLink.href = pageUrl("/chat");
+var worldLink = /** @type {HTMLAnchorElement} */ (document.getElementById("worldbtn"));
+if (worldLink) worldLink.href = pageUrl("/world");
 
 refresh().then(function () {
   LOAD.settled = document.body.dataset.skin || "";
@@ -5813,6 +5824,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "i") { section("unsorted"); return; }
   if (e.key === "?") { popover("keymap"); return; }
   if (e.key === "g") { location.href = pageUrl("/map"); return; }
+  if (e.key === "c") { var on = openName(); location.href = pageUrl("/chat") + (on ? "#" + encodeURIComponent(on) : ""); return; }
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });
 

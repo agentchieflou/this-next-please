@@ -118,7 +118,7 @@ def test_a_repo_with_a_dot_in_its_name_gets_its_model_and_inherit_removes_it(fle
     code, meta, _rows, _ = _run(capsys, "rdsd.pbi", "--inherit")
     assert code == 0
     assert C.get_leaf(C.load(), "fleet.models", "rdsd.pbi", None) is None
-    assert meta["source"] == "cli-auto"
+    assert meta["source"] == "default", "it inherits the operator's default, `auto`"
     assert spawns == []
 
 
@@ -153,7 +153,7 @@ def test_effort_alone_with_no_model_anywhere_sets_only_the_effort(fleet_home, ca
     code, meta, _rows, _ = _run(capsys, "alpha", "--effort", "high")
     assert code == 0 and meta["ok"] == "true"
     assert C.get_leaf(C.load(), "fleet.models", "alpha") == {"effort": "high"}
-    assert L.model_for("alpha", C.load()) == ("", "high", "cli-auto")
+    assert L.model_for("alpha", C.load()) == ("auto", "high", "default")
     assert "pinned_model" not in meta and "warning" not in meta
 
 

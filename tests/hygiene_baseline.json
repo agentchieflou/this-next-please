@@ -324,7 +324,7 @@
       "tests": 22
     },
     "tests/test_fleet.py": {
-      "tests": 32
+      "tests": 35
     },
     "tests/test_fleet_agent_settings.py": {
       "tests": 11
@@ -358,6 +358,9 @@
       "skips": 6,
       "tests": 44
     },
+    "tests/test_fleet_chat_page.py": {
+      "tests": 4
+    },
     "tests/test_fleet_checkouts.py": {
       "tests": 19
     },
@@ -380,6 +383,9 @@
       "loops": 1,
       "skips": 2,
       "tests": 32
+    },
+    "tests/test_fleet_copilot_files.py": {
+      "tests": 9
     },
     "tests/test_fleet_demo_branches.py": {
       "tests": 2
@@ -460,7 +466,7 @@
       "tests": 16
     },
     "tests/test_fleet_grants.py": {
-      "tests": 16
+      "tests": 17
     },
     "tests/test_fleet_gutters.py": {
       "tests": 21
@@ -639,7 +645,7 @@
     },
     "tests/test_fleet_serve.py": {
       "skips": 2,
-      "tests": 45
+      "tests": 47
     },
     "tests/test_fleet_served_comments.py": {
       "skips": 3,
@@ -708,6 +714,9 @@
     },
     "tests/test_fleet_window.py": {
       "tests": 13
+    },
+    "tests/test_fleet_world_page.py": {
+      "tests": 6
     },
     "tests/test_fleet_wrapup.py": {
       "tests": 27
@@ -990,7 +999,7 @@
       "tests": 12
     },
     "tests/test_testing_run.py": {
-      "tests": 7
+      "tests": 8
     },
     "tests/test_textio.py": {
       "tests": 5

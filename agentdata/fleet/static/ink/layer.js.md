@@ -70,6 +70,17 @@ The three shapes drawn at one anchor in a pane's margin (`shapes.margin`): the c
 cross. They share a spot, so two of them on one element are drawn over each other -- the red cross and
 the green check the operator saw overlapping (2026-10).
 
+### `const PAINT_ONLY`
+
+The transitions that cannot move anything a mark is anchored to: a colour, a shadow, an outline, an
+opacity (a mark's element is visible to the layer by its box alone, never by how opaque it is, so a
+fade changes nothing the layer reads; a pane's trace brightens on hover this way).
+Under `prefers-reduced-motion: reduce` `app.css` gives every element a 0.01 ms transition, so a
+hover that only changes a button's border colour fires `transitionrun` and `transitionend` -- and
+each was followed for `FOLLOW_MS`, about a dozen frames drawn for nothing. On Windows the
+pointer moves of `test_cues_come_from_the_page_once_each_with_the_last_box` land on a button and
+it counted them (windows 3/4, every run since #624; reproduced here by hovering *Send*).
+
 ### `const TOKENS`
 
 Beside `const REVEAL_BLEED = 14;`:
@@ -150,6 +161,12 @@ The page's own rows (#257), which a table that draws with ink is followed by.
 In `constructor`, above `this.onLost = () => this.host.off("the WebGL context was lost");`:
 
 On the page only while a table is set (`setTable`).
+
+In `constructor`, above `this.onMove = e => {` (the first line of its body):
+
+A transition of a paint-only property (`PAINT_ONLY`) is not followed: nothing it changes has a
+box. Everything else -- `transform`, `translate`, a size, `display`, any animation -- is followed as
+before; an element that fades and moves (`.enters`) is followed by its `translate` and `display`.
 
 In `constructor`, above `this.onSheet = e => {`:
 
