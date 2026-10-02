@@ -990,7 +990,7 @@
       "tests": 12
     },
     "tests/test_testing_run.py": {
-      "tests": 7
+      "tests": 8
     },
     "tests/test_textio.py": {
       "tests": 5

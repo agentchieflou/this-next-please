@@ -122,10 +122,11 @@ def test_a_repositorys_permissions_are_its_git_roots_location(copilot, tmp_path)
         {"kind": "commands", "commandIdentifiers": ["git:*", "npm:*"]}, {"kind": "write"}], "added once"
 
     CF.remove_approval(repo, {"kind": "write"})
-    CF.set_directories(repo, ["/data/shared", "/data/shared", ""])
+    shared = str(tmp_path / "shared")       # absolute on this machine: `/data/shared` is not, on Windows
+    CF.set_directories(repo, [shared, shared, ""])
     got = CF.repo_permissions(repo)
     assert got["tool_approvals"] == [{"kind": "commands", "commandIdentifiers": ["git:*", "npm:*"]}]
-    assert got["allowed_directories"] == ["/data/shared"]
+    assert got["allowed_directories"] == [shared]
     with pytest.raises(CF.CopilotFileError) as e:
         CF.set_directories(repo, ["relative/path"])
     assert e.value.code == "bad_value"
