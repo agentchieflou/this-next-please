@@ -29,6 +29,8 @@ Formatting rules and properties per visual type.
   - Numeric columns & dates: Right-aligned.
 - **Conditional Formatting**: Use data bars or background heatmaps on 1 primary metric only. Avoid color visual noise.
 
-## §5. slicer
-- **Orientation**: Prefer dropdown or tile button layout over long scrolling lists.
+## §5. slicer, listSlicer, advancedSlicerVisual & textSlicer
+- **Orientation**: Prefer dropdown (`slicer`) or tiles (`advancedSlicerVisual`) over long scrolling lists (`listSlicer`).
 - **Header**: Clear, concise title indicating what filter is active.
+- **Size**: a dropdown needs about 60px plus its padding; a list needs a row per visible item; tiles about 56px a row.
+- **Sync**: slicers in one sync group share a visual type and a field.
