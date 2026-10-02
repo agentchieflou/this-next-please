@@ -179,6 +179,7 @@ def test_the_gate_is_the_ink_gate_and_without_it_the_map_is_the_tree_alone(brows
         assert look["verdict"]["on"] is False and look["verdict"]["source"] == "probe", look
         assert "software" in look["verdict"]["why"], look
         assert (look["scene"], look["canvas"], look["inkOff"]) == (False, 0, True), look
+        assert want_ids <= set(page.evaluate(TREE_IDS))
         errors += more
         page.close()
 
