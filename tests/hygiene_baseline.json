@@ -636,7 +636,7 @@
     },
     "tests/test_fleet_serve.py": {
       "skips": 2,
-      "tests": 45
+      "tests": 46
     },
     "tests/test_fleet_served_comments.py": {
       "skips": 3,
@@ -705,6 +705,9 @@
     },
     "tests/test_fleet_window.py": {
       "tests": 13
+    },
+    "tests/test_fleet_world_page.py": {
+      "tests": 4
     },
     "tests/test_fleet_wrapup.py": {
       "tests": 27

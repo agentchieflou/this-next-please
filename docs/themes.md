@@ -376,6 +376,8 @@ every `PALETTE_ONLY` palette is.
 | `vanta-black` | Glass · Noir, Voxel · The End, Circuit board · Matte, Weather · Starry night | an observatory: a star field, a meteor now and then (Weather · Starry night); a constellation when done, at least 97% true-black pixels | `built` |
 | `reds` | Voxel · Nether | a darkroom: a safelight, prints in the tray, a print hung when done | `parked` |
 | `blues` | Glass · Azure, Farmstead · Rainy day, Graph paper · Blueprint | sonar: one ping ring per line | `parked` |
+
+Next (#400, the operator, 2026-10-02): none of the parked concepts yet. The next exploration is the 3D world, `/world` (#626), whose rainy scene is not themed ([skin-playbook.md](skin-playbook.md) §Decisions).
 | `slate` | Weather · Rainy day, Weather · Dusk | a rainy afternoon: rain across the panes, lightning on an error (Weather · Rainy day) | `built` |
 | `overcast` | Circuit board · White mask, Weather · Cloudy, Weather · Showers | cloud cover drifting behind the panes (Weather · Cloudy) | `built` |
 | `dark` | Glass · Smoke, Legal pad · Night pad, Napkin notes · Late shift, Notebook · Night notebook | none: the neutral ground the paper skins share | `built` |

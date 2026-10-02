@@ -163,6 +163,16 @@ also its own verb ([setup.md](setup.md) §Several projects at once). The scan **
 confirm each one — it hands the human a list, never an agent a folder — and registration goes
 through the same `repo add` a hand-typed path would.
 
+### The world: walk to your agents
+
+**`/world`** (the toolbar's *world*) is the fleet as a place to walk: a plaza in the rain, by day or by
+night as your clock says. Each agent stands there as a figure. You move with a controller or the
+keyboard, and an agent that needs you raises a beacon and shows on the compass. To answer it,
+approve its write or send it a message, you walk up to it: nothing in the world acts from a
+distance. It is built to draw each frame within 10 ms (100 frames a second, or your display's rate
+if that is lower). [fleet-world.md](fleet-world.md) has the controls and how the frame budget is
+kept.
+
 ### The catalogue
 
 `ad-fleet index` reads what every registered repository already publishes into one local SQLite
@@ -417,6 +427,7 @@ normally produce zero notifications; see [fleet-notifications.md](fleet-notifica
 | [fleet-approvals.md](fleet-approvals.md) | what is gated, and the two layers behind it |
 | [fleet-dashboard.md](fleet-dashboard.md) | the page, its endpoints, the token model |
 | [fleet-map.md](fleet-map.md) | the fleet map: `GET /api/map`, the graph of projects, checkouts and agents, and the page that draws it; each agent's branch and *open chat*; the cleanup guide for dirty trees (`/tidy`, `<fleet dir>/cleanup.jsonl`) |
+| [fleet-world.md](fleet-world.md) | the world (`/world`, #626): the controls, the agents as figures, reach, rain and the local clock, and the frame budget |
 | [fleet-notifications.md](fleet-notifications.md) | when you are interrupted, and when you are not |
 | [fleet-intake.md](fleet-intake.md) | the Jira board and the start guard rails |
 | [fleet-layouts.md](fleet-layouts.md) | the one arrangement and how four became one, `desk.json` schema 2 and its migration, a window's widths, hiding |
