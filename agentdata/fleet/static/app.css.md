@@ -675,7 +675,9 @@ grew a rail past 160 px would make it compact, drop the rule, shrink it back, an
 The gutters and grips go: there is no width to pull on a phone. The toolbar is two rows, the live
 dot, the presets and the alerts on the first and the `see` group on the second; the brand and the
 chime give up their room for it (the day button, #511, came after the audit's two rows were
-counted).
+counted). So does the world's link (#626): with it the `see` row was 407 px on a 390 px glass and the
+page scrolled sideways, and the world is walked with keys or a controller, which a phone has not
+got. `/world` itself still opens there.
 
 ### `@media (pointer: coarse) and (max-height: 480px)`
 

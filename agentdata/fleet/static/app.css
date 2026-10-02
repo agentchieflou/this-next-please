@@ -774,7 +774,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   .toolbar { column-gap: 6px; }
   .toolbar h1 { display: none; }
   .toolbar .group-view { order: 3; flex: 1 1 100%; }
-  #chime { display: none; }
+  #chime, #worldbtn { display: none; }
   #find { flex: 1 1 auto; }
 }
 
