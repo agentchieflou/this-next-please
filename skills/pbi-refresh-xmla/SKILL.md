@@ -15,6 +15,9 @@ Refresh a deployed model and poll until completion.
    - Polls refresh history REST endpoint, emitting progress to stderr.
    - Outputs duration and completion status upon success.
 
+   - Always `--wait`. `status: Submitted` is not a refresh: it says the request left this machine, not that the service ran it.
+   - The poll only counts a history row newer than the one on top before submission. `code: refresh_not_observed` → status Indeterminate: the submission may never have reached the service. Print `ad-pbi refresh --history` and `ad-pbi auth --probe`, `friction-log` type `tool-error`. STOP. Never call it refreshed.
+
 3. **Handle failures**:
    - If refresh fails, `ad-pbi` extracts `error_code`, `table`, `partition`, `message`, and `hint` from `serviceExceptionJson`.
    - Invoke `friction-log` with the structured failure row. STOP.

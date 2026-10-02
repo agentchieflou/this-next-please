@@ -70,25 +70,37 @@ def cmd_set(a) -> int:
     return 0
 
 
-def _questions_report(st: dict, source: str, path: str) -> int:
+def _kind(st: dict, q: dict) -> str:
+    """What this question does to the active ticket's work, in one word."""
+    if q.get("kind") == "followup":
+        return "followup"
+    if not S.is_blocking(q):
+        return "assumed"
+    return "blocking" if S.blocks_scope(q, st.get("active_ticket")) else "parked"
+
+
+def _questions_report(st: dict, source: str, path: str, questions: list | None = None) -> int:
     rows = [[q.get("id", ""), S.question_text(q),
              " | ".join(q.get("choices") or []) or "-",
              q.get("default") or "-", q.get("want") or "-",
-             "blocking" if S.is_blocking(q) else "assumed"]
-            for q in (st.get("open_questions") or []) if isinstance(q, dict)]
+             _kind(st, q), S.question_scope(q) if S.question_scope(q) is not None else "*"]
+            for q in (st.get("open_questions") if questions is None else questions) or []
+            if isinstance(q, dict)]
+    head = ["id", "question", "choices", "default", "want", "kind", "ticket"]
     if policy.pretty():
         ui.facts([("path", path), ("phase", st.get("phase")),
                   ("open_questions", len(st.get("open_questions") or []))], title=source)
         if rows:
-            ui.table(["id", "question", "choices", "default", "want", "kind"], rows, title="open questions")
+            ui.table(head, rows, title="open questions")
         ui.note(S.line(st))
     else:
         print(toon.encode({"meta": {"ok": True, "source": source, "path": path,
                                     "phase": st.get("phase"),
                                     "blocked_from": st.get("blocked_from") or "",
-                                    "open_questions": len(st.get("open_questions") or [])}}))
+                                    "open_questions": len(st.get("open_questions") or []),
+                                    "blocking": len(S.blocking_for(st))}}))
         if rows:
-            print(toon.table("open_questions", ["id", "question", "choices", "default", "want", "kind"], rows))
+            print(toon.table("open_questions", head, rows))
         print(S.line(st))
     return 0
 
@@ -101,26 +113,88 @@ def cmd_ask(a) -> int:
     carried on, and the tile shows the assumption for the operator to overturn at leisure.
     """
     st = S.load(a.file)
+    if a.assume and a.followup:
+        raise S.StateError("--assume and --followup are two different answers to 'do I stop?'",
+                           "--assume: a default you continue on; --followup: optional, nothing assumed")
     record = {"q": a.question, "choices": list(a.choice or []), "default": a.default or "",
-              "want": a.want or "", "about": a.about or "", "blocking": not a.assume}
+              "want": a.want or "", "about": a.about or "",
+              "blocking": not (a.assume or a.followup)}
     if a.assume:
         record["assume"] = a.assume
+    if a.followup:
+        record["kind"] = "followup"
+    if a.ticket is not None:
+        scope = a.ticket.strip()
+        if scope.lower() == "any":
+            record["ticket"] = None
+        else:
+            record["ticket"] = "" if scope.lower() in ("untracked", "none", "") else scope
     S.apply(st, {}, asks=[record])
     path = S.save(st, a.file)
     return _questions_report(st, "ad-state ask", path)
 
 
+def _known(st: dict, qid: str) -> None:
+    known = {str(q.get("id") or "") for q in (st.get("open_questions") or []) if isinstance(q, dict)}
+    if qid not in known:
+        raise S.StateError(f"no open question with id {qid!r}",
+                           "run `ad-state blocking` for the open questions and their ids"
+                           + (f"; open now: {', '.join(sorted(known))}" if known else ""))
+
+
 def cmd_answer(a) -> int:
     """Record the operator's answer, and leave `blocked` when nothing blocking is left."""
     st = S.load(a.file)
-    known = {str(q.get("id") or "") for q in (st.get("open_questions") or []) if isinstance(q, dict)}
-    if a.id not in known:
-        raise S.StateError(f"no open question with id {a.id!r}",
-                           "run `ad-state show` for the open questions and their ids"
-                           + (f"; open now: {', '.join(sorted(known))}" if known else ""))
+    _known(st, a.id)
     S.apply(st, {}, answers={a.id: a.answer})
     path = S.save(st, a.file)
     return _questions_report(st, "ad-state answer", path)
+
+
+def cmd_supersede(a) -> int:
+    """Close a question the operator's newer instruction made moot, quoting that instruction.
+
+    Not an answer -- nobody answered it -- and not `--clear-questions`, which closes every question
+    and says nothing about why. One question, one reason, and the phase comes back as an answer
+    would bring it back.
+    """
+    st = S.load(a.file)
+    _known(st, a.id)
+    S.apply(st, {}, superseded={a.id: a.instruction})
+    path = S.save(st, a.file)
+    return _questions_report(st, "ad-state supersede", path)
+
+
+def cmd_blocking(a) -> int:
+    """Which open questions stop work on this ticket: the router's check, made mechanical.
+
+    Prints only the questions that block `--ticket` (default: the active ticket), and the count of
+    the ones parked on other tickets, so the decision "may I start?" is read from one number rather
+    than judged by eye against a list that includes every ticket the checkout ever saw.
+    """
+    st = S.load(a.file)
+    ticket = st.get("active_ticket") if a.ticket is None else (
+        "" if a.ticket.strip().lower() in ("untracked", "none", "") else a.ticket.strip())
+    stops = S.blocking_for(st, ticket, use_active=False)
+    parked = S.parked_for(st, ticket)
+    head = ["id", "question", "choices", "default", "want", "ticket"]
+    rows = [[q.get("id", ""), S.question_text(q), " | ".join(q.get("choices") or []) or "-",
+             q.get("default") or "-", q.get("want") or "-",
+             S.question_scope(q) if S.question_scope(q) is not None else "*"]
+            for q in stops if isinstance(q, dict)]
+    meta = {"ok": True, "source": "ad-state blocking", "path": textio.norm_path(a.file),
+            "ticket": ticket or "", "blocking": len(stops), "parked": len(parked),
+            "next": ("answer, supersede or stop: see the router's step 2" if stops else "continue")}
+    if policy.pretty():
+        ui.facts(list(meta.items()), title="ad-state blocking")
+        if rows:
+            ui.table(head, rows, title="blocking this ticket")
+    else:
+        print(toon.encode({"meta": meta}))
+        if rows:
+            print(toon.table("blocking", head, rows))
+    print(S.line(st))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -154,11 +228,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("question", help="the question, in one sentence")
     p.add_argument("--choice", action="append", help="an answer to offer (repeatable); the operator picks one")
     p.add_argument("--default", help="the choice to take if nobody answers")
-    p.add_argument("--want", choices=["decision", "file", "value"], default="decision",
-                   help="what would answer this: a decision, a file, or a value")
+    p.add_argument("--want", choices=["decision", "file", "value", "access"], default="decision",
+                   help="what would answer this: a decision, a file, a value, or access (a human fixes "
+                        "the environment: a denied tool, a missing executable, a broken install)")
     p.add_argument("--about", help="what this question is about (a path, a measure, a ticket)")
     p.add_argument("--assume", metavar="ASSUMPTION",
                    help="state a safe, reversible default and CONTINUE instead of blocking")
+    p.add_argument("--followup", action="store_true",
+                   help="an optional follow-up: recorded for the operator, never a stop, nothing assumed")
+    p.add_argument("--ticket", metavar="KEY",
+                   help="the ticket this question belongs to (default: the active ticket); "
+                        "`untracked` for work without one, `any` to block every ticket")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
     p.set_defaults(func=cmd_ask)
 
@@ -167,6 +247,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("answer", help="what the operator said")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
     p.set_defaults(func=cmd_answer)
+
+    p = sub.add_parser("supersede", help="close a question the operator's newer instruction made moot")
+    p.add_argument("id", help="the question's id, e.g. q1")
+    p.add_argument("instruction", help="the operator's instruction that replaced it, in their words")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_supersede)
+
+    p = sub.add_parser("blocking", help="the open questions that stop work on a ticket (default: the active one)")
+    p.add_argument("--ticket", metavar="KEY", help="the ticket the request is about; `untracked` for none")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_blocking)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):

@@ -41,7 +41,11 @@ class StateError(Exception):
 # and still read, because a skill written before this change must keep working and history is never
 # rewritten.
 #
-# A record: {id, q, choices[], default, want, about, blocking, asked, answer, answered}
+# A record: {id, q, choices[], default, want, about, blocking, asked, answer, answered, ticket, kind}
+#
+# `ticket` is the scope (friction scan 1.1): the ticket a question was asked under, `""` for untracked
+# work, and absent on a record written before scopes existed -- which therefore still blocks every
+# scope, exactly as it always did. A question asked on RDSD-1 stops RDSD-1's work and nothing else's.
 
 
 def question_text(q) -> str:
@@ -66,6 +70,41 @@ def is_blocking(q) -> bool:
 
 def is_answered(q) -> bool:
     return isinstance(q, dict) and bool(q.get("answered"))
+
+
+def question_scope(q) -> str | None:
+    """The ticket a question belongs to: a key, `""` for untracked work, `None` for every scope."""
+    if not isinstance(q, dict) or "ticket" not in q or q.get("ticket") is None:
+        return None
+    return str(q.get("ticket") or "")
+
+
+def blocks_scope(q, ticket: str | None) -> bool:
+    """Does this question stop work on `ticket` (`None` or `""`: untracked work)?
+
+    A blocking question asked under another ticket is *parked*, not lost: it is still open, still
+    answerable from the tile, and it blocks again the moment that ticket is active. What it no longer
+    does is stop unrelated work, which is how a stale question on one ticket used to send every later
+    request in the checkout to `friction-log`.
+    """
+    if not is_blocking(q):
+        return False
+    scope = question_scope(q)
+    return scope is None or scope == str(ticket or "")
+
+
+def blocking_for(state: dict, ticket: str | None = None, *, use_active: bool = True) -> list:
+    """The open questions that stop work on `ticket` (default: the active ticket)."""
+    if ticket is None and use_active:
+        ticket = state.get("active_ticket")
+    return [q for q in state.get("open_questions") or [] if blocks_scope(q, ticket)]
+
+
+def parked_for(state: dict, ticket: str | None = None) -> list:
+    """Blocking questions that belong to another ticket's scope: open, but not in the way."""
+    if ticket is None:
+        ticket = state.get("active_ticket")
+    return [q for q in state.get("open_questions") or [] if is_blocking(q) and not blocks_scope(q, ticket)]
 
 
 def next_question_id(state: dict) -> str:
@@ -134,9 +173,10 @@ def load(path: str = PATH) -> dict:
 def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, questions: list[str] | None = None,
           clear_questions: bool = False, tools: dict | None = None, inputs: list[str] | None = None,
           asks: list[dict] | None = None, answers: dict | None = None,
-          today: str | None = None) -> dict:
+          superseded: dict | None = None, today: str | None = None) -> dict:
     """Validate and merge. `sets` keys: phase, active_ticket, branch, pr_url, confluence_url, project."""
     was_phase = state.get("phase") or ""
+    was_ticket = state.get("active_ticket")
     give_ids(state, today)
     for k, v in sets.items():
         if k == "phase":
@@ -163,7 +203,7 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
             if not text or any(question_text(q) == text for q in oq):
                 continue
             oq.append({"id": next_question_id(state), "q": text, "asked": stamp_for(today),
-                       "blocking": True})
+                       "blocking": True, "ticket": str(state.get("active_ticket") or "")})
         # `set phase=blocked --question …` is one command, so the phase it interrupted is gone by
         # the time the question is added. Remembered from before the sets, exactly as `ask` keeps
         # it: without it an answer could never put the phase back, and the tile stayed blocked.
@@ -178,22 +218,31 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
             if not str(record.get("id") or ""):
                 record["id"] = next_question_id(state)
             record.setdefault("asked", stamp_for(today))
+            record.setdefault("ticket", str(state.get("active_ticket") or ""))
             oq.append(record)
         # A blocking question is what stops the agent, so the phase it came *from* is remembered
         # here: that is what `answer` puts back, and it is why answering can unblock at all. A
         # non-blocking one -- an assumption the agent stated and continued on -- changes no phase,
-        # and must not steal the one a later blocking question will need.
-        if any(is_blocking(q) for q in state.get("open_questions") or []):
+        # and must not steal the one a later blocking question will need. Nor does one parked on
+        # another ticket: it blocks that ticket's work, not this one's.
+        if blocking_for(state):
             if state.get("phase") != "blocked":
                 state.setdefault("blocked_from", state.get("phase") or "idle")
             state["phase"] = "blocked"
-    if answers:
+    closing = [(qid, text, False) for qid, text in (answers or {}).items()]
+    closing += [(qid, text, True) for qid, text in (superseded or {}).items()]
+    if closing:
         oq = state.get("open_questions") or []
-        for qid, text in answers.items():
+        for qid, text, replaced in closing:
             for record in oq:
                 if isinstance(record, dict) and str(record.get("id") or "") == str(qid):
                     record["answer"] = text
                     record["answered"] = stamp_for(today)
+                    # Superseded: the operator never answered it, they gave an instruction that made
+                    # it moot. Closed the same way, so it unblocks the same way, and marked so that
+                    # nobody later reads the instruction as the answer to the question.
+                    if replaced:
+                        record["superseded"] = True
         # An answered question leaves `open_questions` and lands here rather than vanishing. Two
         # reasons: the event stream needs the answer's text to report it, and the next turn should
         # be able to read what it already asked and was told without asking again.
@@ -204,10 +253,12 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
         # When nothing blocking is left, the phase goes back to where the question interrupted it.
         # That is the whole of "a reply unblocks": it is still `ad-state` writing the file, and it
         # is still deliberate -- an answer, not a side effect of somebody typing anything at all.
-        if not any(is_blocking(q) for q in state["open_questions"]):
+        if not blocking_for(state):
             back = state.pop("blocked_from", "")
             if state.get("phase") == "blocked" and back:
                 state["phase"] = back
+    if "active_ticket" in sets and state.get("active_ticket") != was_ticket:
+        rescope(state, explicit_phase=sets.get("phase"))
     # Normalised to one spelling, for the reason an artifact path is: `.agent\in\X\y.md` and
     # `.agent/in/X/y.md` are one file, and two spellings of it would be listed, read and reported
     # twice. An empty value is skipped rather than refused, exactly as an empty `--question` is, and
@@ -227,6 +278,23 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     state["artifacts"] = prune(state.get("artifacts") or [], stamp[:10])
     # open questions persist until --clear-questions: leaving a blocked phase is a deliberate act, never a side effect
     state["last_updated"] = stamp
+    return state
+
+
+def rescope(state: dict, explicit_phase: str | None = None) -> dict:
+    """Keep `phase == blocked` meaning *a question stops the active ticket*, across a ticket switch.
+
+    Switching to a ticket with no blocker of its own leaves `blocked` (for the phase the same command
+    named, else `idle`: the interrupted phase belonged to the other ticket). Switching to a ticket
+    whose question is still open blocks again, remembering the phase it would have had.
+    """
+    stops = blocking_for(state)
+    if state.get("phase") == "blocked" and not stops:
+        state.pop("blocked_from", None)
+        state["phase"] = explicit_phase if explicit_phase and explicit_phase != "blocked" else "idle"
+    elif stops and state.get("phase") != "blocked":
+        state["blocked_from"] = state.get("phase") or "idle"
+        state["phase"] = "blocked"
     return state
 
 

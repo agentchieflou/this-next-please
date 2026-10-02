@@ -13,7 +13,9 @@ belongs to a human too. Anything you cannot prove, you revert.
 
 1. `ad-graph status`. Not `approved: current` → invoke `codebase-map`; STOP.
 2. `ad-test run`. Red suite → `friction-log` type `contract`; STOP. You cannot tell what you broke
-   if it was already broken. Then `ad-test coverage`, so `covered` is measured and not stale.
+   if it was already broken. `verdict: no_tests` (nothing collected) or `indeterminate` is not
+   green either: the same stop, quoting its `hint` (the runner, the working directory, a missing
+   dependency). Then `ad-test coverage`, so `covered` is measured and not stale.
 3. `ad-graph findings --covered-only --top 5`. Pick **one** row: highest `leverage`, `confidence`
    at least `med`. Print it. Empty list → print the top three `ad-graph findings --kind
    untested-hub` rows and hand off to `test-cover`; STOP. Nothing uncovered may be touched here.

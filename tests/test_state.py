@@ -152,3 +152,81 @@ def test_prune_and_missing_file_hint(tmp_path, monkeypatch, capsys):
     assert "not valid JSON" in capsys.readouterr().out
     from agentdata.__main__ import COMMANDS
     assert COMMANDS["state"][0] == "agentdata.cli_state"
+
+
+# ------------------------------------------------------------------ scope (friction scan 1.1)
+
+
+def test_a_question_belongs_to_its_ticket_and_parks_when_the_ticket_changes(tmp_path, monkeypatch, capsys):
+    """A blocking question asked on one ticket used to stop every later request in the checkout:
+    the router read `open_questions` globally. It is scoped now -- it still blocks its own ticket,
+    and it comes back the moment that ticket is active again."""
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "active_ticket=RDSD-1", "phase=querying"]) == 0
+    assert cli_state.main(["ask", "which sprint table?"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["phase"] == "blocked" and st["open_questions"][0]["ticket"] == "RDSD-1"
+
+    assert cli_state.main(["set", "active_ticket=RDSD-2"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["phase"] == "idle" and "blocked_from" not in st
+    assert [q["id"] for q in st["open_questions"]] == ["q1"]          # parked, not dropped
+    capsys.readouterr()
+    assert cli_state.main(["blocking"]) == 0
+    out = capsys.readouterr().out
+    assert "blocking: 0" in out and "parked: 1" in out and "next: continue" in out
+
+    assert cli_state.main(["set", "active_ticket=RDSD-1", "phase=triaged"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["phase"] == "blocked" and st["blocked_from"] == "triaged"
+    capsys.readouterr()
+    assert cli_state.main(["blocking", "--ticket", "RDSD-1"]) == 0
+    out = capsys.readouterr().out
+    assert "blocking: 1" in out and "which sprint table?" in out
+    assert cli_state.main(["answer", "q1", "sprint_2026"]) == 0
+    assert json.load(open(p, encoding="utf-8"))["phase"] == "triaged"
+
+
+def test_a_question_from_before_scopes_still_blocks_every_ticket(tmp_path, monkeypatch, capsys):
+    """No `ticket` key: written before scopes existed, so it keeps meaning what it meant."""
+    legacy = dict(STUB, phase="blocked", blocked_from="querying", active_ticket="RDSD-1",
+                  open_questions=[{"id": "q1", "q": "old?", "blocking": True}])
+    p = _init(tmp_path, monkeypatch, raw=json.dumps(legacy).encode("utf-8"))
+    assert cli_state.main(["set", "active_ticket=RDSD-9"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["phase"] == "blocked"
+    capsys.readouterr()
+    assert cli_state.main(["blocking"]) == 0
+    assert "blocking: 1" in capsys.readouterr().out
+
+
+def test_superseding_closes_one_question_with_the_instruction_that_replaced_it(tmp_path, monkeypatch, capsys):
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "phase=querying"]) == 0
+    assert cli_state.main(["ask", "deploy to UAT or PROD?", "--choice", "UAT", "--choice", "PROD"]) == 0
+    assert cli_state.main(["ask", "which sprint?"]) == 0
+    assert cli_state.main(["supersede", "q1", "skip the deploy, just open the PR"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert [q["id"] for q in st["open_questions"]] == ["q2"] and st["phase"] == "blocked"
+    done = st["answered_questions"][0]
+    assert done["superseded"] is True and done["answer"] == "skip the deploy, just open the PR"
+    assert cli_state.main(["supersede", "q9", "anything"]) == 2
+    assert "no open question" in capsys.readouterr().out
+    assert cli_state.main(["supersede", "q2", "use the current sprint"]) == 0
+    assert json.load(open(p, encoding="utf-8"))["phase"] == "querying"
+
+
+def test_a_followup_is_recorded_and_never_stops_the_agent(tmp_path, monkeypatch, capsys):
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "phase=validating", "active_ticket=RDSD-3"]) == 0
+    assert cli_state.main(["ask", "also rename the page title?", "--followup"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["phase"] == "validating"
+    assert st["open_questions"][0]["kind"] == "followup" and st["open_questions"][0]["blocking"] is False
+    capsys.readouterr()
+    assert cli_state.main(["ask", "x?", "--followup", "--assume", "y"]) == 2
+    assert "two different answers" in capsys.readouterr().out
+    assert cli_state.main(["ask", "is pwsh allowed?", "--want", "access", "--ticket", "any"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    access = st["open_questions"][-1]
+    assert access["want"] == "access" and access["ticket"] is None and st["phase"] == "blocked"

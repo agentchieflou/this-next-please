@@ -84,8 +84,8 @@ def verdict(repo, now: dict | None = None) -> dict:
         return skip("no ticket in progress to continue")
     # The fold, and `state.json` itself: the file is the record of what is open (#231), and a
     # question is exactly what a renew must never bury.
-    if agentstate.needs_the_human(derived["state"]) or phase == "blocked" or any(
-            STATE.is_blocking(q) for q in (st.get("open_questions") or [])):
+    if agentstate.needs_the_human(derived["state"]) or phase == "blocked" or bool(
+            STATE.blocking_for(st)):
         return skip("needs you: answer it first — renewing would bury the question")
     if lock:
         return {**row, "verdict": AT_TURN_END, "why": "running: renewed when this turn ends"}

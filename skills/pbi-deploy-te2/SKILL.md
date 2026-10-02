@@ -12,7 +12,7 @@ Sign-in is the command's, not the operator's: `ad-pbi deploy` hands Tabular Edit
    `ad-pbi deploy <tmdl_path> --workspace <workspace> --model <model> --dry-run`
    - Enforces clean working tree (`git status --porcelain`).
    - Generates deploy script to `.agent/out/deploy-<ts>.xmla`.
-   - Exit non-zero → `friction-log`. STOP.
+   - Exit non-zero → `friction-log`. STOP. `code: preview_missing` means TE2 exited 0 and wrote no script: nothing was previewed.
 
 2. **Deploy**:
    `ad-pbi deploy <tmdl_path> --workspace <workspace> --model <model>`
@@ -20,6 +20,7 @@ Sign-in is the command's, not the operator's: `ad-pbi deploy` hands Tabular Edit
    - Checks deploy stamp in `.agent/out/deploy-<ts>.json` to prevent duplicate re-deployments.
    - Logs output to `.agent/out/deploy-<ts>.log`.
 
-3. **Hand off**:
-   - Exit 0 → `state-update` `phase=validating`. Hand off → `pbi-refresh-xmla`.
+3. **Prove it, then hand off.** Exit 0 is not a deploy. Read `status`: only `deployed` (or `already_deployed`) counts.
+   - `code: deploy_unverified` (TE2 exited 0 while printing a sign-in or connection failure) → status Indeterminate: `ad-pbi auth --probe`, print its row, `friction-log` type `tool-error`. STOP. Never call it deployed.
+   - `deployed` → `state-update` `phase=validating`. Hand off → `pbi-refresh-xmla`; `pbi-verify-service` after it is what proves the service model changed.
    - Exit non-zero → `friction-log`. Never retry a deploy automatically.
