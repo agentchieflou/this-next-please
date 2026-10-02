@@ -4,6 +4,85 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.18.0
+
+**On update:**
+- **The two standard commands, then start a new Copilot chat.** Skills changed (`pbi-router`, `pbi-validate`,
+  `pbi-report-author`, `pbi-report-design`, `pbi-custom-visual`, `pbip-projection`, `tmdl-edit`,
+  `pbi-model-audit`, and the routing skills #624 fixed), and a running chat keeps the old ones. There is no new
+  dependency and no external tool: the Power BI path still needs only Tabular Editor 2, DAX Studio's `dscmd` and
+  the Azure CLI. The IDE extensions are unchanged. The next `ad-fleet open` replaces a desk still running the old
+  code.
+- **Fleet agents launch like a Copilot window** (#625): `fleet.permissions` defaults to `all`
+  (`--allow-all-tools`, the built-in MCP servers on, only `ad-fleet`, `ad-update` and `ad-setup` denied, plus
+  your own denies), with autopilot on and the `auto` model. `repo` runs an agent on its repository's Copilot
+  approvals and `strict` is the old whitelist; set either per agent on `/settings` if you want them back.
+- **Custom visuals are certified-only, whatever a project says.** A visual that is not Microsoft-certified is now
+  an `ad-pbip check` error and an `ad-pbi publish` refusal even where a project's `AGENTS.md` says
+  `pbi_custom_visuals: allowed`: a private `.pbiviz` (an SDK visual) and an AppSource visual not listed in
+  `pbi_certified_visuals` both. Two new facts wait for the workspace approval being sought: `pbi_sdk_visuals`
+  (`blocked` when absent; set `approved` only once it exists) and `pbi_sdk_workspace` (the approved workspace).
+  New projects' stub says `pbi_custom_visuals: certified-only`; an existing `AGENTS.md` is not rewritten.
+- **Power BI Desktop 2.157 is the release this one was verified against** (August 2026, 2.157.1354.0).
+  `ad-pbip desktop status` says `verified`, `newer` or `older`. On an older Desktop update it: a new page, visual
+  or bookmark in a project with no file of its kind is written at the schema version 2.157 writes, which an
+  older Desktop may refuse.
+
+Developing this repo: nothing new to install. The wheel now ships `agentdata/pbip/schema/` (the visual catalog and
+the vendored PBIR schemas); before, `ad-pbip catalog` and `ad-pbip visual add` failed outside a checkout.
+
+**Power BI Desktop 2.157.**
+- **The Desktop Bridge in its documented words.** Microsoft documents the bridge from Desktop 2.155: `bridge.manifest`
+  lists versioned methods, and state, reload and snapshot are `application.state.get/v1`, `file.reload/v1` and
+  `report.snapshot.capture/v1`. The client spoke the pre-release words, so on 2.157 every call failed as "method
+  not found" and every verb fell back to closing and reopening Desktop. It now asks `bridge.manifest` first (the
+  pre-release `manifest` after a `-32601`), calls the highest `/vN` declared, waits out a busy bridge, and names
+  the Security switch or the machine policy when there is no pipe (`docs/power-bi-agentic.md` §2).
+- **Reload keeps your work.** `ad-pbip desktop reload` reads Desktop's state first and refuses to overwrite unsaved
+  changes unless `--discard` says to; `--report-only` reloads the report without the model. After a model
+  reload it says what to process next. `ad-pbip screenshot` takes Desktop's own PNG of each page by its PBIR id.
+- **PBIR at Desktop's own versions.** New pages, visuals and bookmarks copy the `$schema` of a file of the same
+  kind in the project, and only in a project with none use what 2.157 writes (visualContainer 2.12.0, page 2.1.0,
+  report 3.3.0, bookmark 2.1.0; `DESKTOP_SCHEMAS` in `agentdata/pbip/pbir.py`), vendored for offline validation.
+  Bookmarks are written where Desktop reads them (`bookmarks/<name>.bookmark.json`, listed in
+  `bookmarks.json`): before, Desktop never showed them. `reportExtensions.json`, the documented name, is read.
+  A PBIR-Legacy refusal says to open and save the report, not to turn on a preview switch that is gone.
+- **Visuals.** The list, button (`advancedSlicerVisual`) and text slicers and the KPI join the catalog; the Azure
+  map has the roles Microsoft documents; `filledMap`, `multiRowCard` and Q&A are legacy, with what to use instead.
+- **DAX user-defined functions** (generally available since 2.155): in the projection, `ad-pbip check` (eight
+  `udf-*` rules, from `compatibilityLevel` 1702 to call arity) and the model audit; `model apply` gains
+  `function.set` and `function.delete` (through `functions.tmdl`, or live through Tabular Editor 2.27+).
+- **Process after a model reload:** `ad-pbip model refresh --type calculate|full [--table T]` runs the refresh
+  through Tabular Editor 2 against Desktop's local model, one request at a time (a model-wide Full needs
+  `--all`), then prints the DAX query that proves a value.
+- **No SDK path while it is blocked.** `ad-pbiviz new`, `dev`, `package` and `import` refuse with
+  `sdk_visuals_blocked` and offer no `npm install`; `doctor` reports the gate first; `stop`, `roles`, `bind` and
+  `candidate(s)` still work. The visual routes no longer use Node, R or Python: an R or Python visual needs a
+  runtime and packages outside the approved tools. Org-store visuals are read from their `_OrgStore` resource
+  package.
+
+**The desk and the fleet.**
+- **One look picker grouped by genre**, a weather genre that moves (#621), and genre-owned animations, a light
+  and a dark side for every look and a Colors genre (#623).
+- **Routing and the desk** (#624): friction-scan routing fixes, every agent setting per agent and fleet-wide, the
+  map's branch per agent with a click to its chat, the dirty-worktree cleanup guide (`/tidy`), one composer per
+  agent, and the fleet's execution context with a one-click grant for a denied tool.
+- **Copilot on the fleet screen** (#625): Copilot's global settings (`~/.copilot/settings.json`) and each
+  repository's approvals, edited from `/settings`.
+- **`/chat`** (#628): the agents in a sidebar, their sessions beneath, one conversation at a time.
+- **`/world`** (#627): the fleet as a rainy plaza you walk with a controller or the keyboard, as a character you
+  choose; an agent that needs you is answered only within reach of it.
+- **The map's scene** (#629): three.js draws projects, lanes, islands and the network in four draw calls, and no
+  frames at rest.
+- **Notebook · Lamplight** (#630): a night-study variant on `eye-relief`.
+
+**For developers of this repo.**
+- CI's Windows leg has a fourth shard, and the browser budgets come from `main`'s own run (#622).
+- Known gaps, written down rather than fixed here: `ad-pbiviz import` writes `visual.projections` rather than
+  `query.queryState` (behind the SDK gate); some `model apply` ops call members Tabular Editor 2's model wrapper
+  lacks (relationships, calculation groups, partitions, table permissions); the bridge fixture for 2.157 is built
+  from the documented contract until `ad-pbip bridge record` replaces it on the laptop.
+
 ## 0.17.8
 
 **On update:**
