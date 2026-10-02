@@ -105,6 +105,36 @@ relationship 21bd108e-527d-4566-be7d-9e474c858ee0
 `model.tmdl` ends with `ref table Sales`, `ref culture en-US` (Desktop) / `ref cultureInfo en-US` (docs) … — ⚑ a new table
 file needs its `ref table` line, and `database.tmdl` must start with `database`.
 
+### Functions (DAX user-defined functions)
+Generally available since Desktop 2.155 (June 2026), optional parameters included. Every function of the model sits at
+the top level of `definition/functions.tmdl`; ⚑ the model needs `compatibilityLevel: 1702` or higher in `database.tmdl`
+(`ad-pbip check` rule `udf-compatibility-level`). The default expression is the whole signature plus body:
+```tmdl
+/// AddTax takes in amount and returns amount including tax
+/// @param {NUMERIC} amount - the pre-tax value
+/// @param {NUMERIC} [taxRate] - optional, 0.1 when left out
+/// @returns the amount including tax
+function AddTax = ( amount : NUMERIC, taxRate : NUMERIC = 0.1 ) => amount * ( 1 + taxRate )
+
+function 'Sales.MarginShare' = ```
+		( value : SCALAR NUMERIC VAL ) =>
+		DIVIDE ( [Margin], value )
+		```
+```
+- A parameter is `name [: type subtype mode] [= default]`. Value types (evaluated once, at the call): `AnyVal` (nothing
+  given), `Scalar`, `Table`. Reference types, always `expr` (⚑ `val` is refused): `AnyRef`, `ColumnRef`, `MeasureRef`,
+  `TableRef`, `CalendarRef`. Subtypes imply `Scalar`: `Variant Int64 Decimal Double String DateTime Boolean Numeric`.
+- `= default` makes the parameter optional: a caller drops trailing optional arguments or leaves one empty, `F ( 1, , 3 )`.
+  The minimum argument count is the position of the rightmost required parameter (⚑ `udf-call-arity`). A default may use
+  only names visible where the function is defined, never another optional parameter.
+- Names: letters, digits, `_`; dots only as namespaces (`Sales.MarginShare`, single-quoted in TMDL because of the dot);
+  not `measure`, `function`, `define`. Parameter names: letters, digits, `_`. ⚑ No recursion, no overloads; a function
+  cannot be hidden or put in a display folder.
+- Descriptions are `///` lines; JSDoc `@param` / `@returns` lines are what IntelliSense shows at a call. DAX query view
+  (July 2026) takes the same `///` lines above a `MEASURE` in `DEFINE` and saves them as the measure's description.
+- Call it like a built-in: `measure 'Sales with Tax' = AddTax ( [Total Sales] )`. `MODEL.md` lists each signature and who
+  calls it; `functions.tsv` has the columns, measures and functions each body reads.
+
 ## lineageTag, annotations, files
 - Do **not** write `lineageTag` on objects you create (Desktop assigns GUIDs on first save). ⚑ Never copy one: two objects
   with the same tag corrupt lineage. Existing tags stay as they are.
@@ -121,8 +151,32 @@ file needs its `ref table` line, and `database.tmdl` must start with `database`.
 5. **Add a hierarchy**: `\thierarchy 'Date Hierarchy'` then `\t\tlevel Year` / `\t\t\tcolumn: Year` — level columns must exist in the same table.
 6. **Edit partition M**: change only lines inside the `source =` body, keep the 4-tab indentation of the body, use `Item="TABLE"` / `Schema="DB"` navigation or `Value.NativeQuery(Source, "SELECT ...")` for SQL (write the SQL with the dialect reference).
 7. **Add a table**: new `tables/<Name>.tmdl` (`table <Name>` + columns + one partition) **and** `ref table <Name>` in `model.tmdl`.
+8. **Add or change a function**: op `{"op": "function.set", "name": "AddTax", "expression": "( amount : NUMERIC, taxRate : NUMERIC = 0.1 ) => amount * ( 1 + taxRate )", "description": "Amount including tax"}` through `ad-pbip model apply --model <definition> --ops ops.json`; leave `expression` out to change only the description, `function.delete` removes one.
+
+## Reload, process, verify
+A model-aware reload (Desktop reloading the PBIP with its TMDL) only loads definitions: it does not compute calculated
+objects, does not re-import data, and a successful reload says nothing about the numbers. After it, run one step at a time:
+
+| What changed in TMDL | Processing (`ad-pbip model refresh`, Tabular Editor 2 on Desktop's model) |
+|---|---|
+| measure, function, relationship, calculated column/table, calculation group, description | `--type calculate` |
+| import table: new source column, edited partition M, new partition | `--type full --table <T>` per changed table |
+| DirectQuery / Direct Lake field | that storage mode's own workflow; not the import Full |
+| nothing (source data only) | `--type full --table <T>`, no reload |
+
+A model-wide Full re-imports everything and is refused without `--all`. Each step waits for the one before it and a
+failed step stops the rest: `ad-pbip model refresh --type full --table Sales --table Customer --server localhost:5000`
+runs Sales, then Customer. Then verify with a query, e.g. `ad-pbip dax --server localhost:5000 --query "EVALUATE { AddTax ( 100 ) }"`,
+and for functions the engine's own state:
+```dax
+EVALUATE SELECTCOLUMNS ( INFO.USERDEFINEDFUNCTIONS (), "Name", [Name], "State", [State], "Error", [ErrorMessage] )
+```
+Processing leaves Desktop with unsaved changes: save or discard them before another reload.
 
 ## Pitfalls checklist (each is a lint rule or a TE2 error)
 mixed tabs/spaces · continuation indented one level · unterminated ``` · unquoted name with space/dot · unquoted reference in
 `sortByColumn`/`fromColumn`/`column:` · duplicate `lineageTag` · `//` comment · new table without `ref table` ·
-`database.tmdl` without `database` · BOM or CRLF flip · measure referencing a column that does not exist (TE2 catches it).
+`database.tmdl` without `database` · BOM or CRLF flip · measure referencing a column that does not exist (TE2 catches it) ·
+function in a model below compatibilityLevel 1702 · function expression without `( … ) =>` · `val` on a `*Ref` parameter ·
+a call with fewer arguments than the required parameters · a function calling itself · TE2 older than 2.27.0 on a model
+with functions (it predates them: use 2.27.0+ for `--te2` and live ops).

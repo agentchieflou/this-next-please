@@ -1,0 +1,12 @@
+/// AddTax takes in amount and returns amount including tax
+/// @param {NUMERIC} amount - The pre-tax value to which tax is applied
+/// @param {NUMERIC} [taxRate] - Optional tax rate, default 0.1 (10%)
+/// @returns The amount including tax
+function AddTax = ( amount : NUMERIC, taxRate : NUMERIC = 0.1 ) => amount * ( 1 + taxRate )
+	lineageTag: 10000000-0000-0000-0000-0000000000f1
+
+/// Margin as a share of a value; BLANK when the value is BLANK
+function MarginShare =
+		( value : SCALAR NUMERIC VAL ) =>
+		DIVIDE ( [Margin], value )
+	lineageTag: 10000000-0000-0000-0000-0000000000f2

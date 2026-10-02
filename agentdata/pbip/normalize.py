@@ -28,6 +28,7 @@ class Model:
     tables: list[dict] = field(default_factory=list)
     relationships: list[dict] = field(default_factory=list)
     expressions: list[dict] = field(default_factory=list)
+    functions: list[dict] = field(default_factory=list)  # DAX user-defined functions (functions.tmdl)
     roles: list[str] = field(default_factory=list)
     perspectives: list[str] = field(default_factory=list)
     cultures: list[str] = field(default_factory=list)
@@ -82,6 +83,196 @@ class ModelIndex:
         return True, "unknown ref kind"
 
 
+# ---------- DAX user-defined functions (UDFs): the signature parser, the call finder, the naming rules ----------
+# Facts encoded here (Microsoft Learn, "DAX user-defined functions", GA in Desktop 2.155 / June 2026):
+# - TMDL: `function <Name> = ( [<param> [: <type hints>] [= <default>], ...] ) => <body>`, `///` description lines
+#   above it, all of a model's functions in `definition/functions.tmdl`. The TOM `Function.Expression` is the whole
+#   `( params ) => body` text.
+# - compatibilityLevel 1702 or higher.
+# - type hints `[type] [subtype] [mode]`: types AnyVal Scalar Table AnyRef CalendarRef ColumnRef MeasureRef TableRef;
+#   subtypes (Scalar only, implying it) Variant Int64 Decimal Double String DateTime Boolean Numeric; modes val expr.
+#   Nothing given = `AnyVal val`; the *Ref types are always `expr` (`val` is not allowed).
+# - `= <default>` makes a parameter optional (June 2026). Optional parameters may sit anywhere; the minimum number of
+#   arguments is the position of the rightmost required one, and `F(1,,3)` leaves the second one empty.
+# - names: letters, digits, `_`, dots for namespacing (not first/last, never two in a row), first character a letter
+#   or `_`; parameter names letters, digits, `_`. Not a reserved word (measure, function, define). No recursion.
+UDF_MIN_COMPATIBILITY = 1702
+UDF_TYPES = {t.lower(): t for t in ("AnyVal", "Scalar", "Table", "AnyRef", "CalendarRef", "ColumnRef", "MeasureRef", "TableRef")}
+UDF_SUBTYPES = {t.lower(): t for t in ("Variant", "Int64", "Decimal", "Double", "String", "DateTime", "Boolean", "Numeric")}
+UDF_MODES = {"val", "expr"}
+UDF_REF_TYPES = {"AnyRef", "CalendarRef", "ColumnRef", "MeasureRef", "TableRef"}
+UDF_RESERVED = {"measure", "function", "define"}
+_UDF_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*$")
+_UDF_PARAM = re.compile(r"^[A-Za-z0-9_]+$")
+_DAX_OPEN, _DAX_CLOSE = "([{", ")]}"
+
+
+def blank_dax(text: str) -> str:
+    """The text with string literals, quoted names and comments replaced by spaces (same length), so a scan for
+    `(`, `,`, `=` or a function name never trips over one inside `"a, b"`, `'My (Table)'` or `// F(x)`."""
+    out, i, n = list(text), 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "\"'":
+            j = i + 1
+            while j < n:
+                if text[j] == ch:
+                    if j + 1 < n and text[j + 1] == ch:   # "" / '' escape
+                        j += 2
+                        continue
+                    break
+                j += 1
+            for k in range(i + 1, min(j, n)):
+                out[k] = " "
+            i = j + 1
+        elif text.startswith("//", i) or text.startswith("--", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out[i:j] = " " * (j - i)
+            i = j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out[i:j] = [c if c == "\n" else " " for c in text[i:j]]
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _dax_close(clean: str, start: int) -> int:
+    """Index of the bracket closing the one at `start` (in blanked text), or -1."""
+    depth = 0
+    for i in range(start, len(clean)):
+        if clean[i] in _DAX_OPEN:
+            depth += 1
+        elif clean[i] in _DAX_CLOSE:
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def split_dax(text: str, sep: str = ",") -> list[str]:
+    """Split on `sep` outside brackets, strings, quoted names and comments."""
+    clean = blank_dax(text)
+    parts, depth, last = [], 0, 0
+    for i, ch in enumerate(clean):
+        if ch in _DAX_OPEN:
+            depth += 1
+        elif ch in _DAX_CLOSE:
+            depth -= 1
+        elif ch == sep and depth == 0:
+            parts.append(text[last:i])
+            last = i + 1
+    parts.append(text[last:])
+    return parts
+
+
+def parse_function_param(raw: str) -> dict:
+    clean = blank_dax(raw)
+    eq = clean.find("=")
+    head, default = (raw, None) if eq < 0 else (raw[:eq], raw[eq + 1:].strip())
+    name, _, hints = head.partition(":")
+    words = hints.split()
+    ptype = subtype = mode = None
+    unknown = []
+    for w in words:
+        lw = w.lower()
+        if lw in UDF_TYPES and ptype is None:
+            ptype = UDF_TYPES[lw]
+        elif lw in UDF_SUBTYPES and subtype is None:
+            subtype = UDF_SUBTYPES[lw]
+        elif lw in UDF_MODES and mode is None:
+            mode = lw
+        else:
+            unknown.append(w)
+    eff_type = ptype or ("Scalar" if subtype else "AnyVal")
+    return {"name": name.strip(), "type": eff_type, "subtype": subtype, "mode": mode or ("expr" if eff_type in UDF_REF_TYPES else "val"),
+            "declared_mode": mode, "default": default, "optional": default is not None, "unknown_hints": unknown,
+            "text": " ".join(raw.split())}
+
+
+def parse_function(expr: str) -> dict | None:
+    """`( params ) => body` -> {params, body, min_args, max_args}; None when the text is not a function signature."""
+    text = (expr or "").strip()
+    clean = blank_dax(text)
+    start = len(clean) - len(clean.lstrip())
+    if start >= len(clean) or clean[start] != "(":
+        return None
+    close = _dax_close(clean, start)
+    if close < 0 or not clean[close + 1:].lstrip().startswith("=>"):
+        return None
+    inner = text[start + 1:close]
+    params = [] if not blank_dax(inner).strip() else [parse_function_param(p) for p in split_dax(inner)]
+    body = text[close + 1:].lstrip()[2:].strip()
+    required = [i for i, p in enumerate(params) if not p["optional"]]
+    return {"params": params, "body": body, "min_args": (required[-1] + 1) if required else 0, "max_args": len(params)}
+
+
+def parse_function_doc(lines: list[str]) -> tuple[str | None, dict[str, str], str | None]:
+    """`///` lines -> (description, {param: doc}, returns). JSDoc `@param {T} [name] - text` / `@returns text` lines
+    are what Desktop's DAX query view and TMDL view author for a function."""
+    desc, params, returns = [], {}, None
+    for ln in lines:
+        s = ln.strip()
+        m = re.match(r"^@param\s+(?:\{[^}]*\}\s*)?\[?([A-Za-z0-9_]+)\]?\s*-?\s*(.*)$", s)
+        if m:
+            params[m.group(1)] = m.group(2).strip()
+        elif s.startswith(("@returns", "@return")):
+            returns = s.split(None, 1)[1].strip() if len(s.split(None, 1)) > 1 else ""
+        elif s:
+            desc.append(s)
+    return (" ".join(desc) or None), params, returns
+
+
+def function_name_problems(name: str) -> list[str]:
+    out = []
+    if not _UDF_NAME.match(name or ""):
+        out.append("a function name is letters, digits and `_`, dots only between parts, first character a letter or `_`")
+    if (name or "").lower() in UDF_RESERVED:
+        out.append(f"`{name}` is a reserved word")
+    return out
+
+
+def function_param_problems(p: dict) -> list[str]:
+    out = []
+    if not _UDF_PARAM.match(p["name"]):
+        out.append(f"parameter `{p['name']}`: a parameter name is letters, digits and `_` only")
+    elif p["name"].lower() in UDF_RESERVED:
+        out.append(f"parameter `{p['name']}` is a reserved word")
+    if p["type"] in UDF_REF_TYPES and p["declared_mode"] == "val":
+        out.append(f"parameter `{p['name']}`: {p['type']} is always passed as expr; `val` is not allowed")
+    return out
+
+
+def function_calls(expr: str, names: list[str]) -> list[tuple[str, int]]:
+    """Every call of one of `names` in a DAX expression -> [(name as declared, argument count)]. DAX names are
+    case-insensitive; `F()` has 0 arguments and `F(1,,3)` has 3 (the empty one takes the default)."""
+    if not names or not expr:
+        return []
+    by_lower = {n.lower(): n for n in names}
+    alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    rx = re.compile(r"(?<![\w.'\[\]])(" + alt + r")\s*\(", re.I)
+    clean = blank_dax(expr)
+    out = []
+    for m in rx.finditer(clean):
+        open_at = m.end() - 1
+        close = _dax_close(clean, open_at)
+        inner = expr[open_at + 1:close] if close > 0 else ""
+        argc = 0 if not blank_dax(inner).strip() else len(split_dax(inner))
+        out.append((by_lower[m.group(1).lower()], argc))
+    return out
+
+
+def functions_called(expr: str, names: list[str]) -> list[str]:
+    seen: list[str] = []
+    for n, _ in function_calls(expr, names):
+        if n not in seen:
+            seen.append(n)
+    return seen
+
+
 # ---------- model ----------
 def find_model_dir(pbip_dir: str, report: P.Report | None = None) -> str:
     cands = []
@@ -114,6 +305,8 @@ def load_model(definition_dir: str) -> Model:
                                         "crossFilter": node.props.get("crossFilteringBehavior", "oneDirection"), "file": rel, "line": node.line_start})
             elif node.kind == "expression":
                 m.expressions.append({"name": node.name, "kind": node.props.get("kind") or "m", "file": rel})
+            elif node.kind == "function":
+                m.functions.append(_function(node, rel))
             elif node.kind == "role":
                 m.roles.append(node.name)
             elif node.kind == "perspective":
@@ -127,7 +320,32 @@ def load_model(definition_dir: str) -> Model:
             elif node.kind == "ref":
                 m.refs.setdefault(node.props.get("refType", ""), []).append(node.name)
     m.tables.sort(key=lambda t: t["name"].lower())
+    _link_functions(m)
     return m
+
+
+def _function(node: T.Node, rel: str) -> dict:
+    sig = parse_function(node.expr or "")
+    desc, param_docs, returns = parse_function_doc(node.desc)
+    params = [dict(p, doc=param_docs.get(p["name"])) for p in (sig or {}).get("params", [])]
+    body = sig["body"] if sig else (node.expr or "")
+    return {"name": node.name, "expression": node.expr or "", "signature_ok": sig is not None, "parameters": params,
+            "body": body, "min_args": sig["min_args"] if sig else None, "max_args": sig["max_args"] if sig else None,
+            "description": desc, "returns": returns, "lineageTag": node.props.get("lineageTag"),
+            "deps": measure_deps(body), "file": rel, "line": node.line_start}
+
+
+def _link_functions(m: Model) -> None:
+    """UDF calls are only knowable once every file is read: `deps.functions` on measures and functions, `functions`
+    on columns, each with the names as the model declares them."""
+    names = [f["name"] for f in m.functions]
+    for f in m.functions:
+        f["deps"]["functions"] = functions_called(f["body"], names)
+    for t in m.tables:
+        for x in t["measures"]:
+            x["deps"]["functions"] = functions_called(x["expression"], names)
+        for c in t["columns"]:
+            c["functions"] = functions_called(c["expression"] or "", names)
 
 
 def _table(node: T.Node, rel: str) -> dict:
@@ -193,7 +411,8 @@ def normalize(model: Model, report: P.Report | None, pbip_dir: str) -> dict:
                             "pbip": {"dir": textio.norm_path(pbip_dir), "model_dir": textio.norm_path(model.definition_dir),
                                      "report_dir": textio.norm_path(report.root) if report else None}}
     norm["model"] = {"name": model.name, "compatibility": model.compatibility, "tables": model.tables,
-                     "relationships": model.relationships, "expressions": model.expressions, "roles": model.roles,
+                     "relationships": model.relationships, "expressions": model.expressions, "functions": model.functions,
+                     "roles": model.roles,
                      "perspectives": model.perspectives, "cultures": model.cultures}
     usage: dict[str, list[dict]] = {}
     rep: dict[str, Any] | None = None
@@ -224,9 +443,22 @@ def normalize(model: Model, report: P.Report | None, pbip_dir: str) -> dict:
                 measure_usage.setdefault(f"[{dep}]", []).append(f"'{t['name']}'[{m['name']}]")
             for dep in m["deps"]["columns"]:
                 measure_usage.setdefault(dep, []).append(f"'{t['name']}'[{m['name']}]")
+    function_usage: dict[str, list[str]] = {f["name"]: [] for f in model.functions}
+    for t in model.tables:
+        for m in t["measures"]:
+            for fn in m["deps"].get("functions", []):
+                function_usage[fn].append(f"'{t['name']}'[{m['name']}]")
+        for c in t["columns"]:
+            for fn in c.get("functions", []):
+                function_usage[fn].append(f"'{t['name']}'[{c['name']}] (column)")
+    for f in model.functions:  # a function body uses what it reads, the way a measure does
+        for dep in [f"[{d}]" for d in f["deps"]["measures"]] + f["deps"]["columns"]:
+            measure_usage.setdefault(dep, []).append(f"function {f['name']}")
+        for fn in f["deps"]["functions"]:
+            function_usage[fn].append(f"function {f['name']}")
     sources = {t["name"]: sorted({s for p in t["partitions"] for s in p["sources"]}) for t in model.tables}
     norm["lineage"] = {"field_usage": dict(sorted(usage.items())), "measure_usage": dict(sorted(measure_usage.items())),
-                       "sources": sources}
+                       "function_usage": function_usage, "sources": sources}
     return norm
 
 

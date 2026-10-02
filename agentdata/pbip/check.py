@@ -74,6 +74,77 @@ def check_model(model: Model) -> list[Finding]:
         out.append(Finding("error", "ref-table-dangling", "model.tmdl", f"ref table {rt}", "model.tmdl references a table with no tables/*.tmdl file", "remove the ref or add the table file"))
     from .features import check_model_features
     out.extend(check_model_features(model))
+    out.extend(check_functions(model))
+    return out
+
+
+def check_functions(model: Model) -> list[Finding]:
+    """DAX user-defined functions (functions.tmdl): the compatibility level they need, the signature, the naming rules,
+    no recursion, and every call's argument count against the parameters (optional ones may be left out)."""
+    from . import normalize as N
+    out: list[Finding] = []
+    if not model.functions:
+        return out
+    try:
+        level = int(str(model.compatibility or "").strip())
+    except ValueError:
+        level = None
+    db_file = next((textio.norm_path(os.path.relpath(p, model.definition_dir)) for p, tf in model.files.items()
+                    if any(n.kind == "database" for n in tf.nodes)), "database.tmdl")
+    if level is not None and level < N.UDF_MIN_COMPATIBILITY:
+        out.append(Finding("error", "udf-compatibility-level", db_file, f"{len(model.functions)} functions",
+                           f"DAX user-defined functions need compatibilityLevel {N.UDF_MIN_COMPATIBILITY} or higher; this model is {level}",
+                           f"set `compatibilityLevel: {N.UDF_MIN_COMPATIBILITY}` (or higher) in {db_file}, or remove functions.tmdl"))
+    seen: dict[str, str] = {}
+    for f in model.functions:
+        where, label = f"{f['file']}:{f['line']}", f"function {f['name']}"
+        if f["name"].lower() in seen:
+            out.append(Finding("error", "udf-name-dup", where, label, f"function name also declared at {seen[f['name'].lower()]}",
+                               "function names are unique in a model (case-insensitive)"))
+        seen[f["name"].lower()] = where
+        for msg in N.function_name_problems(f["name"]):
+            out.append(Finding("error", "udf-name-invalid", where, label, msg, "rename it (namespaces use dots: Sales.AddTax)"))
+        if not f["signature_ok"]:
+            out.append(Finding("error", "udf-signature", where, label, "the expression is not `( parameters ) => body`",
+                               "write `function Name = ( p1 : NUMERIC, p2 : NUMERIC = 0 ) => <DAX>`; `ad-pbip lint` checks the layout"))
+            continue
+        for p in f["parameters"]:
+            for msg in N.function_param_problems(p):
+                out.append(Finding("error", "udf-parameter", where, label, msg, "fix the parameter declaration"))
+            if p["unknown_hints"]:
+                out.append(Finding("warning", "udf-parameter-type", where, label,
+                                   f"parameter `{p['name']}`: unknown type hint {' '.join(p['unknown_hints'])}",
+                                   "types: AnyVal Scalar Table AnyRef CalendarRef ColumnRef MeasureRef TableRef; subtypes: Variant Int64 "
+                                   "Decimal Double String DateTime Boolean Numeric; modes: val expr"))
+    graph = {f["name"]: f["deps"]["functions"] for f in model.functions}
+    for name in graph:  # recursion, direct or mutual, is not supported
+        stack, seen_fn = list(graph[name]), set()
+        while stack:
+            cur = stack.pop()
+            if cur == name:
+                f = next(x for x in model.functions if x["name"] == name)
+                out.append(Finding("error", "udf-recursive", f"{f['file']}:{f['line']}", f"function {name}",
+                                   "the function calls itself (directly or through another function); DAX UDFs cannot recurse",
+                                   "rewrite it without the recursive call"))
+                break
+            if cur not in seen_fn:
+                seen_fn.add(cur)
+                stack.extend(graph.get(cur, []))
+    names = [f["name"] for f in model.functions]
+    arity = {f["name"]: (f["min_args"], f["max_args"]) for f in model.functions if f["signature_ok"]}
+    callers = [(f"'{t['name']}'[{x['name']}]", f"{t['file']}:{x['line']}", x["expression"]) for t in model.tables for x in t["measures"]]
+    callers += [(f"'{t['name']}'[{c['name']}]", f"{t['file']}:{c['line']}", c["expression"] or "") for t in model.tables for c in t["columns"]]
+    callers += [(f"function {f['name']}", f"{f['file']}:{f['line']}", f["body"]) for f in model.functions]
+    for label, where, expr in callers:
+        for name, argc in N.function_calls(expr, names):
+            if name not in arity:
+                continue
+            lo, hi = arity[name]
+            if not lo <= argc <= hi:
+                want = f"{lo}" if lo == hi else f"{lo} to {hi}"
+                out.append(Finding("warning", "udf-call-arity", where, label, f"{name}() is called with {argc} arguments; it takes {want}",
+                                   "optional parameters may be left out from the right, or left empty: F(1,,3); "
+                                   "the function's signature is in MODEL.md (ad-pbip project)"))
     return out
 
 

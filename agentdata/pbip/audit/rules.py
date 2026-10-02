@@ -9,6 +9,10 @@ Implements classic Power BI best-practice rules:
 6. dax-anti-pattern-filter-all
 7. implicit-measures-used
 8. missing-description-used-measure
+9. udf-missing-description (DAX user-defined functions)
+10. unused-function
+
+A column read only inside a function body is a used column: unused-columns counts function bodies too.
 """
 from __future__ import annotations
 import json
@@ -77,6 +81,12 @@ def audit_model(model: N.Model, report: P.Report | None = None,
                 target_tbl = tbl or tname
                 measure_column_inputs.add((target_tbl, col))
                 all_referenced_columns.add((target_tbl, col))
+
+    # A function body reads columns the way a measure does (only qualified 'Table'[Column] references count)
+    for f in model.functions:
+        for tbl, col in _extract_column_refs_from_dax(f.get("body") or ""):
+            if tbl:
+                all_referenced_columns.add((tbl, col))
 
     # Also collect relationship refs
     for rel in model.relationships:
@@ -276,6 +286,39 @@ def audit_model(model: N.Model, report: P.Report | None = None,
                 obj=f"'{tname}'[{mname}]",
                 where=f"tables/{tname}.tmdl",
                 fix={"op": "object.describe", "table": tname, "objectType": "measure", "name": mname, "description": f"Calculates {mname}"},
+            ))
+
+    # RULES 9-10: DAX user-defined functions. The `///` description is what IntelliSense shows at every call site
+    # (JSDoc @param/@returns lines included); a function nothing calls is dead code that still has to be maintained.
+    fn_names = [f["name"] for f in model.functions]
+    called: set[str] = set()
+    for tf in model.files.values():  # every DAX expression in the model: measures, columns, calc items, RLS, ...
+        for node in T._walk(tf.nodes):
+            if node.kind != "function" and node.expr:
+                called.update(N.functions_called(node.expr, fn_names))
+    for f in model.functions:
+        called.update(d for d in f["deps"]["functions"] if d != f["name"])
+    for f in model.functions:
+        where = f"{f['file']}:{f['line']}"
+        if not f.get("description"):
+            findings.append(AuditFinding(
+                rule_id="udf-missing-description",
+                severity="warning",
+                what=f"Function {f['name']}() has no description",
+                why="The /// description (with @param and @returns lines) is what DAX query view and TMDL view show where the function is called",
+                obj=f"function {f['name']}",
+                where=where,
+                fix={"op": "function.set", "name": f["name"], "description": f"{f['name']}: what it returns"},
+            ))
+        if f["name"] not in called:
+            findings.append(AuditFinding(
+                rule_id="unused-function",
+                severity="warning",
+                what=f"Function {f['name']}() is not called by any measure, column, calculation item or other function",
+                why="A function nothing calls still has to be read, reviewed and kept valid on every model change",
+                obj=f"function {f['name']}",
+                where=where,
+                fix={"op": "function.delete", "name": f["name"]},
             ))
 
     return findings
