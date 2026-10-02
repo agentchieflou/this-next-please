@@ -307,7 +307,7 @@ def test_the_playbook_draws_its_grammar_and_each_mark_leaves_by_erase_or_strike(
 ANSWER = """([repo]) => new Promise(done => {
   const tile = document.querySelector(`.tile[data-repo="${repo}"]`);
   tile.querySelector('.ask-choice').click();
-  tile.querySelector('.asks-send').click();
+  tile.querySelector('.bottom .send').click();
   const wait = () => tile.querySelector('.ask.is-answered') ? done(true) : requestAnimationFrame(wait);
   wait();
 })"""

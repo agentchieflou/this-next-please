@@ -984,11 +984,18 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
 }
 .ask-choice[aria-pressed="true"] { border-color: var(--focus); background: var(--select); font-weight: 600; }
-.ask-answer {
-  width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
+.ask-answer { display: block; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.ask-answer:empty { display: none; }
+.ask-answer::before { content: "\2192  "; font-weight: 400; }
+.ask-q { cursor: pointer; }
+.ask.is-target { border-left: 2px solid var(--focus); padding-left: 6px; }
+.asks-how { margin: 4px 0 0; color: var(--text); font-size: 11px; }
+.answering {
+  flex: 0 0 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: inherit; font-size: 11px; color: var(--text); background: var(--select);
+  border: 1px solid var(--focus); border-radius: 10px; padding: 1px 8px; cursor: pointer;
 }
-.asks-note { color: var(--muted); align-self: center; }
+.answering[aria-pressed="false"] { background: var(--panel); border-color: var(--line); }
 .assumed { list-style: none; margin: 6px 0 0; padding: 0; }
 .assumption {
   display: flex; gap: 8px; align-items: baseline;

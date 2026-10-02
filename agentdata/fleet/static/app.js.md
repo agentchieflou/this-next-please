@@ -414,17 +414,13 @@ Above `if ((e.dataTransfer.files && e.dataTransfer.files.length) ||`:
 Files first (#166): the tile has promised a copy on `dragover` since #98, and until now that
 promise was empty -- the outline appeared and nothing happened.
 
-Above `el.querySelector(".asks-send").addEventListener("click", function () {`:
+Above `el.querySelector(".answering").addEventListener("click", function () {`:
 
-The dispatch card's own three controls (#164). `Enter` in the brief box starts; `Esc` cancels,
-the way `Esc` leaves every other thing on this page.
-One Send for every answer typed (#165): N answers cost one turn, not N.
-
-Above `var done = (r && r.ok !== false && r.answered) || [];`:
-
-#249: a question the server says it passed on is answered, and says so until the agent
-records it and the fold drops it -- the one signal the paper skins strike the question
-by. The ids come back from the server, never from what was typed.
+One place to type per agent (2026-10). The question card used to carry its own box and its own
+Send beside the pane's reply box; Enter did nothing in the card's box, its refusals were written
+under the reply box, and the operator kept typing in the box that did not send. Now the reply box
+is the only one: while a question is open it answers it (the chip says *answers q1*), and the chip
+switches it to a plain message and back. Clicking a question's words aims the box at that question.
 
 Above `bindTools(el, row.repo);`:
 
@@ -507,6 +503,33 @@ The agent's open questions, as records: choices as buttons, a box for anything e
 Answering used to be a free-text reply the agent had no way to tie to what it asked, and which
 did not unblock it -- `open_questions` persisted until `--clear-questions`, which no skill ran on
 resume, so the next bootstrap stopped on the same block.
+
+### `function answeringLi`
+
+The open question the reply box is answering, or none: the tile's `data-answering`, unless the
+operator switched the box to a plain message (`data-answer-off`) or that question was answered.
+
+### `function aimAt`
+
+Point the reply box at one question and put a value in it: a choice's click, or a question's words
+clicked with its answer so far. Focuses the box, so Enter sends.
+
+### `function drawAnswering`
+
+The box's target, its placeholder (the question it answers, and *a path* for `--want file`), and the
+chip. With nothing aimed and questions open, it aims at the first question with no answer yet. All
+writes through the setters, so a redraw with nothing new writes nothing.
+
+### `function answerAll`
+
+Send while a question is open: every open question's answer -- the typed one for the question the
+box is aimed at, a pressed choice for the others -- in one `answer` action, so N answers are one
+turn, not N (#165). Nothing to send is said in the pane's error line, which sits right under the one
+box. `budget_exceeded` arms *Send anyway* exactly as a plain send does.
+
+#249: a question the server says it passed on is answered, and says so until the agent records it
+and the fold drops it -- the one signal the paper skins strike the question by. The ids come back
+from the server, never from what was typed.
 
 ### `function drawAsks`
 

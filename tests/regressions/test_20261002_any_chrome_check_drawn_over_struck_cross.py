@@ -11,6 +11,8 @@ row and element), so the cross stayed, struck, at exactly the spot the check was
 Fix: a margin mark that starts drawing takes up any struck margin mark on its element, and a margin
 mark struck while another is already drawn there is dropped (`Layer.clearMargin`, `marginTaken`).
 History is kept for every other mark, and for a margin mark nothing replaces.
+
+Issue: https://github.com/agentchieflou/this-next-please/issues/624 (the operator's report, fixed in that PR)
 """
 from __future__ import annotations
 

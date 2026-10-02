@@ -295,7 +295,12 @@ def test_the_router_only_stops_on_a_blocking_question():
 def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: three questions produce one card and one Send. Asserted on the
     rendered page, because a substring in `app.js` proves an author wrote a line, not that a
-    person can see it."""
+    person can see it.
+
+    2026-10, the operator: "we always need to scroll beneath it to the second text box to type a
+    response that will actually send. There should only be one place to type per agent." The card's
+    own box (no Enter, its refusals written under the other box) is gone: the pane's reply box
+    answers the open question, and its chip switches it to a plain message."""
     import threading
 
     from agentdata.fleet import serve as S
@@ -342,31 +347,75 @@ def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path,
         page.wait_for_selector(".tile:visible", timeout=15000)
         page.wait_for_selector('.tile[data-repo="luna"] .asks:not([hidden])', timeout=5000)
 
-        card = page.locator('.tile[data-repo="luna"] .asks')
-        # Two blocking questions on one card, and exactly one Send for both.
+        tile = page.locator('.tile[data-repo="luna"]')
+        card = tile.locator(".asks")
+        say = tile.locator(".say")
+        chip = tile.locator(".answering")
+        # Two blocking questions on one card -- and nowhere on it to type (2026-10: one place to
+        # type per agent). The pane's reply box answers them; the card says so.
         assert card.locator(".ask:not([hidden])").count() == 2, "two blocking questions, one card"
         assert "2 questions" in card.locator(".asks-n").inner_text()
-        assert card.locator(".asks-send").count() == 1
+        assert card.locator("input, textarea, .asks-send").count() == 0, "the card has no box of its own"
+        assert "reply box below" in card.locator(".asks-how").inner_text()
         assert card.locator('.ask[data-qid="q1"] .ask-choice').count() == 2
         assert "default" in card.locator('.ask[data-qid="q1"] .ask-choice').first.inner_text()
-        # `--want file` says so where the answer is typed.
-        placeholder = card.locator('.ask[data-qid="q2"] .ask-answer').get_attribute("placeholder")
-        assert "path" in placeholder
+        assert tile.locator("input[type=text]:visible, textarea:visible").count() == 1, "one place to type"
+
+        # The reply box answers the first open question, and says which.
+        assert chip.inner_text() == "answers q1" and chip.get_attribute("aria-pressed") == "true"
+        assert say.get_attribute("placeholder").startswith("answer: Does it cover the UAT workspace?")
 
         # The assumption is a row, not a card, and the tile is not red for it.
         assumed = page.locator('.tile[data-repo="luna"] .assumed')
         assert assumed.is_visible()
         assert "the last full sprint" in assumed.inner_text()
 
-        # Clicking a choice fills that question's answer and nothing else's.
-        card.locator('.ask[data-qid="q1"] .ask-choice').first.click()
-        assert card.locator('.ask[data-qid="q1"] .ask-answer').input_value() == "yes"
-        assert card.locator('.ask[data-qid="q2"] .ask-answer').input_value() == ""
+        # Clicking a question's words aims the box at it; `--want file` says so where it is typed.
+        card.locator('.ask[data-qid="q2"] .ask-q').click()
+        assert chip.inner_text() == "answers q2" and "a path" in say.get_attribute("placeholder")
 
-        # Send with nothing typed says so rather than spending a turn.
-        page.locator('.tile[data-repo="luna"] .ask[data-qid="q1"] .ask-answer').fill("")
-        card.locator(".asks-send").click()
-        assert "pick a choice" in card.locator(".asks-note").inner_text()
+        # Clicking a choice puts it in the box, aimed at its question, and nothing else's.
+        card.locator('.ask[data-qid="q1"] .ask-choice').first.click()
+        assert say.input_value() == "yes" and chip.inner_text() == "answers q1"
+        assert card.locator('.ask[data-qid="q1"] .ask-answer').inner_text() == "yes"
+        assert card.locator('.ask[data-qid="q2"] .ask-answer').inner_text() == ""
+        assert page.evaluate("() => document.activeElement.classList.contains('say')"), "Enter is next"
+
+        # Enter with nothing to answer says so under the one box rather than spending a turn.
+        say.fill("")
+        say.press("Enter")
+        page.wait_for_function("""() => { const e = document.querySelector('.tile[data-repo="luna"] .err');
+            return !e.hidden && e.textContent.includes('pick a choice'); }""", timeout=5000)
+
+        # Enter sends the answer -- one `answer` with every question answered so far.
+        sent = []
+
+        def answer(route):
+            sent.append(json.loads(route.request.post_data or "{}"))
+            return route.fulfill(status=200, content_type="application/json",
+                                 body='{"ok": true, "action": "answer", "repo": "luna", "answered": ["q1"]}')
+
+        page.route("**/api/answer*", answer)
+        say.fill("yes, and the UAT copy")
+        say.press("Enter")
+        page.wait_for_selector('.tile[data-repo="luna"] .ask[data-qid="q1"].is-answered', timeout=5000)
+        assert sent == [{"repo": "luna", "answers": [{"id": "q1", "answer": "yes, and the UAT copy"}],
+                         "force": False}], sent
+        assert say.input_value() == "" and chip.inner_text() == "answers q2", "on to the next question"
+
+        # The chip turns the box into a plain message, and back.
+        messages = []
+        page.route("**/api/send*", lambda route: (messages.append(json.loads(route.request.post_data or "{}")),
+                                                  route.fulfill(status=200, content_type="application/json",
+                                                                body='{"ok": true, "action": "send", "repo": "luna"}')))
+        chip.click()
+        assert chip.inner_text() == "a message, not an answer" and chip.get_attribute("aria-pressed") == "false"
+        assert say.get_attribute("placeholder") == "reply, or a ticket key to start"
+        say.fill("stop after the export")
+        say.press("Enter")
+        page.wait_for_function("() => document.querySelector('.tile[data-repo=\"luna\"] .say').value === ''",
+                               timeout=5000)
+        assert [m["message"] for m in messages] == ["stop after the export"] and len(sent) == 1
         assert not errors, errors
         close_pages(browser)
     finally:

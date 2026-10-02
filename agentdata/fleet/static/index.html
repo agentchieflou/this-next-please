@@ -494,7 +494,8 @@
       </div>
     </div>
     <!-- #165: the agent's open questions, as records. Beside the approval card on purpose: both
-         are "the tile is asking you something", and one shape for that is learned once. One Send
+         are "the tile is asking you something", and one shape for that is learned once. Answered
+         from the pane's one reply box below (2026-10: one place to type per agent), and one Send
          answers all of them, because one respawn per answer is one premium request per answer. -->
     <div class="asks enters" hidden>
       <div class="asks-head">it asked you: <span class="asks-n"></span></div>
@@ -504,13 +505,10 @@
         <li class="ask" hidden>
           <p class="ask-q"></p>
           <div class="ask-choices"></div>
-          <input class="ask-answer" type="text" placeholder="your answer">
+          <span class="ask-answer"></span>
         </li>
       </ol>
-      <div class="row">
-        <button type="button" class="asks-send">Send</button>
-        <span class="asks-note"></span>
-      </div>
+      <p class="asks-how">answer in the reply box below: pick a choice or type, then Send</p>
     </div>
     <!-- What it assumed and carried on with. Not a state: a row to overturn at leisure. -->
     <ul class="assumed" hidden>
@@ -531,6 +529,7 @@
       <span class="ro-note"></span>
     </p>
     <div class="row bottom">
+      <button type="button" class="answering" aria-pressed="true" hidden></button>
       <input class="say" type="text" placeholder="reply, or a ticket key to start">
       <button class="send">Send</button>
       <button class="start">Start</button>

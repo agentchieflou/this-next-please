@@ -829,6 +829,29 @@ The approval card's shape again: the tile is asking you something before anythin
 happens. It wears `--human` because an unanswered blocking question *is* "needs you" -- the same
 red the chip uses, so the card and the chip agree at a glance.
 
+### `.ask-answer`
+
+Not a box any more (2026-10: "one place to type per agent"). The card used to carry an input per
+question beside the pane's own reply box, and the operator always ended up typing in the wrong one.
+The answer is typed in the reply box; this line shows, under its question, the answer that Send
+will deliver -- a pressed choice or what is typed -- and stays after the answer as the thing the ink
+skins circle. Empty, it takes no room.
+
+### `.ask.is-target`
+
+The question the reply box is answering right now: a focus-coloured rule on its left, never a state
+colour, because it is where your typing goes rather than what the agent is doing.
+
+### `.asks-how`
+
+One line saying where the answer goes, so nobody looks for a box on the card.
+
+### `.answering`
+
+The chip at the head of the reply box: *answers q1* while it answers a question, *a message, not an
+answer* when the operator pressed it to talk to the agent instead. Focus-coloured when it answers,
+plain when it does not, so the one box's two jobs are never confused.
+
 ### `.assumed`
 
 Above `.assumed { list-style: none; margin: 6px 0 0; padding: 0; }`:
