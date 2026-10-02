@@ -50,6 +50,7 @@ function rgbOf(tokens, name, fallback) {
 
 const PAPER_FS = `
 uniform vec3 uPaper; uniform vec3 uRule; uniform float uDark; uniform float uDpr; uniform vec2 uView; uniform float uRuled;
+uniform float uLamp; uniform vec3 uLampMax;
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), u.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), u.x), u.y); }
@@ -59,6 +60,10 @@ void main(){
   float fib = vn(vec2(p.x * 0.05, p.y * 0.9)) * 0.6 + vn(p * 0.7) * 0.4;
   float k = uDark > 0.5 ? 0.55 : 1.0;
   vec3 c = uPaper * (1.0 + (fib - 0.5) * 0.035 * k);
+  if (uLamp > 0.0) {
+    float r = length(p - uView * vec2(0.3, 0.2)) / max(max(uView.x, uView.y), 1.0);
+    c = min(c + max(uLampMax - uPaper, 0.0) * uLamp * (1.0 - smoothstep(0.0, 0.6, r)), max(c, uLampMax));
+  }
   // A rule every pitch, a hair wide, printed a little unevenly.
   float d = abs(mod(p.y - ${PITCH - 1}.0, ${PITCH}.0));
   d = min(d, ${PITCH}.0 - d);
@@ -72,16 +77,19 @@ void main(){
 
 function stock(THREE, tokens, api, ruled, w, h) {
   const { w: vw, h: vh, dpr } = api.viewport;
+  const stockRgb = rgbOf(tokens, "--paper", tokens.bg);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.ShaderMaterial({
     vertexShader: "void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
     fragmentShader: PAPER_FS, depthTest: false, depthWrite: false,
     uniforms: {
-      uPaper: { value: new THREE.Vector3(...rgbOf(tokens, "--paper", tokens.bg)) },
+      uPaper: { value: new THREE.Vector3(...stockRgb) },
       uRule: { value: new THREE.Vector3(...rgbOf(tokens, "--rule", tokens.line)) },
       uDark: { value: tokens.dark ? 1 : 0 },
       uDpr: { value: dpr },
       uView: { value: new THREE.Vector2(vw, vh) },
       uRuled: { value: ruled ? 1 : 0 },
+      uLamp: { value: Number(tokens.css("--lamp")) || 0 },
+      uLampMax: { value: new THREE.Vector3(...rgbOf(tokens, "--lamp-max", stockRgb)) },
     },
   }));
   mesh.frustumCulled = false;

@@ -26,6 +26,21 @@ body[data-skin="notebook"][data-skin-variant="dark"] {
   color-scheme: dark;
 }
 
+body[data-skin="notebook"][data-skin-variant="lamplight"] {
+  --paper: #2E2B26;
+  --rule: #48423A;
+  --margin: #6E3A2E;
+  --ink-pencil: #B3A992;
+  --ink-pen: #C9A227;
+  --ink-red: #E8837A;
+  --ink-marker: #E8837A;
+  --ink-green: #6FBF80;
+  --ink-highlighter: #7E6418;
+  --lamp: 1;
+  --lamp-max: #38342D;
+  color-scheme: dark;
+}
+
 body[data-skin="notebook"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
 body[data-skin="notebook"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
 body[data-skin="notebook"]:not(.ink-off) main { background: transparent; }

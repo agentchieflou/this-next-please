@@ -52,16 +52,25 @@ TOOLS = ("pencil", "pen", "red", "green", "marker", "highlighter")
 #: tests that assert what is drawn rather than how run under reduced motion, which draws at once.
 DRAWN = {"width": 1000, "height": 620}
 
+#: #398: the lamp's centre, as fractions of the viewport across and down (`notebook.js` `PAPER_FS`).
+LAMP_AT = (0.3, 0.2)
+
+#: #398: the light and the dark paper read back from the canvas (`READ`) at the lamp's centre at
+#: `DRAWN` -- x=300, at the point between two rules nearest y=124 that no mark covers, which is
+#: y=124 -- recorded on main @ dca5b20, before the lamp. A variant without a lamp reads the same
+#: (plus or minus 1 per channel).
+PAPER_BEFORE_THE_LAMP = {"light": (254, 254, 248), "dark": (27, 30, 37)}
+
 
 # ============================================================================== without a browser
 
 
 def _css_block(css: str, variant: str) -> dict:
-    """The custom properties the stylesheet sets for a variant: the base block, and the dark one
-    over it."""
+    """The custom properties the stylesheet sets for a variant: the base block, and the variant's
+    own over it -- every variant but the default has one (#398: any variant, not only dark)."""
     blocks = [r'body\[data-skin="notebook"\]\s*\{(.*?)\}']
-    if variant == "dark":
-        blocks.append(r'body\[data-skin="notebook"\]\[data-skin-variant="dark"\]\s*\{(.*?)\}')
+    if variant != skins.SKINS["notebook"]["default"]:
+        blocks.append(r'body\[data-skin="notebook"\]\[data-skin-variant="%s"\]\s*\{(.*?)\}' % re.escape(variant))
     out = {}
     for pattern in blocks:
         body = re.search(pattern, css, re.S).group(1)
@@ -71,11 +80,13 @@ def _css_block(css: str, variant: str) -> dict:
 
 def test_the_notebook_is_a_skin_with_a_light_and_a_dark_variant():
     """Chosen through skins.py like every skin, so the settings page offers it. Dark is a variant,
-    not a family: skins drive palettes, and the night page's ground is named by its variant."""
+    not a family: skins drive palettes, and the night page's ground is named by its variant. So is
+    Lamplight (#398), the night-study page on `eye-relief`: a flavour on the dark side."""
     nb = skins.SKINS["notebook"]
-    assert nb["default"] == "light" and set(nb["variants"]) == {"light", "dark"}
+    assert nb["default"] == "light" and set(nb["variants"]) == {"light", "dark", "lamplight"}
     assert skins.split("notebook") == ("notebook", "light")
     assert skins.get_skin("notebook:dark")["base"] == "dark"
+    assert skins.get_skin("notebook:lamplight")["base"] == "eye-relief"
     assert theme.get(nb["variants"]["dark"]["base"]).ground and \
         theme.rel_luminance(theme.hex_to_rgb(nb["variants"]["dark"]["composited_panel"])) < 0.05
     assert "notebook" in [s["name"] for s in skins.list_skins()]
@@ -86,11 +97,18 @@ def test_the_stylesheet_paints_the_numbers_skins_py_declares():
     """The paper and every ink: declared once in skins.py (where `theme.check` reads them) and named
     by skin.css (where the page and the module read them), held to one number by this test rather
     than by somebody updating both. The words are the palette's own text and muted colour: since
-    #257 a skin never recolours the palette, so skin.css sets neither."""
+    #257 a skin never recolours the palette, so skin.css sets neither. A lamp (#398) brightens the
+    stock up to `--lamp-max`, so a variant with one is a pair: `--paper` at its darker end and
+    `--lamp-max` at its lighter; without one the paper is the panel."""
     css = open(CSS, encoding="utf-8").read()
     for variant, spec in skins.SKINS["notebook"]["variants"].items():
         props = _css_block(css, variant)
-        assert props["paper"].upper() == spec["composited_panel"].upper(), variant
+        darkest, lightest = skins.composited_panels(spec)[0], skins.composited_panels(spec)[-1]
+        assert props["paper"].upper() == darkest.upper(), variant
+        if "lamp" in props:
+            assert props["lamp-max"].upper() == lightest.upper(), variant
+        else:
+            assert darkest == lightest, (variant, "a pair with no lamp to light its lighter end")
         assert "text" not in props and "muted" not in props, (variant, "the palette's own words, recoloured")
         for tool in TOOLS:
             assert props[f"ink-{tool}"].upper() == spec["inks"][tool].upper(), (variant, tool)
@@ -103,9 +121,24 @@ def test_theme_check_holds_every_ink_on_the_notebooks_paper():
     muted words are what is written on the paper (#257: the skin no longer recolours them)."""
     for variant, spec in skins.SKINS["notebook"]["variants"].items():
         base = theme.get(spec["base"])
-        paper = spec["composited_panel"]
-        theme.check(base, composited_panel=paper, skin=f"notebook:{variant}", inks=spec["inks"])
-        assert theme.contrast_ratio(theme.to_css(base)["--muted"], paper) >= 4.5, variant
+        for paper in skins.composited_panels(spec):
+            theme.check(base, composited_panel=paper, skin=f"notebook:{variant}", inks=spec["inks"])
+            assert theme.contrast_ratio(theme.to_css(base)["--muted"], paper) >= 4.5, (variant, paper)
+
+
+def test_every_word_written_in_an_ink_reads_at_every_end_of_every_variants_paper():
+    """#398. A `color: var(--ink-<tool>)` in skin.css is a word in that ink -- a finding's margin
+    note in the red, the header's count in the pen, the stale note in pencil -- so it holds 4.5:1,
+    not a mark's 3:1, at every end of every variant's paper. Lamplight's first red, #E07A6E, read
+    4.23:1 at its lit end."""
+    css = open(CSS, encoding="utf-8").read()
+    coloured = set(re.findall(r"(?<![\w-])color:\s*var\(--ink-(\w+)\)", css))
+    assert {"red", "pen"} <= coloured, ("the finding's note and the count are written in an ink", coloured)
+    for variant, spec in skins.SKINS["notebook"]["variants"].items():
+        for tool in sorted(coloured):
+            for end in skins.composited_panels(spec):
+                ratio = theme.contrast_ratio(spec["inks"][tool], end)
+                assert ratio >= 4.5, (variant, tool, end, round(ratio, 2))
 
 
 def test_the_module_carries_no_colour_and_no_markup():
@@ -292,6 +325,43 @@ def _of(marks, lane, sel_part, tool=None, shape=None, live=True):
 
 def _struck(marks, target_ids):
     return {m["strikeOf"] for m in marks if m["strikeOf"] in target_ids and m["state"] == "drawn"}
+
+
+def _rgb(hex_colour):
+    """`#RRGGBB` as a tuple of 0-255 channels, as the canvas is read back."""
+    return tuple(round(v * 255) for v in theme.hex_to_rgb(hex_colour))
+
+
+def _between_the_rules(marks, x, y):
+    """#398: the y nearest `y`, at `x`, that is between two of the page's rules -- its y mod 28 from
+    8 to 20; the shader's rule is at 27 -- and that no mark's bounds (`marks[].bounds`, 4px out for
+    the stroke's width) cover."""
+    def covered(at):
+        return any(b["x"] - 4 <= x <= b["r"] + 4 and b["y"] - 4 <= at <= b["b"] + 4
+                   for m in marks for b in m["bounds"])
+    for at in sorted(range(0, 2 * y + 1), key=lambda v: (abs(v - y), v)):
+        if 8 <= at % 28 <= 20 and not covered(at):
+            return at
+    raise AssertionError(("no paper between the rules and clear of the marks near", x, y))
+
+
+def _paper_at_the_lamp(page, variant):
+    """#398: `notebook:<variant>` the page's whole look (chosen first unless it already is), the
+    layer holding its inks, the desk at rest; then the paper read back from the canvas (`READ`) at
+    the lamp's centre at `DRAWN`, moved to the nearest point between two rules that no mark covers.
+    Returns `(y, (r, g, b))`."""
+    from test_fleet_ink_glass import READ   # here: that module imports this one
+    spec = skins.SKINS["notebook"]["variants"][variant]
+    chosen = [f"notebook:{variant}", theme.to_css(theme.get(spec["base"]))["--text"].upper()]
+    if not page.evaluate(f"c => ({CHOSEN})(c)", chosen):
+        _choose(page, chosen[0])
+    page.wait_for_function(f"([c, pen]) => ({CHOSEN})(c) && !!Ink.inspect().layer && Ink.inspect().layer.inks.pen === pen",
+                           arg=[chosen, spec["inks"]["pen"].upper()], timeout=30000)
+    _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4")
+    x = round(DRAWN["width"] * LAMP_AT[0])
+    y = _between_the_rules(_marks(page), x, round(DRAWN["height"] * LAMP_AT[1]))
+    px = page.evaluate(READ, [{"x": x, "y": y, "w": 1, "h": 1, "at": [[0, 0]]}])[0][0]
+    return y, tuple(px[:3])
 
 
 @pytest.mark.browser
@@ -599,7 +669,9 @@ def test_without_ink_the_notebook_is_the_same_table_drawn_plain_on_a_ruled_page(
     """The gate off (nothing measured, as in CI without the override): `body.ink-off`, no canvas and
     no three.js, and the marks as the layer's plain CSS -- the same table: an idle pane outlined, a
     running name underlined, needing you tinted. Since #257 no rules or margin are printed in CSS:
-    the plain look is the one every skin shares, and the ruled paper is the module's alone."""
+    the plain look is the one every skin shares, and the ruled paper is the module's alone. So
+    Lamplight without ink (#398) is the plain `eye-relief` page: its ground, panel and words, no
+    lamp and no canvas."""
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     try:
@@ -628,6 +700,17 @@ def test_without_ink_the_notebook_is_the_same_table_drawn_plain_on_a_ruled_page(
         assert look["running"] == "underline", look
         assert look["needs"] not in ("", "rgba(0, 0, 0, 0)") and look["question"] == look["needs"], look
         assert look["loop"] == "solid", look
+        relief = theme.to_css(theme.get(skins.SKINS["notebook"]["variants"]["lamplight"]["base"]))
+        _choose(page, "notebook:lamplight")
+        page.wait_for_function(f"c => ({CHOSEN})(c) && Ink.inspect().plain",
+                               arg=["notebook:lamplight", relief["--text"].upper()], timeout=30000)
+        plain = page.evaluate("""() => { const root = getComputedStyle(document.documentElement), body = getComputedStyle(document.body);
+          return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
+                   ground: body.backgroundColor, rules: body.backgroundImage,
+                   tokens: ['--bg', '--panel', '--text', '--muted'].map(n => root.getPropertyValue(n).trim().toUpperCase()) }; }""")
+        assert plain["off"] and not plain["canvas"] and plain["rules"] == "none", plain
+        assert plain["tokens"] == [relief[n].upper() for n in ("--bg", "--panel", "--text", "--muted")], plain
+        assert plain["ground"] == "rgb(%d, %d, %d)" % _rgb(relief["--bg"]), plain
         assert not [u for u in asked if "three.module" in u or "/ink/layer.js" in u], "no layer without ink"
         assert not errors, errors
         close_pages(browser)
@@ -640,7 +723,13 @@ def test_an_idle_notebook_writes_nothing_draws_nothing_and_settles_in_bounded_fr
     """The render contract with the notebook on the paper: its marks are on the paper within the
     frames a hand at the pen's speed needs for their length, plus travel -- counted in frames, not
     milliseconds (plan-ink ground rule 5) -- and then an idle desk is zero DOM mutations and zero
-    WebGL frames."""
+    WebGL frames.
+
+    #398, the lamp: on the same desk the paper is read back from the canvas at the lamp's centre
+    (`_paper_at_the_lamp`) in each variant. Light and dark read what they did before the lamp;
+    Lamplight is lit there, and stays within its two ends, `--paper` and `--lamp-max` (plus or minus
+    1 per channel); and an idle lamplit desk is zero mutations and zero frames too: the lamp is
+    still."""
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
     try:
@@ -657,9 +746,21 @@ def test_an_idle_notebook_writes_nothing_draws_nothing_and_settles_in_bounded_fr
         bound = ink / PEN * 60 * 1.6 / lanes * 2 + strokes * 30 + 60
         assert layer["frames"] <= bound, (layer["frames"], bound)
         count = observe_quiet(page, passes=8)
+        read = {variant: _paper_at_the_lamp(page, variant) for variant in ("light", "dark", "lamplight")}
+        lit = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
     assert count["mutations"] == 0, f"an idle notebook wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle notebook was redrawn {count['renders']} times"
+    for variant, was in PAPER_BEFORE_THE_LAMP.items():
+        y, got = read[variant]
+        assert all(abs(a - b) <= 1 for a, b in zip(got, was)), (variant, "the paper moved", y, got, was)
+    panel = skins.SKINS["notebook"]["variants"]["lamplight"]["composited_panel"]
+    lo, hi = _rgb(panel["darkest"]), _rgb(panel["lightest"])
+    y, got = read["lamplight"]
+    assert all(lo[i] - 1 <= got[i] <= hi[i] + 1 for i in range(3)), ("off the lamplit paper", y, got, lo, hi)
+    assert any(got[i] > lo[i] + 1 for i in range(3)), ("the lamp is out: unlit stock at its centre", y, got, lo)
+    assert lit["mutations"] == 0, f"an idle lamplit notebook wrote to the page: {lit}"
+    assert lit["renders"] == 0, f"an idle lamplit notebook was redrawn {lit['renders']} times"

@@ -10,15 +10,19 @@ grammar, and the paper.
 ## Choosing it
 
 `notebook` is a skin in `skins.py`, so the settings page offers it and `theme.skin` in the config chooses it, like
-glass. It has two variants:
+glass. It has three variants:
 
 | Variant | Is | Palette (`base`) | Paper |
 | --- | --- | --- | --- |
 | `notebook:light` (the default, so a bare `notebook` is the same) | graph-ruled notebook: white stock, blue rules, a red margin | `eye-relief-day` | `#FBFBF6` |
 | `notebook:dark` | night notebook: charcoal stock and gel inks, the highlighter screened | `dark` | `#1B1E25` |
+| `notebook:lamplight` (#398) | night study: warm charcoal stock under a still pool of lamplight, for hour six | `eye-relief` | `#2E2B26` … `#38342D` (the lamp's peak) |
+
+Light and dark are the skin's pair (`sides`); Lamplight is a flavour on the dark side, offered in the picker as
+*Notebook · Lamplight*, whose light side is the pair's.
 
 **Dark is a variant, not a `notebook-dark` family.** Skins drive palettes (`skins.py`): a variant names the palette
-it is drawn against, the way Voxel's Nether is red because its art is red. So one module draws both pages, the
+it is drawn against, the way Voxel's Nether is red because its art is red. So one module draws every page, the
 settings page lists them together, and the palette follows the choice. The layer does not need telling which is
 which: it reads the stock's luminance from `--paper`, and multiplies the highlighter into a light stock or screens it
 onto a dark one.
@@ -27,7 +31,7 @@ onto a dark one.
 
 | File | Holds |
 | --- | --- |
-| `static/ink/skins/notebook.js` | the mark table (below), the `paper` hook (a shader: the rules, fibre and a faint light falloff) and the `frame` hook (each pane's margin line). No colour and no markup (`tests/test_fleet_ink_notebook.py` holds both) |
+| `static/ink/skins/notebook.js` | the mark table (below), the `paper` hook (a shader: the rules, fibre and a faint light falloff, and Lamplight's still pool of light) and the `frame` hook (each pane's margin line). No colour and no markup (`tests/test_fleet_ink_notebook.py` holds both) |
 | `static/skins/notebook/skin.css` | the colours as custom properties per variant, the handwritten labels, and the pane's margin and clear surfaces where the ink draws; nothing it paints (#257) |
 | `skins.py` → `SKINS["notebook"]` | each variant's palette, its paper (the composited panel) and its inks, which `theme.check` holds |
 
@@ -36,20 +40,26 @@ onto a dark one.
 A palette colours the UI, and the notebook chooses the paper and its inks. Every colour is a custom property on
 `body[data-skin="notebook"]`, read by the module through `tokens.css(name)` at paint time, never written in it:
 
-| Property | Light | Dark | Is |
-| --- | --- | --- | --- |
-| `--paper` | `#FBFBF6` | `#1B1E25` | the stock |
-| `--rule` | `#B7CBE3` | `#2C3A50` | the ruled lines, 28px apart |
-| `--margin` | `#E3908C` | `#6E3437` | each pane's margin line |
-| `--ink-pencil` | `#50545C` | `#B5BAC4` | graphite |
-| `--ink-pen` | `#22398F` | `#94B4FF` | ballpoint, gel ink by night |
-| `--ink-red`, `--ink-marker` | `#C8352B` | `#FF6A5E` | the red pen and the marker |
-| `--ink-green` | `#2E7A4D` | `#6FD39A` | the check |
-| `--ink-highlighter` | `#F3DF4B` | `#CEBF40` | multiplied by day, screened by night (#329: `#E6D548` screened left the text at 4.26:1) |
+| Property | Light | Dark | Lamplight | Is |
+| --- | --- | --- | --- | --- |
+| `--paper` | `#FBFBF6` | `#1B1E25` | `#2E2B26` | the stock |
+| `--rule` | `#B7CBE3` | `#2C3A50` | `#48423A` (1.42:1) | the ruled lines, 28px apart |
+| `--margin` | `#E3908C` | `#6E3437` | `#6E3A2E` (1.55:1) | each pane's margin line; Lamplight's a muted brick that defers |
+| `--ink-pencil` | `#50545C` | `#B5BAC4` | `#B3A992` | graphite |
+| `--ink-pen` | `#22398F` | `#94B4FF` | `#C9A227` | ballpoint, gel ink by night, the palette's gold under the lamp |
+| `--ink-red`, `--ink-marker` | `#C8352B` | `#FF6A5E` | `#E8837A` | the red pen and the marker |
+| `--ink-green` | `#2E7A4D` | `#6FD39A` | `#6FBF80` | the check |
+| `--ink-highlighter` | `#F3DF4B` | `#CEBF40` | `#7E6418` | multiplied by day, screened by night (#329: `#E6D548` screened left the text at 4.26:1; #398: `#9C7C1E` screened left it at 4.09:1 at the lamp's peak) |
+| `--lamp` | — | — | `1` | the lamp's strength; unset is 0, no lamp |
+| `--lamp-max` | — | — | `#38342D` | the lamp's peak, clamped per channel: the paper's lighter end |
 
 `theme.check` gets every pair: each ink 3:1 on its paper, the text 4.5:1 on the paper and through the highlighter,
-for the variant's palette. The words are the palette's own `--text` and `--muted` (#257: a skin never recolours the
-palette), which read at 11:1 and 6.7:1 on the day paper and 13:1 and 7:1 by night. `tests/test_fleet_ink_notebook.py` also holds `skins.py` and
+for the variant's palette, at both ends of a paper the lamp lights. The words are the palette's own `--text` and
+`--muted` (#257: a skin never recolours the palette), which read at 11:1 and 6.7:1 on the day paper, 13:1 and 7:1 by
+night, and 7.8:1 and 5.6:1 at the lamp's peak. Three inks are words too, not only marks: the stale note is written in
+pencil, a finding's margin note in the red and the header's count in the pen (`color: var(--ink-<tool>)` in
+`skin.css`), so each keeps 4.5:1 at every end of every variant's paper (Lamplight's red: 5.34 and 4.69:1; its first
+choice, `#E07A6E`, read 4.23:1 at the lit end). `tests/test_fleet_ink_notebook.py` also holds `skins.py` and
 `skin.css` to the same numbers, so the declared and the painted colour cannot drift apart.
 
 ### The handwriting
@@ -107,6 +117,16 @@ slight falloff of light from the top left. The `frame` hook draws each pane's ma
 edge. A rail has no margin, and its marks go down its middle. The panes are transparent (`skin.css`), so the rules and
 the marks show through them. The check and the bang are written in the margin, left of the line.
 
+**The lamp (#398).** A variant that sets `--lamp` (Lamplight sets `1`) gets a still pool of light on its stock: the
+shader's `uLamp` brightens the paper toward `--lamp-max`, most at 30% across and 20% down the viewport and fading to
+nothing 60% of the viewport's longer side away, and clamps every channel at `--lamp-max`, so the paper is never lighter
+than the end its text is checked at. It is shaded in viewport pixels like the rest of the stock, so the plain stock
+laid under a transcript is lit the same, and the rules are printed over it unlit. It never moves: it does not follow
+the selected pane and is not animated, so the paper is built once, reduced motion has nothing to hold still, and an
+idle desk draws no frame. With `--lamp` unset (`uLamp` 0) the shader skips it and every other variant's paper is
+what it was (`tests/test_fleet_ink_notebook.py` reads the light and dark papers back at the lamp's centre against
+the values recorded before it).
+
 **Under the transcript the rules are the transcript's own (#338).** Its rows were 25px and the rules 28px, so the
 rules drifted through the middle of text lines, and a line through text reads as struck, the grammar's own sign for
 "gone". Under ink, `skin.css` makes a transcript row the pitch (`line-height: var(--pitch)`, no vertical padding, no
@@ -146,8 +166,10 @@ skin with no ground in its stylesheet. Both are fixed (#249, `tests/regressions/
 
 `tests/test_fleet_ink_notebook.py`:
 
-* **The skin:** offered by `skins.py` with a light and a dark variant; `skin.css` paints the numbers `skins.py`
-  declares; `theme.check` holds every ink-on-paper pair; the module carries no colour, no markup and no static import.
+* **The skin:** offered by `skins.py` with a light, a dark and a lamplight variant; `skin.css` paints the numbers
+  `skins.py` declares, `--lamp-max` at a lit paper's lighter end; `theme.check` holds every ink-on-paper pair at
+  every end of the paper; every ink that colours a word keeps 4.5:1 there; the module carries no colour, no markup
+  and no static import.
 * **The grammar in ink:** idle, running, error and done driven through the real server's fold, each drawn when the
   class arrives and erased or struck when it goes. The running line grows with the turn, and its tip is lifted
   before it is struck.
@@ -157,6 +179,9 @@ skin with no ground in its stylesheet. Both are fixed (#249, `tests/regressions/
   session is renewed; the finding's ellipse, highlight and note; the count's old number struck beside the new, one
   kept.
 * **Reduced motion** draws at once with no hand. **Dark** screens its highlighter on charcoal stock.
-* **Without ink**, the same table drawn plain on the one plain look, with no canvas and no layer fetched.
+* **Without ink**, the same table drawn plain on the one plain look, with no canvas and no layer fetched; Lamplight
+  without ink is the plain `eye-relief` page: its ground, panel and words.
 * **At rest:** an idle notebook is zero DOM mutations and zero WebGL frames, after catching up in a bounded number
-  of frames.
+  of frames. The same desk then reads the paper back from the canvas at the lamp's centre (`DRAWN`, 1000x620: x=300,
+  between two rules nearest y=124, under no mark): light and dark as recorded before the lamp, Lamplight lit and
+  within `#2E2B26`..`#38342D`, and idle again, zero mutations and zero frames.

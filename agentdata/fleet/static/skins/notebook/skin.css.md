@@ -18,8 +18,8 @@ as custom properties, the margin, and the typography. Since #257 it paints nothi
 `body.ink-off` the notebook is the one plain look every skin shares (app.css and the palette),
 with the same mark table drawn plain in these inks. No colour lives in the module. The light
 variant is `notebook:light` (the default, so a bare `notebook` is the same page), the dark one
-`notebook:dark`; `skins.py` names each one's palette, and `tests/test_fleet_ink_notebook.py`
-holds this file and `skins.py` to the same numbers. The words are the palette's own text, which
+`notebook:dark`, and the night-study page `notebook:lamplight` (#398); `skins.py` names each one's
+palette, and `tests/test_fleet_ink_notebook.py` holds this file and `skins.py` to the same numbers. The words are the palette's own text, which
 `theme.check` holds on each paper; a skin never recolours the palette.
 
 The handwriting is a local cursive stack, not a web font: the desk fetches nothing it does not
@@ -27,6 +27,21 @@ need, and a vendored face would count against the payload budget (desk-engines.m
 that reads the same in any hand. The prototype's Caveat is used where it is installed.
 
 ## the paper and the inks
+
+### `body[data-skin="notebook"][data-skin-variant="lamplight"]`
+
+Lamplight (#398, epic #294): warm charcoal stock on `eye-relief`, under a still pool of lamplight,
+for hour six. `--lamp: 1` turns the module's lamp on and `--lamp-max` is its peak, which the module
+clamps every channel to; so the paper is a pair in `skins.py`, `--paper` at its darker end and
+`--lamp-max` at its lighter, and every number is checked at both. A variant without `--lamp` has no
+lamp (the module reads it as 0).
+
+The rule is 1.42:1 on the paper. The margin is a muted brick at 1.55:1, under #398's ceiling of
+1.6:1: on this page it is decoration that defers to the words, not a red line. The red and the
+pen are words as well as marks (a finding's note and the header's count, below), so each keeps
+4.5:1 at the lamp's peak: the red is `#E8837A` (4.69:1 there; `#E07A6E` read 4.23:1). The
+highlighter is the palette's gold taken down to `#7E6418`: the layer screens it onto dark stock,
+and `#9C7C1E` screened left the text at 4.09:1 at the lamp's peak (`#7E6418`: 4.65:1).
 
 ## the page on it
 

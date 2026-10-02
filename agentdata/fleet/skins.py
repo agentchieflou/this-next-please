@@ -237,6 +237,18 @@ SKINS = {
                      "inks": {"pencil": "#B5BAC4", "pen": "#94B4FF", "red": "#FF6A5E",
                               "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#CEBF40"},
                      "why": "charcoal stock and gel inks, the highlighter screened"},
+            # #398 (epic #294): the night-study page on `eye-relief`, a flavour of the dark side. A
+            # still pool of lamplight brightens the stock toward `--lamp-max`, so the panel is a pair
+            # like playbook's: `--paper` at the dark end, the lamp's clamped peak at the light one.
+            # The red and the pen colour words (skin.css), so both keep 4.5:1 at the lit end. The
+            # highlighter is the palette's gold taken down to #7E6418: the layer screens it onto dark
+            # stock, which lightens what the text is read on, and #9C7C1E screened left the text at
+            # 4.09:1 at the lit end (#C9A227, the palette's own, at 3.36:1).
+            "lamplight": {"title": "Lamplight", "base": "eye-relief",
+                          "composited_panel": {"darkest": "#2E2B26", "lightest": "#38342D"},
+                          "inks": {"pencil": "#B3A992", "pen": "#C9A227", "red": "#E8837A",
+                                   "green": "#6FBF80", "marker": "#E8837A", "highlighter": "#7E6418"},
+                          "why": "warm charcoal stock and a lamp, for hour six"},
         },
     },
     # #389 (epic #294): a coach's chalkboard, drawn by the ink layer (`static/ink/skins/playbook.js`)
