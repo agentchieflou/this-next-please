@@ -40,7 +40,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -49,7 +49,7 @@ var vState = {
   frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0,
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0,
-  source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0
+  source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: []
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
@@ -104,22 +104,6 @@ function vContext() {
 }
 
 /** @param {any} T @returns {any} */
-function vSky(T) {
-  var mat = new T.ShaderMaterial({
-    uniforms: { uTop: { value: new T.Color() }, uHorizon: { value: new T.Color() } },
-    vertexShader: "varying float vY; void main() { vY = normalize(position).y;"
-      + " gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-    fragmentShader: "uniform vec3 uTop; uniform vec3 uHorizon; varying float vY;"
-      + " void main() { gl_FragColor = vec4(mix(uHorizon, uTop, smoothstep(-0.05, 0.6, vY)), 1.0); }",
-    side: T.BackSide, depthWrite: false, fog: false
-  });
-  var sky = new T.Mesh(new T.SphereGeometry(320, 24, 12), mat);
-  sky.renderOrder = -1;
-  sky.frustumCulled = false;
-  return sky;
-}
-
-/** @param {any} T @returns {any} */
 function vRain(T) {
   var g = new T.BufferGeometry();
   var drop = new Float32Array(V_RAIN * 2 * 4);
@@ -135,16 +119,19 @@ function vRain(T) {
   g.setAttribute("aDrop", new T.BufferAttribute(drop, 4));
   var mat = new T.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() },
-                uAlpha: { value: 0.35 }, uSpeed: { value: 14 } },
-    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; attribute vec4 aDrop; varying float vA;"
+                uAlpha: { value: 0.35 }, uSpeed: { value: 14 }, uNight: { value: 0 },
+                uLamps: { value: Array.from({ length: V_LAMPS }, function () { return new T.Vector3(0, -99, 0); }) } },
+    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; uniform vec3 uLamps[" + V_LAMPS + "];"
+      + " uniform float uNight; attribute vec4 aDrop; varying float vA; varying float vLit;"
       + " void main() { float box = 44.0; float high = 22.0;"
       + " vec2 xz = uCam.xz + (fract(aDrop.xz - uCam.xz / box) - 0.5) * box;"
       + " float y = uCam.y - 6.0 + fract(aDrop.y - uTime * uSpeed / high) * high;"
       + " vec3 p = vec3(xz.x + aDrop.w * 0.08, y - aDrop.w * 0.55, xz.y + aDrop.w * 0.03);"
       + " vec4 mv = modelViewMatrix * vec4(p, 1.0); vA = (1.0 - smoothstep(6.0, 22.0, -mv.z)) * (0.4 + 0.6 * aDrop.w);"
-      + " gl_Position = projectionMatrix * mv; }",
-    fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA;"
-      + " void main() { gl_FragColor = vec4(uColor, uAlpha * vA); }",
+      + " vLit = 0.0; for (int i = 0; i < " + V_LAMPS + "; i++) vLit += 1.0 - smoothstep(0.0, 5.5, distance(p, uLamps[i]));"
+      + " vLit = min(vLit, 1.0) * uNight; gl_Position = projectionMatrix * mv; }",
+    fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA; varying float vLit;"
+      + " void main() { gl_FragColor = vec4(mix(uColor, vec3(1.0, 0.82, 0.58), vLit), uAlpha * vA * (1.0 + 1.6 * vLit)); }",
     transparent: true, depthWrite: false, fog: false
   });
   var lines = new T.LineSegments(g, mat);
@@ -155,7 +142,7 @@ function vRain(T) {
 
 /** @param {any} T @returns {any} */
 function vSplash(T) {
-  var g = new T.RingGeometry(0.06, 0.1, 16);
+  var g = new T.RingGeometry(0.075, 0.09, 20);
   g.rotateX(-Math.PI / 2);
   var seed = new Float32Array(V_SPLASH * 3);
   for (var i = 0; i < V_SPLASH; i++) {
@@ -163,12 +150,12 @@ function vSplash(T) {
   }
   g.setAttribute("aSeed", new T.InstancedBufferAttribute(seed, 3));
   var mat = new T.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uAlpha: { value: 0.5 } },
+    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uAlpha: { value: 0.32 } },
     vertexShader: "uniform float uTime; uniform vec3 uCam; attribute vec3 aSeed; varying float vA;"
       + " void main() { float box = 16.0; float t = fract(uTime * 1.6 + aSeed.z); float cycle = floor(uTime * 1.6 + aSeed.z);"
       + " vec2 jitter = fract(aSeed.xy + cycle * vec2(0.618, 0.414));"
       + " vec2 xz = uCam.xz + (fract(jitter - uCam.xz / box) - 0.5) * box;"
-      + " vec3 p = position * (0.3 + 2.4 * t) + vec3(xz.x, 0.03, xz.y); vA = 1.0 - t;"
+      + " vec3 p = position * (0.25 + 1.5 * t) + vec3(xz.x, 0.03, xz.y); vA = (1.0 - t) * (1.0 - t);"
       + " gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }",
     fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA;"
       + " void main() { gl_FragColor = vec4(uColor, uAlpha * vA); }",
@@ -182,52 +169,51 @@ function vSplash(T) {
 
 /** @param {any} T @param {any} scene */
 function vProps(T, scene) {
-  var m = new T.Matrix4();
-  var ground = new T.Mesh(new T.PlaneGeometry(600, 600), new T.MeshStandardMaterial({ color: 0x3a4249, roughness: 0.32, metalness: 0.2 }));
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-  var plaza = new T.Mesh(new T.RingGeometry(1, 1.035, 96, 1), new T.MeshLambertMaterial({
-    color: 0x5d666f, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-  plaza.rotation.x = -Math.PI / 2;
-  plaza.position.y = 0.02;
-  scene.add(plaza);
-  var towers = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshLambertMaterial({ color: 0x1c2228 }), 36);
-  for (var i = 0; i < 36; i++) {
-    var a = i / 36 * Math.PI * 2 + (i % 3) * 0.05, r = 85 + (i * 37 % 60), h = 14 + (i * 53 % 38), w = 10 + (i * 29 % 14);
-    m.makeScale(w, h, w).setPosition(Math.cos(a) * r, h / 2, Math.sin(a) * r);
-    towers.setMatrixAt(i, m);
-  }
-  scene.add(towers);
-  var posts = new T.InstancedMesh(new T.CylinderGeometry(0.07, 0.09, 4, 8), new T.MeshLambertMaterial({ color: 0x1b2126 }), V_LAMPS);
-  var heads = new T.InstancedMesh(new T.SphereGeometry(0.22, 12, 8), new T.MeshBasicMaterial({ color: 0xffd9a0 }), V_LAMPS);
-  scene.add(posts, heads);
+  vState.parts.ground = WorldScenery.ground(T);
+  vState.parts.city = WorldScenery.city(T);
+  vState.parts.glows = WorldScenery.glows(T);
+  scene.add(vState.parts.ground, vState.parts.city, vState.parts.glows);
   var bulbs = [];
   for (var j = 0; j < 4; j++) {
-    var bulb = new T.PointLight(0xffc98a, 0, 34, 1.2);
+    var bulb = new T.PointLight(0xffc98a, 0, 22, 1.6);
     scene.add(bulb);
     bulbs.push(bulb);
   }
-  vState.parts.plaza = plaza;
-  vState.parts.posts = posts;
-  vState.parts.heads = heads;
   vState.lights.bulbs = bulbs;
+  vState.edge = 0;
+  vState.solids = [];
 }
 
 /** @param {any} T @param {any} scene */
 function vFigures(T, scene) {
-  var p = vState.parts;
-  p.base = new T.InstancedMesh(new T.CylinderGeometry(0.62, 0.7, 0.22, 20), new T.MeshLambertMaterial({ color: 0x4a525a }), V_CAP);
-  p.body = new T.InstancedMesh(new T.CapsuleGeometry(0.34, 0.9, 6, 14), new T.MeshLambertMaterial({ color: 0xffffff }), V_CAP);
-  p.ring = new T.InstancedMesh(new T.TorusGeometry(0.55, 0.05, 8, 32), new T.MeshBasicMaterial({ color: 0xffffff }), V_CAP);
-  p.visor = new T.InstancedMesh(new T.BoxGeometry(0.46, 0.12, 0.08), new T.MeshBasicMaterial({ color: 0xffffff }), V_CAP);
-  vState.mats.beacon = new T.MeshBasicMaterial({ color: V_STATE.needs_human, transparent: true, opacity: 0.28, depthWrite: false, fog: false });
-  p.beacon = new T.InstancedMesh(new T.CylinderGeometry(0.22, 0.22, 40, 10, 1, true), vState.mats.beacon, V_CAP);
-  p.beacon.renderOrder = 3;
-  ["base", "body", "ring", "visor", "beacon"].forEach(function (k) {
-    p[k].count = 0;
-    p[k].frustumCulled = false;
-    scene.add(p[k]);
+  var b = WorldBots.build(T, V_CAP);
+  Object.assign(vState.parts, b);
+  scene.add(b.shell, b.glow, b.ring, b.beacon);
+}
+
+/** @param {number} edge */
+function vPlaza(edge) {
+  var T = vState.T, p = vState.parts;
+  if (vState.edge === edge) return;
+  vState.edge = edge;
+  [p.props, p.glass].forEach(function (m) {
+    if (!m) return;
+    vState.scene.remove(m);
+    m.geometry.dispose();
+    m.material.dispose();
   });
+  var made = WorldScenery.plaza(T, edge);
+  p.props = made.props;
+  p.glass = made.glass;
+  vState.scene.add(made.props, made.glass);
+  vState.solids = made.solids;
+  WorldScenery.placeGlows(p.glows, T, made.lamps);
+  made.lamps.forEach(function (l, i) {
+    p.rain.material.uniforms.uLamps.value[i].set(l[0], l[1], l[2]);
+    if (i % 2 === 0) vState.lights.bulbs[i / 2].position.set(l[0], l[1] - 0.3, l[2]);
+  });
+  WorldScenery.uniforms.radius.value = edge;
+  vWeather();
 }
 
 function vLayout() {
@@ -259,87 +245,46 @@ function vLayout() {
 }
 
 function vPlace() {
-  var T = vState.T, p = vState.parts, m = new T.Matrix4(), c = new T.Color(), q = new T.Quaternion();
-  var up = new T.Vector3(0, 1, 0), one = new T.Vector3(1, 1, 1), at = new T.Vector3();
-  var list = Array.from(vState.agents.values()).slice(0, V_CAP);
-  var beacons = 0;
-  list.forEach(function (ag, k) {
-    q.setFromAxisAngle(up, ag.yaw);
-    m.compose(at.set(ag.x, 0.11, ag.z), q, one);
-    p.base.setMatrixAt(k, m);
-    m.compose(at.set(ag.x, 0.92, ag.z), q, one);
-    p.body.setMatrixAt(k, m);
-    c.setHex(V_STATE[ag.state] || V_STATE.idle).lerp(new T.Color(0xffffff), 0.35);
-    p.body.setColorAt(k, c);
-    c.setHex(V_STATE[ag.state] || V_STATE.idle);
-    p.ring.setColorAt(k, c);
-    p.visor.setColorAt(k, c);
-    m.compose(at.set(ag.x + Math.sin(ag.yaw) * 0.31, 1.42, ag.z + Math.cos(ag.yaw) * 0.31), q, one);
-    p.visor.setMatrixAt(k, m);
-    if (ag.needs) {
-      m.compose(at.set(ag.x, 20, ag.z), new T.Quaternion(), one);
-      p.beacon.setMatrixAt(beacons++, m);
-    }
-  });
-  p.base.count = p.body.count = p.ring.count = p.visor.count = list.length;
-  p.beacon.count = beacons;
-  ["base", "body", "ring", "visor", "beacon"].forEach(function (k) {
-    p[k].instanceMatrix.needsUpdate = true;
-    if (p[k].instanceColor) p[k].instanceColor.needsUpdate = true;
-  });
-  vSpinRings(0);
-  var r = vState.radius + 3.5;
-  p.plaza.scale.set(r, r, 1);
-  var lm = new T.Matrix4();
-  for (var i = 0; i < V_LAMPS; i++) {
-    var a = (i + 0.5) / V_LAMPS * Math.PI * 2, lx = Math.cos(a) * (r + 1.5), lz = Math.sin(a) * (r + 1.5);
-    lm.makeTranslation(lx, 2, lz);
-    p.posts.setMatrixAt(i, lm);
-    lm.makeTranslation(lx, 4.05, lz);
-    p.heads.setMatrixAt(i, lm);
-    if (i % 2 === 0) vState.lights.bulbs[i / 2].position.set(lx, 3.9, lz);
-  }
-  p.posts.instanceMatrix.needsUpdate = true;
-  p.heads.instanceMatrix.needsUpdate = true;
+  vBots(vState.time);
+  vPlaza(Math.round((vState.radius + 3.5) * 10) / 10);
 }
 
 /** @param {number} t */
-function vSpinRings(t) {
-  var T = vState.T, p = vState.parts, m = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler();
-  var at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
-  var k = 0;
-  vState.agents.forEach(function (ag) {
-    if (k >= V_CAP) return;
-    var spin = ag.state === "running" || ag.state === "starting" ? t * 1.8 : 0;
-    e.set(Math.PI / 2, 0, spin + ag.i);
-    q.setFromEuler(e);
-    m.compose(at.set(ag.x, 2.1 + (ag.needs ? Math.sin(t * 2.4) * 0.08 : 0), ag.z), q, one);
-    p.ring.setMatrixAt(k++, m);
-  });
-  p.ring.instanceMatrix.needsUpdate = true;
+function vBots(t) {
+  var list = Array.from(vState.agents.values()).slice(0, V_CAP);
+  WorldBots.place(vState.T, vState.parts, list, V_STATE, t, vReduced());
 }
 
 function vWeather() {
   var T = vState.T, d = vDaylight(vState.hour == null ? vHour() : vState.hour);
   vState.daylight = d;
   var mix = function (a, b) { return new T.Color(a).lerp(new T.Color(b), d); };
+  var night = 1 - d;
   var sky = vState.parts.sky.material.uniforms;
   sky.uTop.value.copy(mix(V_NIGHT.top, V_DAY.top));
   sky.uHorizon.value.copy(mix(V_NIGHT.horizon, V_DAY.horizon));
+  sky.uCloud.value.copy(mix(0x161d27, 0xd9dee2));
+  sky.uGlow.value.setHex(0x3a2a1c).multiplyScalar(night);
   vState.scene.fog.color.copy(mix(V_NIGHT.fog, V_DAY.fog));
-  vState.scene.fog.density = 0.014 + (1 - d) * 0.01;
+  vState.scene.fog.density = 0.014 + night * 0.008;
   vReflect();
   vState.renderer.setClearColor(vState.scene.fog.color);
-  vState.lights.hemi.intensity = 0.12 + 0.95 * d;
-  vState.lights.sun.intensity = 0.55 * d;
+  vState.lights.hemi.intensity = 0.16 + 0.95 * d;
+  vState.lights.sun.intensity = 0.55 * d + 0.12 * night;
+  vState.lights.sun.color.copy(mix(0x6f86b8, 0xdfe6ec));
   WorldHero.fill(0.08 + 0.17 * d);
-  var night = 1 - d;
-  vState.lights.bulbs.forEach(function (b) { b.intensity = 18 * night; });
-  vState.parts.heads.material.color.setHex(night > 0.5 ? 0xffd9a0 : 0x8f8a80);
-  vState.mats.beacon.opacity = 0.2 + 0.25 * night;
+  WorldBots.fill.value = 0.1 + 0.12 * d;
+  vState.lights.bulbs.forEach(function (b) { b.intensity = 14 * night; });
+  WorldScenery.uniforms.night.value = night;
+  WorldScenery.uniforms.lit.value = 0.32 + 0.1 * night;
+  if (vState.parts.glass) vState.parts.glass.material.color.copy(mix(0xffd9a0, 0xb9c2c9));
+  vState.parts.glows.material.uniforms.uOpacity.value = night * 0.9;
+  vState.parts.glows.visible = night > 0.05;
+  WorldBots.beat.opacity.value = 0.32 + 0.3 * night;
   var rain = vState.parts.rain.material.uniforms, splash = vState.parts.splash.material.uniforms;
   rain.uColor.value.copy(mix(V_NIGHT.rain, V_DAY.rain));
   rain.uAlpha.value = 0.3 + 0.15 * night;
+  rain.uNight.value = night;
   rain.uSpeed.value = vReduced() ? 5 : 14;
   splash.uColor.value.copy(rain.uColor.value);
 }
@@ -376,7 +321,7 @@ function vBuild() {
   vState.lights.sun = new T.DirectionalLight(0xdfe6ec, 0.5);
   vState.lights.sun.position.set(-30, 60, 20);
   scene.add(vState.lights.hemi, vState.lights.sun);
-  vState.parts.sky = vSky(T);
+  vState.parts.sky = WorldScenery.sky(T);
   vState.parts.rain = vRain(T);
   vState.parts.splash = vSplash(T);
   scene.add(vState.parts.sky, vState.parts.rain, vState.parts.splash);
@@ -455,6 +400,10 @@ function vStep(dt) {
   vState.agents.forEach(function (ag) {
     var dx = P.x - ag.x, dz = P.z - ag.z, d = Math.hypot(dx, dz);
     if (d < 1.05 && d > 0.0001) { P.x = ag.x + dx / d * 1.05; P.z = ag.z + dz / d * 1.05; }
+  });
+  (vState.solids || []).forEach(function (o) {
+    var dx = P.x - o[0], dz = P.z - o[1], d = Math.hypot(dx, dz), r = o[2] + 0.3;
+    if (d < r && d > 0.0001) { P.x = o[0] + dx / d * r; P.z = o[1] + dz / d * r; }
   });
   var lim = vState.radius + 20, r = Math.hypot(P.x, P.z);
   if (r > lim) { P.x *= lim / r; P.z *= lim / r; }
@@ -652,8 +601,8 @@ function vFrame(now) {
   rain.uCam.value.copy(cam.position);
   splash.uCam.value.copy(cam.position);
   if (!vReduced()) {
-    vSpinRings(vState.time);
-    vState.mats.beacon.opacity = (0.2 + 0.25 * (1 - vState.daylight)) * (0.75 + 0.25 * Math.sin(vState.time * 3));
+    vBots(vState.time);
+    WorldScenery.uniforms.time.value = WorldBots.beat.time.value = vState.time;
   }
   drawHud();
   vState.renderer.render(vState.scene, cam);

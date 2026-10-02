@@ -1,6 +1,6 @@
 # The world
 
-`/world` (#626) is the fleet as a place: a wet plaza in the rain, one figure per agent, and you, a
+`/world` (#626) is the fleet as a place: a wet plaza in the rain, one robot per agent, and you, a
 character you choose, walked with a controller or the keyboard. The operator chose it as the next thing to explore
 when asked which parked concepts came next (#400, 2026-10-02):
 
@@ -70,12 +70,15 @@ person.
 
 ## The agents
 
-Every `/api/fleet` row is a figure on a circle around the plaza, sorted by name and facing the middle.
-Each figure has a plinth, a body tinted towards its state's colour, a floating ring and a visor in
-that colour. Over its head is a label with its name and state in words. The label is page text, not a
-texture, so it stays sharp. A running agent's ring turns.
+Every `/api/fleet` row is a small robot on a circle around the plaza, sorted by name and facing the
+middle. Each robot has a white shell tinted a pale colour from its name, a dark visor with eyes and a
+smile, a chest light, an antenna and a hover base, and a ring at its waist. The eyes, the lights and
+the ring are in its state's colour and glow at night. It bobs on its base, faster while it works,
+when its ring turns too; under reduced motion it holds still. Over its head is a label with its name
+and state in words. The label is page text, not a texture, so it stays sharp.
 
-An agent that needs a person raises a red beam that shows through the rain and the fog, and the HUD's
+An agent that needs a person raises a red beam that shows through the rain and the fog (and fades
+when you stand at it, so it never fills the view), its eyes pulse, and the HUD's
 compass points at the nearest one with its distance. **You talk to an agent only within 3.2 m of it,
 facing it.** That is the operator's rule ("a user has to move to the agent"): nothing on this page
 answers, approves or sends from a distance. A conversation opens beside the agent, with:
@@ -88,11 +91,27 @@ answers, approves or sends from a distance. A conversation opens beside the agen
 Everything posts the desk's own verbs (`answer`, `approve`, `deny`, `send`, or `say` to a console), so
 every refusal is the server's, in its words. The page adds no route.
 
+## The place
+
+The plaza is paved in rings of stone, with a brass compass at its centre, inside a kerb at the edge of
+the agents' circle. Outside the kerb stand eight cast-iron street lamps, a wooden bench between each
+pair and a tree in a stone planter behind each bench; the circle and its furniture grow with the
+fleet. You walk around the benches, trees and lamp posts, not through them. Beyond the plaza is
+asphalt, and puddles everywhere, which ripple in the rain and mirror the sky. A ring of 44 buildings,
+62 to 120 m out, makes the skyline: facades in eight colours, windows and shopfronts, parapets,
+setbacks and rooftop boxes. The sky is overcast with moving cloud.
+
+Every asset is built in the page from three.js's own shapes and a few lines of shader
+(`world/scenery.js`, `world/bots.js`): no model file, no texture, nothing fetched and no package.
+The detail is in merged geometry and the shaders, never in more objects, so it costs no draw calls.
+
 ## Rain, day and night
 
 It is always raining. The rain is 6,000 streaks in a box around you, plus rings where drops land in
 the puddles. The local clock decides the light. Overcast day runs from about 07:30 to 18:30, with
-dawn from 06:00 and dusk until 20:00. By night the eight lamps are lit and reflect in the wet ground.
+dawn from 06:00 and dusk until 20:00. By night the lamps are lit, with a halo round each, they light
+the rain falling past them and reflect in the wet ground; the city's windows light up, some warm and
+some cool, and its glow shows on the low cloud.
 `?hour=0..23` pins the clock, for tests and screenshots. The scene is the world's own look: a palette
 or skin you chose dresses the HUD, never the rain.
 
@@ -103,8 +122,9 @@ The frame budget is **10 ms**: 100 frames a second.
 - **The display sets the ceiling.** The browser draws at most once per display refresh. A 120 or
   144 Hz display runs the world at its own rate; a 60 Hz display caps it at 60, whatever the GPU.
 - **The page keeps every frame within the budget.**
-  - The scene is 13 draw calls however many agents there are. The rain is one draw call, the figures
-    are instanced (each part is one draw call for every agent), and the names are page text. Your
+  - The scene is at most 12 draw calls however many agents there are. The city, the plaza's
+    furniture and each robot are merged into one mesh each, the robots are instanced (four draw calls
+    for every agent), the rain is one draw call, and the names are page text. Your
     character adds ten (twelve in a wheelchair): the parts that move together are one mesh each, all
     sharing one material, so a change of look compiles no shader.
   - It has no shadows and no post-processing.
@@ -118,7 +138,7 @@ The frame budget is **10 ms**: 100 frames a second.
 per frame), `scale`, `calls` and `triangles`; F3 shows the same in the toolbar.
 
 CI draws in SwiftShader, on the CPU, at a few frames a second, so the tests measure what does not
-depend on the machine: the draw calls (at most 13, plus the character's ten or twelve), the
+depend on the machine: the draw calls (at most 12, plus the character's ten or twelve), the
 triangles (under 80,000), the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames),
 reach, and the verbs a conversation posts. **The frame rate is the laptop's to measure:** open
 `/world`, press F3, and read the fps line in Edge or Chrome on the operator's GPU.

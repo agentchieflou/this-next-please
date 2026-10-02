@@ -18,7 +18,8 @@ A classic script after `common.js` (its `q`, `post`, `pageUrl`, `patchList` and 
 imports the vendored three.js r160 itself with `import(q(...))`, as the ink layer does: nothing from a
 CDN, and the token on the URL. It reads `/api/fleet` and the stream like the phone page and the chat
 view, and posts the desk's own verbs, so it adds no route and no rule. The player's character is
-`world/hero.js` (`WorldHero`), loaded before this script.
+`world/hero.js` (`WorldHero`), the agents are `world/bots.js` (`WorldBots`) and the place is
+`world/scenery.js` (`WorldScenery`), all loaded before this script.
 
 Unlike the desk's ink and the map's scene, which draw zero frames at rest, the world draws every
 display frame: moving through a place is the point of it. It stops when the tab is hidden, because
@@ -56,9 +57,11 @@ the vertex shader from `uTime`, so no drop is touched on the CPU after it is mad
 
 ### `var V_CAP`
 
-The figures are instanced: every agent's base, body, ring, visor and beacon is one draw call each,
-however many agents there are, up to 64. The scene is 13 draw calls whatever the fleet's size: the
-names are words on the page, not in the scene (`drawLabels`). Your character adds its own ten (twelve
+The robots are instanced: every agent's shell, glow, ring and beacon is one draw call each, however
+many agents there are, up to 64 (`WorldBots`). The scene is at most 12 draw calls whatever the
+fleet's size (the sky, the ground, the city, the plaza's furniture, its lamp glass, the lamps' halos,
+the robots' four, the rain and the splashes): the names are words on the page, not in the scene
+(`drawLabels`). Your character adds its own ten (twelve
 in a wheelchair, `WorldHero`), whatever the fleet's size too.
 
 ### `var V_LOOK_KEY`
@@ -91,41 +94,51 @@ Each streak is two vertices sharing a drop's random `xyz`; `w` says which end. T
 22 m high) follows the camera through `fract`, so a drop stays where it is in the world until it
 leaves the box and comes in on the other side: walking through the rain, not carrying it. Streaks
 fade with distance in the shader rather than through the scene's fog, which a `ShaderMaterial`
-would have to include.
+would have to include. By night a streak within 5.5 m of a lamp's glass turns warm and brighter
+(`uLamps`), so the rain shows in the lamplight, as it does on a street.
 
 ### `function vSplash`
 
 Rings where drops land: one instanced ring drawn 160 times, each growing and fading on its own phase
-and moving to a new spot each cycle, in a 16 m square around the player.
+and moving to a new spot each cycle, in a 16 m square around the player. Thin and faint, fading as
+the square of its age: a splash is a ripple on a wet street, not a white disc.
 
 ### `function vProps`
 
-The ground is one large plane in a wet material (low roughness, a little metalness) that reflects
-the sky through `scene.environment` and the lamps by night. The plaza is a stone curb at the
-agents' circle, not a second disc: a disc of 64 thin triangles under point lights shaded triangle by
-triangle in SwiftShader, and the wet ground already reads as the square. The towers are one
-instanced box, far enough into the fog to be silhouettes. Eight lamps, with four point lights
-between them, which light the wet ground at night and are off by day.
+The ground (paving, asphalt and puddles, `WorldScenery.ground`), the city (`WorldScenery.city`) and
+the lamps' halos (`WorldScenery.glows`), made once. The plaza's furniture waits for the circle's
+size (`vPlaza`). Four point lights, at every other lamp, light the wet ground at night and are off by
+day: eight would cost every lit material eight lights' work per pixel.
 
 ### `function vFigures`
 
-The agents' parts, instanced: a plinth, a capsule body tinted towards its state's colour, a floating
-ring and a visor in its state's colour (unlit, so they glow at night), and, for an agent that needs
-a person, a tall beam that ignores the fog so it can be seen across the plaza.
+The agents as robots, four instanced meshes (`WorldBots.build`): the shell, the glow (eyes, smile,
+lights) in its state's colour, the ring and, for an agent that needs a person, the beacon.
+
+### `function vPlaza`
+
+The plaza's kerb, lamps, benches and trees for the circle's edge, 3.5 m outside the agents, made
+again only when the edge moves by a tenth of a metre or more. The lamps' glass places the halos, the
+point lights and the rain's lamplight; the benches, trees and lamp posts become `vState.solids`,
+which you walk around (`vStep`).
 
 ### `function vLayout`
 
 The agents stand on a circle, sorted by name, facing its centre; the circle grows with their number.
 A row that leaves takes its figure and its label with it.
 
-### `function vSpinRings`
+### `function vBots`
 
-A running agent's ring turns; a needs-you ring bobs. Under reduced motion they hold still.
+The robots where the agents are, at time `t` (`WorldBots.place`): on every layout, and every frame
+unless motion is reduced, when they hold still.
 
 ### `function vWeather`
 
-Day and night move together: the sky, the fog, the light, the lamps, the beam, the rain's colour and
-your character's fill (`WorldHero.fill`).
+Day and night move together: the sky (its clouds, and the city's glow on them by night), the fog,
+the light, the lamps (their glass, halos and point lights), the city's lit windows, the beacon, the
+rain's colour and lamplight, and the fill of your character (`WorldHero.fill`) and the robots
+(`WorldBots.fill`). By night the sun becomes a dim blue moonlight rather than going out, so the
+robots and the buildings keep their shape.
 The fog thins by day (0.014) so the towers read as shapes in the rain; it thickens at night.
 
 ### `function vReflect`
@@ -142,7 +155,8 @@ The first connected gamepad, in the Gamepad API's standard mapping: axes 0 and 1
 
 One step of the walk: the left stick or WASD moves (Shift, RT or L3 runs), the right stick, the
 mouse (with pointer lock) or Q and the arrows turn. The agents are solid (you stop a metre from
-one), and the world ends 20 m past the circle. A new press of A beside an agent opens it. With a
+one), as are the plaza's benches, trees and lamp posts (`vState.solids`), and the world ends 20 m
+past the circle. A new press of A beside an agent opens it. With a
 conversation open, the pad drives the panel instead (`vPanelPad`); with the character picker open it
 drives the picker (`vWhoPad`). Start opens and closes the picker, Y changes the view.
 
@@ -213,6 +227,8 @@ The agent within reach and in front of you, the nearest if several: the one E or
 ### `function vFrame`
 
 The simulation steps with the frame, capped at 50 ms so a stall does not throw you across the plaza.
+The robots move and the ground's ripples and the beacon's bands run with the frame's time; under
+reduced motion they hold still.
 `FleetWorld.hold(true)` stops the steps (the frame still draws) so a test can drive `step()` itself.
 
 ### `function vTune`
@@ -229,7 +245,7 @@ Each agent's name and state are a label on the page (`#wlabels`), placed over it
 that point through the camera every frame, and scaled by distance. Words in the DOM rather than
 textures in the scene: nothing under `static/` asks for a 2D context (#257, held by
 `tests/test_fleet_trace.py`), a label is as sharp as the page's own text at any resolution scale, and
-the scene stays 13 draw calls whatever the fleet's size. A label behind you, beyond 48 m, off the
+the scene stays a dozen draw calls whatever the fleet's size. A label behind you, beyond 48 m, off the
 screen or under an open conversation is hidden. The transform is rounded to the pixel and the scale to
 a twentieth, so a label is written only when it moves visibly: standing still writes nothing.
 

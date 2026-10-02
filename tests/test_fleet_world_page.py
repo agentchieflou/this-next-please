@@ -127,10 +127,10 @@ def test_the_world_is_a_page_of_its_own_and_the_desk_opens_it(fleet_home):
 
 @pytest.mark.browser
 def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, browser):
-    """One figure per agent, its name over its head; the one that needs you has a beacon and the
+    """One robot per agent, its name over its head; the one that needs you has a beacon and the
     compass points to it. `?hour=13` is overcast day with the lamps out; `?hour=23` is night with the
-    lamps lit. The scene is 13 draw calls however many agents and however much rain, and the player's
-    character at most 10 more."""
+    lamps lit. The scene is at most 12 draw calls however many agents and however much rain, and the
+    player's character at most 10 more."""
     _repo(tmp_path, "alpha")
     _asks(tmp_path)
     server, token, port = _serve()
@@ -142,7 +142,7 @@ def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, brow
         assert day["daylight"] == 1 and day["night"] is False and day["lamps"] == 0, day
         page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=30000)
         drawn = _inspect(page)
-        assert 0 < drawn["calls"] <= 13 + 10 and drawn["triangles"] < 80000, drawn
+        assert 0 < drawn["calls"] <= 12 + 10 and drawn["triangles"] < 80000, drawn
         tags = page.evaluate("() => [...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.className, t.hidden])")
         assert [(n, "needs" in c) for n, c, _ in tags] == [("alpha", False), ("asks", True)], tags
         assert not dict((n, hid) for n, _, hid in tags)["asks"], "the agent you face is labelled"
