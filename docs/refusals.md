@@ -212,7 +212,7 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Power BI publish | the operation succeeded but the read-back definition lacks a part this publish sent | `code: publish_unverified`, `status: Indeterminate`, exit 1 | `test_pbi_cli.py::test_a_publish_the_service_does_not_hold_is_unverified_not_done` |
 | Power BI publish | the report carries a custom visual that is not certified (a private `.pbiviz` while `pbi_sdk_visuals` is blocked, on any tenant), before any az call | `code: custom_visual_blocked`, the rows, exit 1; no override flag | `test_pbi_cli.py::test_publish_report_refuses_an_sdk_visual_on_every_tenant_while_sdk_visuals_are_blocked` |
 | Power BI publish | an approved SDK visual and a target workspace that is not `pbi_sdk_workspace` | `code: custom_visual_blocked`, `custom-visual-sdk-workspace`, exit 1 | `test_pbi_cli.py::test_publish_report_refuses_an_approved_sdk_visual_outside_its_workspace` |
-| Power BI visuals | `ad-pbiviz new`, `dev`, `stop`, `package` or `import` while `pbi_sdk_visuals` is not `approved` | `code: sdk_visuals_blocked`, exit 2, nothing written, no install hint | `test_pbiviz.py::test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals` |
+| Power BI visuals | `ad-pbiviz new`, `dev`, `package` or `import` while `pbi_sdk_visuals` is not `approved` | `code: sdk_visuals_blocked`, exit 2, nothing written, no install hint | `test_pbiviz.py::test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals` |
 | Power BI visuals | `ad-pbip visual deneb` adding Deneb while its GUID is not in `pbi_certified_visuals` | `error`, exit 2, nothing written | `test_pbip_deneb.py::test_deneb_is_not_added_while_its_certification_is_unrecorded` |
 
 ## Debugging a swallowed exception

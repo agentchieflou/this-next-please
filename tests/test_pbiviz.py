@@ -767,7 +767,7 @@ def test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals(capsys, tmp_pa
     if facts:
         (tmp_path / "AGENTS.md").write_text(facts, encoding="utf-8")
     PV.scaffold_visual("kept", base_dir="visuals")
-    for argv in (["new", "cli-chart"], ["dev", "kept"], ["stop", "kept"], ["package", "kept"],
+    for argv in (["new", "cli-chart"], ["dev", "kept"], ["package", "kept"],
                  ["import", "kept", "--pbip", str(tmp_path), "--page", "Overview"]):
         code, out = _pbiviz(argv, capsys)
         assert code == 2, argv
@@ -776,6 +776,9 @@ def test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals(capsys, tmp_pa
         assert "te2, dscmd and az" in out and "npm install" not in out
     assert not (tmp_path / "visuals" / "cli-chart").exists()
     assert not (tmp_path / "visuals" / "kept" / "dist").exists()
+    # Stopping is never refused: a dev server a run before the gate left behind can still be ended.
+    code, out = _pbiviz(["stop", "kept"], capsys)
+    assert code == 0 and "sdk_visuals_blocked" not in out and "not_running" in out
 
 
 def test_doctor_reports_the_gate_first_and_offers_no_toolchain_while_blocked(capsys, tmp_path, monkeypatch):

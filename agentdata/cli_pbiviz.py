@@ -116,8 +116,6 @@ def cmd_dev(a) -> int:
 
 
 def cmd_stop(a) -> int:
-    if (refused := _sdk_refused("stop")) is not None:
-        return refused
     res = PV.stop_dev_server(a.name)
     t = AgentTable.from_records([res], name="stop", source="ad-pbiviz stop")
     print(render(t, extra={"ok": True, "source": "ad-pbiviz stop", "visual": a.name, "status": res["status"]}))
@@ -196,7 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ad-pbiviz",
         description="Power BI custom visuals: log a candidate a certified visual cannot draw; the SDK loop (new, "
-                    "dev, stop, package, import) refuses with sdk_visuals_blocked until AGENTS.md says "
+                    "dev, package, import) refuses with sdk_visuals_blocked until AGENTS.md says "
                     "pbi_sdk_visuals: approved",
     )
     from .version import add_version
@@ -239,7 +237,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_dev.set_defaults(fn=cmd_dev)
 
     # stop
-    p_stop = sub.add_parser("stop", help="stop running dev server" + SDK_ONLY)
+    p_stop = sub.add_parser("stop", help="stop a running dev server (allowed while SDK visuals are blocked: "
+                                         "it only ends the process a dev run recorded)")
     p_stop.add_argument("name", help="visual project name")
     p_stop.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_stop.set_defaults(fn=cmd_stop)

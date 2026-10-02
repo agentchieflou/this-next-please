@@ -26,8 +26,9 @@ STATES = ("blocked", "approved")
 CODE = "sdk_visuals_blocked"
 TOOLCHAIN = "Node.js, npm and powerbi-visuals-tools"
 APPROVED_TOOLS = "te2, dscmd and az"
-# the verbs that need the SDK, its toolchain, or put an SDK visual in a report
-GATED_VERBS = ("new", "dev", "stop", "package", "import")
+# the verbs that need the SDK, its toolchain, or put an SDK visual in a report; `stop` is not one: it
+# only ends a dev server a run before the gate left behind, which takes nothing but its recorded pid
+GATED_VERBS = ("new", "dev", "package", "import")
 
 BLOCKED = ("the enterprise blocks every custom visual that is not Microsoft-certified, and a visual built with "
            "the Power BI SDK is not certified: SDK visuals wait on workspace approval (pbi_sdk_visuals: blocked)")
