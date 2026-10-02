@@ -682,6 +682,10 @@ def cmd_status(a) -> int:
                                     "agents": len(rows), "fleet_dir": fleet_dir()}}))
         print(toon.table("allow_tools", ["pattern"], [[p] for p in allow]))
         print(toon.table("deny_tools", ["pattern"], [[p] for p in deny]))
+        # What a launch now adds to the desk's own environment from a new login's (Windows): a
+        # directory or a variable installed since the desk started, which every agent would
+        # otherwise lack while every new terminal has it.
+        print(toon.table("env_top_up", ["added"], [[n] for n in launch.top_up(dict(os.environ), launch.login_env())]))
         # What each REGISTERED repository would launch with, which is not the same question as what
         # a running one did: a repo that has never run has no lock and would otherwise print no row
         # at all. `cli-auto` is printed rather than a blank, for the reason the deny-list is a floor
@@ -2184,6 +2188,21 @@ def _decide(a, state: str, reason: str = "") -> int:
                           "the agent will log friction with your reason and stop"})
 
 
+def cmd_grant(a) -> int:
+    """`ad-fleet grant <repo> <pattern>…`: the desk's *allow, then retry* on a refused tool, from a
+    terminal. The same action the page posts (`serve.act("grant")`), so the two cannot drift."""
+    from .fleet import serve as S
+
+    try:
+        done = S.act("grant", {"repo": a.repo, "patterns": list(a.patterns),
+                               "scope": "fleet" if a.fleet else "agent", "retry": bool(a.retry)})
+    except S.ServeError as e:
+        return _refuse("ad-fleet grant", e)
+    except (RegistryError, supervisor.SupervisorError) as e:
+        return _refuse("ad-fleet grant", e)
+    return _emit("ad-fleet grant", {k: (", ".join(v) if isinstance(v, list) else v) for k, v in done.items()})
+
+
 def cmd_approve(a) -> int:
     return _decide(a, approval.APPROVED, a.comment or "")
 
@@ -2419,6 +2438,15 @@ def build_parser() -> argparse.ArgumentParser:
     show = sub.add_parser("approval", help="one approval in full, including the dry-run payload")
     show.add_argument("id")
     show.set_defaults(fn=cmd_approval_show)
+
+    gr = sub.add_parser("grant", help="allow a tool an agent was refused (the tile names the pattern): "
+                                      "added to its own extras, or every agent's with --fleet; the deny "
+                                      "floor is never granted")
+    gr.add_argument("repo")
+    gr.add_argument("patterns", nargs="+", help="e.g. write, 'shell(dscmd.exe)', 'shell(git stash)'")
+    gr.add_argument("--fleet", action="store_true", help="for every agent, not this one")
+    gr.add_argument("--retry", action="store_true", help="then tell the agent to retry the refused step")
+    gr.set_defaults(fn=cmd_grant)
 
     ok = sub.add_parser("approve", help="release a waiting write")
     ok.add_argument("id")

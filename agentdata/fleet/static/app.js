@@ -579,6 +579,66 @@ function answerAll(el, row, forcing) {
   });
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {HTMLElement} li
+ * @param {Object} r
+ * @param {string} scope
+ */
+function grantRefusal(el, li, r, scope) {
+  var buttons = Array.prototype.slice.call(li.querySelectorAll("button"));
+  buttons.forEach(function (b) { disable(b, true); });
+  return action(el, "grant", { repo: el.dataset.repo || "", patterns: r.patterns, scope: scope, retry: true })
+    .then(function (got) {
+      if (!got || !got.ok) {
+        buttons.forEach(function (b) { disable(b, false); });
+        return got;
+      }
+      toggle(li, "is-granted", true);
+      text(li.querySelector(".refusal-note"), "allowed " + (got.allowed || []).join(", ")
+           + (scope === "fleet" ? " for every agent" : " for " + (el.dataset.repo || "this agent"))
+           + (got.retried ? " — retrying" : "") + (got.note ? " — " + got.note : "")
+           + " · settings lists it, to take back");
+      return got;
+    });
+}
+
+/** @type {WeakMap<HTMLElement, Object>} */
+var refusalOf = new WeakMap();
+
+/** @param {HTMLElement} el  @param {Object} row */
+function drawRefused(el, row) {
+  var card = /** @type {HTMLElement} */ (el.querySelector(".refused"));
+  if (!card) return;
+  var refused = row.refused_tools || [];
+  hide(card, !refused.length);
+  text(card.querySelector(".refused-n"), refused.length === 1 ? "1 command" : refused.length + " commands");
+  var list = /** @type {HTMLElement} */ (card.querySelector(".refused-list"));
+  var pattern = list.querySelector(".refusal");
+  patchList(list, refused, function (r) { return r.what || r.message || r.id; }, function () {
+    var li = /** @type {HTMLElement} */ (pattern.cloneNode(true));
+    hide(li, false);
+    li.querySelector(".refusal-allow").addEventListener("click", function () {
+      grantRefusal(el, li, refusalOf.get(li), "agent");
+    });
+    li.querySelector(".refusal-all").addEventListener("click", function () {
+      grantRefusal(el, li, refusalOf.get(li), "fleet");
+    });
+    return li;
+  }, function (li, r) {
+    refusalOf.set(li, r);
+    if (li.classList.contains("is-granted")) return;
+    var named = (r.patterns || []).join(", ");
+    var allow = li.querySelector(".refusal-allow");
+    text(li.querySelector(".refusal-what"), r.what || r.message || "a tool it may not run");
+    text(li.querySelector(".refusal-note"), r.grantable ? (r.broad ? "broad: " + r.why_broad : "")
+         : (r.instead || r.message || ""));
+    hide(li.querySelector(".refusal-row"), !r.grantable);
+    text(allow, "allow " + named + " for " + (row.repo || "this agent") + ", then retry");
+    attr(allow, "title", "adds " + named + " to this agent's *also allowed* tools; the next turn launches with it");
+  });
+}
+
 function drawAsks(el, row) {
   var card = el.querySelector(".asks");
   var list = card.querySelector(".asks-list");
@@ -865,6 +925,7 @@ function drawTile(el, row, approvals) {
       text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
     }
     drawAsks(el, row);
+    drawRefused(el, row);
   }
   if (shows.full) {
     drawScopeReport(el, row);

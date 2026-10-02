@@ -466,16 +466,105 @@ def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
     return argv
 
 
-def child_env(repo_name: str, fleet_dir_path: str) -> dict:
+# Where Windows keeps the environment a new sign-in (and so a new terminal) starts with.
+_MACHINE_ENV = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+_USER_ENV = "Environment"
+
+
+def login_env() -> dict:
+    """The environment a terminal opened *now* would start with: on Windows the machine's and the
+    user's variables from the registry (PATH the two joined, machine first, as Windows does), every
+    `%VAR%` expanded; elsewhere nothing, because a login shell's environment cannot be read without
+    running one. Any failure reads as nothing -- this tops an environment up, it never replaces one.
+    """
+    if os.name != "nt":
+        return {}
+    try:
+        import winreg
+    except ImportError:
+        return {}
+
+    def read(hive, key) -> dict:
+        out = {}
+        try:
+            with winreg.OpenKey(hive, key) as k:
+                i = 0
+                while True:
+                    try:
+                        name, value, kind = winreg.EnumValue(k, i)
+                    except OSError:
+                        break
+                    i += 1
+                    if isinstance(value, str):
+                        out[name] = winreg.ExpandEnvironmentStrings(value) if kind == winreg.REG_EXPAND_SZ else value
+        except OSError:
+            pass
+        return out
+
+    machine = read(winreg.HKEY_LOCAL_MACHINE, _MACHINE_ENV)
+    user = read(winreg.HKEY_CURRENT_USER, _USER_ENV)
+    merged = {**machine, **user}
+    paths = [v for v in (machine.get("Path") or machine.get("PATH"), user.get("Path") or user.get("PATH")) if v]
+    if paths:
+        for name in [k for k in merged if k.upper() == "PATH"]:
+            merged.pop(name)
+        merged["Path"] = os.pathsep.join(paths)
+    return merged
+
+
+def _same_dir(a: str, b: str) -> bool:
+    return os.path.normcase(a.strip().rstrip("\\/")) == os.path.normcase(b.strip().rstrip("\\/"))
+
+
+def top_up(env: dict, fresh: dict) -> list[str]:
+    """Add to `env` what `fresh` has and it lacks; return the names that changed.
+
+    Never replaces a value: the desk may have been started on purpose with a different proxy or a
+    different `AGENTDATA_CONFIG`, and that choice is kept. PATH gains only the directories it is
+    missing, after its own, so the `ad-*` the agent runs is still the install the desk runs.
+    """
+    changed = []
+    names = {k.upper(): k for k in env}
+    for name, value in fresh.items():
+        if not isinstance(value, str) or not value:
+            continue
+        have = names.get(name.upper())
+        if name.upper() == "PATH":
+            current = env.get(have, "") if have else ""
+            parts = [p for p in current.split(os.pathsep) if p.strip()]
+            extra = [p for p in value.split(os.pathsep)
+                     if p.strip() and not any(_same_dir(p, q) for q in parts)]
+            if extra:
+                env[have or name] = os.pathsep.join(parts + extra)
+                changed.append(f"{have or name}+{len(extra)}")
+        elif have is None:
+            env[name] = value
+            names[name.upper()] = name
+            changed.append(name)
+    return changed
+
+
+def child_env(repo_name: str, fleet_dir_path: str, *, login=None) -> dict:
     """What the agent's process inherits.
 
     The two `AGENTDATA_FLEET_*` markers are how a gated `ad-*` command inside the agent knows it is
     running under a supervisor at all -- #95 keys its approval gate on them. They are not a grant:
     `ad-fleet` itself is on the deny-list, so an agent cannot use its own marker to drive the fleet.
+
+    The desk's own environment, topped up with what a terminal opened now would have (`login_env`,
+    `top_up`). The desk usually runs for days; pncli, the Azure CLI or a proxy setting installed
+    since were in every new terminal and missing from every agent, and the operator's way round it
+    was to close the fleet and resume the session in a local `copilot` (report, 2026-10-02).
     """
     from .registry import AGENT_ENV, FLEET_DIR_ENV
 
     env = dict(os.environ)
+    try:
+        top_up(env, (login or login_env)())
+    except Exception:                                    # noqa: BLE001 - a top-up never stops a launch
+        from ..log import debug_exc
+
+        debug_exc("fleet login environment")
     env[AGENT_ENV] = repo_name
     env[FLEET_DIR_ENV] = textio.norm_path(fleet_dir_path)
     env["AGENTDATA_COLOR"] = "never"      # the events are read by a machine

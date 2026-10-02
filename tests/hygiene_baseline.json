@@ -459,6 +459,9 @@
     "tests/test_fleet_fresh.py": {
       "tests": 16
     },
+    "tests/test_fleet_grants.py": {
+      "tests": 16
+    },
     "tests/test_fleet_gutters.py": {
       "tests": 21
     },
@@ -865,7 +868,7 @@
       "tests": 11
     },
     "tests/test_pncli_capture.py": {
-      "tests": 8
+      "tests": 12
     },
     "tests/test_proc.py": {
       "skips": 2,
@@ -923,7 +926,7 @@
       "tests": 9
     },
     "tests/test_skill_contracts.py": {
-      "tests": 4
+      "tests": 5
     },
     "tests/test_skill_handoffs.py": {
       "tests": 7
@@ -1015,6 +1018,9 @@
     },
     "tests/test_uat_jira_vs_source.py": {
       "tests": 30
+    },
+    "tests/test_uat_rollup.py": {
+      "tests": 7
     },
     "tests/test_ui.py": {
       "tests": 17

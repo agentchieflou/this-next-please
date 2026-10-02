@@ -44,6 +44,22 @@ def write_csv(table: AgentTable, path: str) -> str:
     return path
 
 
+def read_csv(path: str, name: str = "dax") -> AgentTable | None:
+    """A dscmd export as a table, headers reduced as above; None if it has no header row. Read
+    through `textio`, because dscmd writes UTF-8 with a BOM on one machine and UTF-16 on another.
+    `python -m agentdata.csv2toon`, `ad-view` and `ad-uat rollup` all read a `.csv` through this --
+    the last two being what a fleet agent may run, where `python` it may not."""
+    import io
+
+    from .. import textio
+
+    rows = list(csv.reader(io.StringIO(textio.read_text(path), newline="")))
+    if not rows:
+        return None
+    cols = [clean_header(h) for h in rows[0]]
+    return AgentTable(name, cols, [[_coerce(v) for v in r] for r in rows[1:]], source=path)
+
+
 def _q(name: str) -> str:
     return "'" + name.replace("'", "''") + "'"
 

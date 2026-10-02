@@ -369,6 +369,32 @@ agent whose launcher will not start can still record that it is stuck. The write
 pncli, confluence, git) have none: the `python` on PATH may be another install, one without the
 approval gate. `fleet`, `update` and `setup` stay denied.
 
+**A refused command is named, and one press allows it** (operator report, 2026-10-02: a Jira to
+Power BI UAT got done only by closing the fleet and resuming the session in a local `copilot`,
+because a headless turn has nobody to ask). The tile says what was refused, as the agent typed it,
+and the narrowest entry that would have allowed it: `write` for the CLI's file tools,
+`shell(dscmd.exe)` for a command, `shell(git stash)` or `shell(python -m <module>)` where the first
+word alone would allow far more. *Allow … for luna, then retry* adds it to that agent's *also
+allowed* tools and tells the agent to try the step once more; *for every agent* adds it to the
+fleet's. `ad-fleet grant <repo> <pattern>… [--fleet] [--retry]` is the same action from a terminal.
+An interpreter or `write` is marked broad, with the reason, before anyone presses: `write` together
+with `git commit -m` can edit a `.git/hooks` file that then runs. Nothing on the deny floor is ever
+offered (a deny wins over an allow, so the grant would be a lie); that row says what to use instead,
+`ad-pncli help` / `ad-pncli raw` for pncli, `ad-git push` for a push. Every grant is listed on the
+settings page beside the rest, and taken back there.
+
+**An agent starts with what a new terminal would have.** The desk runs for days, and a launch used
+to hand each agent the desk's own environment as it was when the desk started -- so pncli, the Azure
+CLI or a proxy setting installed since were in every new terminal and missing from every agent. On
+Windows a launch now tops the desk's environment up from the current sign-in's (the machine's and
+your variables in the registry): directories PATH is missing are appended after its own, variables
+it lacks are added, and nothing the desk was started with is replaced. `ad-fleet status
+--show-launch` lists what a launch would add right now (`env_top_up`).
+
+The UAT steps that needed a tool a headless turn is never given are commands now: grain matching is
+`ad-uat rollup` (it was a ≤10-line Python script), a Desktop DAX query is `ad-pbip dax` (it was
+`dscmd` run by hand), and a dscmd `.csv` is read by `ad-view` (it was `python -m agentdata.csv2toon`).
+
 **Nothing is announced twice, and nothing routine is announced at all.** Four agents working
 normally produce zero notifications; see [fleet-notifications.md](fleet-notifications.md).
 

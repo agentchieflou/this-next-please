@@ -2739,6 +2739,46 @@ def act(what: str, body: dict) -> dict:
             # draws them from this answer, so its chip says the switch within a frame of the save.
             answer["rows"] = [row for row in fleet_snapshot().get("repos", []) if row.get("repo") in named]
         return answer
+    if what == "grant":
+        # The desk's *yes* to a refused tool (operator report 2026-10-02): what a local `copilot`
+        # would have asked, added to this agent's (or every agent's) extra allowed tools, through
+        # the settings page's own validation. The deny floor is never granted (`grants.grant`).
+        from .. import config as C
+        from . import grants as G
+        from . import settings as SET
+
+        target = _repo_record(repo)
+        try:
+            known = {r.name for r in Registry().sorted()}
+        except (RegistryError, OSError):
+            known = {target.name}
+        with C.LOCK:
+            cfg = C.load()
+            try:
+                done = G.grant(cfg, target.name, body.get("patterns") or [],
+                               scope=str(body.get("scope") or "agent"), known=known)
+            except G.GrantError as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            except SET.SettingsError as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            try:
+                C.save(cfg)
+            except C.ConfigError as e:
+                raise ServeError(str(e), e.hint, code="config_refused") from None
+        _config_changed()
+        done["retried"] = False
+        lock = supervisor.live(target.name)
+        if body.get("retry") and not lock:
+            # The grant is saved whatever happens here: a budget or a login refusing the retry is
+            # said beside it, never as though the grant itself had failed.
+            try:
+                supervisor.send(target.name, G.retry_message(done["allowed"]), cfg=C.load())
+                done["retried"] = True
+            except supervisor.SupervisorError as e:
+                done["note"] = f"allowed, not retried: {e.msg}" + (f" — {e.hint}" if e.hint else "")
+        elif lock and lock.get("kind") == "console":
+            done["note"] = "a console's allow-list is fixed when it opens: close it and open it again"
+        return {"repo": target.name, **done}
     if what == "theme":
         from .. import config as C
 
@@ -2801,7 +2841,7 @@ def act(what: str, body: dict) -> dict:
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load | wrapup | tidy")
+                     "measure | load | wrapup | tidy | grant")
 
 
 def _write_settings(C, SET, body: dict) -> None:

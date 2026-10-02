@@ -106,6 +106,20 @@ def test_every_pncli_recipe_names_its_arguments():
     assert not problems, "\n  " + "\n  ".join(problems)
 
 
+def test_no_skill_tells_an_agent_to_run_bare_pncli():
+    """Operator report 2026-10-02: the routing reached for pncli first. Bare `pncli` is on the fleet's
+    deny floor and skips the approval gate, so a skill line that prints it is a refusal inside the
+    fleet and an ungated write outside it. pncli is reached through `ad-pncli` (`help`, `raw`)."""
+    problems = []
+    for path in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + \
+            glob.glob(os.path.join(ROOT, "skills", "*", "references", "*.md")):
+        for span in SPAN.findall(open(path, encoding="utf-8").read()):
+            tokens = words(span.strip())
+            if len(tokens) >= 2 and tokens[0] == "pncli" and re.fullmatch(r"[a-z][a-z-]*|--help|-h", tokens[1]):
+                problems.append(f"{os.path.relpath(path, ROOT)}: `{span}` -- use `ad-pncli help` / `ad-pncli raw`")
+    assert not problems, "\n  " + "\n  ".join(problems)
+
+
 def test_an_answers_file_in_any_encoding_powershell_writes_is_read(tmp_path):
     """BOM tolerance (§3 item 6): `Set-Content -Encoding utf8` adds a BOM (pinned since 2026-09-02 in
     test_setup.py), and Windows PowerShell 5.1's `>` writes UTF-16."""

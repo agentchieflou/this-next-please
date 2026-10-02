@@ -510,6 +510,22 @@
       </ol>
       <p class="asks-how">answer in the reply box below: pick a choice or type, then Send</p>
     </div>
+    <!-- 2026-10: what a headless turn was refused, and the *yes* a local `copilot` would have asked
+         for -- the narrowest allow-list entry, for this agent or every agent, then one retry. The
+         deny floor is never offered: that row says what to use instead. -->
+    <div class="refused enters" hidden>
+      <div class="refused-head">it was refused: <span class="refused-n"></span></div>
+      <ol class="refused-list">
+        <li class="refusal" hidden>
+          <code class="refusal-what"></code>
+          <p class="refusal-note"></p>
+          <div class="refusal-row">
+            <button type="button" class="refusal-allow"></button>
+            <button type="button" class="refusal-all">for every agent</button>
+          </div>
+        </li>
+      </ol>
+    </div>
     <!-- What it assumed and carried on with. Not a state: a row to overturn at leisure. -->
     <ul class="assumed" hidden>
       <li class="assumption" hidden><span class="assumption-what"></span><button type="button" class="overturn">not that</button></li>

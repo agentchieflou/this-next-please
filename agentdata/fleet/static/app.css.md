@@ -846,6 +846,14 @@ colour, because it is where your typing goes rather than what the agent is doing
 
 One line saying where the answer goes, so nobody looks for a box on the card.
 
+### `.refused`
+
+The refused card: the asks card's frame and colours, because both say "the tile is asking you
+something". `.refusal-what` is the command as the agent typed it, wrapped anywhere so a long path
+never widens the pane; `.refusal-note` is the alternative (the deny floor) or the reason a grant is
+broad, and takes no room when empty; `.refusal-allow` carries the focus colour because it is the one
+press the card is for, `.refusal-all` the plain one beside it.
+
 ### `.answering`
 
 The chip at the head of the reply box: *answers q1* while it answers a question, *a message, not an

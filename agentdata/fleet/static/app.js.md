@@ -531,6 +531,25 @@ box. `budget_exceeded` arms *Send anyway* exactly as a plain send does.
 and the fold drops it -- the one signal the paper skins strike the question by. The ids come back
 from the server, never from what was typed.
 
+### `function grantRefusal`
+
+The press on a refused command (operator report, 2026-10-02: a UAT step a local `copilot` would have
+asked about was refused in a headless turn, and the only way past it was to close the fleet). Posts
+`grant` with the entry the card showed -- for this agent, or with *for every agent* the fleet's list
+-- and `retry`, so the server tells the agent to try the step once more. The buttons stay disabled
+while it is in flight; afterwards the row says what was allowed, for whom, whether a retry was sent,
+and that the settings page lists it, which is where it is taken back.
+
+### `function drawRefused`
+
+The refused card: one row per command this turn was refused, joined by the server to the call it
+refused (`agentstate.refusals`). A row the deny floor covers shows what to use instead and no button,
+because a grant that a deny overrides would be a lie. A broad entry (an interpreter, `write`) says
+why it is broad before anyone presses. Through `patchList`, keyed by the command: a refresh updates a
+row in place and never rebinds a button under the operator's pointer, and a row already granted keeps
+its *allowed* line until the next turn clears the card. `refusalOf` is each row's current record, so
+the button pressed grants what the row shows now.
+
 ### `function drawAsks`
 
 Above `var signature = open.map(function (q) { return q.id + ":" + q.q; }).join("|");`:
