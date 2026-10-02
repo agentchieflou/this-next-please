@@ -396,10 +396,13 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             print(toon.table("partitions", ["table", "partition", "rows", "last_processed"], rows))
             return 0
 
-        # Submit refresh
+        # The top history row before submitting is the baseline the poll must see past: without it,
+        # the last refresh's `Completed` read as this one's success.
+        before = get_refresh_history(ws_id, m_id, client, top=1)
+        baseline = before[0] if before else None
         submit_refresh(ws_name, m_name, scope=args.scope, runner=client.runner)
         if args.wait > 0:
-            res = poll_refresh(ws_id, m_id, client, wait_timeout=args.wait)
+            res = poll_refresh(ws_id, m_id, client, wait_timeout=args.wait, baseline=baseline)
             res["workspace"] = ws_name
             res["model"] = m_name
             print(toon.encode(res))
@@ -407,6 +410,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             print(toon.encode({
                 "ok": True,
                 "status": "Submitted",
+                "hint": "submitted is not completed: `--wait <s>` or `--history` proves it ran",
                 "workspace": ws_name,
                 "model": m_name,
                 "scope": args.scope,

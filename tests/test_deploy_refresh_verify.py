@@ -49,6 +49,8 @@ class FakeDeployRefreshRunner:
         # what Tabular Editor was told to connect to: the -D target of a deploy, the source of a -S script
         self.te2_targets: list[str] = []
         self.refresh_status_sequence: list[dict] = []
+        # Like the service: a refresh row appears in the history only once one was submitted.
+        self.refreshes_submitted = 0
         self.dmv_rows: list[list[str]] = [
             ["Customers", "Customers-2024", "1500", "2026-09-01T12:00:00Z"],
             ["Sales", "Sales-2024", "45000", "2026-09-01T12:05:00Z"],
@@ -89,6 +91,8 @@ class FakeDeployRefreshRunner:
             elif "-S" in cmd:
                 # `<source> <db> -S script.csx`: the ExecuteReader script names its own output file
                 self.te2_targets.append(str(cmd[1]))
+                if "refresh" in os.path.basename(str(cmd[cmd.index("-S") + 1])).lower():
+                    self.refreshes_submitted += 1
                 v = _script_vars(str(cmd[cmd.index("-S") + 1]))
                 if v.get("outFile"):
                     self._write_query_csv(v.get("sql", ""), v["outFile"])
@@ -135,7 +139,7 @@ class FakeDeployRefreshRunner:
                         return 0, json.dumps({"value": [item]}), "", 0.01
                     return 0, json.dumps({
                         "value": [{
-                            "id": 99999,
+                            "id": 99999 + self.refreshes_submitted,
                             "refreshType": "Full",
                             "startTime": "2026-09-01T12:00:00Z",
                             "endTime": "2026-09-01T12:05:00Z",
@@ -275,6 +279,8 @@ def test_parse_service_exception_fields():
 def test_refresh_wait_completed(fake_runner, capsys):
     """ad-pbi refresh --wait polls until Completed and returns duration."""
     fake_runner.refresh_status_sequence = [
+        # the history's top row before submission: the last refresh, not this one
+        {"id": 0, "status": "Completed", "refreshType": "Full", "startTime": "2026-08-31T12:00:00Z"},
         {"id": 1, "status": "InProgress", "refreshType": "Full"},
         {"id": 1, "status": "Completed", "refreshType": "Full", "startTime": "2026-09-01T12:00:00Z", "endTime": "2026-09-01T12:02:00Z"},
     ]
@@ -288,6 +294,7 @@ def test_refresh_wait_completed(fake_runner, capsys):
 def test_refresh_wait_failed_structured_error(fake_runner, capsys):
     """ad-pbi refresh --wait parses serviceExceptionJson on Failed."""
     fake_runner.refresh_status_sequence = [
+        {"id": 1, "status": "Completed", "refreshType": "Full", "startTime": "2026-08-31T12:00:00Z"},
         {
             "id": 2,
             "status": "Failed",
@@ -304,6 +311,54 @@ def test_refresh_wait_failed_structured_error(fake_runner, capsys):
     assert "refresh_failed" in err
     assert "MashupException" in err
     assert "Sales" in err
+
+
+def test_a_refresh_that_never_appears_is_indeterminate_not_completed(fake_runner, capsys, monkeypatch):
+    """Friction scan 1.2: the submission did not reach the service, so the history's top row stayed
+    the previous refresh -- `Completed`. Read without a baseline, that was reported as this one's
+    success. Now nothing newer than the baseline means Indeterminate, exit 1."""
+    import agentdata.pbi.refresh as R
+    monkeypatch.setattr(R.time, "sleep", lambda s: None)
+    clock = iter(range(0, 10_000, 4))
+    monkeypatch.setattr(R.time, "time", lambda: next(clock))
+    fake_runner.refresh_status_sequence = [
+        {"id": 7, "status": "Completed", "refreshType": "Full", "startTime": "2026-08-31T12:00:00Z"}]
+    rc = cli_pbi.main(["refresh", "--workspace", "Sales Workspace", "--model", "Sample", "--wait", "10"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "refresh_not_observed" in err and "Indeterminate" in err
+    assert "status: Completed" not in err
+
+
+def test_a_deploy_that_exits_zero_while_its_sign_in_failed_is_not_deployed(fake_runner, capsys, monkeypatch):
+    """TE2 printed an AADSTS failure and still exited 0: the model was never touched (friction 1.2)."""
+    from agentdata import proc
+
+    def lying(cmd, timeout=120, **kw):
+        rc, out, err, t = fake_runner(cmd, timeout, **kw)
+        if "-D" in cmd:
+            return 0, "AADSTS50076: you must use multi-factor authentication\n", "", t
+        return rc, out, err, t
+
+    monkeypatch.setattr(proc, "run", lying)
+    rc = cli_pbi.main(["deploy", SAMPLE_TMDL_DIR, "--workspace", "Sales Workspace", "--model", "Sample", "--force"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "deploy_unverified" in err and "Indeterminate" in err and "AADSTS50076" in err
+
+
+def test_a_preview_that_wrote_no_script_previewed_nothing(fake_runner, capsys, monkeypatch):
+    from agentdata import proc
+
+    def no_file(cmd, timeout=120, **kw):
+        if "-X" in cmd:
+            return 0, "done\n", "", 0.01
+        return fake_runner(cmd, timeout, **kw)
+
+    monkeypatch.setattr(proc, "run", no_file)
+    rc = cli_pbi.main(["deploy", SAMPLE_TMDL_DIR, "--workspace", "Sales Workspace", "--model", "Sample", "--dry-run"])
+    assert rc == 1
+    assert "preview_missing" in capsys.readouterr().err
 
 
 def test_refresh_history_table(fake_runner, capsys):

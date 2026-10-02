@@ -464,6 +464,19 @@ def run_tests(
     ok = (rc == 0) and (failed == 0 or failed == "unknown") and (errors == 0)
     if failed not in (0, "unknown") or errors != 0:
         ok = False
+    # Exit 0 is not a verdict (friction scan 1.2). A run that collected nothing proves nothing, and
+    # output nobody could parse is not a pass: both used to read `ok: true`, and a skill gated on
+    # `ad-test run` went on to edit code no test had ever exercised.
+    verdict, hint = ("pass" if ok else "fail"), ""
+    counts = (passed, failed, skipped, errors)
+    if all(isinstance(n, int) for n in counts) and sum(counts) == 0:
+        ok, verdict = False, "no_tests"
+        hint = ("the runner collected zero tests: check `test_cmd` in AGENTS.md, the working directory, "
+                "and that the test dependencies are installed")
+    elif passed == "unknown":
+        ok, verdict = False, "indeterminate"
+        hint = ("the runner's output could not be read as a result; give `test_cmd` a runner that "
+                "writes JUnit XML (pytest, jest --ci) or prints its counts")
 
     table = AgentTable.from_records(
         failures,
@@ -474,6 +487,8 @@ def run_tests(
     return {
         "ok": ok,
         "source": "ad-test run",
+        "verdict": verdict,
+        "hint": hint,
         "runner": runner,
         "cmd": " ".join(full_cmd) if isinstance(full_cmd, list) else full_cmd,
         "duration_s": round(duration_s, 3),

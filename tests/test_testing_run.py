@@ -166,3 +166,19 @@ def test_cli_test_dispatch(capsys):
     # Module form
     rc = M.main(["test", "--version"])
     assert rc == 0
+
+
+def test_zero_collected_and_unreadable_output_are_not_a_pass(tmp_path):
+    """Friction scan 1.2/2.4: exit 0 with nothing collected, or with output nobody could read as a
+    result, used to be `ok: true` -- and `perf-optimize` went on to edit code no test had run."""
+    from agentdata.testing import runner as R
+
+    def run(printed):
+        return R.run_tests(root=str(tmp_path), flag_cmd=f'python -c "print({printed!r})"')
+
+    nothing = run("0 passed in 0.01s")
+    assert nothing["ok"] is False and nothing["verdict"] == "no_tests" and "test_cmd" in nothing["hint"]
+    unreadable = run("all good, probably")
+    assert unreadable["ok"] is False and unreadable["verdict"] == "indeterminate"
+    real = run("3 passed in 0.02s")
+    assert real["ok"] is True and real["verdict"] == "pass" and real["passed"] == 3

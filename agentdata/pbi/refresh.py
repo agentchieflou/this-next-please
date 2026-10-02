@@ -95,16 +95,46 @@ def submit_refresh(
             os.environ.pop("TE_REFRESH_SCOPE", None)
 
 
+def _row_key(row: dict | None) -> str:
+    """A refresh history row's identity: the request id when the service gives one, else its id."""
+    if not isinstance(row, dict):
+        return ""
+    return str(row.get("requestId") or row.get("id") or "")
+
+
+def is_new_row(row: dict, baseline: dict | None) -> bool:
+    """Is this history row a refresh that started after `baseline`, the top row before submission?
+
+    The history's top row is whatever refresh ran last. Read without a baseline, a submission that
+    never reached the service (a sign-in that failed while the wrapper still exited 0) left
+    yesterday's `Completed` on top, and the poll reported it as this refresh's success (friction
+    scan 1.2). A row counts as new when its identity differs from the baseline's, or -- when the
+    service reuses ids -- when it started later.
+    """
+    if not baseline:
+        return True
+    if _row_key(row) and _row_key(row) != _row_key(baseline):
+        return True
+    start, before = str(row.get("startTime") or ""), str(baseline.get("startTime") or "")
+    return bool(start and before and start > before)
+
+
 def poll_refresh(
     workspace_id: str,
     model_id: str,
     client: FabricClient,
     wait_timeout: int = 1800,
     interval: float = 3.0,
+    baseline: dict | None = None,
 ) -> dict[str, Any]:
-    """Poll refresh history until Completed or Failed."""
+    """Poll refresh history until the refresh submitted after `baseline` is Completed or Failed.
+
+    A refresh that never shows up is `Indeterminate`, never `Completed`: the caller must not call
+    it done.
+    """
     t0 = time.time()
     last_status = "Unknown"
+    observed = False
 
     url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/semanticModels/{model_id}/refreshes"
     fallback_url = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{model_id}/refreshes?$top=1"
@@ -117,9 +147,10 @@ def poll_refresh(
 
         refreshes = []
         if isinstance(data, dict):
-            refreshes = data.get("value", [])
+            refreshes = [r for r in data.get("value", []) if isinstance(r, dict) and is_new_row(r, baseline)]
 
         if refreshes:
+            observed = True
             latest = refreshes[0]
             st = latest.get("status", "Unknown")
             last_status = st
@@ -133,6 +164,7 @@ def poll_refresh(
                     "refresh_type": latest.get("refreshType", "Full"),
                     "start_time": latest.get("startTime", ""),
                     "end_time": latest.get("endTime", ""),
+                    "request_id": _row_key(latest),
                 }
             if st == "Failed":
                 exc_raw = latest.get("serviceExceptionJson") or latest.get("error", {})
@@ -144,9 +176,21 @@ def poll_refresh(
                     detail=parsed,
                 )
 
+            if st in ("Cancelled", "Disabled"):
+                raise FabricError("refresh_failed", f"refresh ended {st.lower()} on the service",
+                                  hint="the service stopped it; read `ad-pbi refresh --history` before submitting again")
+
         time.sleep(interval)
 
-    raise FabricError("refresh_timeout", f"timed out waiting for refresh after {wait_timeout}s (last status: {last_status})")
+    if not observed:
+        raise FabricError(
+            "refresh_not_observed",
+            f"no refresh newer than the one before submission appeared within {wait_timeout}s",
+            hint="status Indeterminate, not Completed: the submission may never have reached the service. "
+                 "Run `ad-pbi refresh --history` and `ad-pbi auth --probe` before submitting again",
+            detail={"status": "Indeterminate", "baseline": _row_key(baseline)})
+    raise FabricError("refresh_timeout", f"timed out waiting for refresh after {wait_timeout}s (last status: {last_status})",
+                      detail={"status": "Indeterminate", "last_status": last_status})
 
 
 def get_refresh_history(

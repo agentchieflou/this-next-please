@@ -111,9 +111,11 @@ def cmd_run(a: argparse.Namespace) -> int:
         "log": res.get("log", ""),
     }
 
+    if res.get("verdict"):
+        extra["verdict"] = res["verdict"]
     if "fail" in res:
         extra["fail"] = res["fail"]
-    if "hint" in res:
+    if res.get("hint"):
         extra["hint"] = res["hint"]
     if "error" in res:
         extra["error"] = res["error"]

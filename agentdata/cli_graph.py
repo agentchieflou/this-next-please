@@ -23,7 +23,25 @@ from .version import version_string
 
 
 def _get_root(a: argparse.Namespace) -> str:
-    return getattr(a, "root_flag", None) or getattr(a, "root", None) or "."
+    named = getattr(a, "root_flag", None) or getattr(a, "root", None) or "."
+    return named if named != "." else _project_root(os.getcwd())
+
+
+def _project_root(start: str) -> str:
+    """The nearest directory at or above `start` that holds this project's `.agent/`.
+
+    `ad-graph status` run from `src/` used to look for `src/.agent/graph`, find nothing, and
+    report `none` -- an approval that existed read as missing because of where the shell stood
+    (friction scan 1.5). A root named on the command line is used as given.
+    """
+    here = os.path.abspath(start)
+    while True:
+        if any(os.path.exists(os.path.join(here, ".agent", leaf)) for leaf in ("state.json", "graph")):
+            return here
+        up = os.path.dirname(here)
+        if up == here:
+            return "."
+        here = up
 
 
 def cmd_build(a: argparse.Namespace) -> int:
@@ -276,6 +294,7 @@ def cmd_status(a: argparse.Namespace) -> int:
         records = [
             {"property": "status", "value": res["status"]},
             {"property": "approved", "value": str(res["approved"]).lower()},
+            {"property": "basis", "value": res.get("basis") or "graph"},
             {"property": "graph_sha256", "value": res["graph_sha256"] or "none"},
             {"property": "approved_graph_sha256", "value": res.get("approved_graph_sha256") or "none"},
             {"property": "understanding_sha256", "value": res.get("understanding_sha256") or "none"},

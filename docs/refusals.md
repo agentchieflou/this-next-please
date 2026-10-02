@@ -26,6 +26,9 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | SQL guardrail | the text still holds an unexpanded `$env:X`, `%X%` or `${X}` | `error` naming the shell rule, exit 2 | `test_shell_argv.py::test_sql_check_refuses_an_unexpanded_variable` |
 | State | the phase is not one of `PHASES` | `StateError` listing them | `test_refusals.py::test_an_unknown_phase_is_refused_and_the_message_lists_the_real_ones` |
 | State | the key is not a known state or tool key | `StateError` listing the allowed keys | `test_refusals.py::test_an_unknown_state_key_is_refused` |
+| State | `ad-state supersede` names no open question | `StateError` listing the open ids | `test_state.py::test_superseding_closes_one_question_with_the_instruction_that_replaced_it` |
+| State | `ad-state ask` with both `--assume` and `--followup` | `StateError`, nothing written | `test_state.py::test_a_followup_is_recorded_and_never_stops_the_agent` |
+| Test run | the runner collected zero tests, or printed nothing readable as a result | `ok: false`, `verdict: no_tests` / `indeterminate` and a `hint` | `test_testing_run.py::test_zero_collected_and_unreadable_output_are_not_a_pass` |
 | Config | a value looks like a credential | `ConfigError`, nothing written | `test_refusals.py::test_a_token_looking_config_value_is_refused` |
 | Confluence | the body is Markdown rather than storage format | `error` naming `ad-confluence html`, exit 2 | `test_proc.py::test_raw_refuses_to_post_markdown_to_confluence` |
 | pncli | an argument cannot survive cmd.exe and there is no Node entry point | `refused: cmd_unsafe_argument` | `test_fakes.py::test_a_multiline_body_is_refused_through_a_cmd_shim` |
@@ -182,6 +185,9 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Power BI TE2 | `CustomActions.json` does not parse | `refused`, exit 1, file left byte-for-byte alone | `test_pbip_handoff_cli.py::test_te2_refuses_a_malformed_actions_file_rather_than_rewriting_it` |
 | Power BI TE2 | `--remove` without `--te2` | `error`, exit 2 | `test_pbip_handoff_cli.py::test_remove_without_te2_is_a_refusal` |
 | Power BI TE2 | an unknown `te2_action` mode | `ValueError` naming `process` and `file` | `test_external_tool_agnostic.py::test_te2_unknown_mode_names_the_two` |
+| Power BI TE2 | a deploy exits 0 while Tabular Editor printed a sign-in or connection failure | `code: deploy_unverified`, `status: Indeterminate`, nothing stamped | `test_deploy_refresh_verify.py::test_a_deploy_that_exits_zero_while_its_sign_in_failed_is_not_deployed` |
+| Power BI TE2 | a deploy preview exits 0 and wrote no script | `code: preview_missing`, `status: Indeterminate` | `test_deploy_refresh_verify.py::test_a_preview_that_wrote_no_script_previewed_nothing` |
+| Power BI TE2 | no refresh newer than the history's top row before submission ever appears | `code: refresh_not_observed`, `status: Indeterminate`, exit 1 | `test_deploy_refresh_verify.py::test_a_refresh_that_never_appears_is_indeterminate_not_completed` |
 
 ## Debugging a swallowed exception
 
