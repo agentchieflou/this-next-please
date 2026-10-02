@@ -274,7 +274,7 @@
       "tests": 13
     },
     "tests/test_deploy_refresh_verify.py": {
-      "tests": 18
+      "tests": 21
     },
     "tests/test_desk_harness.py": {
       "tests": 10
@@ -354,6 +354,9 @@
     },
     "tests/test_fleet_cli_desk.py": {
       "tests": 32
+    },
+    "tests/test_fleet_colors.py": {
+      "tests": 7
     },
     "tests/test_fleet_column.py": {
       "tests": 27
@@ -693,7 +696,7 @@
       "tests": 6
     },
     "tests/test_graph_explain.py": {
-      "tests": 18
+      "tests": 20
     },
     "tests/test_graph_findings.py": {
       "tests": 17
@@ -870,6 +873,9 @@
       "skips": 1,
       "tests": 22
     },
+    "tests/test_routing_friction.py": {
+      "tests": 7
+    },
     "tests/test_screenshot.py": {
       "tests": 11
     },
@@ -935,7 +941,7 @@
       "tests": 11
     },
     "tests/test_state.py": {
-      "tests": 8
+      "tests": 12
     },
     "tests/test_stress_one.py": {
       "tests": 4
@@ -954,7 +960,7 @@
       "tests": 12
     },
     "tests/test_testing_run.py": {
-      "tests": 6
+      "tests": 7
     },
     "tests/test_textio.py": {
       "tests": 5
@@ -1001,9 +1007,6 @@
     "tests/test_winui.py": {
       "skips": 1,
       "tests": 18
-    },
-    "tests/test_fleet_colors.py": {
-      "tests": 7
     }
   }
 }
