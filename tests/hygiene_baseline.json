@@ -522,7 +522,7 @@
       "tests": 2
     },
     "tests/test_fleet_ink_notebook.py": {
-      "tests": 11
+      "tests": 12
     },
     "tests/test_fleet_ink_phosphor.py": {
       "tests": 7

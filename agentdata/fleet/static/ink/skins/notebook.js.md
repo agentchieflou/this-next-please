@@ -30,6 +30,10 @@ and `needs-human` on the pane, the question card's rows and `aria-pressed` on it
 (#240), a transcript line's kind, and the header's unread count. Nothing here decides a state.
 ```
 
+A third variant since #398: `notebook:lamplight`, warm charcoal stock on `eye-relief` under a still
+pool of lamplight, for hour six. The table is the same again; the lamp is the paper's, read from
+`--lamp` and `--lamp-max` like every other colour (`const PAPER_FS`, `function stock`).
+
 The state grammar (plan-ink §The state grammar), a row per mark. Rows are drawn in table order
 within a pane, so the order below is the order a hand would work down a page.
 
@@ -115,12 +119,34 @@ Above `function rgbOf(tokens, name, fallback) {`:
 A custom property's colour as [r, g, b] in 0-1 sRGB. The skin's colours are custom properties,
 and `tokens.css` answers them as written: a hex, or rgb().
 
+### `const PAPER_FS`
+
+The stock's fragment shader. Its comments are GLSL inside the template string, which the stripper
+leaves alone; what they do not say is here.
+
+The lamp (#398): with `uLamp` above 0 the stock is brightened toward `uLampMax` (`--lamp-max`) by
+`uLamp` times a smooth radial falloff -- 1 at 30% across and 20% down the viewport, 0 at 60% of the
+viewport's longer side from there, measured in pixels so the pool is round at any aspect -- and each
+channel is clamped at `uLampMax`: the declared lighter end of the paper, where its text is checked
+(`skins.py`), is the lightest the lamp can make it. The lamp only ever lightens: a channel is raised
+by at most `uLampMax - uPaper` (never by a negative amount, should `--lamp-max` be set darker than
+the paper), and the `max(c, uLampMax)` leaves a channel the fibre already lifted past `uLampMax` as it
+was rather than pulling it down. It is applied to the stock before the rules, so the rules are
+printed over the light, not lit by it, and the falloff toward the far corner (`fall`) is 1 at the
+lamp's centre. With `uLamp` 0 the branch is skipped: every variant without a lamp shades exactly
+what it did before.
+
 ### `function stock`
 
 Above `function stock(THREE, tokens, api, ruled, w, h) {`:
 
 The stock: the paper's colour, its fibre and its light, ruled or not, `w` x `h` px. It is shaded
 in viewport pixels, so a plain patch laid over the ruled sheet is the same sheet without rules.
+
+`uLamp` is `--lamp` as a number, 0 when the variant sets none (an empty or unreadable value is 0,
+never NaN); `uLampMax` is `--lamp-max`, falling back to the paper itself, which only a lamp would
+read. Both are read at paint time like the paper, so the lamp comes and goes with the variant and
+is still: no uniform changes between paints, so it costs an idle desk nothing.
 
 ### `export function paper`
 

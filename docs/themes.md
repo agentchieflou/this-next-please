@@ -340,6 +340,7 @@ passes the `--focus` test on both sides' panels and states.
 | `napkin:late` | Late shift | `dark` | `#14171A` | `#362E28` … `#23262B` | 10.7:1 at the worse end | a dark napkin from the late counter, and a gel pen |
 | `notebook:light` | Notebook *(default)* | `eye-relief-day` | `#F2ECDC` | `#FBFBF6` | 11.0:1 | white stock, blue rules, a red margin |
 | `notebook:dark` | Night notebook | `dark` | `#14171A` | `#1B1E25` | 13.4:1 | charcoal stock and gel inks, the highlighter screened |
+| `notebook:lamplight` | Lamplight | `eye-relief` | `#2B2A27` | `#2E2B26` … `#38342D` | 7.8:1 at the worse end | warm charcoal stock and a lamp, for hour six |
 | `gridiron:nightgame` | Night game *(default)* | `greens` | `#0B1F14` | `#0E3418` … `#183D1F` | 9.2:1 at the worse end | turf under the lights: chalk lines, a yellow first-down line |
 | `gridiron:daygame` | Day game | `eye-relief-day` | `#F2ECDC` | `#C2DDB5` … `#D6EACB` | 7.8:1 at the worse end | a pale field by day: graphite and an amber pen |
 | `playbook:chalkboard` | Chalkboard *(default)* | `nfl-browns` | `#311D00` | `#2B1B08` … `#40301D` | 10.4:1 at the worse end | brown slate, cream and orange chalk |
@@ -371,7 +372,7 @@ every `PALETTE_ONLY` palette is.
 | `nfl-browns` | Playbook · Chalkboard | a coach's chalkboard: O's, routes, a flag (Playbook, #389-#392) | `built` |
 | `matrix` | Voxel · Overworld, Phosphor · Green | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `built` |
 | `greens` | Circuit board · Solder, Gridiron · Night game | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397); the field under the lights | `built` |
-| `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
+| `eye-relief` | Farmstead · Cave, Notebook · Lamplight | a lamp over charcoal stock (Notebook · Lamplight, #398) | `built` |
 | `sand` | Voxel · Daylight, Farmstead · Daytime, Napkin notes · Kraft, Playbook · Play sheet, Weather · Sunny day | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
 | `vanta-black` | Glass · Noir, Voxel · The End, Circuit board · Matte, Weather · Starry night | an observatory: a star field, a meteor now and then (Weather · Starry night); a constellation when done, at least 97% true-black pixels | `built` |
 | `reds` | Voxel · Nether | a darkroom: a safelight, prints in the tray, a print hung when done | `parked` |
