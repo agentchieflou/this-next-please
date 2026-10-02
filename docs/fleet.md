@@ -359,7 +359,22 @@ still asked of `ad-state` rather than written behind its back.
 **Reads run unattended; writes wait for a click.** Every write to Jira, Confluence or Bitbucket
 stops at [the approval gate](fleet-approvals.md) and shows you the dry-run payload first.
 
-**The agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
+**By default an agent has what a Copilot CLI window has, on autopilot, on `auto`** (the operator,
+2026-10-02: "I accept fleet agents running --allow-all-tools by default. Default settings for all
+agents should be autopilot enabled, model mode auto - efficiency, with all tool access enabled").
+Every launch, headless or console, carries `--allow-all-tools` (`fleet.permissions: copilot`) and
+`--autopilot` (`fleet.copilot.autopilot`, with `fleet.copilot.autopilot_max` as
+`--max-autopilot-continues` when set), keeps the built-in MCP servers a window has, and runs
+`--model auto` unless a model is chosen (a blank `fleet.model` is still "no `--model` at all"). The
+auto tier, `efficiency` by default (`fleet.copilot.auto_tier`), is passed only under the option the
+installed CLI's own `--help` lists for it; the tier's command-line spelling is not documented, and an
+option the CLI did not know would stop every agent before its first word. The fleet's only deny is
+its own commands (`ad-fleet`, `ad-update`, `ad-setup`), plus whatever you deny on the settings page.
+Writes made through `ad-*` commands still wait on the approval gate, which is in the command; a
+bare `pncli` or `curl` write is the agent's, as it is in a window where you said yes. Each of these
+is on the settings page, fleet-wide and per agent; `fleet.permissions: strict` is everything below.
+
+**With `strict`, the agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
 deny-list. The spike measured Copilot's own permission classifier refusing three spellings of a
 file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
 `git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected

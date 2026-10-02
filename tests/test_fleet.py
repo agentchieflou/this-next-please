@@ -79,8 +79,13 @@ def test_two_repos_cannot_share_a_name(fleet_home, tmp_path):
 # ------------------------------------------------------------------------------ the launch line
 
 
-def test_the_launch_line_never_grants_blanket_permission():
-    argv = launch.launch_command("copilot", "C:/repo", "do the thing", log_dir="C:/logs")
+#: `fleet.permissions: strict`, the enumerated whitelist. Not the default since 2026-10-02 (the operator
+#: chose a Copilot window's permissions), and every guarantee below still holds for an agent set to it.
+STRICT = {"fleet": {"permissions": "strict"}}
+
+
+def test_the_strict_launch_line_never_grants_blanket_permission():
+    argv = launch.launch_command("copilot", "C:/repo", "do the thing", log_dir="C:/logs", cfg=STRICT)
     joined = " ".join(argv)
     for forbidden in launch.FORBIDDEN_FLAGS:
         assert forbidden not in joined, f"{forbidden} reached the launch line"
@@ -88,6 +93,58 @@ def test_the_launch_line_never_grants_blanket_permission():
     # The CLI ships a built-in MCP server, so epic #91's no-MCP rule is an argument, not an absence.
     assert "--disable-builtin-mcps" in argv
     assert "--output-format" in argv and "json" in argv
+
+
+def test_by_default_an_agent_has_a_copilot_windows_tools_on_autopilot_and_auto():
+    """The operator, 2026-10-02: "I accept fleet agents running --allow-all-tools by default. Default
+    settings for all agents should be autopilot enabled, model mode auto - efficiency, with all tool
+    access enabled." All tools, never the paths-and-URLs blanket (`--allow-all`, `--yolo`); the
+    built-in MCP servers on, as in a window; the fleet's own commands still denied."""
+    model, effort, source = launch.model_for("alpha", {})
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={}, model=model, effort=effort)
+    assert "--allow-all-tools" in argv and "--autopilot" in argv and "--no-ask-user" in argv
+    for wider in ("--allow-all", "--yolo", "--allow-all-paths", "--allow-all-urls"):
+        assert wider not in argv, wider
+    assert "--disable-builtin-mcps" not in argv
+    assert _patterns(argv, "--allow-tool") == [], "no list of the fleet's own: all tools are allowed"
+    assert _patterns(argv, "--deny-tool") == launch.FLEET_SELF, "only the fleet's own commands are denied"
+    assert (model, source) == ("auto", "default") and _patterns(argv, "--model") == ["auto"]
+
+
+def test_the_operator_can_turn_each_default_off_per_setting():
+    cfg = {"fleet": {"copilot": {"autopilot": False, "autopilot_max": 12, "deny_extra": ["shell(rm)"]}}}
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=cfg)
+    assert "--autopilot" not in argv and "--max-autopilot-continues" not in argv
+    assert "shell(rm)" in _patterns(argv, "--deny-tool"), "the operator's own denies still apply"
+    on = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs",
+                               cfg={"fleet": {"copilot": {"autopilot_max": 12}}})
+    assert _patterns(on, "--max-autopilot-continues") == ["12"]
+    with pytest.raises(launch.LaunchError):
+        launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={"fleet": {"permissions": "yolo"}})
+
+
+def test_the_auto_tier_goes_only_under_an_option_the_installed_cli_named(monkeypatch):
+    """Copilot's auto has tiers (efficiency, balance, intelligence, fast), but how the CLI takes one on
+    its command line is not documented, and an option it does not know stops it before the agent's
+    first word. So the tier rides only under the option `copilot --help` listed with `efficiency`
+    among its values (`models.auto_tier_flag`), and is left out otherwise."""
+    from agentdata.fleet import models as M
+
+    monkeypatch.setattr(M, "auto_tier_flag", lambda: "")
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={}, model="auto")
+    assert "efficiency" not in argv, "nothing guessed"
+    monkeypatch.setattr(M, "auto_tier_flag", lambda: "--auto-tier")
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={}, model="auto")
+    assert _patterns(argv, "--auto-tier") == ["efficiency"], "the default tier"
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", model="auto",
+                                 cfg={"fleet": {"copilot": {"auto_tier": "intelligence"}}})
+    assert _patterns(argv, "--auto-tier") == ["intelligence"]
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={}, model="claude-opus-5")
+    assert "--auto-tier" not in argv, "a tier means nothing to a named model"
+    help_text = ("      --auto-tier <tier>\n          Steer auto routing [possible values: efficiency, balance, "
+                 "intelligence, fast]\n      --reasoning-effort <level>\n          [possible values: low, high]\n")
+    assert M.parse_auto_tier_flag(help_text) == "--auto-tier"
+    assert M.parse_auto_tier_flag("      --reasoning-effort <level>\n  [possible values: low, high]\n") == ""
 
 
 def _patterns(argv, flag):
@@ -98,7 +155,7 @@ def test_the_allow_list_never_grants_the_agent_the_fleet_itself():
     """`shell(ad-)` would have. It is a PREFIX, so it covers every console script this package
     installs -- including `ad-fleet`, which reads every *other* registered repository's
     `.agent/state.json` (AGENTS.md rule 3, broken from inside an agent) and can stop other agents."""
-    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=STRICT)
     allowed = _patterns(argv, "--allow-tool")
     assert "shell(ad-)" not in allowed, "the family prefix would include ad-fleet and ad-update"
     assert "shell(ad-state)" in allowed, allowed
@@ -117,7 +174,7 @@ def test_a_deny_prefix_cannot_rescue_a_loose_allow_so_the_allow_is_tight():
     The one push an agent may make is `shell(ad-git push)` (#502), allowed right after `git commit -m`:
     that command refuses a force, a refspec, a protected branch and an unknown remote itself, and waits
     on the approval gate. `shell(git push)` stays on the deny floor."""
-    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=STRICT)
     allowed, denied = _patterns(argv, "--allow-tool"), _patterns(argv, "--deny-tool")
 
     assert not any(a.startswith("shell(git push") for a in allowed), allowed
@@ -129,7 +186,7 @@ def test_a_deny_prefix_cannot_rescue_a_loose_allow_so_the_allow_is_tight():
 def test_configuration_can_narrow_the_allow_list_but_never_the_deny_list():
     """An operator adding one deny must not silently lose the rest. `--show-launch` would have
     printed the loss as though it were the guarantee."""
-    cfg = {"fleet": {"allow_tools": ["shell(ad-state)"], "deny_tools": ["shell(npm)"]}}
+    cfg = {"fleet": {"permissions": "strict", "allow_tools": ["shell(ad-state)"], "deny_tools": ["shell(npm)"]}}
     argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=cfg)
     allowed, denied = _patterns(argv, "--allow-tool"), _patterns(argv, "--deny-tool")
 
@@ -143,7 +200,7 @@ def test_the_module_form_is_allowed_for_state_and_doctor_and_never_for_a_write()
     """#500, WRAP-D7: an agent whose `ad-state` launcher is broken can still record state and ask for
     help. The write adapters get no module form: the `python` on PATH may be another install, one
     without the approval gate."""
-    allowed, denied = launch.allow_tools(), launch.deny_tools()
+    allowed, denied = launch.allow_tools(STRICT), launch.deny_tools(STRICT)
     assert "shell(python -m agentdata state)" in allowed and "shell(python -m agentdata doctor)" in allowed
     for write in ("jira", "pncli", "confluence", "git"):
         assert not any(a.startswith(f"shell(python -m agentdata {write}") for a in allowed), write
@@ -474,12 +531,14 @@ def test_done_ticket_is_refused(fleet_home, tmp_path):
 # ------------------------------------------------------------------- the model each agent runs
 
 
-def test_no_model_configured_means_no_flag_at_all():
-    """The only no-model behaviour anyone measured is the CLI selecting one itself. Passing
-    `--model ""` would be inventing a second behaviour, which is what launch.py forbids."""
-    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={})
+def test_no_model_configured_means_auto_and_a_blank_one_means_no_flag_at_all():
+    """Nothing chosen is the operator's default, Copilot's `auto` (2026-10-02). A `fleet.model` set
+    blank on purpose is the CLI's own choice, as before: no `--model` at all, never `--model ""`."""
+    assert launch.model_for("anything", {}) == ("auto", "", "default")
+    blank = {"fleet": {"model": ""}}
+    assert launch.model_for("anything", blank) == ("", "", "cli-auto")
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=blank)
     assert "--model" not in argv and "--effort" not in argv
-    assert launch.model_for("anything", {}) == ("", "", "cli-auto")
 
 
 def test_a_configured_model_reaches_the_command_line():
@@ -487,7 +546,7 @@ def test_a_configured_model_reaches_the_command_line():
     model, effort, source = launch.model_for("alpha", cfg)
     assert (model, effort, source) == ("claude-opus-5", "high", "fleet.model")
 
-    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=cfg,
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={**cfg, "fleet": {**cfg["fleet"], "permissions": "strict"}},
                                  model=model, effort=effort)
     assert _patterns(argv, "--model") == ["claude-opus-5"]
     assert _patterns(argv, "--effort") == ["high"]

@@ -324,7 +324,7 @@
       "tests": 22
     },
     "tests/test_fleet.py": {
-      "tests": 32
+      "tests": 35
     },
     "tests/test_fleet_agent_settings.py": {
       "tests": 11
@@ -460,7 +460,7 @@
       "tests": 16
     },
     "tests/test_fleet_grants.py": {
-      "tests": 16
+      "tests": 17
     },
     "tests/test_fleet_gutters.py": {
       "tests": 21

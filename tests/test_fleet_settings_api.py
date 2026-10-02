@@ -71,13 +71,23 @@ def test_the_tool_lists_come_back_with_their_provenance(fleet_home, tmp_path):
     glance -- which needs a pattern the operator added to look different from one that shipped."""
     _repo(tmp_path)
     snap = S.settings_snapshot()
+    # The default (2026-10-02): a Copilot window's tools -- no list of the fleet's own, and only the
+    # fleet's own commands denied.
+    assert snap["tools"]["permissions"] == "copilot"
+    assert snap["tools"]["allow"] == []
+    assert [r["pattern"] for r in snap["tools"]["deny"]] == L.FLEET_SELF
+
+    C.save({"fleet": {"permissions": "strict"}})
+    snap = S.settings_snapshot()
     allow = {r["pattern"]: r["source"] for r in snap["tools"]["allow"]}
     deny = {r["pattern"]: r["source"] for r in snap["tools"]["deny"]}
+    assert snap["tools"]["permissions"] == "strict"
     assert allow["shell(ad-state)"] == "default"
     assert deny["shell(git push)"] == "default"
     assert snap["tools"]["allow_is_configured"] is False
 
-    C.save({"fleet": {"allow_tools": ["shell(ad-state)"], "deny_tools": ["shell(curl --insecure)"]}})
+    C.save({"fleet": {"permissions": "strict", "allow_tools": ["shell(ad-state)"],
+                      "deny_tools": ["shell(curl --insecure)"]}})
     snap = S.settings_snapshot()
     allow = {r["pattern"]: r["source"] for r in snap["tools"]["allow"]}
     deny = {r["pattern"]: r["source"] for r in snap["tools"]["deny"]}
@@ -204,7 +214,7 @@ def test_clearing_a_model_removes_the_key_rather_than_leaving_an_empty_one(fleet
     S.act("settings", {"models": [{"repo": "alpha", "model": ""}]})
     cfg = C.load()
     assert C.get_leaf(cfg, "fleet.models", "alpha", None) is None
-    assert L.model_for("alpha", cfg) == ("", "", "cli-auto")
+    assert L.model_for("alpha", cfg) == ("auto", "", "default"), "it inherits: the default, `auto`"
 
 
 def test_the_fleet_wide_default_is_written_and_resolves_under_a_per_repo_one(fleet_home, tmp_path):

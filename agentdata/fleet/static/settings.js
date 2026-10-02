@@ -816,7 +816,12 @@ function draw(data) {
   renderCopilotConfig(data);
   var mine = agentView(data);
   var tools = (mine ? mine.tools : data.tools) || {};
-  renderPatterns("allowlist", "allowcount", tools.allow);
+  var allow = tools.allow || [];
+  if (tools.permissions === "copilot") {
+    allow = [{ pattern: "every tool a Copilot window would ask about", source: "copilot", broad: true }]
+      .concat(allow);
+  }
+  renderPatterns("allowlist", "allowcount", allow);
   renderPatterns("denylist", "denycount", tools.deny);
 }
 
@@ -852,7 +857,8 @@ function renderPatterns(listId, countId, rows) {
     var from = document.createElement("span");
     from.className = "from";
     text(from, r.source);
-    from.title = r.source === "default" ? "shipped with agentdata"
+    from.title = r.source === "copilot" ? "tool access is copilot: the agent runs with --allow-all-tools"
+      : r.source === "default" ? "shipped with agentdata"
       : r.source === "added" ? "also allowed or denied for every agent, from this page"
       : r.source === "agent" ? "this agent's own, from this page"
       : "from ~/.agentdata/config.json";

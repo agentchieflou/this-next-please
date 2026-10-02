@@ -428,3 +428,8 @@ is which, key by key, is the answer to "my fleet settings and my Copilot setting
 
 One redraw of everything the scope changes, so picking an agent needs no second request: `lastData`
 already holds every agent's view.
+
+
+With *tool access* `copilot` (the default since 2026-10-02) the allowed column leads with one row,
+*every tool a Copilot window would ask about*, because the launch line carries `--allow-all-tools`
+and no enumerated list; the extras the operator added still follow it, as they still go on the argv.

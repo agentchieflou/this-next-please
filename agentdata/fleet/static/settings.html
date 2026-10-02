@@ -105,6 +105,10 @@
   <!-- ------------------------------------------------------------------ permissions -->
   <section class="setblock">
     <h2>What an agent may run</h2>
+    <p class="why">By default an agent has what a Copilot CLI window has: every tool it would ask about
+      is allowed (<code>--allow-all-tools</code>), and only the fleet's own commands are denied. Set
+      <strong>tool access</strong> to <code>strict</code> above, for every agent or one, to use the
+      enumerated list below instead.</p>
     <p class="why">The base allow-list is read-only here, deliberately. It is the boundary and
       configuration <em>replaces</em> it rather than adding to it, so a list saved from this page
       would become the whole boundary &mdash; and you would silently stop receiving any command a

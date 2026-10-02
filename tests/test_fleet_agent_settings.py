@@ -58,7 +58,8 @@ def test_an_agents_own_value_wins_and_the_rest_inherit():
 
 
 def test_list_settings_add_to_the_fleets_rather_than_replace_them():
-    cfg = {"fleet": {"copilot": {"allow_extra": ["shell(Get-ChildItem)"], "deny_extra": ["shell(ssh)"]},
+    cfg = {"fleet": {"permissions": "strict",
+                     "copilot": {"allow_extra": ["shell(Get-ChildItem)"], "deny_extra": ["shell(ssh)"]},
                      "agents": {"luna": {"fleet.copilot.allow_extra": ["powershell"],
                                          "fleet.copilot.deny_extra": ["shell(scp)"]}}}}
     argv = L.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=OV.for_agent(cfg, "luna"))
