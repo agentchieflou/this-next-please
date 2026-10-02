@@ -1,6 +1,8 @@
 # keep TMDL and fixture bytes exact on Windows checkouts (core.autocrlf must not touch them)
 *.tmdl -text
 tests/fixtures/** -text
+# Microsoft's PBIR schemas, vendored byte for byte (agentdata/pbip/schema/fabric/SOURCE)
+agentdata/pbip/schema/fabric/** -text
 *.dax -text
 
 # The Power App sources, flows and workbook are pasted or imported byte for byte, and
