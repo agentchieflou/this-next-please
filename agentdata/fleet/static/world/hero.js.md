@@ -63,6 +63,11 @@ One material for every character the page builds, made once and kept. A characte
 every change in the picker; a material made each time was a shader compiled each time, which
 stalls even a real GPU for a moment and stalled SwiftShader long enough to draw black.
 
+The material adds a fill of its own colour (`uFill`, a line patched into three.js's shader). Under
+the overcast sky a body's sides and front, which face the horizon rather than the zenith, took about
+a third of the light the plaza does, and a face in the picker read as a shadow. The fill lights only
+the character, so the scene keeps its rainy look; `fill` sets it with the daylight (`vWeather`).
+
 ### `function piece`
 
 One part of the character: a primitive placed, scaled and turned into the character's space, painted
@@ -82,6 +87,7 @@ without hiding the forehead or the eyes. The swept fringe of the side part follo
 ### `function face`
 
 The picture's face: round dark eyes, raised brows, a small nose, and an open smile with its teeth.
+The eyes have whites and a catchlight, so they read on every skin tone, the deepest included.
 Eyebrows take the hair's colour, or dark brown where the hair is covered or gone.
 
 ### `function build`
@@ -100,6 +106,10 @@ little with each step. Rolling: the character sits, the wheels turn by the dista
 arms push the rims. Talking (`talk`, blended from 0 to 1): the presenting pose of the picture, one
 arm out and open and the other forearm forward, the head tilted a little. Under reduced motion the
 breathing stops.
+
+### `function fill`
+
+The character's fill, set by the world with the daylight: lower at night, where the lamps light it.
 
 ### `function dispose`
 

@@ -124,7 +124,8 @@ A running agent's ring turns; a needs-you ring bobs. Under reduced motion they h
 
 ### `function vWeather`
 
-Day and night move together: the sky, the fog, the light, the lamps, the beam and the rain's colour.
+Day and night move together: the sky, the fog, the light, the lamps, the beam, the rain's colour and
+your character's fill (`WorldHero.fill`).
 The fog thins by day (0.014) so the towers read as shapes in the rain; it thickens at night.
 
 ### `function vReflect`

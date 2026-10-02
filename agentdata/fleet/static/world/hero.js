@@ -43,13 +43,18 @@ var WorldHero = (function () {
   var SOLE = "#f4f1ea";
   var CHAIR = "#2b2f36";
   var TYRE = "#15181c";
-  var shared = { T: null, mat: null };
+  var shared = { T: null, mat: null, fill: { value: 0.25 } };
 
   /** @param {any} T @returns {any} */
   function material(T) {
     if (shared.T !== T || !shared.mat) {
       shared.T = T;
       shared.mat = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0 });
+      shared.mat.onBeforeCompile = function (/** @type {any} */ sh) {
+        sh.uniforms.uFill = shared.fill;
+        sh.fragmentShader = "uniform float uFill;\n" + sh.fragmentShader.replace("#include <emissivemap_fragment>",
+          "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill;");
+      };
     }
     return shared.mat;
   }
@@ -134,7 +139,7 @@ var WorldHero = (function () {
     } else if (L.hair === "locs") {
       cap();
       for (var j = 0; j < 11; j++) {
-        var b = Math.PI * (0.28 + j / 10 * 1.44);
+        var b = Math.PI * (1.85 + j / 10 * 1.3);
         out.push(piece(T, new T.CapsuleGeometry(0.03, 0.3, 3, 6), h,
                        [Math.cos(b) * 0.2, -0.02, Math.sin(b) * 0.2 + 0.03], [1, 1, 1], [Math.sin(b) * 0.2, 0, -Math.cos(b) * 0.2]));
       }
@@ -154,7 +159,9 @@ var WorldHero = (function () {
   function face(T, L, out) {
     var dark = L.hair === "none" || L.hair === "scarf" || L.hair === "wrap" ? "#3b2a20" : L.hairColour;
     [-1, 1].forEach(function (s) {
+      out.push(piece(T, new T.SphereGeometry(0.042, 12, 8), "#f6f3ec", [s * 0.075, 0.17, -0.172], [1, 1.12, 0.6]));
       out.push(piece(T, new T.SphereGeometry(0.03, 10, 8), EYE, [s * 0.075, 0.17, -0.183]));
+      out.push(piece(T, new T.SphereGeometry(0.008, 6, 4), "#ffffff", [s * 0.075 + 0.01, 0.182, -0.208]));
       out.push(piece(T, new T.CapsuleGeometry(0.012, 0.05, 3, 6), dark, [s * 0.075, 0.24, -0.186], [1, 1, 1], [0, 0, Math.PI / 2 + s * 0.12]));
     });
     out.push(piece(T, new T.SphereGeometry(1, 14, 10), MOUTH, [0, 0.04, -0.19], [0.062, 0.03, 0.02]));
@@ -298,6 +305,11 @@ var WorldHero = (function () {
     h.head.rotation.set(0, 0, tk * 0.08);
   }
 
+  /** @param {number} v */
+  function fill(v) {
+    shared.fill.value = v;
+  }
+
   /** @param {Object} h */
   function dispose(h) {
     if (!h) return;
@@ -306,5 +318,5 @@ var WorldHero = (function () {
   }
 
   return Object.freeze({ OPTIONS: OPTIONS, PRESETS: PRESETS, normal: normal, preset: preset, build: build, pose: pose,
-                         dispose: dispose });
+                         fill: fill, dispose: dispose });
 })();

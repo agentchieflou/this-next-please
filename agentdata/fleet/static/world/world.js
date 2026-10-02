@@ -332,6 +332,7 @@ function vWeather() {
   vState.renderer.setClearColor(vState.scene.fog.color);
   vState.lights.hemi.intensity = 0.12 + 0.95 * d;
   vState.lights.sun.intensity = 0.55 * d;
+  WorldHero.fill(0.08 + 0.17 * d);
   var night = 1 - d;
   vState.lights.bulbs.forEach(function (b) { b.intensity = 18 * night; });
   vState.parts.heads.material.color.setHex(night > 0.5 ? 0xffd9a0 : 0x8f8a80);
