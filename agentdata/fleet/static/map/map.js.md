@@ -17,7 +17,8 @@ A classic script like `settings.js`, loaded after `common.js`, whose token, `q`,
 (docs/fleet-map.md §The graph) and draws it as a WAI-ARIA tree: projects, their checkouts
 (worktrees marked) and each checkout's agent, then the project's branches, then the network.
 The words are the graph's own `says`; the page adds no sentence of its own but the two group
-names. The scene (#409) is drawn from this tree later. It stays live (#406): its own stream
+names. The scene (#409, `map/scene.js`) is drawn from this tree where the gate says on (below,
+`function mapGate`). It stays live (#406): its own stream
 from the graph's cursor, a throttled refetch, a live dot, and deleted branches kept as words.
 
 The render contract holds here as on the desk: every write goes through the setters, so a draw
@@ -144,10 +145,49 @@ In `source.onerror`, above `setTimeout(function () {`:
 
 What was drawn in between cannot be trusted: re-read it, then resume from its cursor.
 
+## the scene (#409)
+
+### `function mapGate`
+
+The ink gate restated for the map (docs/desk-ink.md §The gate), as a pure function of the probe's
+class, `?ink=` and whether the pointer is coarse under 900 px, answering `{on, source, why}` as
+`Ink.verdict` does: `?ink=off` is off (`param`); `?ink=on` is on (`override`), a test override and
+never a measurement; a coarse pointer under 900 px is off (`narrow`, #580); else on only for
+`hardware` (`probe`). The map does not load `ink/ink.js` (it would follow the skin and fetch the
+layer), so the rule is written here and a test holds the two equal for every probe class.
+
+### `var MAP_PLUGINS`
+
+The one import block for the scene's plugins (#409 Build 9): each later map card (#410-#414) adds
+its module's path here, and its `default` export is handed to the scene's `use()` before `start`.
+Empty in #409.
+
+### `var mapVerdict`
+
+The page's own answer, decided once at load from `data-ink-probe` (the server writes it on
+`<body>`, `serve.INKED_PAGES`), `?ink=` and the pointer. It only ever turns off after that
+(`source: "runtime"`), never back on: the gate is decided per page.
+
+### `function mapOff`
+
+The scene is off for the rest of the page's life: the verdict says why, the running scene stops,
+its canvas leaves the stage, and `map-scene` comes off `<body>`, so the tree is the whole page
+again. `ink-off` is never touched: the map wears it for its whole life. Called by a failed import, a
+scene that would not start (no WebGL context) and a lost context (`host.off`).
+
+### `function mapStart`
+
+Only where the gate says on: `map-scene` on `<body>` (the stage is shown), then the scene's module
+through `q()`, then each plugin's, then `start({stage, tree, ready, off})`. `ready` is the tree's
+first draw, so the scene's first frame is the fleet. A scene that resolves after the page turned it
+off is stopped at once. `FleetMap.scene` is the running scene's `{inspect, sample, screen}`.
+
 ### `window.FleetMap = Object.freeze({`
 
 Above `window.FleetMap = Object.freeze({`:
 
 What a test and #409's scene hold on to. `draw` feeds the tree a graph of the caller's and
 pauses the page's own drawing, so a refetch never overwrites it. `stream` is the live loop's
-count of `agent` frames and its state (`live`, `reconnecting`, or "" before it opens).
+count of `agent` frames and its state (`live`, `reconnecting`, or "" before it opens). `gate` is
+`mapGate`; `verdict` a copy of the page's own answer; `scene` the running scene's test surface, or
+`null` where the gate said off or the scene turned itself off.

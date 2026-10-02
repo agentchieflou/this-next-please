@@ -13,7 +13,7 @@ note says which line it sat beside. A builder who changes a rule changes its not
 /map (#405): the fleet as an accessible tree, and the map's whole plain look.
 
 Tokens only, no colour literals: the palette and the skin reach this page as they reach the
-desk. The tree IS the page; `#mapstage` is where the scene (#409) will draw, and it is not shown
+desk. The tree IS the page; `#mapstage` is where the scene (#409) draws, and it is not shown
 until `body.map-scene` says there is one. No word here is in `--muted`: secondary words are
 `--text` at weight 400 and at least 12px, so every sentence reads at 4.5:1 on every palette.
 
@@ -28,6 +28,12 @@ Focus is the outline on the words, never a state colour (the `app.css` `#tickets
 Above `body.map-scene #map { flex-direction: row; }`:
 
 With a scene (#409 sets `map-scene`): the tree is a 320px column and the stage the rest.
+
+### `#mapstage > canvas`
+
+The scene's canvas (#409) lies over the whole stage, absolutely, so its drawing-buffer size never
+feeds back into the stage's layout: the stage is sized by the page and the scene follows it with a
+`ResizeObserver`. `body.map-scene #mapstage` is `position: relative` for it.
 
 ### `@media (max-width: 900px)`
 

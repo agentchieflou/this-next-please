@@ -582,6 +582,9 @@
     "tests/test_fleet_map_page.py": {
       "tests": 6
     },
+    "tests/test_fleet_map_scene.py": {
+      "tests": 7
+    },
     "tests/test_fleet_mobile_runbook.py": {
       "tests": 2
     },

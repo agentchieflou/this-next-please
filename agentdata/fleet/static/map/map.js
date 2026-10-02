@@ -332,14 +332,69 @@ mapFetch().then(mapConnect, function () {
   if (!mapState.paused) mapShow({ says: "the map could not be read; reload to try again" });
 });
 
+function mapGate(probe, asked, narrow) {
+  var p = String(probe || "unmeasured"), a = String(asked || "").toLowerCase();
+  if (a === "off") return { on: false, source: "param", why: "?ink=off" };
+  if (a === "on") {
+    return { on: true, source: "override",
+             why: "forced on by ?ink=on: a test override, not a measurement (the probe says " + p + ")" };
+  }
+  if (narrow) return { on: false, source: "narrow", why: "a coarse pointer under 900px" };
+  if (p === "hardware") return { on: true, source: "probe", why: "the probe measured hardware WebGL" };
+  return { on: false, source: "probe",
+           why: p === "unmeasured" ? "nothing has measured WebGL in this shell yet" : "the probe measured " + p };
+}
+
+var MAP_PLUGINS = [];
+var mapStage = document.getElementById("mapstage");
+var mapVerdict = mapGate(document.body.getAttribute("data-ink-probe"), PARAMS.get("ink"),
+                         !!(window.matchMedia && matchMedia("(pointer: coarse) and (max-width: 900px)").matches));
+var mapRunning = null;
+var mapScene = null;
+
+function mapOff(reason) {
+  if (mapVerdict.on) mapVerdict = { on: false, source: "runtime", why: String(reason || "turned off") };
+  var running = mapRunning;
+  mapRunning = mapScene = null;
+  if (running) {
+    try { running.stop(); } catch (e) {}
+  }
+  var canvas = mapStage.querySelector("canvas");
+  if (canvas) canvas.remove();
+  toggle(document.body, "map-scene", false);
+}
+
+function mapStart() {
+  toggle(document.body, "map-scene", true);
+  import(q("/static/map/scene.js")).then(function (m) {
+    return Promise.all(MAP_PLUGINS.map(function (p) { return import(q(p)); })).then(function (mods) {
+      mods.forEach(function (x) { m.use(x["default"]); });
+      return m.start({ stage: mapStage, tree: mapTree, ready: mapReadyPromise, off: mapOff });
+    });
+  }).then(function (running) {
+    if (!mapVerdict.on) {
+      running.stop();
+      return;
+    }
+    mapRunning = running;
+    mapScene = Object.freeze({ inspect: running.inspect, sample: running.sample, screen: running.screen });
+  }).catch(function (e) {
+    mapOff("the map's scene could not start: " + String((e && e.message) || e));
+  });
+}
+
 window.FleetMap = Object.freeze({
   ready: mapReadyPromise,
   draw: function (graph) {
     mapState.paused = true;
     mapShow(graph);
   },
+  gate: mapGate,
   get graph() { return mapState.graph; },
   get paused() { return mapState.paused; },
   get stream() { return { frames: mapState.frames, state: mapState.live }; },
-  get scene() { return null; }
+  get verdict() { return Object.assign({}, mapVerdict); },
+  get scene() { return mapScene; }
 });
+
+if (mapVerdict.on) mapStart();

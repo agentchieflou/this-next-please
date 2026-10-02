@@ -96,6 +96,11 @@ three.js will not load, or the GPU takes the context back (`webglcontextlost`), 
 the page's life. The canvas goes, `body.ink-off` comes, and the table in force is drawn plain at once. A restored
 context is not taken back up: the gate is decided per page.
 
+**The map uses the same rule (#409).** `/map` carries the same facts on its `<body>` (`serve.INKED_PAGES`) and
+decides its scene by the table above, restated as `FleetMap.gate` in `map/map.js` (the map never loads `ink.js`):
+the same classes, `?ink=off`, `?ink=on` and `narrow`, with a lost context or a failed import turning it off for the
+page's life ([fleet-map.md](fleet-map.md) §The scene). `tests/test_fleet_map_scene.py` checks it against this table.
+
 A shell is measured under its own name: `ad-fleet probe --open pycharm`, `vscode`, `edge` or `browser`. A window
 opened under another name, such as `ad-fleet open --in edge --window left`, is looked up under that name. Add `shell=edge`
 to its address to read Edge's record.
