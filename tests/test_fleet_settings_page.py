@@ -193,8 +193,10 @@ def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path, d
 
         # the Copilot block is built from the server's enumerated table, not from the markup
         assert page.eval_on_selector_all("#cfgrows .setrow", "els => els.length") > 5
-        assert page.eval_on_selector_all("#allowlist li", "els => els.length") > 5
-        assert page.eval_on_selector_all("#denylist li", "els => els.length") > 5
+        # Tool access is `copilot` by default (2026-10-02): every tool, and the fleet's own commands denied.
+        allowed = page.eval_on_selector_all("#allowlist li code", "els => els.map(e => e.textContent)")
+        assert allowed == ["every tool a Copilot window would ask about"], allowed
+        assert page.eval_on_selector_all("#denylist li", "els => els.length") == 6
 
         # The model block: a picker for every agent, one per row, and no box to type into.
         block = page.evaluate("""() => {
@@ -729,7 +731,7 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path, desk_
         page.wait_for_selector("#modelrows tr", timeout=10000)
 
         # A pill on the fleet-wide default: `fleet.model`, and what beta, with no entry, runs.
-        assert page.evaluate(source, "beta") == "cli-auto"
+        assert page.evaluate(source, "beta") == "default"
         with _posted(page):
             page.click("#fleetpicker .mp-models button.pill[data-model='claude-sonnet-5']")
         page.wait_for_function(f"() => ({source})('beta') === 'fleet.model'", timeout=10000)

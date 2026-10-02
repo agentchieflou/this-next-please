@@ -73,7 +73,7 @@ def _one(argv: list[str], flag: str, default: str = "") -> str:
     return found[0] if found else default
 
 
-def permitted(command: str, allow: list[str], deny: list[str]) -> tuple[bool, str]:
+def permitted(command: str, allow: list[str], deny: list[str], allow_all: bool = False) -> tuple[bool, str]:
     """The real CLI's rule, as the spike measured it: `shell(<prefix>)` is a PREFIX match.
 
     Deny wins, and is checked first -- which is what makes a deny useless as a safety net for a
@@ -92,6 +92,9 @@ def permitted(command: str, allow: list[str], deny: list[str]) -> tuple[bool, st
     for prefix in prefixes(deny):
         if command.startswith(prefix):
             return False, f"denied by --deny-tool shell({prefix})"
+    if allow_all:
+        # `--allow-all-tools`: every tool is allowed, and a deny still wins -- the order above.
+        return True, ""
     for prefix in prefixes(allow):
         if command.startswith(prefix):
             return True, ""
@@ -172,7 +175,7 @@ def play(entry: dict, argv: list[str]) -> int:
             emit({"type": "tool.execution_start",
                   "data": {"toolCallId": calls_id, "toolName": "shell",
                            "arguments": {"command": command}}})
-            allowed, why = permitted(command, allow, deny)
+            allowed, why = permitted(command, allow, deny, allow_all="--allow-all-tools" in argv)
             if not allowed:
                 # Exactly the shape the spike recorded: the tool is attempted, refused, reported on
                 # `tool.execution_complete`, and the turn still finishes 0. There is no permission

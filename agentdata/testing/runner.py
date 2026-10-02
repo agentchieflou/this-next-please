@@ -245,6 +245,18 @@ def parse_text_fallback(text: str, returncode: int, root: str = ".") -> tuple[An
     return "unknown", "unknown", 0, 0, failures
 
 
+def split_command(cmd: str, *, nt: bool | None = None) -> list[str]:
+    """A command line as argv. On Windows `shlex` runs with `posix=False`, which keeps a quoted
+    word's quotes: `python -c "print(1)"` handed Python the string literal `"print(1)"`, which
+    prints nothing, and a run that printed its result read as `indeterminate` (windows CI on #624).
+    One pair of matching quotes around a whole word is taken off; a quote inside a word stays."""
+    nt = os.name == "nt" if nt is None else nt
+    parts = shlex.split(cmd, posix=not nt)
+    if not nt:
+        return parts
+    return [p[1:-1] if len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'" else p for p in parts]
+
+
 def run_tests(
     root: str = ".",
     *,
@@ -298,7 +310,7 @@ def run_tests(
         cmd_str = info.cmd
 
     # 2. Check executable resolution
-    cmd_parts = shlex.split(cmd_str, posix=(os.name != "nt"))
+    cmd_parts = split_command(cmd_str)
     first_bin = cmd_parts[0] if cmd_parts else ""
     if first_bin == "python":
         first_bin = sys.executable

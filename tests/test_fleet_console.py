@@ -257,19 +257,28 @@ def _patterns(argv, flag):
 
 
 def test_the_consoles_argv_is_the_turns_without_the_three_headless_flags():
-    """Acceptance criterion (#189). No `-p`, no `--no-ask-user`, no `--output-format`; the
-    enumerated allow-list; `--session-id <id>`; `-C <repo>`."""
-    argv = launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="6f1c-console")
+    """Acceptance criterion (#189). No `-p`, no `--no-ask-user`, no `--output-format`; the same
+    permissions as a headless turn, in either mode; `--session-id <id>`; `-C <repo>`."""
+    strict = {"fleet": {"permissions": "strict"}}
+    argv = launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="6f1c-console", cfg=strict)
     assert argv[0] == "copilot"
     for gone in ("-p", "--no-ask-user", "--output-format", "--usage-output-file"):
         assert gone not in argv, gone
     assert _patterns(argv, "--session-id") == ["6f1c-console"] and "--resume" not in argv
     assert _patterns(argv, "-C") == ["C:/repo"] and _patterns(argv, "--add-dir") == ["C:/repo"]
     assert _patterns(argv, "--log-dir") == ["C:/logs"] and "--disable-builtin-mcps" in argv
-    headless = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    headless = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=strict)
     assert _patterns(argv, "--allow-tool") == _patterns(headless, "--allow-tool"), "the same enumerated list"
     assert _patterns(argv, "--deny-tool") == _patterns(headless, "--deny-tool")
     assert "shell(ad-fleet)" in _patterns(argv, "--deny-tool")
+
+    # The default (2026-10-02): a console has the headless turn's tools and autopilot too.
+    argv = launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="6f1c-console")
+    headless = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    for flag in ("--allow-all-tools", "--autopilot"):
+        assert flag in argv and flag in headless, flag
+    assert "--disable-builtin-mcps" not in argv
+    assert _patterns(argv, "--deny-tool") == _patterns(headless, "--deny-tool") == launch.FLEET_SELF
 
 
 def test_a_resumed_console_continues_the_session_it_names_and_a_blanket_permission_is_refused():

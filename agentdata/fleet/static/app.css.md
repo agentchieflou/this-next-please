@@ -1016,3 +1016,13 @@ width. Here each label takes its own line over a full-width field, the halves st
 is held to the window (its auto margins would otherwise size it to its widest word), `.why`
 breaks anywhere, and a table wider than the window scrolls inside itself rather than the page.
 Every selector keeps the `body.settings-page` prefix: the block is still the settings page's.
+
+### `body.settings-page #crdirs`
+
+The repository's allowed directories, one absolute path per line, in the mono face the paths are
+written in elsewhere on the page; it takes the row's width so a long Windows path is readable.
+
+### `body.settings-page #cgkey, body.settings-page #cgvalue, body.settings-page #crids`
+
+The boxes under Copilot's global table and the repository's approvals, styled as the page's other
+inputs so the two Copilot sections read as part of the page and not as a pasted-in form.

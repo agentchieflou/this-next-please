@@ -107,6 +107,9 @@ def test_a_new_turn_forgets_what_the_last_one_was_refused():
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTDATA_FLEET_DIR", str(tmp_path / "fleet"))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    # A refusal needs an allow-list to fall outside: `strict`. The default since 2026-10-02 is a
+    # Copilot window's tools, where only the fleet's own commands are refused (the last test here).
+    C.save({"fleet": {"permissions": "strict"}})
     for name in ("luna", "uat"):
         Registry().add(_project(str(tmp_path / name)), name=name)
     return tmp_path
@@ -158,7 +161,7 @@ def test_refused_then_granted_from_the_desk_then_retried(home, tmp_path, monkeyp
     sends the retry, and the second launch carries the entry and runs the command."""
     fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
     monkeypatch.setenv("AGENTDATA_FAKE_CASE", "refused-then-granted")
-    supervisor.start("luna", key="RDSD-7", cfg={"fleet": {"notify": {"toast": False}}})
+    supervisor.start("luna", key="RDSD-7", cfg={"fleet": {"permissions": "strict", "notify": {"toast": False}}})
     _settle(["luna"])
     E.refresh("luna", str(home / "luna"), repo_state=Registry().get("luna").state())
     got = agentstate.derive(E.read("luna"))
@@ -255,6 +258,15 @@ def test_the_terminal_verb_is_the_same_action_and_refuses_the_floor_by_name(home
     out = capsys.readouterr().out
     assert "allowed: shell(dscmd.exe)" in out and "retried: false" in out
     assert OV.own(C.load(), "luna")[G.KEY] == ["shell(dscmd.exe)"]
+
+
+def test_with_a_windows_tools_only_the_fleets_own_commands_are_refused_and_never_granted(home):
+    cfg = {"fleet": {"permissions": "all"}}
+    assert G.grant(cfg, "luna", ["shell(pncli)"], known={"luna"})["allowed"] == ["shell(pncli)"], \
+        "nothing on the strict floor is denied here, so nothing stops it"
+    with pytest.raises(G.GrantError) as e:
+        G.grant(cfg, "luna", ["shell(ad-fleet)"], known={"luna"})
+    assert e.value.code == "denied_by_floor" and "operator" in e.value.hint
 
 
 # ------------------------------------------------------------------- the environment it starts in

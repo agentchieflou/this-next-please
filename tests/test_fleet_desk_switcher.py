@@ -538,7 +538,8 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
                   && document.querySelector('.tile[data-repo="gamma"] .bottom .start').textContent === 'Start fresh'""",
             timeout=10000)
         title = start.get_attribute("title")
-        assert "RDSD-1" in title and "the CLI's own choice" in title and "began yesterday" in title, title
+        # Nothing chosen is the operator's default, `auto` (2026-10-02).
+        assert "RDSD-1" in title and "on auto" in title and "began yesterday" in title, title
         assert not gamma.locator(".head .freshtoggle").is_visible(), "a full pane keeps #489's head rule"
         # Text that is not a ticket key is refused, never launched: on a mid-ticket pane ...
         box.fill("hello")

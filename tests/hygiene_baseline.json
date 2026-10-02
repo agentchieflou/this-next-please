@@ -324,7 +324,7 @@
       "tests": 22
     },
     "tests/test_fleet.py": {
-      "tests": 32
+      "tests": 35
     },
     "tests/test_fleet_agent_settings.py": {
       "tests": 11
@@ -380,6 +380,9 @@
       "loops": 1,
       "skips": 2,
       "tests": 32
+    },
+    "tests/test_fleet_copilot_files.py": {
+      "tests": 9
     },
     "tests/test_fleet_demo_branches.py": {
       "tests": 2
@@ -460,7 +463,7 @@
       "tests": 16
     },
     "tests/test_fleet_grants.py": {
-      "tests": 16
+      "tests": 17
     },
     "tests/test_fleet_gutters.py": {
       "tests": 21
@@ -990,7 +993,7 @@
       "tests": 12
     },
     "tests/test_testing_run.py": {
-      "tests": 7
+      "tests": 8
     },
     "tests/test_textio.py": {
       "tests": 5

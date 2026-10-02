@@ -35,7 +35,10 @@ reason gives whoever picks the ticket up nothing to act on.
 
 ## Two layers, and why neither is enough alone
 
-**Layer 1 — the launch allow-list (#93).** The agent is started with an enumerated whitelist of
+**Layer 1 — the launch allow-list (#93), for an agent set to `fleet.permissions: strict`.** Since
+2026-10-02 the default is a Copilot window's tools (`--allow-all-tools`, [fleet.md](fleet.md)), and
+for such an agent layer 2 is the boundary for every write made through an `ad-*` command. Under
+`strict` the agent is started with an enumerated whitelist of
 shell commands. `curl`, `Invoke-RestMethod`, `wget` and bare `pncli` are not on it, and are on the
 deny floor as well, so the agent cannot reach a system of record except through an `ad-*` command.
 
