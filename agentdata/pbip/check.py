@@ -78,7 +78,8 @@ def check_model(model: Model) -> list[Finding]:
 
 
 def check_report(report: P.Report, model: Model, facts: dict | None = None) -> list[Finding]:
-    """`facts` are the project's AGENTS.md facts; the custom-visual tenant rules run only when given."""
+    """`facts` are the project's AGENTS.md facts. The custom-visual certification floor runs either way
+    (no facts: nothing is certified, SDK visuals are blocked); the tenant rules run only when given."""
     out: list[Finding] = []
     idx = ModelIndex(model, report)
     for f in report.findings:
@@ -201,33 +202,49 @@ def check_report(report: P.Report, model: Model, facts: dict | None = None) -> l
 
 
 # Where a custom visual comes from decides who sees it. The PBIR report schema
-# (microsoft/json-schemas, fabric/item/report/definition/report/3.1.0) keeps three registries:
-# `publicCustomVisuals` names AppSource visuals, `organizationCustomVisuals` the organizational
-# store's, and a `resourcePackages` entry of type `CustomVisual` a private visual imported from a
-# .pbiviz file. Only a private visual travels inside the report (Desktop and `ad-pbiviz import`
-# write it under `CustomVisuals/<guid>/`; `ad-pbiviz import` once copied the .pbiviz under
+# (microsoft/json-schemas, fabric/item/report/definition/report/3.1.0) and Microsoft's authoring guide
+# (skills-for-fabric, powerbi-report-cli `custom-visuals.md`) give three channels:
+# `publicCustomVisuals` names AppSource visuals; a `resourcePackages` entry of type
+# `OrganizationalStoreCustomVisual`, named `<GUID>_OrgStore` like the visual's `visualType`, registers
+# an organizational-store visual (the root `organizationCustomVisuals` array is schema-valid but does
+# not register the plugin, so a visual listed only there renders as an empty placeholder); and a
+# `resourcePackages` entry of type `CustomVisual` a private visual imported from a .pbiviz file. Only
+# a private visual travels inside the report (Desktop and `ad-pbiviz import` write it under
+# `CustomVisuals/<guid>/`; `ad-pbiviz import` once copied the .pbiviz under
 # `StaticResources/RegisteredResources/`, which still counts): Power BI fetches AppSource and store
 # visuals itself, so asking them for a package is a false error.
 ORG, FILE, APPSOURCE = "organizational store", "file", "AppSource"
+ORG_SUFFIX = "_OrgStore"
 
-# `pbi_custom_visuals` (AGENTS.md): what the tenant renders for the report's viewers, i.e. the
-# Fabric tenant settings "Allow visuals created using the Power BI SDK" and "Add and use certified
-# visuals only". Neither setting applies to organizational-store visuals. The gate fails closed:
-# a tenant nobody recorded is treated as one that renders nothing but native and store visuals,
-# because a report that ships a visual its viewers cannot see is the failure this exists to stop.
+# The enterprise floor, which no fact downgrades: a custom visual that is not Microsoft-certified is
+# an error everywhere. Certified means its GUID is in `pbi_certified_visuals`, the project's list of
+# AppSource GUIDs whose certified badge somebody checked (the project stub presets Deneb's); nothing
+# listed, nothing certified. A private .pbiviz is uncertified by definition (an SDK visual, gated by
+# `pbi_sdk_visuals`, agentdata/pbiviz/gate.py). Deneb's Standalone, Alpha and Beta editions share
+# the certified GUID's suffix and are never the certified visual, listed or not.
+#
+# On top of it, `pbi_custom_visuals` (AGENTS.md): what the tenant renders for the report's viewers,
+# i.e. the Fabric tenant settings "Allow visuals created using the Power BI SDK" and "Add and use
+# certified visuals only". Neither setting applies to organizational-store visuals. The gate fails
+# closed: a tenant nobody recorded is treated as one that renders nothing but native and store
+# visuals, because a report that ships a visual its viewers cannot see is the failure this exists to stop.
 TENANT = ("allowed", "certified-only", "org-only")
+UNCERTIFIED_EDITIONS = ("STANDALONE", "ALPHA", "BETA")   # deneb.UNCERTIFIED_EDITIONS, without the import
 ROUTES = ("take a route this tenant renders: skill `pbi-custom-visual` (native first, then a Microsoft-certified "
           "visual; a non-certified visual is never the route)")
 
 
-def _custom_visual_registry(report: P.Report) -> tuple[set[str], dict[str, bool], set[str]]:
-    """(AppSource names, store names → disabled, private package names) from definition/report.json."""
+def _custom_visual_registry(report: P.Report) -> tuple[set[str], dict[str, bool], set[str], set[str]]:
+    """(AppSource names, store names → disabled, private package names, store names listed only in the root
+    `organizationCustomVisuals` array) from definition/report.json."""
     rj_path = os.path.join(report.root, "definition", "report.json") if report.root else ""
     rj = P._load(rj_path) if rj_path and os.path.exists(rj_path) else {}
     public = {i if isinstance(i, str) else i.get("name") for i in rj.get("publicCustomVisuals") or []
               if isinstance(i, str) or isinstance(i, dict)}
-    store = {i["name"]: bool(i.get("disabled")) for i in rj.get("organizationCustomVisuals") or []
-             if isinstance(i, dict) and i.get("name")}
+    root_listed = {i["name"]: bool(i.get("disabled")) for i in rj.get("organizationCustomVisuals") or []
+                   if isinstance(i, dict) and i.get("name")}
+    store = dict(root_listed)
+    packaged: set[str] = set()
     private: set[str] = set()
     for rp in rj.get("resourcePackages") or []:
         if not isinstance(rp, dict) or not rp.get("name"):
@@ -236,7 +253,28 @@ def _custom_visual_registry(report: P.Report) -> tuple[set[str], dict[str, bool]
             private.add(rp["name"])
         elif rp.get("type") == "OrganizationalStoreCustomVisual":
             store.setdefault(rp["name"], False)
-    return public - {None}, store, private
+            packaged.add(rp["name"])
+    bare = {n for n in root_listed if n not in packaged and n + ORG_SUFFIX not in packaged}
+    return public - {None}, store, private, bare
+
+
+def _guid(vtype: str) -> str:
+    """The visual's GUID: an organizational-store `visualType` carries it with the `_OrgStore` suffix."""
+    return vtype[: -len(ORG_SUFFIX)] if vtype.endswith(ORG_SUFFIX) else vtype
+
+
+def _listed(value: object) -> set[str]:
+    return {g.strip().lower() for g in str(value or "").split(",") if g.strip()}
+
+
+def _uncertified_edition(vtype: str) -> bool:
+    """Deneb's Standalone, Alpha and Beta editions: not on AppSource, so never the certified visual."""
+    guid = _guid(vtype)
+    return "deneb" in guid.lower() and any(guid.upper().startswith(e) for e in UNCERTIFIED_EDITIONS)
+
+
+def _is_certified(vtype: str, certified: set[str]) -> bool:
+    return not _uncertified_edition(vtype) and (_guid(vtype).lower() in certified or vtype.lower() in certified)
 
 
 def _private_package_on_disk(report: P.Report, vtype: str) -> bool:
@@ -257,26 +295,50 @@ def _standard_visual_types() -> set[str]:
     }
 
 
-def custom_visual_delivery(report: P.Report, facts: dict | None = None) -> list[Finding]:
+def custom_visual_delivery(report: P.Report, facts: dict | None = None,
+                           workspace: tuple[str, ...] | None = None) -> list[Finding]:
     """Whether every custom visual in the report reaches its viewers: registered, packaged when it
-    must be, not switched off in the store, and, when `facts` are given, rendered by this tenant.
+    must be, not switched off in the store, certified (the enterprise floor, which runs whether or not
+    `facts` are given and which no fact downgrades), and, when `facts` are given, rendered by this tenant.
+
+    `workspace` is the target of a publish, as (id, display name): an SDK visual approved for one
+    workspace (`pbi_sdk_workspace`) is refused anywhere else; `()` leaves the target unchecked. Left
+    out (None), the project's own `pbi_workspace` / `ws_id` facts stand in for the target.
 
     `ad-pbip check` and `ad-pbi publish report` both run it; publish refuses on any error row."""
+    from ..pbiviz import gate as SG
     out: list[Finding] = []
     standard = _standard_visual_types()
-    public, store, private = _custom_visual_registry(report)
+    public, store, private, bare = _custom_visual_registry(report)
+    known = facts if facts is not None else {}
+    sdk = SG.gate(known)
+    certified = _listed(known.get("pbi_certified_visuals"))
+    org_listed = _listed(known.get("pbi_org_visuals"))
 
-    tenant = str(facts.get("pbi_custom_visuals") or "").strip().lower() if facts is not None else ""
-    certified = ({g.strip() for g in str(facts.get("pbi_certified_visuals") or "").split(",") if g.strip()}
-                 if facts is not None else set())
-    if tenant and tenant not in TENANT + ("unknown",):
+    tenant = str(known.get("pbi_custom_visuals") or "").strip().lower()
+    if facts is not None and tenant and tenant not in TENANT + ("unknown",):
         out.append(Finding(
             "warning", "custom-visual-tenant-fact-invalid", "AGENTS.md", "pbi_custom_visuals",
             f"pbi_custom_visuals is '{tenant}', which is none of {', '.join(TENANT)}; treated as unrecorded",
             "record what the tenant renders for this report's viewers: allowed, certified-only or org-only",
         ))
         tenant = ""
+    if facts is not None and sdk.invalid:
+        out.append(Finding(
+            "warning", "custom-visual-sdk-fact-invalid", "AGENTS.md", SG.FACT,
+            f"{SG.FACT} is '{sdk.written}', which is none of {', '.join(SG.STATES)}; treated as blocked",
+            f"write `- {SG.FACT}: blocked`, or `approved` once the operator has workspace approval for SDK visuals",
+        ))
+    for name in sorted(bare):
+        out.append(Finding(
+            "warning", "custom-visual-org-root-entry", "definition/report.json", name,
+            f"'{name}' is listed in report.json organizationCustomVisuals, which does not register the visual: "
+            "Desktop draws an empty placeholder in its place",
+            f"register it as a resourcePackages entry of type OrganizationalStoreCustomVisual named "
+            f"'{_guid(name)}{ORG_SUFFIX}' (item path \"\"), with the same visualType, and drop the root entry",
+        ))
     unchecked: list[str] = []
+    sdk_shipped = False
 
     for v in report.all_visuals():
         vtype = v.type
@@ -291,9 +353,13 @@ def custom_visual_delivery(report: P.Report, facts: dict | None = None) -> list[
             out.append(Finding(
                 "error", "custom-visual-guid-unregistered", v.file, v.id,
                 f"custom visual type '{vtype}' is in none of report.json publicCustomVisuals, "
-                "organizationCustomVisuals or resourcePackages",
-                "add it in Desktop from AppSource or My organization, or replace it: " + ROUTES,
+                "resourcePackages or organizationCustomVisuals",
+                (f"the organizational store registers it as '{vtype}{ORG_SUFFIX}': set visualType to that"
+                 if vtype + ORG_SUFFIX in store else
+                 "add it in Desktop from AppSource or My organization (never from a name-guessed GUID), or "
+                 "replace it: " + ROUTES),
             ))
+            continue
 
         # only a private visual ships its package
         if channel == FILE and not on_disk:
@@ -311,8 +377,47 @@ def custom_visual_delivery(report: P.Report, facts: dict | None = None) -> list[
                 "ask the Fabric admin to turn access back on, or " + ROUTES,
             ))
 
-        # the tenant settings never reach a store visual
-        if facts is None or channel not in (FILE, APPSOURCE):
+        # The enterprise floor: certified, or (store only) the enterprise's own pick. No fact downgrades it.
+        if channel == ORG:
+            picked = vtype.lower() in org_listed or _guid(vtype).lower() in org_listed
+            if not (_is_certified(vtype, certified) or (picked and tenant == "org-only")):
+                out.append(Finding(
+                    "error", "custom-visual-org-unapproved", v.file, v.id,
+                    f"'{vtype}' comes from the organizational store; its GUID is not in pbi_certified_visuals, and "
+                    "it is not an organizational visual the operator approved (in pbi_org_visuals, on a tenant "
+                    "recorded as pbi_custom_visuals: org-only): the enterprise blocks visuals that are not certified",
+                    "check its certified badge and add the GUID to pbi_certified_visuals; or, when this tenant "
+                    "renders the organizational store only and the store carries it, list it in pbi_org_visuals; "
+                    "otherwise " + ROUTES,
+                ))
+            continue        # the tenant settings never reach a store visual
+        if channel == FILE and not sdk.approved:
+            out.append(Finding(
+                "error", "custom-visual-uncertified", v.file, v.id,
+                f"'{vtype}' is a private visual from a .pbiviz file, built with the Power BI SDK and not "
+                f"Microsoft-certified: {SG.BLOCKED}",
+                ROUTES + f"; `{SG.FACT}: approved` is the operator's to write, once workspace approval exists",
+            ))
+            continue
+        if channel == APPSOURCE and _uncertified_edition(vtype):
+            out.append(Finding(
+                "error", "custom-visual-uncertified", v.file, v.id,
+                f"'{vtype}' is an uncertified edition of Deneb: the enterprise blocks visuals that are not certified",
+                "use Deneb's certified AppSource edition (`ad-pbip visual deneb`), or " + ROUTES,
+            ))
+            continue
+        if channel == APPSOURCE and not _is_certified(vtype, certified):
+            out.append(Finding(
+                "error", "custom-visual-certification-unconfirmed", v.file, v.id,
+                f"'{vtype}' comes from AppSource, and the enterprise renders it only if it is Microsoft-certified; "
+                "pbi_certified_visuals does not list it",
+                "check the certified badge on its AppSource listing, then add the GUID to pbi_certified_visuals "
+                "in AGENTS.md; if it is not certified, " + ROUTES,
+            ))
+            continue
+        sdk_shipped = sdk_shipped or channel == FILE
+
+        if facts is None:
             continue
         origin = "a .pbiviz file" if channel == FILE else "AppSource"
         if tenant == "org-only":
@@ -330,23 +435,33 @@ def custom_visual_delivery(report: P.Report, facts: dict | None = None) -> list[
                 "(pbi_custom_visuals: certified-only): a visual loaded from a file is not the certified one",
                 "for a certified visual, add its AppSource edition instead; otherwise " + ROUTES,
             ))
-        elif tenant == "certified-only" and vtype not in certified:
-            out.append(Finding(
-                "error", "custom-visual-certification-unconfirmed", v.file, v.id,
-                f"'{vtype}' comes from AppSource, and this tenant renders it only if it is Microsoft-certified; "
-                "pbi_certified_visuals does not list it",
-                "check the certified badge on its AppSource listing, then add the GUID to pbi_certified_visuals "
-                "in AGENTS.md; if it is not certified, " + ROUTES,
-            ))
         elif tenant == "allowed" and channel == FILE:
             out.append(Finding(
                 "warning", "custom-visual-uncertified", v.file, v.id,
-                f"'{vtype}' is a non-certified visual loaded from a file: it renders while the tenant allows files, "
-                "and stops the day the tenant turns certified-only",
+                f"'{vtype}' is a non-certified SDK visual loaded from a file: it ships under the operator's approval "
+                f"({SG.FACT}: approved), renders while the tenant allows files, and stops the day the tenant "
+                "turns certified-only",
                 ROUTES,
             ))
         elif tenant not in TENANT:
             unchecked.append(vtype)
+
+    if sdk_shipped:
+        targets = (workspace if workspace is not None
+                   else tuple(str(t) for t in (known.get("pbi_workspace"), known.get("ws_id")) if t))
+        if not sdk.workspace:
+            out.append(Finding(
+                "warning", "custom-visual-sdk-workspace-unrecorded", "AGENTS.md", SG.WORKSPACE_FACT,
+                "the report carries an SDK visual, and AGENTS.md does not name the workspace the approval covers",
+                f"record `- {SG.WORKSPACE_FACT}: <workspace name or id>`: publish then refuses any other workspace",
+            ))
+        elif targets and not sdk.workspace_matches(*targets):
+            out.append(Finding(
+                "error", "custom-visual-sdk-workspace", "AGENTS.md", SG.WORKSPACE_FACT,
+                f"SDK visuals are approved for workspace '{sdk.workspace}' only, and this report goes to "
+                f"'{' / '.join(str(t) for t in targets)}'",
+                f"publish to '{sdk.workspace}', or take the SDK visual out: " + ROUTES,
+            ))
 
     if unchecked:
         out.append(Finding(
