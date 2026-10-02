@@ -1795,6 +1795,10 @@ var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"
 if (setLink) setLink.href = pageUrl("/settings");
 var mapLink = /** @type {HTMLAnchorElement} */ (document.getElementById("mapbtn"));
 if (mapLink) mapLink.href = pageUrl("/map");
+var chatLink = /** @type {HTMLAnchorElement} */ (document.getElementById("chatbtn"));
+if (chatLink) chatLink.href = pageUrl("/chat");
+var worldLink = /** @type {HTMLAnchorElement} */ (document.getElementById("worldbtn"));
+if (worldLink) worldLink.href = pageUrl("/world");
 
 refresh().then(function () {
   LOAD.settled = document.body.dataset.skin || "";
@@ -5820,6 +5824,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "i") { section("unsorted"); return; }
   if (e.key === "?") { popover("keymap"); return; }
   if (e.key === "g") { location.href = pageUrl("/map"); return; }
+  if (e.key === "c") { var on = openName(); location.href = pageUrl("/chat") + (on ? "#" + encodeURIComponent(on) : ""); return; }
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });
 
