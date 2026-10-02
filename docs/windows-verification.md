@@ -451,6 +451,12 @@ ad-pbip model optimize --measure "Margin %" --pid <pid>
 Pass: `model apply` executes declarative ops over the port through TE2 `-S` or falls back to TMDL file editing with no `lineageTag` written; `--save` triggers UIA session save and waits for Desktop-serialised TMDL to settle; `model audit` returns actionable `fix` snippets; `audit --copilot` outputs a scored checklist; `model optimize` verifies results match before keeping rewrites and rolls back on mismatch.
 
 ## 17. Custom visual: `ad-pbiviz import`, then Desktop opens it
+**Blocked until workspace approval.** The enterprise blocks visuals that are not certified, so while the project's
+`pbi_sdk_visuals` is `blocked` (or absent) the pass is the refusal: `ad-pbiviz new cvcheck` exits 2 with
+`code: sdk_visuals_blocked`, and `ad-pbiviz doctor` reports `sdk_visuals,blocked` and names no install command.
+Run the rest only in a scratch project whose AGENTS.md says `- pbi_sdk_visuals: approved`, on the operator's word
+that the approval exists: the Node and `pbiviz` steps below are the SDK toolchain that approval covers.
+
 `ad-pbiviz import` is for trying a visual in Desktop, never for delivering one (skill `pbi-custom-visual`). It
 writes what Desktop saves for a visual imported from a file: the package's files under the report's
 `CustomVisuals\<guid>\`, and one `CustomVisual` entry in `definition\report.json`. The entry it wrote before broke
@@ -473,8 +479,8 @@ compiles nothing, so what the box shows is not part of the pass. For a box that 
 Microsoft's tools (Node and `pbiviz`, see `ad-pbiviz doctor`): `pbiviz new cvreal` in `visuals\`, fill `author`
 (name and email), `description` and `supportUrl` in its `pbiviz.json` (`pbiviz package` refuses without them), run
 `npm install` and `pbiviz package` in `visuals\cvreal`, then `ad-pbiviz import cvreal --pbip . --page "<page>"`.
-A `custom-visual-tenant-*` row from `check` is the delivery gate working, not a failure. Paste: every Desktop
-dialog verbatim (a schema error names the file and the property), the `import` row, and the whole `git diff`
+A `custom-visual-tenant-*`, `custom-visual-uncertified` or `custom-visual-sdk-workspace*` row from `check` is the
+delivery gate working, not a failure. Paste: every Desktop dialog verbatim (a schema error names the file and the property), the `import` row, and the whole `git diff`
 after the save. Anything Desktop changes under `CustomVisuals\` or in that entry is what `import` should have
 written: it becomes a fix.
 
