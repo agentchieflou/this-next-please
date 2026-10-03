@@ -202,7 +202,8 @@ def test_the_full_pipeline_draws_without_a_shader_error(fleet_home, tmp_path, br
         # tuning used to resize it straight after a frame was drawn, in the same task: the frame shown
         # was the cleared canvas, black, for as long as the scale kept changing.
         for _ in range(3):
-            page.wait_for_timeout(600)
+            seen = _inspect(page)["frames"]
+            page.wait_for_function(f"() => FleetWorld.inspect().frames > {seen + 2}", timeout=60000)
             w, h, bpp, rows = _png_pixels(page.screenshot())
             row = rows[h * 2 // 3]
             lit = sum(1 for i in range(0, w * bpp, bpp) if row[i] + row[i + 1] + row[i + 2] > 24)
