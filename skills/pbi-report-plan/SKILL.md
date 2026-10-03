@@ -8,7 +8,7 @@ description: "Plan Power BI report pages, audience intent, and locked layout spe
 Plan report structure from ticket requirements and semantic model before authoring.
 
 ## Planning Protocol
-1. **Step 0 — Inspect Semantic Model (`pbip-projection`)**:
+1. **Step 0 — Inspect Semantic Model (`pbip-projection`; `ad-state set phase=planning` first)**:
    - Run `ad-pbip project`.
    - Read `.agent/pbip/<name>/MODEL.md` (tables, measures, dependencies).
    - Never plan against a model you have not projected.

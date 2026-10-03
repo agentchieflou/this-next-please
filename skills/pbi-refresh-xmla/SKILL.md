@@ -6,7 +6,7 @@ description: "Use to refresh a deployed Power BI semantic model (full, table, or
 
 Refresh a deployed model and poll until completion.
 
-1. **Determine scope**:
+1. **Determine scope** (`ad-state set phase=deploying` first):
    `full` | `table:<name>` | `partition:<table>/<partition>`. Default: `full`.
 
 2. **Execute refresh with polling**:

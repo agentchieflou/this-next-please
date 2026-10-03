@@ -128,7 +128,8 @@ EDITABLE: dict[str, dict] = {
     # operator's own chats share; so each can differ per agent. The model and effort have their own
     # block on the page (`fleet.models`), and the permission lists theirs (`LISTS` below).
     # The operator's defaults of 2026-10-02: an agent has what a Copilot CLI window has, runs on
-    # autopilot, and lets Copilot's `auto` pick the model on its efficiency tier (`fleet/launch.py`).
+    # autopilot, and lets Copilot's `auto` pick the model -- on its balance tier since 2026-10-03,
+    # when the allowance went to 50,000 credits a month (`fleet/launch.py`, `fleet/credits.py`).
     "fleet.permissions": {
         "agent": True, "label": "tool access", "type": "enum", "default": LAUNCH.DEFAULT_PERMISSIONS,
         "scope": NEXT_TURN, "choices": list(LAUNCH.PERMISSIONS),
@@ -146,6 +147,17 @@ EDITABLE: dict[str, dict] = {
         "scope": NEXT_TURN, "choices": ["", *LAUNCH.AUTO_TIERS],
         "why": "how `--model auto` weighs cost and quality; passed only when your Copilot CLI's `--help` "
                "names the option for it, never guessed"},
+    # The month's allowance and its reserve (`fleet/credits.py`). Fleet-wide on purpose: one
+    # enterprise allowance is drawn on by every agent, so a per-agent share would be a number
+    # nobody is given. Read at every launch, so the step-down reaches the agent's next turn.
+    "fleet.credits.allowance": {
+        "label": "credits per month", "type": "int", "default": 0, "scope": NEXT_TURN,
+        "why": "the enterprise AI-credit allowance (premium requests) the fleet draws on this calendar "
+               "month; 0 records none, and then no reserve applies"},
+    "fleet.credits.reserve": {
+        "label": "reserve (%)", "type": "int", "default": 20, "scope": NEXT_TURN, "min": 0, "max": 100,
+        "why": "inside the last this-much percent of the allowance, every new launch steps `auto` down "
+               "to its efficiency tier; the per-agent budget is still the only stop"},
     "fleet.copilot.context": {
         "agent": True, "label": "context tier", "type": "enum", "default": "", "scope": NEXT_TURN,
         "choices": list(LAUNCH.CONTEXT_TIERS),
