@@ -754,6 +754,9 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: to 72 KiB. The operator then allowed Poly Haven's CC0 assets ("If it is open source and safe, you
 #: may use Poly Haven assets", 2026-10-03): `world/assets.js` loads them (61.5 KiB with it). The files
 #: themselves are not scripts and are not counted here; `test_the_worlds_cc0_assets_are_...` holds them.
+#: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
+#: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
+#: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
 WORLD_BUDGET = 72 * 1024
 
 
@@ -777,7 +780,8 @@ def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_ow
 
 #: What `static/world/cc0/` may weigh on the disk, and so in the wheel: about 4 MiB today (sixteen
 #: textures, two skies, nine models). A page fetches them from the machine it runs on, never across
-#: a network, so the bound is the package's size, not a page load's.
+#: a network, so the bound is the package's size, not a page load's. `tools/world/cc0/` remakes every
+#: file; raise this with the operator's rule above (`WORLD_BUDGET`) in mind.
 CC0_BUDGET = 6 * 1024 * 1024
 
 

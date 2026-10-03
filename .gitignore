@@ -13,3 +13,5 @@ dist/
 coverage.json
 .hypothesis/
 pip/
+# The world asset tools' own install (tools/world/README.md)
+tools/world/node_modules/
