@@ -15,3 +15,7 @@ coverage.json
 pip/
 # The world asset tools' own install (tools/world/README.md)
 tools/world/node_modules/
+tools/world/people/dl/
+tools/world/people/bvenv/
+tools/world/people/raw/
+tools/world/people/out/

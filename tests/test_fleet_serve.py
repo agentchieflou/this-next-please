@@ -817,6 +817,7 @@ def test_the_worlds_cc0_assets_are_the_ones_it_loads_credited_and_bounded():
 #: stand-in character with its six hair styles, beards, glasses and five body morphs, and five crowd
 #: characters at two levels of detail in one atlas). MetaHuman exports dropped in later are held to the
 #: same bound, so a hero at a sensible LOD and a crowd at a low one fit, and a raw LOD0 export does not.
+#: `tools/world/people/` remakes both files; raise this with the operator's rule above (`WORLD_BUDGET`).
 PEOPLE_BUDGET = 5 * 1024 * 1024
 
 
