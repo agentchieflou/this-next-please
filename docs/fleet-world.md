@@ -233,3 +233,45 @@ or Chrome on the operator's GPU.
 - No on-screen keyboard for free text with a controller.
 - The scene is not themed.
 - It is not the map's scene (#409–#414): that is a different page that draws zero frames at rest.
+
+## Future considerations
+
+### Realistic people (MetaHuman)
+
+Poly Haven has no people, so the CC0 pass (2026-10-03) improved the place but not its characters: your
+character and the people on the sidewalks are still built in the page. The operator has Unreal Engine
+installed and named MetaHuman as the likely source of lifelike people. That is deferred. Work on a
+loader and animation path that can take MetaHuman exports, with an openly licensed stand-in, may land
+separately. These questions stay open until someone takes them up:
+
+- **Licence.** MetaHuman is not open source; Epic's EULA governs it. Since the June 2025 licence
+  change, MetaHuman characters and animation may be used in other engines and creative software,
+  including at runtime and commercially, without royalties. Two points still need an answer from
+  whoever owns licensing:
+  - **Seat licences.** Free below $1M a year of revenue. Organisations above it that use MetaHumans
+    need Unreal Engine seat licences, about $1,850 per seat per year in 2025. Check whether this
+    deployment counts.
+  - **Redistribution.** Every other asset here is CC0, committed to the repository and shipped in
+    the wheel. MetaHuman files in a public repository would be downloadable on their own, outside any
+    product. Check whether the EULA allows that, or whether they must stay out of the repository
+    (fetched at install, or kept private).
+- **AI.** MetaHumans may be used in workflows that involve AI, but not to train or improve AI models.
+  The agents' later persona work (agents as people) must stay on the right side of that.
+- **Export, on the operator's machine.** The cloud sessions cannot reach Unreal. Someone with Unreal
+  Engine 5.6 or later would:
+  1. create a diverse set of MetaHumans (skin tones, body types, ages, hair, and a wheelchair user),
+     none based on a real person;
+  2. export a higher level of detail for your character and a low one for the crowd, with hair as
+     cards (strand grooms do not export);
+  3. hand the files over outside git (a shared Drive folder, for example), so large raw exports never
+     enter the repository's history.
+
+  Here they would be decimated, given 512 to 1024 px WebP textures, and fitted to the page's budgets,
+  as the Poly Haven files were.
+- **Animation.** It has to come from somewhere licensed for this page:
+  - procedural animation on the MetaHuman (Unreal 5) skeleton, which needs no files;
+  - Epic's animations, under the same EULA questions;
+  - or CC0 libraries.
+
+  The crowd needs it to be cheap: baked vertex-animation textures or instanced skinning, within the
+  `low` path's 64 draw calls and 400,000 triangles.
