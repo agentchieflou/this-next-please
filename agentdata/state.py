@@ -21,7 +21,7 @@ SCHEMA = 2
 PHASES = ("idle", "triaged", "researching", "planning", "mapping", "querying", "editing", "testing", "optimizing",
           "validating", "deploying", "documenting", "pr_open", "blocked", "done", "closed", "merged")
 STRING_KEYS = ("active_ticket", "branch", "pr_url", "confluence_url", "project")
-TOOL_KEYS = ("doctor_verified", "pncli_verified", "graph_approved")
+TOOL_KEYS = ("doctor_verified", "pncli_verified", "graph_approved", "context_built")
 ARTIFACT_DAYS = 7
 NULLS = ("null", "none", "")
 # Files a human handed to this session: `.agent/in/<KEY>/<name>`, put there by a click on the fleet's
