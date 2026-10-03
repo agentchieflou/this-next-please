@@ -31,6 +31,7 @@ COMMANDS = {
     "help": ("agentdata.cli_help", "main", "command catalog and per-command help"),
     "pbiviz": ("agentdata.cli_pbiviz", "main", "Power BI custom visual development loop"),
     "graph": ("agentdata.cli_graph", "main", "code graph extraction, queries, approval, and guard"),
+    "context": ("agentdata.cli_context", "main", "what a repository is, read in seconds for the first session that sees it"),
     "test": ("agentdata.cli_test", "main", "repository test runner detection, execution, and normalization"),
     "fleet": ("agentdata.cli_fleet", "main", "run several headless Copilot agents, one per repository"),
     "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
