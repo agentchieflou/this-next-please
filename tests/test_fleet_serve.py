@@ -609,7 +609,8 @@ VENDORED_NOT_FETCHED = {
 
 
 #: The binary files under `static/`: the world's CC0 photo textures (`.webp`), scanned props
-#: (`.glb`) and skies (`.hdr`), all in `static/world/cc0/`.
+#: (`.glb`) and skies (`.hdr`), all in `static/world/cc0/`, and its people (`.glb`) in
+#: `static/world/people/`.
 BINARY_ASSETS = (".webp", ".glb", ".hdr")
 
 
@@ -754,10 +755,16 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: to 72 KiB. The operator then allowed Poly Haven's CC0 assets ("If it is open source and safe, you
 #: may use Poly Haven assets", 2026-10-03): `world/assets.js` loads them (61.5 KiB with it). The files
 #: themselves are not scripts and are not counted here; `test_the_worlds_cc0_assets_are_...` holds them.
+#: Poly Haven has no people, and the operator asked for them next ("we need to kick off a separate
+#: background agent to accomplish the same task Poly Haven is doing but for people", 2026-10-03):
+#: `world/people.js` (the skinned player's character, its rig-agnostic animation on Unreal Engine bone
+#: names, and the instanced, skinned crowd) and the skinned-glTF reader in `world/assets.js` took the
+#: world to 74.2 KiB, and the budget moved to 80 KiB. The people's files are not scripts either;
+#: `test_the_worlds_people_are_...` holds them.
 #: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
 #: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
-WORLD_BUDGET = 72 * 1024
+WORLD_BUDGET = 80 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -772,7 +779,7 @@ def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_ow
     assert page < 4 * 1024, page
     scripts_ = world_scripts()
     assert scripts_ == ["world/assets.js", "world/bake.js", "world/bots.js", "world/city.js", "world/hero.js", "world/kit.js",
-                        "world/render.js", "world/scenery.js", "world/street.js", "world/world.js"], scripts_
+                        "world/people.js", "world/render.js", "world/scenery.js", "world/street.js", "world/world.js"], scripts_
     sent = sum(wire(n) for n in scripts_)
     print(f"\n  world page {page} bytes gzipped; world scripts {sent} bytes gzipped {scripts_}")
     assert sent < WORLD_BUDGET, (sent, scripts_)
@@ -804,6 +811,37 @@ def test_the_worlds_cc0_assets_are_the_ones_it_loads_credited_and_bounded():
         assert name.split(".")[0] in licence or name.rsplit("_", 1)[0] in licence, name
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in there)
     assert size < CC0_BUDGET, size
+
+
+#: What `static/world/people/` may weigh on the disk, and so in the wheel: about 4.3 MiB today (the
+#: stand-in character with its six hair styles, beards, glasses and five body morphs, and five crowd
+#: characters at two levels of detail in one atlas). MetaHuman exports dropped in later are held to the
+#: same bound, so a hero at a sensible LOD and a crowd at a low one fit, and a raw LOD0 export does not.
+#: `tools/world/people/` remakes both files; raise this with the operator's rule above (`WORLD_BUDGET`).
+PEOPLE_BUDGET = 5 * 1024 * 1024
+
+
+def test_the_worlds_people_are_the_ones_it_loads_credited_and_bounded():
+    """Every file in `static/world/people/` is the manifest `world/assets.js` reads (`people.json`), a
+    file the manifest names, or the LICENSE that credits them; every file it names is there and is
+    credited; and the folder stays small. Swapping the stand-in for other characters (MetaHumans the
+    operator exports) is a change to the manifest and the files, never to the code."""
+    import json
+
+    folder = os.path.join(STATIC, "world", "people")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'PEOPLE = "/static/world/people/"' in src and 'PEOPLE + "people.json"' in src
+    manifest = json.load(open(os.path.join(folder, "people.json"), encoding="utf-8"))
+    wanted = {e["file"] for key in ("hero", "crowd") for e in manifest.get(key, [])}
+    assert wanted and manifest["hero"], manifest
+    there = set(os.listdir(folder))
+    assert there == wanted | {"people.json", "LICENSE"}, (sorted(there - wanted), sorted(wanted - there))
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    assert "CC0 1.0 Universal" in licence
+    for name in sorted(wanted):
+        assert name in licence, name
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in there)
+    assert size < PEOPLE_BUDGET, size
 
 
 def test_the_page_and_its_assets_are_served_compressed():

@@ -2,6 +2,7 @@
 
 var WorldAssets = (function () {
   var DIR = "/static/world/cc0/";
+  var PEOPLE = "/static/world/people/";
   var TEX = {
     brick: ["brick_wall_001", 3, 3, 1], stucco: ["painted_plaster_wall", 2, 2, 1], concrete: ["concrete_slab_wall", 2.3, 2.3, 1],
     asphalt: ["asphalt_02", 3, 3, 0.6], sidewalk: ["concrete_pavement", 1.8, 1.8, 0.78]
@@ -35,35 +36,54 @@ var WorldAssets = (function () {
     }).catch(function () { return null; });
   }
 
-  /** @param {string} name @returns {Promise<Array<Object>|null>} */
-  function glb(name) {
-    return fetch(q(DIR + name)).then(function (r) { return r.ok ? r.arrayBuffer() : null; }).then(function (buf) {
+  /** @param {string} url @returns {Promise<Object|null>} */
+  function gltf(url) {
+    return fetch(q(url)).then(function (r) { return r.ok ? r.arrayBuffer() : null; }).then(function (buf) {
       if (!buf) return null;
       var dv = new DataView(buf);
       if (dv.getUint32(0, true) !== 0x46546C67) return null;
-      var jl = dv.getUint32(12, true), json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jl))), bin = 28 + jl;
+      var jl = dv.getUint32(12, true), json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jl))), bin = 28 + jl, pics = {};
       var span = function (/** @type {number} */ i) { var v = json.bufferViews[i]; return [bin + (v.byteOffset || 0), v.byteLength]; };
       var read = function (/** @type {number} */ i) {
-        var a = json.accessors[i], at = span(a.bufferView), n = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[a.type];
-        var K = { 5126: Float32Array, 5125: Uint32Array, 5123: Uint16Array, 5121: Uint8Array }[a.componentType];
-        var start = at[0] + (a.byteOffset || 0), step = json.bufferViews[a.bufferView].byteStride || n * K.BYTES_PER_ELEMENT;
-        if (step === n * K.BYTES_PER_ELEMENT) return { a: new K(buf, start, a.count * n), n: n };
-        var out = new K(a.count * n);
-        for (var j = 0; j < a.count; j++) out.set(new K(buf, start + j * step, n), j * n);
+        var a = json.accessors[i], at = span(a.bufferView), n = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 }[a.type];
+        var K = { 5126: Float32Array, 5125: Uint32Array, 5123: Uint16Array, 5121: Uint8Array, 5122: Int16Array, 5120: Int8Array }[a.componentType];
+        var start = at[0] + (a.byteOffset || 0), step = json.bufferViews[a.bufferView].byteStride || n * K.BYTES_PER_ELEMENT, out;
+        if (step === n * K.BYTES_PER_ELEMENT) out = new K(buf, start, a.count * n);
+        else {
+          out = new K(a.count * n);
+          for (var j = 0; j < a.count; j++) out.set(new K(buf, start + j * step, n), j * n);
+        }
+        if (a.normalized) {
+          var d = { 5121: 255, 5123: 65535, 5120: 127, 5122: 32767 }[a.componentType], f = new Float32Array(out.length);
+          for (var k = 0; k < out.length; k++) f[k] = Math.max(-1, out[k] / d);
+          out = f;
+        }
         return { a: out, n: n };
       };
       var pic = function (/** @type {Object} */ info) {
+        if (!info) return Promise.resolve(null);
         var t = json.textures[info.index], src = t.source !== undefined ? t.source : t.extensions.EXT_texture_webp.source;
-        var im = json.images[src], at = span(im.bufferView);
-        return createImageBitmap(new Blob([new Uint8Array(buf, at[0], at[1])], { type: im.mimeType }),
-          { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+        if (!pics[src]) {
+          var im = json.images[src], at = span(im.bufferView);
+          pics[src] = createImageBitmap(new Blob([new Uint8Array(buf, at[0], at[1])], { type: im.mimeType }),
+            { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+        }
+        return pics[src];
       };
+      return { json: json, read: read, pic: pic };
+    }).catch(function () { return null; });
+  }
+
+  /** @param {string} name @returns {Promise<Array<Object>|null>} */
+  function glb(name) {
+    return gltf(DIR + name).then(function (g) {
+      if (!g) return null;
       var parts = [];
-      json.meshes.forEach(function (/** @type {Object} */ m) {
+      g.json.meshes.forEach(function (/** @type {Object} */ m) {
         m.primitives.forEach(function (/** @type {Object} */ p) {
-          var mt = json.materials[p.material], pbr = mt.pbrMetallicRoughness;
-          parts.push(Promise.all([pic(pbr.baseColorTexture), pic(mt.normalTexture), pic(pbr.metallicRoughnessTexture)]).then(function (im) {
-            return { pos: read(p.attributes.POSITION), nor: read(p.attributes.NORMAL), uv: read(p.attributes.TEXCOORD_0), idx: read(p.indices),
+          var mt = g.json.materials[p.material], pbr = mt.pbrMetallicRoughness;
+          parts.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture), g.pic(pbr.metallicRoughnessTexture)]).then(function (im) {
+            return { pos: g.read(p.attributes.POSITION), nor: g.read(p.attributes.NORMAL), uv: g.read(p.attributes.TEXCOORD_0), idx: g.read(p.indices),
                      map: im[0], normal: im[1], orm: im[2] };
           }));
         });
@@ -72,9 +92,66 @@ var WorldAssets = (function () {
     }).catch(function () { return null; });
   }
 
-  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>}>} */
+  /** @param {string} name @returns {Promise<Object|null>} */
+  function figure(name) {
+    return gltf(PEOPLE + name).then(function (g) {
+      if (!g || !g.json.skins) return null;
+      var J = g.json, up = {}, jobs = [];
+      J.nodes.forEach(function (/** @type {Object} */ n, /** @type {number} */ i) { (n.children || []).forEach(function (/** @type {number} */ c) { up[c] = i; }); });
+      var skins = J.skins.map(function (/** @type {Object} */ s) {
+        var slot = {};
+        s.joints.forEach(function (/** @type {number} */ ni, /** @type {number} */ k) { slot[ni] = k; });
+        return { extras: s.extras || {}, joints: s.joints.map(function (/** @type {number} */ ni) {
+          var n = J.nodes[ni], p = up[ni];
+          return { name: n.name, parent: p !== undefined && slot[p] !== undefined ? slot[p] : -1, t: n.translation || [0, 0, 0], q: n.rotation || [0, 0, 0, 1] };
+        }) };
+      });
+      var parts = [];
+      J.nodes.forEach(function (/** @type {Object} */ n) {
+        if (n.mesh === undefined || n.skin === undefined) return;
+        var m = J.meshes[n.mesh], names = (m.extras && m.extras.targetNames) || [];
+        m.primitives.forEach(function (/** @type {Object} */ p) {
+          var mt = J.materials[p.material] || {}, pbr = mt.pbrMetallicRoughness || {}, ex = mt.extras || {}, a = p.attributes, morph = {};
+          (p.targets || []).forEach(function (/** @type {Object} */ t, /** @type {number} */ k) { morph[names[k] || k] = g.read(t.POSITION).a; });
+          var part = { skin: n.skin, extras: m.extras || {}, role: ex.role || "other", style: ex.style || "", tone: ex.tone || [0.5, 0.5, 0.5],
+                       rough: pbr.roughnessFactor === undefined ? 0.7 : pbr.roughnessFactor, alpha: mt.alphaMode === "MASK" ? (mt.alphaCutoff || 0.5) : 0,
+                       two: !!mt.doubleSided, pos: g.read(a.POSITION).a, nor: g.read(a.NORMAL).a, uv: g.read(a.TEXCOORD_0).a,
+                       joint: g.read(a.JOINTS_0).a, weight: g.read(a.WEIGHTS_0).a, roles: a._ROLE === undefined ? null : Float32Array.from(g.read(a._ROLE).a),
+                       idx: g.read(p.indices).a, morph: morph, map: null, normal: null };
+          jobs.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture)]).then(function (im) { part.map = im[0]; part.normal = im[1]; }));
+          parts.push(part);
+        });
+      });
+      var clips = (J.animations || []).map(function (/** @type {Object} */ an) {
+        return { name: an.name, channels: an.channels.map(function (/** @type {Object} */ c) {
+          var s = an.samplers[c.sampler];
+          return { joint: J.nodes[c.target.node].name, path: c.target.path, times: g.read(s.input).a, values: g.read(s.output).a };
+        }) };
+      });
+      return Promise.all(jobs).then(function () { return { skins: skins, parts: parts, clips: clips }; });
+    }).catch(function () { return null; });
+  }
+
+  /** @returns {Promise<Object>} */
+  function people() {
+    var out = { manifest: null, hero: [], crowd: [] };
+    return fetch(q(PEOPLE + "people.json")).then(function (r) { return r.ok ? r.json() : null; }).then(function (m) {
+      if (!m) return out;
+      out.manifest = m;
+      var list = function (/** @type {Array<Object>} */ xs) {
+        return Promise.all((xs || []).map(function (/** @type {Object} */ x) { return figure(x.file); })).then(function (got) { return got.filter(Boolean); });
+      };
+      return Promise.all([list(m.hero), list(m.crowd)]).then(function (got) {
+        out.hero = got[0].length === (m.hero || []).length ? got[0] : [];
+        out.crowd = got[1].length === (m.crowd || []).length ? got[1] : [];
+        return out;
+      });
+    }).catch(function () { return out; });
+  }
+
+  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, people: Object}>} */
   function load() {
-    var out = { tex: {}, sky: {}, props: {} }, jobs = [];
+    var out = { tex: {}, sky: {}, props: {}, people: null }, jobs = [];
     Object.keys(TEX).forEach(function (k) {
       var id = TEX[k][0];
       jobs.push(Promise.all([image(id + "_diff.webp"), image(id + "_arm.webp"), image(id + "_nor.webp")]).then(function (im) {
@@ -85,6 +162,7 @@ var WorldAssets = (function () {
     Object.keys(SKY).forEach(function (k) {
       jobs.push(rgbe(SKY[k][0] + ".hdr").then(function (s) { if (s) out.sky[k] = Object.assign(s, { k: SKY[k][1] }); }));
     });
+    jobs.push(people().then(function (p) { out.people = p; }));
     return Promise.all(jobs).then(function () { return out; });
   }
 
@@ -169,5 +247,5 @@ var WorldAssets = (function () {
     return out;
   }
 
-  return Object.freeze({ DIR: DIR, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
+  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
 })();

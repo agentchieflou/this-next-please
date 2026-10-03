@@ -37,3 +37,9 @@ and author. Run from `tools/world`; the raw downloads go anywhere outside the re
 With the versions pinned in `package.json`, each output matches the committed file byte for byte.
 A new asset needs a line in `world/assets.js` (`TEX`, `SKY` or `PROPS`) and one in the folder's
 `LICENSE`: `tests/test_fleet_serve.py` fails until both are there, and holds the folder to its budget.
+
+## People (`people/`)
+
+What `agentdata/fleet/static/world/people/` holds: the player's character and the pedestrians, made
+from MakeHuman's CC0 assets (Blender with MPFB 2, then `people/people.mjs`), on a path MetaHuman exports
+from Unreal Engine drop into. `people/README.md` has the steps, the config and the MetaHuman case.
