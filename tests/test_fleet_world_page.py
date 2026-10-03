@@ -22,6 +22,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_switcher import _repo, fleet_home, spawns  # noqa: F401
+from test_fleet_desk_glass import _png_pixels
 
 STATIC = S.STATIC
 READY = "n => !!window.FleetWorld && FleetWorld.inspect().ready && FleetWorld.inspect().agents.length === n"
@@ -119,6 +120,7 @@ def test_the_world_is_a_page_of_its_own_and_the_desk_opens_it(fleet_home):
     assert 'id="worldbtn"' in desk and 'worldLink.href = pageUrl("/world")' in app
     assert 'V_THREE = "/static/vendor/three/three.module.min.js"' in world and "import(q(V_THREE))" in world
     assert html.index("/static/world/hero.js") < html.index("/static/world/world.js"), "the character loads first"
+    assert html.index("/static/world/assets.js") < html.index("/static/world/bake.js"), "the photo textures replace baked ones"
     assert not re.search(r"\bimport\s+[\w{*]", world), "a classic script: three.js is imported with import(), never a static import"
 
 
@@ -127,10 +129,13 @@ def test_the_world_is_a_page_of_its_own_and_the_desk_opens_it(fleet_home):
 
 @pytest.mark.browser
 def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, browser):
-    """One figure per agent, its name over its head; the one that needs you has a beacon and the
+    """One robot per agent, its name over its head; the one that needs you has a beacon and the
     compass points to it. `?hour=13` is overcast day with the lamps out; `?hour=23` is night with the
-    lamps lit. The scene is 13 draw calls however many agents and however much rain, and the player's
-    character at most 10 more."""
+    lamps lit. Around the plaza is a city: buildings, lamps, traffic, and on its sidewalks Poly Haven's
+    scanned hydrants, bins and bags (CC0, `static/world/cc0/`), its walls and streets in their photo
+    textures, its light from their skies. CI draws in SwiftShader, which the page draws on its lightest
+    path (`soft`, the `low` quality): there the scene stays within 64 draw calls and 400,000 triangles,
+    however many agents (the robots are instanced) and however much rain."""
     _repo(tmp_path, "alpha")
     _asks(tmp_path)
     server, token, port = _serve()
@@ -142,7 +147,12 @@ def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, brow
         assert day["daylight"] == 1 and day["night"] is False and day["lamps"] == 0, day
         page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=30000)
         drawn = _inspect(page)
-        assert 0 < drawn["calls"] <= 13 + 10 and drawn["triangles"] < 80000, drawn
+        assert drawn["soft"] is True and drawn["quality"] == "low", drawn
+        assert 0 < drawn["calls"] <= 64 and drawn["triangles"] < 400000, drawn
+        town = drawn["town"]
+        assert town["buildings"] > 40 and town["lights"] > 60 and town["cars"] > 10, town
+        assert drawn["cc0"] == {"textures": 5, "skies": 2, "props": 9}, drawn["cc0"]
+        assert town["scans"] > 10, town
         tags = page.evaluate("() => [...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.className, t.hidden])")
         assert [(n, "needs" in c) for n, c, _ in tags] == [("alpha", False), ("asks", True)], tags
         assert not dict((n, hid) for n, _, hid in tags)["asks"], "the agent you face is labelled"
@@ -156,6 +166,49 @@ def test_agents_stand_in_the_rain_by_day_and_by_night(fleet_home, tmp_path, brow
         night = _inspect(page)
         assert night["daylight"] == 0 and night["night"] is True and night["lamps"] > 0, night
         assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_the_full_pipeline_draws_without_a_shader_error(fleet_home, tmp_path, browser):
+    """`?quality=high` is what a desktop GPU gets: the scene in HDR, the wet street's mirror, ambient
+    occlusion, bloom and the grade. SwiftShader draws it slowly, but it draws it: every shader compiles,
+    the passes after the scene run, and the buildings, their windows and signs, the trees, the cars and
+    the people are in it."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    try:
+        page = browser.new_page(viewport={"width": 640, "height": 360})
+        problems = []
+        page.on("pageerror", lambda e: problems.append(str(e)))
+        page.on("console", lambda m: problems.append(m.text[:300])
+                if m.type == "error" and "Failed to load resource" not in m.text else None)
+        page.goto(f"http://127.0.0.1:{port}/world?t={token}&hour=22&quality=high&who=0", wait_until="domcontentloaded")
+        page.wait_for_function(READY, arg=2, timeout=60000)
+        # `calls` first: the shaders compile before the first frame (`vWarm`), and their draws count in
+        # `passes` too.
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        page.wait_for_function("() => FleetWorld.inspect().passes > FleetWorld.inspect().calls", timeout=90000)
+        info = _inspect(page)
+        assert info["quality"] == "high", info
+        town = info["town"]
+        assert town["people"] > 20 and town["parked"] > 10 and town["cars"] > 10, town
+        names = page.evaluate("() => { const n = []; vState.scene.traverse(m => { if (m.name) n.push(m.name); }); return n; }")
+        for part in ("city-glass", "city-signs", "city-brick", "city-curb", "street-trees", "street-people", "car-body0"):
+            assert part in names, (part, names)
+        # And what reaches the screen is the frame. Resizing the canvas clears it, and the frame-rate
+        # tuning used to resize it straight after a frame was drawn, in the same task: the frame shown
+        # was the cleared canvas, black, for as long as the scale kept changing.
+        for _ in range(3):
+            seen = _inspect(page)["frames"]
+            page.wait_for_function(f"() => FleetWorld.inspect().frames > {seen + 2}", timeout=60000)
+            w, h, bpp, rows = _png_pixels(page.screenshot())
+            row = rows[h * 2 // 3]
+            lit = sum(1 for i in range(0, w * bpp, bpp) if row[i] + row[i + 1] + row[i + 2] > 24)
+            assert lit > w // 4, (lit, w, _inspect(page)["quality"])
+        assert problems == [], problems
     finally:
         _stop(server)
 

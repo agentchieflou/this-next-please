@@ -608,11 +608,24 @@ VENDORED_NOT_FETCHED = {
 }
 
 
+#: The binary files under `static/`: the world's CC0 photo textures (`.webp`), scanned props
+#: (`.glb`) and skies (`.hdr`), all in `static/world/cc0/`.
+BINARY_ASSETS = (".webp", ".glb", ".hdr")
+
+
 def test_the_page_fetches_nothing_from_the_internet():
     """JCEF and Simple Browser both sit behind the corporate proxy. One CDN reference is a page
     that does not load at work -- and it would look like a bug in the fleet, not in the HTML."""
     for root, _, files in os.walk(STATIC):
         for name in sorted(files):
+            if name.endswith(BINARY_ASSETS):
+                # The world's CC0 textures, models and skies (`static/world/cc0/`) are bytes, not
+                # text, and are read as bytes: a model's JSON chunk names its images by index, never
+                # by address, and that is what this holds.
+                raw = open(os.path.join(root, name), "rb").read()
+                for bad in (b"http://", b"https://", b"//cdn", b"//unpkg"):
+                    assert bad not in raw, f"{name} reaches outside for {bad!r}"
+                continue
             body = open(os.path.join(root, name), encoding="utf-8").read()
             cleaned = body.replace("http://www.w3.org/2000/svg", "")
             for allowed in VENDORED_NOT_FETCHED.get(
@@ -730,8 +743,21 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: 200 KiB like `M_BUDGET`: a desk never fetches them. They measured about 17 KiB when they arrived:
 #: `world/world.js` 12.4 KiB (the scene, the rain, the walk, the pad, a conversation, the character
 #: picker) and `world/hero.js` 4.2 KiB (the player's character); three.js is the vendored copy, counted
-#: nowhere here, as for the ink layer and the map.
-WORLD_BUDGET = 22 * 1024
+#: nowhere here, as for the ink layer and the map. The asset pass (2026-10-02) added
+#: `world/scenery.js` (the sky and the plaza's furniture) and `world/bots.js` (the agents as robots):
+#: 23.5 KiB, and the budget moved from 22 KiB to 28 KiB. The operator then asked for "a far cry 3 /
+#: rdr2 / gta 6 / cyberpunk quality world ... that can run in browser" (2026-10-02), which added the
+#: renderer (`world/render.js`: HDR, the wet street's mirror, ambient occlusion, bloom, the grade, the
+#: quality tiers), the materials baked on the GPU at load (`world/bake.js`), the shared kit and its
+#: many lights (`world/kit.js`), the streets and buildings (`world/city.js`) and what is on them
+#: (`world/street.js`): 56.8 KiB in all, every asset built in the page from code, and the budget moved
+#: to 72 KiB. The operator then allowed Poly Haven's CC0 assets ("If it is open source and safe, you
+#: may use Poly Haven assets", 2026-10-03): `world/assets.js` loads them (61.5 KiB with it). The files
+#: themselves are not scripts and are not counted here; `test_the_worlds_cc0_assets_are_...` holds them.
+#: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
+#: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
+#: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
+WORLD_BUDGET = 72 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -745,10 +771,39 @@ def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_ow
     page = wire("world.html") + wire("world.css")
     assert page < 4 * 1024, page
     scripts_ = world_scripts()
-    assert scripts_ == ["world/hero.js", "world/world.js"], scripts_
+    assert scripts_ == ["world/assets.js", "world/bake.js", "world/bots.js", "world/city.js", "world/hero.js", "world/kit.js",
+                        "world/render.js", "world/scenery.js", "world/street.js", "world/world.js"], scripts_
     sent = sum(wire(n) for n in scripts_)
     print(f"\n  world page {page} bytes gzipped; world scripts {sent} bytes gzipped {scripts_}")
     assert sent < WORLD_BUDGET, (sent, scripts_)
+
+
+#: What `static/world/cc0/` may weigh on the disk, and so in the wheel: about 4 MiB today (sixteen
+#: textures, two skies, nine models). A page fetches them from the machine it runs on, never across
+#: a network, so the bound is the package's size, not a page load's. `tools/world/cc0/` remakes every
+#: file; raise this with the operator's rule above (`WORLD_BUDGET`) in mind.
+CC0_BUDGET = 6 * 1024 * 1024
+
+
+def test_the_worlds_cc0_assets_are_the_ones_it_loads_credited_and_bounded():
+    """Every file in `static/world/cc0/` is one `world/assets.js` names, or the LICENSE that credits
+    them; every file it names is there; the LICENSE names each, says CC0, and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "cc0")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    tex = re.findall(r'\w+: \["(\w+)", [\d.]+, [\d.]+, [\d.]+\]', src)
+    sky = re.findall(r'\w+: \["(\w+)", [\d.]+\]', src)
+    props = re.findall(r'"(\w+)"', re.search(r"var PROPS = \[(.*?)\];", src, re.S).group(1))
+    assert len(tex) == 5 and len(sky) == 2 and len(props) == 9, (tex, sky, props)
+    wanted = {f"{t}_{k}.webp" for t in tex for k in ("diff", "nor", "arm")}
+    wanted |= {f"{s_}.hdr" for s_ in sky} | {f"{p}.glb" for p in props}
+    there = set(os.listdir(folder))
+    assert there == wanted | {"LICENSE"}, (sorted(there - wanted), sorted(wanted - there))
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    assert "CC0 1.0 Universal" in licence
+    for name in sorted(wanted):
+        assert name.split(".")[0] in licence or name.rsplit("_", 1)[0] in licence, name
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in there)
+    assert size < CC0_BUDGET, size
 
 
 def test_the_page_and_its_assets_are_served_compressed():
@@ -875,7 +930,8 @@ PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("m.html", ["m/m.js", "common.js"]),
                 ("tidy.html", ["tidy.js", "common.js"]),
                 ("chat.html", ["chat/chat.js", "common.js"]),
-                ("world.html", ["world/world.js", "world/hero.js", "common.js"])]
+                ("world.html", ["world/world.js", "world/hero.js", "world/bots.js", "world/scenery.js", "world/city.js",
+                                "world/street.js", "world/render.js", "world/bake.js", "world/kit.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
