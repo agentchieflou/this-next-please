@@ -262,6 +262,72 @@ def _comment_refusal(src: str, key: str, code: str, error: str, hint: str) -> in
     return 2
 
 
+def _board_rows(cfg: dict, force: bool) -> dict:
+    """The operator's open tickets, from the fleet's cached board. Monkeypatched by tests."""
+    from .fleet import board as B
+
+    return B.board(cfg=cfg, force=force)
+
+
+def cmd_match(a) -> int:
+    """Which open ticket a prompt belongs to, scored on words (`agentdata/jira_match.py`).
+
+    Reads the same board the desk shows (`assignee = currentUser() AND statusCategory != Done`,
+    cached for `fleet.board_ttl`), narrowed to this project's `jira_project` unless `--all`, and
+    prints the verdict, the candidates and the one `ad-state ask` line to run. Writes nothing:
+    the router runs the line, and `ad-state` is what moves the work.
+    """
+    from . import jira_match as JM
+    from . import state as S
+    from .fleet import board as B
+
+    src = "ad-jira match"
+    prompt = " ".join(a.words).strip()
+    if not prompt:
+        print(error("nothing to match: pass the request's own words", 'ad-jira match "<the request>"', "ad-jira"))
+        return 2
+    facts = C.project_facts()
+    project = (a.project or facts.get("jira_project") or "").upper()
+    policy_fact = (facts.get("ticket_policy") or "optional").strip().lower()
+    try:
+        st = S.load() if os.path.isfile(S.PATH) else {}
+    except S.StateError:
+        st = {}
+    active = str(st.get("active_ticket") or "") or None
+    try:
+        data = _board_rows(C.load(), a.refresh)
+    except B.BoardError as e:
+        print(toon.encode({"meta": {"ok": False, "source": src, "refused": "board_unreachable", "error": e.msg,
+                                    "hint": e.hint, "policy": policy_fact,
+                                    "next": "ask-and-stop" if policy_fact == "required" else "ask-and-continue"}}))
+        print("ask: " + JM.ask_line("Track this under a ticket?", [],
+                                    assume="" if policy_fact == "required" else "none"))
+        return 2
+    rows = data["rows"]
+    if project and not a.all:
+        rows = [r for r in rows if str(r.get("project") or "").upper() == project]
+    out = JM.verdict(prompt, rows, active=active, policy=policy_fact, last_answer=JM.last_ticket_answer(st))
+    meta = {"ok": True, "source": src, "verdict": out["verdict"], "next": out["next"], "ticket": out["ticket"],
+            "active_ticket": active or "", "project": project or "*", "policy": policy_fact,
+            "tickets": len(rows), "jql": data["jql"],
+            "from": f"cache, {data['age_s']}s old" if data["cached"] else "jira",
+            "why": out["why"]}
+    head = ["key", "status", "score", "shared", "summary"]
+    table = [[c["key"], c["status"], f"{c['score']:g}", " ".join(c["shared"]) or "-", c["summary"][:70]]
+             for c in out["candidates"]]
+    if policy.pretty():
+        ui.facts(list(meta.items()), title=src)
+        if table:
+            ui.table(head, table, title="candidates")
+    else:
+        print(toon.encode({"meta": meta}))
+        if table:
+            print(toon.table("candidates", head, table))
+    # Raw and last, like `ad-state`'s `state:` line: it is copied, and TOON would double its quotes.
+    print("ask: " + (out["ask"] or "-"))
+    return 0
+
+
 def cmd_comment(a) -> int:
     """Post one comment without moving the issue: dry-run first, gated like a transition, never replayed (#501)."""
     src = f"ad-jira comment {a.key}"
@@ -1118,6 +1184,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="run even if the issue already looks like it is there")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_transition)
+    p = sub.add_parser("match", help="which of your open tickets a request belongs to, scored on words; prints the "
+                                     "`ad-state ask --kind ticket` line the router runs (reads the fleet's board; writes nothing)")
+    p.add_argument("words", nargs="+", metavar="REQUEST", help="the request, in its own words")
+    p.add_argument("--project", help="narrow to this project key (default: the jira_project fact)")
+    p.add_argument("--all", action="store_true", help="every open ticket, whatever its project")
+    p.add_argument("--refresh", action="store_true", help="ask Jira now instead of the cached board")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_match)
     p = sub.add_parser("comment", help="post a comment on an issue without moving it (--dry-run first; gated in a fleet)")
     p.add_argument("key", metavar="KEY")
     body = p.add_mutually_exclusive_group(required=True)

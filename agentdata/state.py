@@ -59,6 +59,28 @@ class StateError(Exception):
 # scope, exactly as it always did. A question asked on RDSD-1 stops RDSD-1's work and nothing else's.
 
 
+def apply_ticket_answer(state: dict, text: str) -> str:
+    """What an answer to a `kind: ticket` question does to `active_ticket` (#ticket-match).
+
+    A key moves the work there; `none` (or `untracked`) makes it untracked; `new` changes nothing
+    here, because the ticket does not exist yet -- the router hands the next turn to `jira-create`,
+    which sets the key it made. Any other words are a remark, not a decision. Returns one word
+    for the report: `moved`, `untracked`, `create` or `kept`.
+    """
+    from . import jira_match as JM
+
+    key = JM.is_key(text)
+    if key:
+        state["active_ticket"] = key
+        return "moved"
+    if JM.is_none(text):
+        state["active_ticket"] = None
+        return "untracked"
+    if str(text or "").strip().lower() == "new":
+        return "create"
+    return "kept"
+
+
 def question_text(q) -> str:
     """The question itself, whichever shape it is stored in."""
     return str(q.get("q") or "") if isinstance(q, dict) else str(q or "")
@@ -237,6 +259,15 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
             if not str(record.get("id") or ""):
                 record["id"] = next_question_id(state)
             record.setdefault("asked", stamp_for(today))
+            # A ticket question with an assumption is the assumption applied: the agent said
+            # "this is RDSD-118's" or "this is untracked" and carried on, so the work is scoped
+            # there now and the question sits on the tile under that scope for the operator to
+            # overturn. `rescope` keeps `blocked` honest across the switch.
+            if record.get("kind") == "ticket" and record.get("assume"):
+                moved = apply_ticket_answer(state, str(record["assume"]))
+                if moved in ("moved", "untracked"):
+                    record["ticket"] = str(state.get("active_ticket") or "")
+                    rescope(state)
             record.setdefault("ticket", str(state.get("active_ticket") or ""))
             oq.append(record)
         # A blocking question is what stops the agent, so the phase it came *from* is remembered
@@ -252,11 +283,15 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     closing += [(qid, text, True) for qid, text in (superseded or {}).items()]
     if closing:
         oq = state.get("open_questions") or []
+        moved_ticket = False
         for qid, text, replaced in closing:
             for record in oq:
                 if isinstance(record, dict) and str(record.get("id") or "") == str(qid):
                     record["answer"] = text
                     record["answered"] = stamp_for(today)
+                    # The operator's answer to "track it under RDSD-118?" is the move itself.
+                    if record.get("kind") == "ticket" and not replaced:
+                        moved_ticket = apply_ticket_answer(state, text) in ("moved", "untracked") or moved_ticket
                     # Superseded: the operator never answered it, they gave an instruction that made
                     # it moot. Closed the same way, so it unblocks the same way, and marked so that
                     # nobody later reads the instruction as the answer to the question.
@@ -276,6 +311,8 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
             back = state.pop("blocked_from", "")
             if state.get("phase") == "blocked" and back:
                 state["phase"] = back
+        if moved_ticket:
+            rescope(state)
     if "active_ticket" in sets and state.get("active_ticket") != was_ticket:
         rescope(state, explicit_phase=sets.get("phase"))
     # Normalised to one spelling, for the reason an artifact path is: `.agent\in\X\y.md` and
