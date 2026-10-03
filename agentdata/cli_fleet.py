@@ -1881,14 +1881,39 @@ def cmd_board(a) -> int:
     rows = B.with_suggestions(data["rows"])
     if a.project:
         rows = [r for r in rows if r["project"] == a.project.upper()]
+    untracked = _untracked_work()
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet board", "tickets": len(rows),
-                                "jql": data["jql"],
+                                "untracked": len(untracked), "jql": data["jql"],
                                 "from": f"cache, {data['age_s']}s old" if data["cached"] else "jira"}}))
     print(toon.table("board", ["key", "status", "type", "summary", "repo", "why"],
                      [[r["key"], r["status"], r["type"], r["summary"][:70],
                        r["suggested"]["repo"] or "-",
                        r["suggested"]["hint"] or r["suggested"]["why"]] for r in rows]))
+    if untracked:
+        # Work an agent started that no ticket owns yet: every open `kind: ticket` question in a
+        # registered checkout, with the keys it offered. Answering one from the tile (or
+        # `ad-state answer <id> <KEY>` in that checkout) is what moves the work (#ticket-match).
+        print(toon.table("untracked", ["repo", "id", "assumed", "choices", "question"],
+                         [[u["repo"], u["id"], u["assumed"] or "-", u["choices"] or "-", u["question"][:80]]
+                          for u in untracked]))
     return EXIT_OK
+
+
+def _untracked_work() -> list[dict]:
+    """Every registered repository's open ticket questions, read only (`Repo.state`)."""
+    from . import state as S
+
+    out = []
+    try:
+        repos = Registry().sorted()
+    except (RegistryError, OSError):
+        return out
+    for repo in repos:
+        for q in repo.state().get("open_questions") or []:
+            if isinstance(q, dict) and q.get("kind") == "ticket":
+                out.append({"repo": repo.name, "id": str(q.get("id") or ""), "question": S.question_text(q),
+                            "assumed": str(q.get("assume") or ""), "choices": " | ".join(q.get("choices") or [])})
+    return out
 
 
 def cmd_branches(a) -> int:
