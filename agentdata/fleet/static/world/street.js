@@ -6,6 +6,11 @@ var WorldStreet = (function () {
   var PAINT = ["#0d0f12", "#e9ebee", "#7d8288", "#1d2a44", "#5a0f14", "#2c3e2f", "#b8b2a6", "#3a3f46", "#c9a227", "#16232f", "#8a1c1c"];
   var COAT = ["#2b2d33", "#4a3b2c", "#1e2a3a", "#5a5d61", "#6b2a24", "#2f3b2a", "#c2b49a", "#3b3247"];
   var BRELLA = ["#111317", "#1b2a4a", "#7a1a24", "#e8e3d8", "#2e4a35", "#c9a227", "#3a3a40", "#5b2a6b"];
+  var SKIN = ["#3b2219", "#5c3a26", "#7b4a2d", "#9c6643", "#b98058", "#d39d74", "#e8bd98", "#f5d9c2"];
+  var BRIGHT = ["#c9ccd3", "#2f8f8a", "#d6a23a", "#e07a62", "#34446b", "#4f8a4b", "#7a59b0", "#f2f2ee"];
+  var LEGS = ["#1f2124", "#2e3450", "#3a3f46", "#4a3b2c", "#22303f", "#6b7078", "#2b2d33"];
+  var HAIRS = ["#1c1a22", "#2b1d16", "#3b2a20", "#6b4528", "#a5512b", "#c9c6c2", "#d7b26a"];
+  var GRIP = [0.18, 1.42, 0.18];
   var REACH = 200;
   var M = { T: null, mats: null, group: null, cars: null, people: null, loops: [], walkers: [], signals: null, P: -1, light: [], scans: {}, pr: {}, reach: 110 };
 
@@ -373,7 +378,7 @@ var WorldStreet = (function () {
     return out;
   }
 
-  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number}} */
+  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number}} */
   function build(T, lib, scene, P, lod, scans) {
     M.T = T;
     M.scans = scans || {};
@@ -462,7 +467,8 @@ var WorldStreet = (function () {
     M.group = group;
     var moving = 0;
     M.cars.forEach(function (set) { moving += set.moving.length; });
-    return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length, scans: placed };
+    return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length, scans: placed,
+             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0 };
   }
 
   /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked */
@@ -521,26 +527,41 @@ var WorldStreet = (function () {
       list.push({ sg: sg, d: sg.road + 1.6 + rnd(i * 2.3) * (sg.walk - 2.6), s: rnd(i * 7.7) * (sg.a1 - sg.a0), dir: rnd(i * 9.1) > 0.5 ? 1 : -1, v: 1.1 + rnd(i * 3.9) * 0.5 });
     }
     M.walkers = list;
-    var body = person(T), cap = Math.max(1, list.length);
+    var cap = Math.max(1, list.length), c = new T.Color();
+    var brolly = new T.InstancedMesh(umbrella(T), M.mats.brolly, cap);
+    list.forEach(function (w, i) { brolly.setColorAt(i, c.set(BRELLA[Math.floor(rnd(i * 8.8) * BRELLA.length)])); });
+    brolly.frustumCulled = false;
+    brolly.name = "street-umbrellas";
+    group.add(brolly);
+    var crowd = WorldPeople.crowd(T, cap, n > 0);
+    if (crowd) {
+      crowd.meshes.forEach(function (m) { group.add(m); });
+      list.forEach(function (w, i) {
+        var pick = function (/** @type {Array<string>} */ xs, /** @type {number} */ k) { return new T.Color(xs[Math.floor(rnd(i * k) * xs.length)]).multiplyScalar(2); };
+        w.c = Math.floor(rnd(i * 3.3) * crowd.count);
+        w.tints = [pick(SKIN, 5.7), pick(COAT.concat(BRIGHT), 6.6), pick(LEGS, 7.4), pick(HAIRS, 9.2)];
+        w.ph = rnd(i * 4.4);
+        w.m = new T.Matrix4();
+      });
+      M.people = { crowd: crowd, brolly: brolly, body: null };
+      return;
+    }
+    var body = person(T);
     var walk = new Float32Array(cap * 2);
     list.forEach(function (w, i) { walk[i * 2] = rnd(i * 4.4) * 6.28; walk[i * 2 + 1] = w.v / 1.3; });
     body.setAttribute("aWalk", new T.InstancedBufferAttribute(walk, 2));
     var people = new T.InstancedMesh(body, M.mats.people, cap);
-    var brolly = new T.InstancedMesh(umbrella(T), M.mats.brolly, cap);
-    var c = new T.Color();
-    list.forEach(function (w, i) {
-      people.setColorAt(i, c.set(COAT[Math.floor(rnd(i * 6.6) * COAT.length)]));
-      brolly.setColorAt(i, c.set(BRELLA[Math.floor(rnd(i * 8.8) * BRELLA.length)]));
-    });
-    [people, brolly].forEach(function (m) { m.frustumCulled = false; group.add(m); });
-    people.name = "street-people"; brolly.name = "street-umbrellas";
-    M.people = { body: people, brolly: brolly };
+    list.forEach(function (w, i) { people.setColorAt(i, c.set(COAT[Math.floor(rnd(i * 6.6) * COAT.length)])); });
+    people.frustumCulled = false;
+    group.add(people);
+    people.name = "street-people";
+    M.people = { body: people, brolly: brolly, crowd: null };
   }
 
   var tmp = [0, 0, 0], ahead = [0, 0, 0];
 
-  /** @param {number} t @param {number} dt @param {number} night @param {boolean} still */
-  function frame(t, dt, night, still) {
+  /** @param {number} t @param {number} dt @param {number} night @param {boolean} still @param {any} [eye] */
+  function frame(t, dt, night, still, eye) {
     var T = M.T;
     if (!T || !M.cars) return;
     var mtx = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
@@ -596,6 +617,7 @@ var WorldStreet = (function () {
     WorldKit.L.moving = light;
     var P = M.people;
     if (P) {
+      var drawn = [], now = WorldKit.uniforms.time.value, grip = new T.Vector3(), shift = new T.Matrix4();
       M.walkers.forEach(function (w, i) {
         var len = w.sg.a1 - w.sg.a0;
         if (!still) w.s += w.v * dt * w.dir;
@@ -603,12 +625,23 @@ var WorldStreet = (function () {
         if (w.s < 0) { w.s = 0; w.dir = 1; }
         var p = spot(w.sg, w.sg.a0 + w.s, w.d);
         var yaw = w.sg.axis === 0 ? (w.dir > 0 ? 0 : Math.PI) : (w.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
-        mtx.compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, yaw, 0)), one);
-        P.body.setMatrixAt(i, mtx);
-        P.brolly.setMatrixAt(i, mtx);
+        if (!P.crowd) {
+          mtx.compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, yaw, 0)), one);
+          P.body.setMatrixAt(i, mtx);
+          P.brolly.setMatrixAt(i, mtx);
+          return;
+        }
+        var rate = still ? 0 : w.v / 1.5, f = now * rate + w.ph, hand = WorldPeople.hand(w.c, f - Math.floor(f));
+        w.m.compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, yaw + Math.PI, 0)), one);
+        P.brolly.setMatrixAt(i, mtx.copy(w.m).multiply(shift.makeTranslation(grip.set(hand[0] - GRIP[0], hand[1] - GRIP[1], hand[2] - GRIP[2]))));
+        var far = eye ? Math.hypot(p[0] - eye.x, p[1] - eye.z) : 0;
+        drawn.push({ c: w.c, lod: far > 24 ? 1 : 0, m: w.m, walk: [w.ph, rate], tints: w.tints });
       });
-      P.body.count = P.brolly.count = M.walkers.length;
-      P.body.instanceMatrix.needsUpdate = P.brolly.instanceMatrix.needsUpdate = true;
+      if (P.crowd) WorldPeople.draw(drawn);
+      else P.body.count = M.walkers.length;
+      P.brolly.count = M.walkers.length;
+      if (P.body) P.body.instanceMatrix.needsUpdate = true;
+      P.brolly.instanceMatrix.needsUpdate = true;
     }
     if (M.glows) {
       M.glows.material.uniforms.uOpacity.value = night * 0.75;

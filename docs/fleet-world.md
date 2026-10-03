@@ -38,6 +38,14 @@ The operator, with a picture of a friendly cartoon figure in a light-grey shirt 
 arm out, presenting: *"Use some one like this as the main character. Create diverse character options
 so everyone feels included."*
 
+Your character is a realistic human: a skinned, rigged body with its face, hair, clothes and shoes,
+animated on the Unreal Engine body skeleton (`world/people.js`). It idles (breathing, a slow weight
+shift), walks into a jog and a run with your speed, steps round when you turn on the spot, presents
+when you talk, and sits in its wheelchair pushing the rims. Today's character is a stand-in built from
+MakeHuman's CC0 assets; the realistic people are to be MetaHumans the operator exports from Unreal
+Engine, dropped into `static/world/people/` with its manifest, `people.json` (see *The people* below).
+If those files are missing or a browser cannot skin a mesh, the page's own cartoon character stands in.
+
 You see your character from behind and over its shoulder (third person, the default), or through its
 eyes (first person, V or Y). It walks with you: legs swinging with the distance walked, so the feet
 do not slide, arms against the legs. When you talk to an agent you turn to face it, the camera swings
@@ -55,7 +63,9 @@ looks, then change anything:
 | face | none, a beard, a moustache |
 | glasses | none, round, square |
 | shirt, trousers | eight and five colours |
+| figure | angular, between, curved (the realistic character's body shape) |
 | build | slim, regular, broad |
+| age | young, middle, older (the realistic character) |
 | moves by | walking, or a wheelchair whose wheels turn as it rolls and whose rims the arms push |
 
 No option or look is named for a gender: they are looks a person chooses, not a box they are put in.
@@ -145,8 +155,29 @@ assets."* Every one is CC0 (public domain), credited by name and author in
 committed (WebP textures, decimated models, 512 x 256 skies): 4 MiB in all, in the package, served by
 the fleet's own server like its scripts. Nothing comes from the internet. If a file is missing, the
 world falls back to its own version of that thing (a baked material, the sky shader, a built
-hydrant). Poly Haven has no people, so the characters are still the page's own. The world's script
-is 61.5 KiB.
+hydrant). The world's script is 74.2 KiB.
+
+### The people
+
+Poly Haven has no people, so they have their own folder, `agentdata/fleet/static/world/people/`, its
+own `LICENSE` and its own bound (5 MiB, `tests/test_fleet_serve.py`). The stand-in is CC0 throughout:
+MakeHuman's base mesh, skins, clothes, hair, beards and glasses (credited one by one), made in Blender
+with MPFB, rigged with its game-engine rig (Unreal Engine bone names), and put through the world's
+people pipeline (an offline Node script, gltf-transform and meshoptimizer): skinned to the rest pose,
+turned to face -Z in metres, bones outside the Unreal body set folded into their parents, outfits split
+into top and bottom, decimated, quantised, colour maps turned into detail maps so one texture takes
+every skin tone and colour the picker offers, WebP textures. `standin.glb` is the player's character
+(35,000 triangles across its parts, six hair styles, beards, glasses and five body morphs: angular,
+curved, older, slim, broad); `standin_crowd.glb` is five pedestrians at two levels of detail in one
+atlas. `people.json` says which file is the hero and which the crowd, which hair, beard and glasses
+file each look names, and which morphs each figure, build and age sets: swapping in MetaHumans is a
+change to that file and the files beside it, not to the code. A hair style no file has (locs, the
+headscarf, the wrap) is drawn for the realistic head and skinned to it.
+
+The pedestrians are that crowd: skinned in the vertex shader from a texture of baked bone matrices,
+instanced, a mesh per character and level of detail (detailed within 24 m), each with its own skin,
+coat, trousers and hair colours, an umbrella in the right hand. The low quality has no pedestrians,
+as before.
 
 ## Rain, day and night
 
@@ -206,7 +237,9 @@ The frame budget is **10 ms**: 100 frames a second.
 - `fps`, `frameMs` (the median interval) and `workMs` (the script's own time per frame);
 - `scale` and `quality`;
 - `calls` and `triangles` (the scene), and `passes` (the whole frame's draw calls);
-- `town` (buildings, lights, cars, parked cars, people, scanned props);
+- `town` (buildings, lights, cars, parked cars, people, scanned props, crowd characters);
+- `hero` (where it is, its `kind`, `skinned` or `doll`, and its pose: `legL`, `armR`, `hips`) and
+  `people` (whether the realistic character loaded, how many crowd characters);
 - `cc0`, how many of the CC0 textures, skies and props loaded.
 
 F3 shows the frame figures in the toolbar.

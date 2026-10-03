@@ -18,6 +18,10 @@ nothing else from the page: `world.js` hands it the three.js module it imported.
 from three.js's own primitives (spheres, capsules, cylinders, boxes, tori), with no model file and
 nothing fetched.
 
+Since the people pass (2026-10-03) this file is also the facade for the realistic character:
+`build` asks `WorldPeople` for a skinned human and falls back to the character below when there is
+none, so a page whose people files fail to load still has its character.
+
 ### `var SKIN`
 
 Eight skin tones, deep to light, warm and neutral. A character creator that offered three would tell
@@ -51,6 +55,12 @@ Ten complete looks to start from, named by what they look like, never by a name 
 gender. The first is the operator's picture. Between them they span every skin tone, every hair
 texture, both coverings, both kinds of glasses, a beard and a moustache, all three builds, and a
 wheelchair user. Each is only a starting point: every option can be changed after.
+
+### `var FIGURES`
+
+The body's figure, angular to curved, and between: a realistic body has a shape, and the picker
+offers it as a shape, never as a gender. With `AGES` (young, middle, older) these are morph targets of
+the realistic character; the rows are hidden when the character is the procedural one (`shown`).
 
 ### `function normal`
 
@@ -99,6 +109,36 @@ forearm at the elbow, each leg at the hip and its shin at the knee. The characte
 the camera looks at a yaw of 0, so turning it to the player's yaw faces it where the player faces.
 A wheelchair is part of the character, not an accessory: a seat, a back, a footrest, casters, and two
 wheels with push rims that turn as it rolls.
+
+### `function chair`
+
+The wheelchair, shared by both characters.
+
+### `function build`
+
+The realistic character when `WorldPeople` has one, with the wheelchair added; otherwise the doll.
+
+### `function veil`
+
+The headscarf for the realistic character: a shell round the head with an opening for the face
+(an oval from the brows to the chin), and a drape laid over the neck, shoulders and chest
+(`WorldPeople`'s hull of the body) instead of a cone through them.
+
+### `function dress`
+
+What no file supplies, drawn for the realistic head from its anchors (eyes, crown, chin, nose, back,
+sides, moved with the body): the headscarf, the wrap (a cap with folded bands and a knot), locs, a cap
+for any hair style a set of exports lacks, and a beard, moustache or glasses where none came with the
+character. `WorldPeople` skins it to the nearest body vertices.
+
+### `function measure`
+
+What the page reports of the character's pose, the same three numbers for either character.
+
+### `function shown`
+
+The picker rows that apply: the scarf colour with a scarf or wrap, figure and age with the realistic
+character.
 
 ### `function pose`
 

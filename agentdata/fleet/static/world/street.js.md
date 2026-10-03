@@ -136,9 +136,18 @@ streets' kerbs, each its own colour, their lights off.
 
 ### `function walkers`
 
+With `WorldPeople`'s crowd the walkers are realistic people, each a crowd character with its own skin,
+coat, trousers and hair colours, holding an umbrella; without it, the procedural walkers below.
+
+
 People on the sidewalks, each with a pace, walking up and down their stretch of sidewalk.
 
 ### `function frame`
+
+The crowd's pedestrians are placed every frame into their character's mesh, the detailed one within
+24 m of the camera (`eye`), and each umbrella is put in its pedestrian's right hand where the baked walk
+has it.
+
 
 Every frame: a car keeps its distance from the one ahead and stops at a red light at the crossing
 ahead, then drives on; its headlights light the road ahead of it and its tail lights the road behind

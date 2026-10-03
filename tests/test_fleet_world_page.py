@@ -196,13 +196,19 @@ def test_the_full_pipeline_draws_without_a_shader_error(fleet_home, tmp_path, br
         town = info["town"]
         assert town["people"] > 20 and town["parked"] > 10 and town["cars"] > 10, town
         names = page.evaluate("() => { const n = []; vState.scene.traverse(m => { if (m.name) n.push(m.name); }); return n; }")
-        for part in ("city-glass", "city-signs", "city-brick", "city-curb", "street-trees", "street-people", "car-body0"):
+        # The pedestrians are the people's crowd (`world/people.js`): skinned, instanced, two levels of
+        # detail a character, umbrellas in their hands.
+        assert info["people"]["hero"] is True and info["town"]["crowd"] >= 2, (info["people"], info["town"])
+        for part in ("city-glass", "city-signs", "city-brick", "city-curb", "street-trees", "crowd-0-0", "crowd-0-1",
+                     "street-umbrellas", "car-body0"):
             assert part in names, (part, names)
         # And what reaches the screen is the frame. Resizing the canvas clears it, and the frame-rate
         # tuning used to resize it straight after a frame was drawn, in the same task: the frame shown
         # was the cleared canvas, black, for as long as the scale kept changing.
+        # Three frames apart each time, on the page's own clock (its frame count), not a fixed wait.
         for _ in range(3):
-            page.wait_for_timeout(600)
+            frames = _inspect(page)["frames"]
+            page.wait_for_function(f"() => FleetWorld.inspect().frames > {frames + 2}", timeout=60000)
             w, h, bpp, rows = _png_pixels(page.screenshot())
             row = rows[h * 2 // 3]
             lit = sum(1 for i in range(0, w * bpp, bpp) if row[i] + row[i + 1] + row[i + 2] > 24)
@@ -305,7 +311,9 @@ def test_you_choose_who_you_are_and_the_world_keeps_it(fleet_home, tmp_path, bro
     server, token, port = _serve()
     try:
         page, errors = _open(browser, port, token, "&hour=13", n=1, who="")
-        page.wait_for_function("() => FleetWorld.inspect().who && !document.getElementById('wwho').hidden", timeout=10000)
+        # The check polls on animation frames, and the first frames compile the realistic character's
+        # skinned shaders, which SwiftShader takes seconds over when the suite runs in parallel.
+        page.wait_for_function("() => FleetWorld.inspect().who && !document.getElementById('wwho').hidden", timeout=60000)
         presets = page.eval_on_selector_all("#wpresets .ww-choice", "els => els.map(e => e.textContent)")
         assert len(presets) >= 10 and {"headscarf", "wrap", "locs", "wheelchair"} <= set(presets), presets
         rows = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('#wopts .ww-row')]
@@ -350,9 +358,18 @@ def test_your_character_walks_turns_to_the_agent_and_presents(fleet_home, tmp_pa
         hero = _inspect(page)["hero"]
         assert hero["visible"] and not hero["seated"] and abs(hero["legL"]) < 0.01, hero
 
+        # The character is a skinned human (`world/people.js`, the stand-in in `static/world/people/`)
+        # whose legs follow a gait: the thigh passes through the vertical twice a stride, so the swing
+        # is read over a stride, a tenth of a second of walking at a time, never at one instant.
+        assert hero["kind"] == "skinned", hero
         page.keyboard.down("KeyW")
-        page.evaluate("() => FleetWorld.step(0.3)")
-        page.wait_for_function("() => Math.abs(FleetWorld.inspect().hero.legL) > 0.05", timeout=10000)
+        swing = 0
+        for _ in range(12):
+            frames = _inspect(page)["frames"]
+            page.evaluate("() => FleetWorld.step(0.1)")
+            page.wait_for_function(f"() => FleetWorld.inspect().frames > {frames + 1}", timeout=10000)
+            swing = max(swing, abs(_inspect(page)["hero"]["legL"]))
+        assert swing > 0.2, swing
         page.keyboard.up("KeyW")
         page.evaluate("() => FleetWorld.step(0.5)")
         page.wait_for_function("() => Math.abs(FleetWorld.inspect().hero.legL) < 0.05", timeout=10000)

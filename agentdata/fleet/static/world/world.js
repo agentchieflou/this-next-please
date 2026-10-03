@@ -40,7 +40,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -48,7 +48,7 @@ var vState = {
   near: "", open: "", hour: null, daylight: 1, held: false, time: 0, last: 0,
   frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0,
   ready: false, why: "", record: null, pmrem: null,
-  hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0,
+  hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0, turn: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
   tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, compiling: true, warming: false, warm: null,
   assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}
@@ -220,7 +220,8 @@ function vPlaza(edge) {
     WorldKit.forget("street");
     street.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "street", { f: l.f }); });
     vState.streetSolids = street.solids;
-    vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people, scans: street.scans };
+    vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people, scans: street.scans,
+                    crowd: street.crowd };
   }
   vState.solids = vState.solids.concat(vState.streetSolids || []);
   vWeather();
@@ -406,15 +407,16 @@ function vStep(dt) {
   vState.pad = pad ? pad.buttons : [];
   vState.padAxes = pad ? pad.axes : [0, 0, 0, 0];
   if (vPressed(9)) { vWho(!vState.who); return; }
-  if (vState.who) { vState.speed = 0; vWhoPad(dt); return; }
-  if (vState.open) { vState.speed = 0; vPanelPad(dt); return; }
+  if (vState.who) { vState.speed = vState.turn = 0; vWhoPad(dt); return; }
+  if (vState.open) { vState.speed = vState.turn = 0; vPanelPad(dt); return; }
   if (vPressed(3)) vView(vState.view === "third" ? "first" : "third");
   var k = vState.keys, P = vState.player, ax = vState.padAxes;
   var fwd = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - vDead(ax[1] || 0);
   var side = (k.KeyD ? 1 : 0) - (k.KeyA ? 1 : 0) + vDead(ax[0] || 0);
   var turn = (k.ArrowLeft || k.KeyQ ? 1 : 0) - (k.ArrowRight ? 1 : 0) - vDead(ax[2] || 0);
-  var tilt = -vDead(ax[3] || 0);
+  var tilt = -vDead(ax[3] || 0), yaw0 = P.yaw;
   P.yaw += turn * V_TURN * dt - vState.look.dx * V_LOOK;
+  vState.turn = dt > 0 ? (P.yaw - yaw0) / dt : 0;
   P.pitch = Math.max(-1.2, Math.min(1.2, P.pitch + tilt * V_TURN * 0.7 * dt - vState.look.dy * V_LOOK));
   vState.look.dx = vState.look.dy = 0;
   var len = Math.hypot(fwd, side);
@@ -476,7 +478,7 @@ function vHeroFrame(dt) {
   vState.talk = vReduced() ? want : vState.talk + (want - vState.talk) * Math.min(1, dt * 8);
   if (vState.speed < 0.05 && !vReduced()) vState.walk += (Math.round(vState.walk / Math.PI) * Math.PI - vState.walk) * Math.min(1, dt * 10);
   WorldHero.pose(h, { phase: vState.walk, speed: vState.speed, talk: vState.talk, t: vState.time, reduced: vReduced(),
-                      rolled: vState.rolled });
+                      rolled: vState.rolled, turn: vState.turn });
 }
 
 /** @returns {Object} */
@@ -551,7 +553,7 @@ function drawWho() {
     return row;
   }, function (row, o) {
     text(row.querySelector(".ww-label"), o.label);
-    hide(row, o.key === "scarf" && L.hair !== "scarf" && L.hair !== "wrap");
+    hide(row, !WorldHero.shown(o.key, L));
     patchList(row.querySelector(".ww-choices"), o.values, function (v) { return v; }, function (v) {
       var b = document.createElement("button");
       b.type = "button";
@@ -633,7 +635,7 @@ function vFrame(now) {
   rain.uTime.value = splash.uTime.value = vState.time;
   rain.uCam.value.copy(cam.position);
   splash.uCam.value.copy(cam.position);
-  WorldStreet.frame(vState.time, dt, 1 - vState.daylight, vReduced());
+  WorldStreet.frame(vState.time, dt, 1 - vState.daylight, vReduced(), cam.position);
   if (!vReduced()) {
     vBots(vState.time);
     WorldKit.uniforms.time.value = WorldBots.beat.time.value = vState.time;
@@ -1013,6 +1015,7 @@ function vStart() {
     vState.T = got[0];
     vState.assets = got[2];
     vBuild();
+    WorldPeople.use(vState.renderer.capabilities.floatVertexTextures ? vState.assets.people : null);
     vState.ready = true;
     vLayout();
     var kept = vLoadLook();
@@ -1055,10 +1058,10 @@ window.FleetWorld = Object.freeze({
       frameMs: vPct(vState.intervals.slice(-120), 0.5), workMs: vPct(vState.work.slice(-120), 0.5),
       scale: vState.scale, refreshMs: vState.refresh, budgetMs: V_BUDGET_MS,
       view: vState.view, who: vState.who, look: vState.avatar && Object.assign({}, vState.avatar),
-      hero: vState.hero ? { visible: vState.hero.group.visible, seated: vState.hero.seated, wheels: !!vState.hero.wheels,
-                            x: vState.hero.group.position.x, z: vState.hero.group.position.z, yaw: vState.hero.group.rotation.y,
-                            legL: vState.hero.limbs.legL.rotation.x, armR: vState.hero.limbs.armR.rotation.z,
-                            hips: vState.hero.hips.position.y } : null
+      hero: vState.hero ? Object.assign({ kind: vState.hero.kind, visible: vState.hero.group.visible, seated: vState.hero.seated, wheels: !!vState.hero.wheels,
+                                          x: vState.hero.group.position.x, z: vState.hero.group.position.z, yaw: vState.hero.group.rotation.y },
+                                        WorldHero.measure(vState.hero)) : null,
+      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0 }
     };
   },
   hold: function (on) { vState.held = !!on; vState.keys = {}; },

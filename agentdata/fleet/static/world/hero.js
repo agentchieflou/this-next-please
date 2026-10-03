@@ -10,6 +10,8 @@ var WorldHero = (function () {
   var FACES = ["none", "beard", "moustache"];
   var GLASSES = ["none", "round", "square"];
   var BUILDS = ["slim", "regular", "broad"];
+  var FIGURES = ["angular", "between", "curved"];
+  var AGES = ["young", "middle", "older"];
   var MOVES = ["walk", "wheelchair"];
   var OPTIONS = [
     { key: "skin", label: "skin", values: SKIN, swatch: true },
@@ -20,22 +22,24 @@ var WorldHero = (function () {
     { key: "glasses", label: "glasses", values: GLASSES },
     { key: "top", label: "shirt", values: TOP, swatch: true },
     { key: "bottom", label: "trousers", values: BOTTOM, swatch: true },
+    { key: "figure", label: "figure", values: FIGURES },
     { key: "build", label: "build", values: BUILDS },
+    { key: "age", label: "age", values: AGES },
     { key: "move", label: "moves by", values: MOVES }
   ];
   var BASE = { skin: SKIN[5], hair: "part", hairColour: HAIR[0], scarf: SCARF[0], face: "none", glasses: "none",
-               top: TOP[0], bottom: BOTTOM[0], build: "regular", move: "walk" };
+               top: TOP[0], bottom: BOTTOM[0], figure: "angular", build: "regular", age: "young", move: "walk" };
   var PRESETS = [
     { name: "side part", look: {} },
-    { name: "curls", look: { skin: SKIN[2], hair: "curls", hairColour: HAIR[0], top: TOP[1], bottom: BOTTOM[1] } },
-    { name: "headscarf", look: { skin: SKIN[4], hair: "scarf", scarf: SCARF[1], top: TOP[5], bottom: BOTTOM[3], glasses: "round" } },
+    { name: "curls", look: { skin: SKIN[2], hair: "curls", hairColour: HAIR[0], top: TOP[1], bottom: BOTTOM[1], figure: "curved" } },
+    { name: "headscarf", look: { skin: SKIN[4], hair: "scarf", scarf: SCARF[1], top: TOP[5], bottom: BOTTOM[3], glasses: "round", figure: "curved" } },
     { name: "locs", look: { skin: SKIN[0], hair: "locs", hairColour: HAIR[1], top: TOP[2], bottom: BOTTOM[0], build: "broad" } },
-    { name: "silver bun", look: { skin: SKIN[6], hair: "bun", hairColour: HAIR[5], top: TOP[7], bottom: BOTTOM[4], glasses: "square" } },
-    { name: "beard", look: { skin: SKIN[3], hair: "buzz", hairColour: HAIR[1], face: "beard", top: TOP[4], bottom: BOTTOM[2] } },
-    { name: "wheelchair", look: { skin: SKIN[1], hair: "coils", hairColour: HAIR[0], top: TOP[3], bottom: BOTTOM[1], move: "wheelchair" } },
-    { name: "long hair", look: { skin: SKIN[7], hair: "long", hairColour: HAIR[3], top: TOP[6], bottom: BOTTOM[3], build: "slim" } },
-    { name: "wrap", look: { skin: SKIN[0], hair: "wrap", scarf: SCARF[2], top: TOP[1], bottom: BOTTOM[0] } },
-    { name: "bald", look: { skin: SKIN[5], hair: "none", face: "moustache", top: TOP[4], bottom: BOTTOM[4], build: "broad", glasses: "round" } }
+    { name: "silver bun", look: { skin: SKIN[6], hair: "bun", hairColour: HAIR[5], top: TOP[7], bottom: BOTTOM[4], glasses: "square", figure: "curved", age: "older" } },
+    { name: "beard", look: { skin: SKIN[3], hair: "buzz", hairColour: HAIR[1], face: "beard", top: TOP[4], bottom: BOTTOM[2], age: "middle" } },
+    { name: "wheelchair", look: { skin: SKIN[1], hair: "coils", hairColour: HAIR[0], top: TOP[3], bottom: BOTTOM[1], move: "wheelchair", figure: "between" } },
+    { name: "long hair", look: { skin: SKIN[7], hair: "long", hairColour: HAIR[3], top: TOP[6], bottom: BOTTOM[3], build: "slim", figure: "curved" } },
+    { name: "wrap", look: { skin: SKIN[0], hair: "wrap", scarf: SCARF[2], top: TOP[1], bottom: BOTTOM[0], figure: "curved", age: "middle" } },
+    { name: "bald", look: { skin: SKIN[5], hair: "none", face: "moustache", top: TOP[4], bottom: BOTTOM[4], build: "broad", glasses: "round", age: "older" } }
   ];
   var EYE = "#241a16";
   var MOUTH = "#8e2c35";
@@ -181,9 +185,8 @@ var WorldHero = (function () {
     }
   }
 
-  /** @param {any} T @param {Object} look @returns {Object} */
-  function build(T, look) {
-    var L = normal(look);
+  /** @param {any} T @param {Object} L @returns {Object} */
+  function doll(T, L) {
     var bw = L.build === "slim" ? 0.86 : L.build === "broad" ? 1.2 : 1;
     var mat = material(T);
     var root = new T.Group(), hips = new T.Group(), head = new T.Group();
@@ -240,43 +243,155 @@ var WorldHero = (function () {
       limbs["leg" + side] = leg;
       limbs["shin" + side] = shin;
     });
-    var chair = null, wheels = null;
-    if (L.move === "wheelchair") {
-      chair = mesh(T, [
-        piece(T, new T.BoxGeometry(0.48, 0.06, 0.46), "#3a3f47", [0, 0.5, 0]),
-        piece(T, new T.BoxGeometry(0.46, 0.44, 0.05), "#3a3f47", [0, 0.78, 0.23]),
-        piece(T, new T.CylinderGeometry(0.018, 0.018, 0.5, 6), CHAIR, [-0.24, 0.52, 0.12], [1, 1, 1], [0.2, 0, 0]),
-        piece(T, new T.CylinderGeometry(0.018, 0.018, 0.5, 6), CHAIR, [0.24, 0.52, 0.12], [1, 1, 1], [0.2, 0, 0]),
-        piece(T, new T.BoxGeometry(0.36, 0.03, 0.14), CHAIR, [0, 0.1, -0.32]),
-        piece(T, new T.CylinderGeometry(0.015, 0.015, 0.42, 6), CHAIR, [-0.17, 0.3, -0.26], [1, 1, 1], [0.35, 0, 0]),
-        piece(T, new T.CylinderGeometry(0.015, 0.015, 0.42, 6), CHAIR, [0.17, 0.3, -0.26], [1, 1, 1], [0.35, 0, 0]),
-        piece(T, new T.SphereGeometry(0.05, 8, 6), TYRE, [-0.2, 0.05, -0.3]),
-        piece(T, new T.SphereGeometry(0.05, 8, 6), TYRE, [0.2, 0.05, -0.3])
-      ], mat);
-      root.add(chair);
-      wheels = new T.Group();
-      wheels.position.set(0, 0.3, 0.05);
-      wheels.add(mesh(T, [
-        piece(T, new T.TorusGeometry(0.29, 0.028, 8, 28), TYRE, [-0.29, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
-        piece(T, new T.TorusGeometry(0.29, 0.028, 8, 28), TYRE, [0.29, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
-        piece(T, new T.TorusGeometry(0.25, 0.008, 4, 24), "#9aa3ad", [-0.32, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
-        piece(T, new T.TorusGeometry(0.25, 0.008, 4, 24), "#9aa3ad", [0.32, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
-        piece(T, new T.BoxGeometry(0.01, 0.5, 0.02), "#9aa3ad", [-0.29, 0, 0]),
-        piece(T, new T.BoxGeometry(0.01, 0.02, 0.5), "#9aa3ad", [-0.29, 0, 0]),
-        piece(T, new T.BoxGeometry(0.01, 0.5, 0.02), "#9aa3ad", [0.29, 0, 0]),
-        piece(T, new T.BoxGeometry(0.01, 0.02, 0.5), "#9aa3ad", [0.29, 0, 0])
-      ], mat));
-      root.add(wheels);
-    }
-    return { group: root, hips: hips, head: head, limbs: limbs, chair: chair, wheels: wheels, look: L, mat: mat,
+    var seat = L.move === "wheelchair" ? chair(T, root, mat) : { chair: null, wheels: null };
+    return { kind: "doll", group: root, hips: hips, head: head, limbs: limbs, chair: seat.chair, wheels: seat.wheels, look: L, mat: mat,
              seated: L.move === "wheelchair" };
+  }
+
+  /** @param {any} T @param {any} root @param {any} mat @returns {{chair: any, wheels: any}} */
+  function chair(T, root, mat) {
+    var seat = mesh(T, [
+      piece(T, new T.BoxGeometry(0.48, 0.06, 0.46), "#3a3f47", [0, 0.5, 0]),
+      piece(T, new T.BoxGeometry(0.46, 0.44, 0.05), "#3a3f47", [0, 0.78, 0.23]),
+      piece(T, new T.CylinderGeometry(0.018, 0.018, 0.5, 6), CHAIR, [-0.24, 0.52, 0.12], [1, 1, 1], [0.2, 0, 0]),
+      piece(T, new T.CylinderGeometry(0.018, 0.018, 0.5, 6), CHAIR, [0.24, 0.52, 0.12], [1, 1, 1], [0.2, 0, 0]),
+      piece(T, new T.BoxGeometry(0.36, 0.03, 0.14), CHAIR, [0, 0.1, -0.32]),
+      piece(T, new T.CylinderGeometry(0.015, 0.015, 0.42, 6), CHAIR, [-0.17, 0.3, -0.26], [1, 1, 1], [0.35, 0, 0]),
+      piece(T, new T.CylinderGeometry(0.015, 0.015, 0.42, 6), CHAIR, [0.17, 0.3, -0.26], [1, 1, 1], [0.35, 0, 0]),
+      piece(T, new T.SphereGeometry(0.05, 8, 6), TYRE, [-0.2, 0.05, -0.3]),
+      piece(T, new T.SphereGeometry(0.05, 8, 6), TYRE, [0.2, 0.05, -0.3])
+    ], mat);
+    root.add(seat);
+    var wheels = new T.Group();
+    wheels.position.set(0, 0.3, 0.05);
+    wheels.add(mesh(T, [
+      piece(T, new T.TorusGeometry(0.29, 0.028, 8, 28), TYRE, [-0.29, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
+      piece(T, new T.TorusGeometry(0.29, 0.028, 8, 28), TYRE, [0.29, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
+      piece(T, new T.TorusGeometry(0.25, 0.008, 4, 24), "#9aa3ad", [-0.32, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
+      piece(T, new T.TorusGeometry(0.25, 0.008, 4, 24), "#9aa3ad", [0.32, 0, 0], [1, 1, 1], [0, Math.PI / 2, 0]),
+      piece(T, new T.BoxGeometry(0.01, 0.5, 0.02), "#9aa3ad", [-0.29, 0, 0]),
+      piece(T, new T.BoxGeometry(0.01, 0.02, 0.5), "#9aa3ad", [-0.29, 0, 0]),
+      piece(T, new T.BoxGeometry(0.01, 0.5, 0.02), "#9aa3ad", [0.29, 0, 0]),
+      piece(T, new T.BoxGeometry(0.01, 0.02, 0.5), "#9aa3ad", [0.29, 0, 0])
+    ], mat));
+    root.add(wheels);
+    return { chair: seat, wheels: wheels };
+  }
+
+  /** @param {any} T @param {Object} look @returns {Object} */
+  function build(T, look) {
+    var L = normal(look), h = WorldPeople.ready() ? WorldPeople.hero(T, L) : null;
+    if (!h) return doll(T, L);
+    var seat = L.move === "wheelchair" ? chair(T, h.group, material(T)) : { chair: null, wheels: null };
+    return Object.assign(h, { chair: seat.chair, wheels: seat.wheels, look: L });
+  }
+
+  /** @param {any} T @param {string} hex @param {Object} a @param {Array<number>} c @param {Array<number>} r @param {number} ey @returns {any} */
+  function veil(T, hex, a, c, r, ey) {
+    var rows = 44, cols = 72, k = 1.13, pos = [], idx = [];
+    var top = ey + 0.045, bot = a.chin + 0.01, mid = (top + bot) / 2, half = (top - bot) / 2;
+    var jaw = Math.PI * 0.62, y0 = c[1] + Math.cos(jaw) * r[1] * k, w0 = Math.sin(jaw), low = a.chin - 0.3;
+    for (var i = 0; i <= rows; i++) {
+      var t = i / rows;
+      for (var j = 0; j <= cols; j++) {
+        var f = j / cols * Math.PI * 2, sx = Math.sin(f), sz = -Math.cos(f);
+        if (t <= 0.5) {
+          var th = t / 0.5 * jaw;
+          pos.push(sx * Math.sin(th) * r[0] * k, c[1] + Math.cos(th) * r[1] * k, c[2] + 0.012 + sz * Math.sin(th) * r[2] * k);
+        } else {
+          var u = (t - 0.5) / 0.5, g = Math.pow(u, 1.5), y = y0 - u * (y0 - low);
+          var px = sx * mix(w0 * r[0] * k, 0.17, g), pz = mix(c[2] + 0.012, 0, g) + sz * mix(w0 * r[2] * k, 0.12, g), d = Math.hypot(px, pz) || 1;
+          var e = a.hull ? Math.max(1, (a.hull(y, Math.atan2(px, -pz)) + 0.03) / d) : 1;
+          pos.push(px * e, y, pz * e);
+        }
+      }
+    }
+    for (var m = 0; m < rows; m++) {
+      for (var n = 0; n < cols; n++) {
+        var A = m * (cols + 1) + n, B = A + cols + 1, C = B + 1, D = A + 1;
+        var y = (pos[A * 3 + 1] + pos[B * 3 + 1]) / 2, fr = Math.min((n + 0.5) / cols, 1 - (n + 0.5) / cols) * Math.PI * 2;
+        if (y < top && y > bot && fr < 1.0 * Math.sqrt(Math.max(0, 1 - Math.pow((y - mid) / half, 2)))) continue;
+        idx.push(A, C, B, A, D, C);
+      }
+    }
+    var g2 = new T.BufferGeometry();
+    g2.setAttribute("position", new T.Float32BufferAttribute(pos, 3));
+    g2.setIndex(idx);
+    g2.computeVertexNormals();
+    return piece(T, g2, hex, [0, 0, 0]);
+  }
+
+  /** @param {any} T @param {Object} look @param {Object} a @param {{hair: boolean, face: boolean, glasses: boolean}} need @returns {any} */
+  function dress(T, look, a, need) {
+    if (!a.eyeL || !a.eyeR || a.top === undefined) return null;
+    var L = normal(look), out = [], h = L.hairColour, sc = L.scarf;
+    var ey = (a.eyeL[1] + a.eyeR[1]) / 2, ez = (a.eyeL[2] + a.eyeR[2]) / 2, ex = Math.abs(a.eyeR[0] - a.eyeL[0]) / 2;
+    var c = [0, (a.top + a.chin) / 2 + 0.01, (a.front + a.back) / 2], rx = a.side, ry = (a.top - a.chin) / 2, rz = (a.back - a.front) / 2;
+    var brow = Math.acos(Math.max(-1, Math.min(1, (ey + 0.035 - c[1]) / (ry * 1.1))));
+    var cap = function (/** @type {string} */ hex, /** @type {number} */ k, /** @type {number} */ to, /** @type {Array<number>} */ lift) {
+      out.push(piece(T, new T.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, to), hex, [c[0], c[1] + lift[0], c[2] + lift[1]], [rx * k, ry * k, rz * k]));
+    };
+    var mouth = ey - (ey - a.chin) * 0.62;
+    if (need.hair && L.hair === "scarf") {
+      out.push(veil(T, sc, a, c, [rx, ry, rz], ey));
+    } else if (need.hair && L.hair === "wrap") {
+      cap(sc, 1.17, 1.45, [0.02, 0.012]);
+      for (var b = 0; b < 3; b++) {
+        out.push(piece(T, new T.TorusGeometry(1, 0.07, 8, 32), sc, [0, ey + 0.07 + b * 0.03, c[2] + 0.008 + b * 0.008],
+                       [rx * (1.2 - b * 0.06), rz * (1.2 - b * 0.06), 1], [Math.PI / 2 + 0.2 - b * 0.14, 0, (b % 2 ? 1 : -1) * 0.05]));
+      }
+      out.push(piece(T, new T.SphereGeometry(1, 16, 12), sc, [0, a.top + 0.02, c[2] + 0.01], [rx * 0.98, ry * 0.32, rz * 0.98]));
+      out.push(piece(T, new T.SphereGeometry(0.03, 12, 10), sc, [0, ey + 0.115, a.front - 0.008]));
+    } else if (need.hair && L.hair !== "none") {
+      cap(h, L.hair === "coils" ? 1.3 : L.hair === "curls" ? 1.14 : 1.05, L.hair === "locs" || L.hair === "buzz" ? brow * 1.05 : brow * 1.25, [0, 0.005]);
+      if (L.hair === "bun") out.push(piece(T, new T.SphereGeometry(0.055, 14, 10), h, [0, a.top - 0.01, a.back + 0.01]));
+      if (L.hair === "long") out.push(piece(T, new T.CapsuleGeometry(0.06, 0.2, 4, 12), h, [0, a.chin - 0.02, a.back - 0.02], [rx * 15, 1, 0.5]));
+      for (var k = 0; L.hair === "locs" && k < 28; k++) {
+        var f = 0.62 + k / 27 * (Math.PI * 2 - 1.24), ox = Math.sin(f), oz = -Math.cos(f), y0 = ey + 0.02 + 0.05 * Math.max(0, -oz);
+        var rr = Math.sqrt(Math.max(0.2, 1 - Math.pow((y0 - c[1]) / ry, 2))), len = 0.24 + 0.1 * ((k * 7) % 5) / 4;
+        out.push(piece(T, new T.CapsuleGeometry(0.012, len, 3, 6), h,
+                       [ox * rx * rr * 1.06 + ox * 0.03, y0 - len / 2, c[2] + oz * rz * rr * 1.06 + oz * 0.03], [1, 1, 1], [-0.18 * oz, 0, 0.18 * ox]));
+      }
+    }
+    if (need.face && L.face === "beard") {
+      out.push(piece(T, new T.SphereGeometry(1, 22, 12, Math.PI * 1.5 - 1.35, 2.7, Math.PI * 0.5, Math.PI * 0.42), h,
+                     [0, mouth + 0.012, c[2] + 0.004], [rx * 1.04, (mouth - a.chin) * 1.6 + 0.02, rz * 1.04]));
+    }
+    if (need.face && L.face !== "none") {
+      out.push(piece(T, new T.CapsuleGeometry(0.008, 0.042, 3, 6), h, [0, mouth + 0.016, a.front + 0.012], [1, 1, 0.8], [0, 0, Math.PI / 2]));
+    }
+    if (need.glasses && L.glasses !== "none") {
+      var seg = L.glasses === "square" ? 4 : 20, spin = L.glasses === "square" ? Math.PI / 4 : 0, lz = ez - 0.03, ring = 0.023;
+      [-1, 1].forEach(function (s) {
+        out.push(piece(T, new T.TorusGeometry(ring, 0.0022, 6, seg), "#202226", [s * ex, ey, lz], [1, 1, 1], [0, 0, spin]));
+        out.push(piece(T, new T.BoxGeometry(0.003, 0.004, 0.1), "#202226", [s * (ex + ring), ey + 0.006, lz + 0.05]));
+      });
+      out.push(piece(T, new T.CapsuleGeometry(0.0022, ex * 2 - ring * 2, 2, 4), "#202226", [0, ey + 0.006, lz], [1, 1, 1], [0, 0, Math.PI / 2]));
+    }
+    if (!out.length) return null;
+    return mesh(T, out, material(T));
+  }
+
+  /** @param {Object} h @returns {{legL: number, armR: number, hips: number}} */
+  function measure(h) {
+    if (h.kind === "skinned") return h.measure;
+    return { legL: h.limbs.legL.rotation.x, armR: h.limbs.armR.rotation.z, hips: h.hips.position.y };
+  }
+
+  /** @param {string} key @param {Object} look @returns {boolean} */
+  function shown(key, look) {
+    if (key === "scarf") return look.hair === "scarf" || look.hair === "wrap";
+    if (key === "figure" || key === "age") return WorldPeople.ready();
+    return true;
   }
 
   /** @param {number} a @param {number} b @param {number} t @returns {number} */
   function mix(a, b, t) { return a + (b - a) * t; }
 
-  /** @param {Object} h @param {{phase: number, speed: number, talk: number, t: number, reduced: boolean, rolled: number}} s */
+  /** @param {Object} h @param {{phase: number, speed: number, talk: number, t: number, reduced: boolean, rolled: number, turn: number}} s */
   function pose(h, s) {
+    if (h.wheels) h.wheels.rotation.x = -s.rolled / 0.31;
+    if (h.kind === "skinned") { WorldPeople.pose(h, s); return; }
     var b = h.limbs, sw = Math.sin(s.phase), k = Math.min(1, s.speed), tk = s.talk;
     var breathe = s.reduced ? 0 : Math.sin(s.t * 1.7) * 0.006;
     if (h.seated) {
@@ -290,7 +405,6 @@ var WorldHero = (function () {
       b.armR.rotation.set(mix(push, 0.3, tk), 0, mix(0.28, 1.1, tk));
       b.foreL.rotation.set(mix(0.5, 1.2, tk), 0, 0);
       b.foreR.rotation.set(mix(0.5, 0.1, tk), 0, mix(0, 0.35, tk));
-      if (h.wheels) h.wheels.rotation.x = -s.rolled / 0.31;
     } else {
       h.hips.position.y = 0.86 + Math.abs(sw) * 0.035 * k + breathe;
       b.legL.rotation.set(sw * 0.55 * k, 0, 0.02);
@@ -308,15 +422,19 @@ var WorldHero = (function () {
   /** @param {number} v */
   function fill(v) {
     shared.fill.value = v;
+    WorldPeople.fill(v);
   }
 
   /** @param {Object} h */
   function dispose(h) {
     if (!h) return;
-    h.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+    h.group.traverse(function (o) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.isSkinnedMesh) o.skeleton.dispose();
+    });
     if (h.group.parent) h.group.parent.remove(h.group);
   }
 
   return Object.freeze({ OPTIONS: OPTIONS, PRESETS: PRESETS, normal: normal, preset: preset, build: build, pose: pose,
-                         fill: fill, dispose: dispose });
+                         fill: fill, dispose: dispose, dress: dress, measure: measure, shown: shown });
 })();

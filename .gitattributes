@@ -29,3 +29,6 @@ agentdata/fleet/static/vendor/** -text
 # The world's CC0 textures, models and skies (agentdata/fleet/static/world/cc0/LICENSE) are binary,
 # and the .hdr files begin with a text header git could mistake for text.
 agentdata/fleet/static/world/cc0/** -text
+
+# The world's people (agentdata/fleet/static/world/people/LICENSE) are binary glTF, like the CC0 assets.
+agentdata/fleet/static/world/people/** -text

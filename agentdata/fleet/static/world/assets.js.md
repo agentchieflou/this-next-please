@@ -50,6 +50,12 @@ origin, which these are.
 A sky: Radiance RGBE, as written into `cc0/` without run-length encoding, so after its header the file
 is the pixels, four bytes each. Anything else is refused rather than half-read.
 
+### `function gltf`
+
+A binary glTF read as it lies: JSON and binary chunks, accessors (interleaved ones copied out,
+normalised integers made floats, as `KHR_mesh_quantization` writes them), and images decoded with
+`createImageBitmap`, once each however many materials share them.
+
 ### `function glb`
 
 A model: binary glTF as written for this page (one mesh, a material with colour, normal and
@@ -57,6 +63,17 @@ ambient-occlusion/roughness/metalness textures, WebP images inside the file). At
 they lie, or copied out when a buffer interleaves them. The images are decoded with
 `createImageBitmap`, which does not go through a URL (the CSP allows no `blob:` image), unflipped as
 glTF lays them out, and without colour conversion: a normal map is data, not a picture.
+
+### `function figure`
+
+A character from `static/world/people/`: its skins (joints with their parents and rest transforms, the
+pipeline's extras: morph joint offsets, head anchors), its skinned primitives with their roles, tones,
+morph targets and maps, and its animation clips. Built for the world's people pipeline's output.
+
+### `function people`
+
+The manifest, `people/people.json`, and every hero and crowd file it names. A set with a file missing
+is no set: the world keeps its procedural people rather than half a crowd.
 
 ### `function load`
 

@@ -338,3 +338,12 @@ parked cars, people, scanned props), how many of the CC0 textures, skies and pro
 character's place, turn and pose), `hold()` and
 `step()` to walk without depending on the frame rate (CI draws in SwiftShader), and `teleport(repo)`
 to stand within reach of an agent.
+
+### People (2026-10-03)
+
+`vStart` hands `WorldPeople` the people `WorldAssets` loaded, unless vertex textures cannot hold floats
+(then the procedural character stays). `vStep` keeps the turn rate (`turn`), which the character steps
+on the spot to. `inspect().hero` reports `kind` (`skinned` or `doll`) and the pose measured from the
+character either way (`WorldHero.measure`); `inspect().people` says whether the realistic character
+and how many crowd characters are in.
+
