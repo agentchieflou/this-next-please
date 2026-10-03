@@ -96,6 +96,29 @@ checkpoints would multiply the bill, and a budget built on a multiplied bill sto
 never overspent. `ad-fleet status` shows the total for the fleet and the budget each agent is
 measured against.
 
+### The month's allowance and its reserve
+
+The per-agent budget is a stop. The allowance (`agentdata/fleet/credits.py`, 2026-10-03) is not: it is
+the enterprise's monthly AI-credit grant the whole fleet draws on — 50,000 premium requests this
+month, after a September of 18,500 spent out of 23,000 on `auto`'s `efficiency` tier — and what it
+changes is the **tier** of the next launch, never whether there is one. `fleet.copilot.auto_tier`
+defaults to `balance` now. Inside the last `fleet.credits.reserve` percent of
+`fleet.credits.allowance` (20 by default), `start`, `send` and `restart` hand the launch `efficiency`
+instead, whichever tier was configured, and `ad-fleet status` prints the posture:
+
+```
+spent_month: 41000
+credits: reserve
+credits_tier: efficiency
+credits_why: 41000 of 50000 credits spent this month; the last 20% (10000) is the reserve, so auto runs on efficiency instead of balance
+```
+
+The month is the calendar month, summed from the day rows every ledger already keeps — nothing new
+is counted — and on the first of the next month the posture is `balanced` again. `credits: off`
+means no allowance is recorded (`0`), and the configured tier is untouched. An allowance nobody can
+read (`"fifty thousand"`) is off and says so in `credits_why`, never coerced to zero: the same rule
+as `budget_invalid` above, applied before it has to be learned twice.
+
 ## Logs
 
 `events.jsonl`, `events.norm.jsonl` and `stderr.log` roll at `fleet.log_mb` (default 20) keeping
@@ -156,6 +179,9 @@ subprocess launch for an answer nobody wants. A registry with repositories in it
 | `fleet.port` | `8765` | where `ad-fleet serve` listens |
 | `fleet.max_restarts` | `1` | restarts per session before a human has to say so |
 | `fleet.budget_per_agent` | *(off)* | premium requests an agent may spend before it stops |
+| `fleet.credits.allowance` | *(none)* | the enterprise's monthly AI-credit allowance the fleet draws on; `0` applies no reserve |
+| `fleet.credits.reserve` | `20` | the percent of the allowance inside which `auto` steps down to `efficiency` |
+| `fleet.copilot.auto_tier` | `balance` | how `--model auto` weighs cost and quality (`efficiency` until 2026-10-03) |
 | `fleet.log_mb` | `20` | size at which a log rolls |
 | `fleet.log_keep` | `5` | how many rolled copies survive |
 

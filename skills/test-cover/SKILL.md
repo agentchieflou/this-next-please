@@ -12,6 +12,7 @@ This skill writes **test files only**. It must **never edit a source file**. `ad
 
 1. Input: one node id, from `perf-optimize` or from the user. Run `ad-graph status`. Not
    `approved: current` → invoke `codebase-map`; STOP. Tests must pin behavior a human has read.
+   Then `ad-state set phase=testing` (skill `state-update`).
 2. `ad-graph node <id>` — read `where`, `callers`, `tests`, and every `io`-tagged callee.
    `ad-test coverage --node <id>` — read `pct` and the `missing` lines. Those lines are the target.
 3. Gather inputs, cheapest source first, and stop at the first that yields two:

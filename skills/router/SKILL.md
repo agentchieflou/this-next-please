@@ -18,35 +18,25 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 4. The request only starts the session ("start", "bootstrap", "initialize", "are you set up", a greeting) and names no work → print `ready — <the state: line>` and STOP. That is the end of the turn, not a friction.
 5. Match the request to ONE row. First match wins. Rows in the project's own `AGENTS.md` `## Project routes` table (if any) come first; a row there that names a skill that is not installed is ignored.
    **Ours first.** A row here beats a skill another package installed (pncli's own, a vendor's), even one whose description fits better; inside a skill, a dedicated `ad-*` verb beats `ad-pncli raw`, and bare `pncli` is never run (a fleet denies it; it skips the approval gate).
+   **A sub-router is one hop, not a detour.** A row that names `*-router` costs one more read and nothing else: it holds that domain's rows in the order they must be tried, and it ends in the same place this table does.
 
 | Request mentions | Invoke |
 |---|---|
 | start / launch / resume / restart / stop a run, run status, reconcile a run, workers, "is it still running" | `run-control` |
-| a ticket key, "triage", "what's next", acceptance criteria | `jira-triage` |
-| "new ticket", "open a ticket", "file this as a Jira" (no key named) | `jira-create` |
-| UAT, remediation, "compare Jira to Teradata / Hadoop / Hive / Impala" (status/assignee lists) | `uat-jira-vs-source` |
-| UAT across **two** warehouses at once, migration or cutover parity ("do Teradata and Hadoop agree") | `uat-jira-vs-warehouses` |
-| sprint report, committed / completed points, changelog, field history, "when did … change" | `jira-changelog` |
-| query, count, rows, table, SQL (Teradata) | `teradata-query` |
-| Hive, Hadoop, Impala, Spark table | `hive-query` |
-| Oracle | `oracle-query` |
-| DPM run, hand back / handoff, orchestrator.db, selection manifest, text_analysis, job manifest, OCR routing, native text | `dpm-consumer-integration` |
-| extract named fields from DPM documents ("pull the borrower and amount out of these"), per-job field list | `dpm-field-extraction` |
-| Content Understanding, Foundry analyzer, "use the AI model to read these documents", field extraction that label matching could not do | `content-understanding-extract` |
+| a ticket key, "triage", "what's next", acceptance criteria, "new ticket", "open a ticket", "file this as a Jira" | `jira-router` |
+| UAT, remediation, "compare Jira to Teradata / Hadoop / Hive / Impala", migration or cutover parity, query, count, rows, table, SQL, Teradata, Hive, Hadoop, Impala, Spark, Oracle, diff two datasets | `data-router` |
+| sprint report, committed / completed points, changelog, field history, "when did … change", move / transition / close / reopen a ticket, "mark it done", "put it in review" | `jira-router` |
+| DPM run, hand back / handoff, orchestrator.db, selection manifest, job manifest, OCR routing, named fields out of documents, Content Understanding, Foundry analyzer, sort / organize / file a folder of documents | `dpm-router` |
 | Power BI, PBIP, report, visual, model, DAX, measure, TMDL | `pbi-router` |
-| sbatch, cluster job, schedule | `slurm-submit` |
-| map the codebase, how does this repo work, what calls what, unfamiliar code | `codebase-map` |
-| write tests for, cover, characterization test, no tests for | `test-cover` |
-| did I break anything, is it faster, before and after, regression | `test-regress` |
-| slow, make it faster, performance, optimize, hot path, N+1 | `perf-optimize` |
+| map the codebase, how does this repo work, write tests for, cover, did I break anything, is it faster, regression, slow, optimize, hot path, fix, patch, add a flag, refactor, "make it do X", clean up the worktree, dirty tree, stash | `code-router` |
+| sbatch, cluster job, schedule, nightly | `slurm-submit` |
 | PR, branch, push, commit | `bitbucket-pr` |
 | Confluence, document, write-up, page | `confluence-publish` |
-| move / transition / close / reopen a ticket, "mark it done", "put it in review" | `jira-transition` |
-| sort / organize / file a folder of documents, "where should these go", a DPM document delivery to arrange | `file-organize` |
 | progress saved?, "where was I" | `state-update` |
+| real work no row above names: investigate, spike, "figure out how", "is it possible to", "what would it take", a problem nobody has routed yet | `research-spike` |
 
 6. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
-7. No row matched after reading the table twice: uncommitted changes to tidy ("clean up the worktree", "dirty tree", "stash this", "what do I do with these changes") → invoke `worktree-tidy`. A change to this repository's code (fix, patch, add a flag, refactor, "make it do X") → invoke `code-change`. A skill another package installed fits → invoke it and say `→ <skill> (not ours): <why>`. Anything else → `friction-log` with type `ambiguity`. STOP.
+7. No row matched after reading the table twice: a change to this repository's code (fix, patch, add a flag, refactor, "make it do X") or uncommitted changes to tidy → invoke `code-router` (its last rows are `worktree-tidy` and `code-change`). A skill another package installed fits → invoke it and say `→ <skill> (not ours): <why>`. Anything else that is still work → invoke `research-spike`: it spends a bounded look, writes what it found, and logs the gap for the architect. Only a request that is not work at all → `friction-log` with type `ambiguity`. STOP.
 8. **Environment errors are not routing errors.** A command the host refused (permission denied, "not allowed", an approval declined), a launcher that does not start, or a broken install (a merge-conflict marker or `SyntaxError` inside an installed file) is never fixed by re-running a skill: `ad-state ask "<exact executable or permission> is blocked: <what a human must do>" --want access`, then `friction-log` type `tool-error`. STOP.
 
-When this table outgrows itself — about 24 rows, checked by `tests/test_skills.py` — **split it, do not shorten the rows.** Add a domain sub-router and give this table one row pointing at it, the way `pbi-router` already holds the seven report skills behind a single Power BI row. The rows here are already terse; squeezing them further trades a legible table for a cryptic one while the growth continues, and first-match-wins turns a near-miss into the wrong skill.
+When this table outgrows itself — about 24 rows or 80 lines, checked by `tests/test_skills.py` — **split it, do not shorten the rows.** Add a domain sub-router and give this table one row pointing at it, the way `pbi-router` holds the Power BI skills and `jira-router`, `data-router`, `dpm-router` and `code-router` hold theirs. A sub-router has the same limits and the same fix. The rows here are already terse; squeezing them further trades a legible table for a cryptic one while the growth continues, and first-match-wins turns a near-miss into the wrong skill.
