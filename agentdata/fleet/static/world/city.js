@@ -685,8 +685,9 @@ var WorldCity = (function () {
     "float cRoad = max( max( conX, conZ ) * cOutside, cRing );",
     "float cPlaza = 1.0 - smoothstep( cIn - cfw, cIn + cfw, cd );",
     "float cWalk = ( 1.0 - cRoad ) * ( 1.0 - cPlaza );",
-    "vec4 ca = texture2D( uAsA, cp / 4.0 ); vec4 cao = texture2D( uAsO, cp / 4.0 ); vec3 can = texture2D( uAsN, cp / 4.0 ).xyz * 2.0 - 1.0;",
-    "vec4 cs = texture2D( uSwA, cp / 3.0 ) * vec4( vec3( 0.74 ), 1.0 ); vec4 cso = texture2D( uSwO, cp / 3.0 ); vec3 csn = texture2D( uSwN, cp / 3.0 ).xyz * 2.0 - 1.0;",
+    "vec4 ca = texture2D( uAsA, cp / AS_SIZE ) * vec4( vec3( AS_GAIN ), 1.0 ); vec4 cao = texture2D( uAsO, cp / AS_SIZE ); vec3 can = texture2D( uAsN, cp / AS_SIZE ).xyz * 2.0 - 1.0;",
+    "vec4 cs = texture2D( uSwA, cp / SW_SIZE ) * vec4( vec3( SW_GAIN ), 1.0 ); vec4 cso = texture2D( uSwO, cp / SW_SIZE ); vec3 csn = texture2D( uSwN, cp / SW_SIZE ).xyz * 2.0 - 1.0;",
+    "cs.rgb = mix( vec3( dot( cs.rgb, vec3( 0.3, 0.59, 0.11 ) ) ), cs.rgb, SW_SAT );",
     "float cang = atan( cp.y, cp.x ) / 6.28318 + 0.5; float cringW = 1.2; float cri = floor( cd / cringW ); float csegs = 6.0 + cri * 6.0;",
     "float cfr = fract( cd / cringW ); float cfa = fract( cang * csegs + cri * 0.37 );",
     "float cjoint = min( min( cfr, 1.0 - cfr ) * cringW, min( cfa, 1.0 - cfa ) * 6.28318 * max( cd, 0.6 ) / csegs );",
@@ -741,7 +742,9 @@ var WorldCity = (function () {
   function ground(T, lib, lod) {
     var u = WorldKit.uniforms;
     var mat = new T.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, envMapIntensity: 0.9 });
-    if (!lod) mat.defines = { GROUND_SIMPLE: 1 };
+    mat.defines = { AS_SIZE: lib.asphalt.size[0].toFixed(2), SW_SIZE: lib.sidewalk.size[0].toFixed(2), AS_GAIN: lib.asphalt.gain.toFixed(2),
+                    SW_GAIN: (lib.sidewalk.photo ? lib.sidewalk.gain : 0.74).toFixed(2), SW_SAT: lib.sidewalk.photo ? "0.45" : "1.0" };
+    if (!lod) mat.defines.GROUND_SIMPLE = 1;
     mat.extensions = { derivatives: true };
     var P = { value: 20 };
     WorldKit.lit(mat, lod ? "cityground" : "cityground-simple", { wet: false, reflect: 1.0, extra: function (/** @type {any} */ sh) {

@@ -132,8 +132,8 @@ var WorldBake = (function () {
     });
   }
 
-  /** @param {any} T @param {any} renderer @param {number} res @returns {Object<string, {map: any, orm: any, normal: any, size: Array<number>}>} */
-  function make(T, renderer, res) {
+  /** @param {any} T @param {any} renderer @param {number} res @param {Object<string, Object>} [photos] @returns {Object<string, {map: any, orm: any, normal: any, size: Array<number>, photo: boolean, gain: number}>} */
+  function make(T, renderer, res, photos) {
     var g = new T.BufferGeometry();
     g.setAttribute("position", new T.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     g.setAttribute("uv", new T.BufferAttribute(new Float32Array([0, 0, 2, 0, 0, 2]), 2));
@@ -142,7 +142,13 @@ var WorldBake = (function () {
     scene.add(mesh);
     var aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy()), out = {}, was = renderer.getRenderTarget();
     Object.keys(LIB).forEach(function (name) {
-      var set = { size: LIB[name], map: null, orm: null, normal: null };
+      var p = photos && photos[name];
+      if (p) {
+        out[name] = { size: p.size, map: WorldAssets.texture(T, p.map, true, p.size, aniso), orm: WorldAssets.texture(T, p.orm, false, p.size, aniso),
+                      normal: WorldAssets.texture(T, p.normal, false, p.size, aniso), photo: true, gain: p.gain };
+        return;
+      }
+      var set = { size: LIB[name], map: null, orm: null, normal: null, photo: false, gain: 1 };
       ["map", "orm", "normal"].forEach(function (slot, mode) {
         var rt = new T.WebGLRenderTarget(res, res, {
           type: T.UnsignedByteType, format: T.RGBAFormat, depthBuffer: false, generateMipmaps: true,

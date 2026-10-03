@@ -54,6 +54,9 @@ the normal map, from the height's slope.
 Bakes every material at the resolution the tier asks for (512, or 256 on the lowest), with mipmaps,
 anisotropic filtering and repeat wrapping, and sets each texture's repeat to its tile's size, so
 geometry can carry its uv in metres.
+A material Poly Haven photographed (`photos`, from `WorldAssets.load`) is not baked: its photo is
+used in its place, at the size it really covers (`size`), and marked `photo`. The baked one is what is
+left when the file does not load.
 
 ### `function std`
 

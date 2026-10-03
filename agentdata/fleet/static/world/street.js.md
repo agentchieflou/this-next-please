@@ -66,9 +66,31 @@ white, one in a few dozen failing. Each is one of the kit's lights, a halo and a
 
 A street tree on the avenues: a pit, a trunk, two branches and a crown of leaf cards.
 
+### `function put`
+
+One of Poly Haven's scanned props (`WorldAssets`) at a spot, if it loaded and the spot is within reach
+(110 m, 75 m on the `low` path; past that the fog has it). Says whether it did, so the caller can build
+its own instead.
+
+### `function facing`
+
+The turn that faces a prop on the sidewalk towards the road.
+
+### `function litter`
+
+What collects beside a bin on a side street: one to three black bags and the odd cardboard box,
+against the wall.
+
+### `function backStreet`
+
+The side streets' own things: an air-conditioning unit against a wall, and, at a few corners, a pair
+of concrete barriers across the no-parking zone by the crossing.
+
 ### `function clutter`
 
-What stands on a sidewalk: a hydrant, a bin, a newspaper box or a parking meter, by seed.
+What stands on a sidewalk: a hydrant, a bin, a newspaper box (half of them a utility cabinet) or a
+parking meter, by seed. The hydrant, the bin and the cabinet are scans where they loaded, and the
+bin on a side street gets its litter.
 
 ### `function signals`
 
@@ -102,8 +124,10 @@ The point and heading a distance along a route.
 
 The street for a plaza of radius `P`. What is far from where you can walk is left out: furniture past
 150 m, trees past 160, lamps past 215 (their light is seen down the avenues), and parked cars past
-120 m (none on the `low` path, nor people). Returns the footprints you walk round, the lamps'
-lights, and how many cars, parked cars and people there are.
+120 m (none on the `low` path, nor people). One parked car in a dozen is under a cover (a scan). The
+scans are instanced, one draw call per prop however many stand in the street, and share their
+geometry across rebuilds (`userData.shared`, never disposed). Returns the footprints you walk round,
+the lamps' lights, and how many cars, parked cars, people and scanned props there are.
 
 ### `function traffic`
 

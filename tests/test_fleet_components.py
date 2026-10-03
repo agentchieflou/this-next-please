@@ -69,7 +69,7 @@ def test_every_draw_function_is_named_in_the_inventory():
     missing = []
     for page in ("app.js", "settings.js", "map/map.js", "picker.js", "m/m.js", "chat/chat.js",
                  "world/world.js", "world/hero.js", "world/bots.js", "world/scenery.js", "world/city.js", "world/street.js",
-                 "world/render.js", "world/bake.js", "world/kit.js"):
+                 "world/render.js", "world/bake.js", "world/kit.js", "world/assets.js"):
         js = open(os.path.join(STATIC, page), encoding="utf-8").read()
         for name in sorted(set(re.findall(r"(?m)^function (draw[A-Za-z]*)\(", js))):
             if name not in doc:

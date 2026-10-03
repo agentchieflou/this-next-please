@@ -7,7 +7,7 @@ var WorldStreet = (function () {
   var COAT = ["#2b2d33", "#4a3b2c", "#1e2a3a", "#5a5d61", "#6b2a24", "#2f3b2a", "#c2b49a", "#3b3247"];
   var BRELLA = ["#111317", "#1b2a4a", "#7a1a24", "#e8e3d8", "#2e4a35", "#c9a227", "#3a3a40", "#5b2a6b"];
   var REACH = 200;
-  var M = { T: null, mats: null, group: null, cars: null, people: null, loops: [], walkers: [], signals: null, P: -1, light: [] };
+  var M = { T: null, mats: null, group: null, cars: null, people: null, loops: [], walkers: [], signals: null, P: -1, light: [], scans: {}, pr: {}, reach: 110 };
 
   /** @param {any} T @param {boolean} suv @returns {{body: any, glass: any, trim: any, lamp: any}} */
   function car(T, suv) {
@@ -216,25 +216,70 @@ var WorldStreet = (function () {
     solids.push([x, z, 0.35]);
   }
 
+  /** @param {string} id @param {number} x @param {number} z @param {number} yaw @returns {boolean} */
+  function put(id, x, z, yaw) {
+    if (!M.scans[id] || Math.hypot(x, z) > M.reach) return false;
+    (M.pr[id] = M.pr[id] || []).push([x, z, yaw]);
+    return true;
+  }
+
+  /** @param {Object} sg @returns {number} */
+  function facing(sg) {
+    return sg.axis === 0 ? (sg.side > 0 ? -Math.PI / 2 : Math.PI / 2) : (sg.side > 0 ? Math.PI : 0);
+  }
+
+  /** @param {Object} sg @param {number} a @param {number} seed @param {Array<Array<number>>} solids */
+  function litter(sg, a, seed, solids) {
+    var n = 1 + Math.floor(rnd(seed * 7.1) * 3);
+    for (var i = 0; i < n; i++) {
+      var q = spot(sg, a + 0.7 + i * 0.5, sg.road + sg.walk - 0.4 - rnd(seed * 3 + i) * 0.3);
+      put(rnd(seed * 13 + i) > 0.3 ? "trashbag" : "cardboard_box_01", q[0], q[1], rnd(seed * 19 + i) * 6.28);
+    }
+    var e = spot(sg, a + 0.6 + n * 0.25, sg.road + sg.walk - 0.5);
+    solids.push([e[0], e[1], 0.3 + n * 0.2]);
+  }
+
+  /** @param {Object} sg @param {number} len @param {number} seed @param {Array<Array<number>>} solids */
+  function backStreet(sg, len, seed, solids) {
+    if (rnd(seed * 53) > 0.55) {
+      var w = spot(sg, sg.a0 + 4 + rnd(seed * 59) * (len - 8), sg.road + sg.walk - 0.22);
+      if (put("exterior_aircon_unit", w[0], w[1], facing(sg))) solids.push([w[0], w[1], 0.45]);
+    }
+    if (rnd(seed * 61) > 0.8) {
+      [0.9, 2.3].forEach(function (d) {
+        var b = spot(sg, sg.a0 + d, sg.road - 0.9);
+        if (put("concrete_road_barrier", b[0], b[1], sg.axis === 0 ? Math.PI / 2 : 0)) solids.push([b[0], b[1], 0.7]);
+      });
+    }
+  }
+
   /** @param {any} T @param {Array<any>} f @param {Array<Array<number>>} solids @param {Object} sg @param {number} a @param {number} seed */
   function clutter(T, f, solids, sg, a, seed) {
     var P = WorldKit.piece, kind = Math.floor(seed * 5), p = spot(sg, a, sg.road + 0.75);
     var yaw = sg.axis === 0 ? (sg.side > 0 ? -Math.PI / 2 : Math.PI / 2) : (sg.side > 0 ? Math.PI : 0);
     if (kind === 0) {
-      f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.13, 0.15, 0.55, 10), "#b3201c", [0, 0.28, 0]), p[0], p[1]));
-      f.push(WorldKit.moved(T, P(T, new T.SphereGeometry(0.13, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), "#b3201c", [0, 0.55, 0]), p[0], p[1]));
-      f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.05, 0.42, 6), "#b3201c", [0, 0.4, 0], null, [0, 0, Math.PI / 2]), p[0], p[1]));
+      if (!put("fire_hydrant", p[0], p[1], seed * 40)) {
+        f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.13, 0.15, 0.55, 10), "#b3201c", [0, 0.28, 0]), p[0], p[1]));
+        f.push(WorldKit.moved(T, P(T, new T.SphereGeometry(0.13, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), "#b3201c", [0, 0.55, 0]), p[0], p[1]));
+        f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.05, 0.42, 6), "#b3201c", [0, 0.4, 0], null, [0, 0, Math.PI / 2]), p[0], p[1]));
+      }
       solids.push([p[0], p[1], 0.2]);
     } else if (kind === 1) {
       var q = spot(sg, a, sg.road + sg.walk - 0.6);
-      f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.3, 0.27, 0.95, 12), "#203427", [0, 0.48, 0]), q[0], q[1]));
-      f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.32, 0.32, 0.06, 12), "#16241b", [0, 0.97, 0]), q[0], q[1]));
+      if (put("metal_trash_can", q[0], q[1], seed * 50)) {
+        if (sg.k !== 0) litter(sg, a, seed, solids);
+      } else {
+        f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.3, 0.27, 0.95, 12), "#203427", [0, 0.48, 0]), q[0], q[1]));
+        f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.32, 0.32, 0.06, 12), "#16241b", [0, 0.97, 0]), q[0], q[1]));
+      }
       solids.push([q[0], q[1], 0.35]);
     } else if (kind === 2) {
-      var b = spot(sg, a, sg.road + sg.walk - 0.7);
-      f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(0.5, 1.05, 0.45), ["#1f4f8a", "#c4362e", "#d9a21b", "#2e6b3a"][Math.floor(seed * 40) % 4], [0, 0.52, 0], null, null, yaw), b[0], b[1]));
-      f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(0.42, 0.25, 0.04), "#b7c3cc", [0, 0.82, 0.23], null, null, yaw), b[0], b[1]));
-      solids.push([b[0], b[1], 0.35]);
+      var b = spot(sg, a, sg.road + sg.walk - 0.7), box = rnd(seed * 31) > 0.5 ? (rnd(seed * 37) > 0.5 ? "utility_box_01" : "utility_box_02") : "";
+      if (!box || !put(box, b[0], b[1], yaw)) {
+        f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(0.5, 1.05, 0.45), ["#1f4f8a", "#c4362e", "#d9a21b", "#2e6b3a"][Math.floor(seed * 40) % 4], [0, 0.52, 0], null, null, yaw), b[0], b[1]));
+        f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(0.42, 0.25, 0.04), "#b7c3cc", [0, 0.82, 0.23], null, null, yaw), b[0], b[1]));
+      }
+      solids.push([b[0], b[1], box === "utility_box_02" ? 0.5 : 0.35]);
     } else {
       var m = spot(sg, a, sg.road + 0.45);
       f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.035, 0.04, 1.1, 6), "#2a2e33", [0, 0.55, 0]), m[0], m[1]));
@@ -328,14 +373,17 @@ var WorldStreet = (function () {
     return out;
   }
 
-  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number}} */
-  function build(T, lib, scene, P, lod) {
+  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number}} */
+  function build(T, lib, scene, P, lod, scans) {
     M.T = T;
+    M.scans = scans || {};
+    M.pr = {};
+    M.reach = lod ? 110 : 75;
     var far = lod ? 1 : 0.5;
     if (!M.mats) M.mats = materials(T, lib);
     if (M.group) {
       scene.remove(M.group);
-      M.group.traverse(function (m) { if (m.geometry) m.geometry.dispose(); });
+      M.group.traverse(function (m) { if (m.geometry && !m.userData.shared) m.geometry.dispose(); });
     }
     M.P = P;
     var group = new T.Group(), f = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [];
@@ -353,10 +401,12 @@ var WorldStreet = (function () {
       if (!near(mid, 150 * far)) return;
       for (var c = 0; c < Math.max(1, Math.floor(len / 18)); c++) clutter(T, f, solids, sg, sg.a0 + 3 + rnd(seed * 17 + c) * (len - 6), rnd(seed * 29 + c));
       if (sg.k === 0 && len > 30 && rnd(seed * 41) > 0.4) shelter(T, f, glassy, emit, solids, sg, (sg.a0 + sg.a1) / 2 + 5);
+      if (sg.k !== 0 && lod) backStreet(sg, len, seed, solids);
       if (sg.k !== 0) {
         for (var d = sg.a0 + 3; d < sg.a1 - 5; d += 6.2 + rnd(d + i) * 2) {
           var q = spot(sg, d + 2.3, sg.road - 1.15);
           if (rnd(d * 0.7 + i * 1.9) > 0.5 || !lod || !near(q, 120)) continue;
+          if (rnd(d * 5.3 + i) > 0.92 && put("covered_car", q[0], q[1], sg.axis === 0 ? (sg.side > 0 ? 0 : Math.PI) : (sg.side > 0 ? Math.PI / 2 : -Math.PI / 2))) continue;
           parked.push([q[0], q[1], sg.axis === 0 ? (sg.side > 0 ? 0 : Math.PI) : (sg.side > 0 ? Math.PI / 2 : -Math.PI / 2), rnd(d * 3.1 + i)]);
         }
       }
@@ -393,13 +443,26 @@ var WorldStreet = (function () {
     glows.name = "street-glows";
     group.add(glows);
     M.glows = glows;
+    var placed = 0, mx = new T.Matrix4(), rot = new T.Quaternion(), up = new T.Vector3(0, 1, 0), one = new T.Vector3(1, 1, 1), at = new T.Vector3();
+    Object.keys(M.pr).forEach(function (id) {
+      var list = M.pr[id];
+      placed += list.length;
+      M.scans[id].forEach(function (part, pi) {
+        var mesh = new T.InstancedMesh(part.geo, part.mat, list.length);
+        list.forEach(function (it, i) { mesh.setMatrixAt(i, mx.compose(at.set(it[0], 0, it[1]), rot.setFromAxisAngle(up, it[2]), one)); });
+        mesh.frustumCulled = false;
+        mesh.userData.shared = true;
+        mesh.name = "scan-" + id + (pi ? "-" + pi : "");
+        group.add(mesh);
+      });
+    });
     traffic(T, group, P, parked);
     walkers(T, group, segs, lod ? 46 : 0);
     scene.add(group);
     M.group = group;
     var moving = 0;
     M.cars.forEach(function (set) { moving += set.moving.length; });
-    return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length };
+    return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length, scans: placed };
   }
 
   /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked */

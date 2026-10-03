@@ -106,7 +106,9 @@ district you can walk into.
   - granite kerbs, and gutters where the water gathers;
   - street lamps every 24 m (sodium orange or LED white), each with a cone of light in the rain;
   - traffic lights at every crossing, cycling red, amber and green;
-  - trees, hydrants, bins, newspaper boxes, parking meters and bus shelters.
+  - trees, hydrants, bins, newspaper boxes, utility cabinets, parking meters and bus shelters;
+  - on the side streets, bags and boxes by the bins, air-conditioning units against the walls,
+    concrete barriers at a few corners, and the odd car under a cover.
 - **The buildings.** About 150 of them, in five styles: brick walk-ups with fire escapes and water
   tanks, stucco with balconies, concrete, stone with cornices, and glass towers further out. They
   have:
@@ -123,12 +125,28 @@ district you can walk into.
 - **Walking.** You walk up to 150 m from the plaza. Buildings, benches, trees, lamp posts and street
   furniture are solid.
 
-Every asset is built in the page from code: three.js's own shapes, merged by material, and shaders.
-There is no model file, no image, nothing fetched and no package. The surfaces are real materials
-(brick, concrete, stucco, stone, asphalt, sidewalk, granite, metal, roofing, wood and leaves) with
-colour, roughness, occlusion and relief. They are baked on the GPU when the page loads
-(`world/bake.js`), so they cost what a texture costs and nothing on the wire. The whole world is
-57 KiB of script.
+The shapes are built in the page from code: three.js's own shapes, merged by material, and
+shaders. The surfaces and the small things are real:
+
+- **Photo textures.** Brick, stucco, concrete, asphalt and sidewalk are Poly Haven's photographed
+  materials, at the size each covers in reality (a 3 m photo of brick is laid 3 m wide). The rest
+  (stone, granite, metal, roofing, wood, leaves) are baked on the GPU when the page loads
+  (`world/bake.js`). Every surface has colour, roughness, occlusion and relief.
+- **Scanned props.** The hydrants, bins, bags, boxes, cabinets, air-conditioning units, barriers and
+  covered cars are Poly Haven's photo-scanned models, decimated to a few thousand triangles and
+  drawn instanced: one draw call per kind of prop, however many stand in the street.
+- **Real skies for light.** The light everything is lit and reflects by comes from two photographed
+  city skies, an overcast square by day and a lamp-lit one by night, blended with the hour. The sky
+  you see is still the page's own, raining.
+
+The operator allowed them on 2026-10-03: *"If it is open source and safe, you may use Poly Haven
+assets."* Every one is CC0 (public domain), credited by name and author in
+`agentdata/fleet/static/world/cc0/LICENSE`. They were made small for a browser before they were
+committed (WebP textures, decimated models, 512 x 256 skies): 4 MiB in all, in the package, served by
+the fleet's own server like its scripts. Nothing comes from the internet. If a file is missing, the
+world falls back to its own version of that thing (a baked material, the sky shader, a built
+hydrant). Poly Haven has no people, so the characters are still the page's own. The world's script
+is 61.5 KiB.
 
 ## Rain, day and night
 
@@ -179,7 +197,8 @@ The frame budget is **10 ms**: 100 frames a second.
     with the display's rate (or the 10 ms budget on a display faster than 100 Hz), and steps down to
     half resolution at worst. If that is not enough, it drops a quality tier. It steps back up when
     there is room.
-  - The surfaces are baked once at load, and the sky's environment once a minute, never per frame.
+  - The surfaces are baked or uploaded once at load, and the sky's environment made once a minute,
+    never per frame.
 - **It stops drawing when the tab is hidden.**
 
 `FleetWorld.inspect()` reports:
@@ -187,17 +206,20 @@ The frame budget is **10 ms**: 100 frames a second.
 - `fps`, `frameMs` (the median interval) and `workMs` (the script's own time per frame);
 - `scale` and `quality`;
 - `calls` and `triangles` (the scene), and `passes` (the whole frame's draw calls);
-- `town` (buildings, lights, cars, parked cars, people).
+- `town` (buildings, lights, cars, parked cars, people, scanned props);
+- `cc0`, how many of the CC0 textures, skies and props loaded.
 
 F3 shows the frame figures in the toolbar.
 
 **On a software renderer** (SwiftShader in CI, or a virtual desktop without a GPU), the page draws
-its lightest path: the `low` quality, plainer facades, no parked cars or walkers, half resolution, and
-the scene at most about ten times a second. The walk keeps the display's pace. The tests therefore
+its lightest path: the `low` quality, plainer facades, no parked cars or walkers, props only within
+75 m, half resolution, and the scene at most about ten times a second. The walk keeps the display's pace. The tests therefore
 measure what does not depend on the machine:
 
 - the draw calls (at most 64) and triangles (under 400,000) on that path;
-- that the full pipeline compiles and draws (`?quality=high`);
+- that the full pipeline compiles and draws (`?quality=high`), and that what reaches the screen is
+  the frame, not a cleared canvas;
+- that every CC0 file loads;
 - the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames), reach, and
   the verbs a conversation posts.
 

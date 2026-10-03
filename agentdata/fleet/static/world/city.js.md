@@ -215,6 +215,10 @@ rings out on the `low` path).
 
 The ground is in layer 1, so the mirror does not draw it into itself, and it reads the mirror
 (`reflect`).
+The asphalt and the sidewalk tile at the size their textures cover (`AS_SIZE`, `SW_SIZE`, from the
+material library): a photo of three metres of road is laid three metres wide. Their colours take
+the photos' gains (`AS_GAIN`, `SW_GAIN`), and the sidewalk's photo, a warm stone, is half
+desaturated (`SW_SAT`) to the grey of wet concrete.
 
 ### `function onRoad`
 

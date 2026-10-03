@@ -151,8 +151,17 @@ The fog thins by day (0.014) so the towers read as shapes in the rain; it thicke
 
 ### `function vReflect`
 
-The sky, rendered once into an environment map (`PMREMGenerator`), is what the wet ground reflects.
-It is made again only when the weather is (once a minute without `?hour=`), never per frame.
+The environment every material is lit and reflects by (`PMREMGenerator`): Poly Haven's two
+photographed city skies (`WorldAssets.dome`), an overcast Potsdamer Platz by day and lamp-lit
+Hansaplatz by night, blended by the daylight, so a car's paint, a wet bin and the shop glass carry a
+real city's light. Without them (a file missing) it is the procedural sky, as before. It is made again
+only when the weather is (once a minute without `?hour=`), never per frame.
+
+### `function vBuild`
+
+The materials take Poly Haven's photo textures where they loaded (`vState.assets.tex`, handed to
+`WorldBake.make`), the environment its skies, and the street its scanned props (`WorldAssets.scans`,
+uploaded once and handed to every `WorldStreet.build`).
 
 ### `function vPad`
 
@@ -245,6 +254,12 @@ the scene is drawn at most about ten times a second, while the walk and the labe
 display's pace: SwiftShader on a CPU cannot draw a city faster, and a page that tried would starve
 everything else on the machine, the tests included.
 `FleetWorld.hold(true)` stops the steps (the frame still draws) so a test can drive `step()` itself.
+The resolution is tuned (`vTune`) before the frame is drawn, never after: a resize clears the canvas,
+and one made after the draw, in the same task, put the cleared canvas on the screen instead of the
+frame, black for as long as the scale kept moving. A resize forces this frame to draw. Nothing is tuned
+while the shaders compile, and the frame times start again when they are done: the frames that compile
+are slow for a reason that is over, and counted, they stepped the quality down before the first real
+frame.
 
 ### `function vWarm`
 
@@ -262,7 +277,14 @@ percentile). On a display at 100 Hz or slower the target is that interval: hold 
 On a faster one the target is the 10 ms budget: a 144 Hz display may run at 100 fps before the
 resolution drops. A median frame 15% over the target lowers the render scale by 15%, down to half
 resolution; one under it raises it again, up to the device's pixel ratio or the tier's cap. When
-half resolution is still too slow, the quality steps down a tier (`WorldRender.step`).
+half resolution is still too slow, the quality steps down a tier (`WorldRender.step`). Says whether it
+resized, so `vFrame` draws straight after.
+
+### `function vMaxScale`
+
+The most the render scale may be: the device's pixel ratio or the tier's cap, and on a software
+renderer half, always. There the frames that skip drawing (`vFrame`) are quick and the ones that draw
+are slow, so the median swung the scale up and down every second, and each change was a resize.
 
 ### `function drawLabels`
 
@@ -302,11 +324,16 @@ answer, so a question with choices is answered without a keyboard; free text nee
 Each agent's stream cursor starts at its `last_seq`, as the chat view's does: the stream sends what
 happens next, never every agent's history again.
 
+### `function vStart`
+
+three.js, the fleet and the CC0 files (`WorldAssets.load`) are fetched together; the world is built
+when all three are in. A file that does not load is left out and its procedural stand-in is used.
+
 ### `window.FleetWorld`
 
 What the tests and the laptop read: `inspect()` (the agents, the player, who is near, day or night,
 the lamps, the quality and whether the renderer is software, the town (buildings, lights, cars,
-parked cars, people), the scene's draw calls and triangles and the whole frame's draw calls
+parked cars, people, scanned props), how many of the CC0 textures, skies and props loaded (`cc0`), the scene's draw calls and triangles and the whole frame's draw calls
 (`passes`), fps, frame and work time, the render scale, the view, the picker, the look, and the
 character's place, turn and pose), `hold()` and
 `step()` to walk without depending on the frame rate (CI draws in SwiftShader), and `teleport(repo)`
