@@ -358,3 +358,30 @@ def test_the_contract_documents_the_keys_the_guards_and_the_gestures():
         assert flag in text, f"{flag} is not documented"
     assert "ad-fleet board" in text and "ad-fleet history" in text
     assert "jira_project" in text
+
+
+# ------------------------------------------------------- untracked work, from every checkout (2026-10-03)
+
+
+def test_the_board_lists_the_work_no_ticket_owns_yet(fleet_home, tmp_path, capsys, monkeypatch):  # noqa: F811
+    """`ad-jira match` leaves a `kind: ticket` question in a checkout when a prompt fits no open
+    ticket; the board is where the operator sees every such checkout at once, read-only."""
+    from agentdata import cli_fleet, config as C
+
+    luna = a_repo(tmp_path, "luna")
+    a_repo(tmp_path, "mars")
+    state = json.loads(open(os.path.join(luna, ".agent", "state.json"), encoding="utf-8").read())
+    state["open_questions"] = [{"id": "q4", "q": "No open ticket matches this work. Track it under one?",
+                                "kind": "ticket", "choices": ["RDSD-118", "new", "none"], "assume": "none",
+                                "blocking": False, "ticket": ""},
+                               {"id": "q5", "q": "which env?", "blocking": True}]
+    with open(os.path.join(luna, ".agent", "state.json"), "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    monkeypatch.setattr(B, "board", lambda **kw: {"rows": B.normalize([issue("RDSD-118")]), "cached": True,
+                                                   "age_s": 3, "jql": "x"})
+    assert cli_fleet.main(["board"]) == 0
+    out = capsys.readouterr().out
+    assert "untracked: 1" in out
+    assert "untracked[1]{repo,id,assumed,choices,question}" in out
+    assert "luna,q4,none,RDSD-118 | new | none,No open ticket matches" in out
+    assert "which env?" not in out, "only ticket questions are unticketed work"

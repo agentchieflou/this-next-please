@@ -8,6 +8,7 @@ description: "Domain sub-router for work on a repository's own code: map it, cov
 
 | Request mentions | Invoke |
 |---|---|
+| new to this repo, getting started, onboard, "what is this repository for", project context, refresh the getting-started page | `project-onboard` |
 | map the codebase, how does this repo work, what calls what, unfamiliar code, "explain this module" | `codebase-map` |
 | write tests for, cover, characterization test, no tests for, "pin the current behaviour" | `test-cover` |
 | did I break anything, is it faster, before and after, regression, "prove it" | `test-regress` |

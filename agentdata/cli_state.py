@@ -125,6 +125,11 @@ def cmd_ask(a) -> int:
         record["assume"] = a.assume
     if a.followup:
         record["kind"] = "followup"
+    if getattr(a, "kind", None):
+        if a.followup:
+            raise S.StateError("--kind ticket and --followup do not go together",
+                               "a ticket question is answered by a key, `new` or `none`; use --assume to continue")
+        record["kind"] = a.kind
     if a.ticket is not None:
         scope = a.ticket.strip()
         if scope.lower() == "any":
@@ -140,9 +145,14 @@ def cmd_ask(a) -> int:
                                  extra={"already_answered": prior.get("id") or "",
                                         "answer": str(prior.get("answer") or ""),
                                         "hint": "use this answer and continue; `--again` asks the operator anew"})
+    was = st.get("active_ticket")
     S.apply(st, {}, asks=[record])
     path = S.save(st, a.file)
-    return _questions_report(st, "ad-state ask", path)
+    extra = {}
+    if record.get("kind") == "ticket" and record.get("assume"):
+        extra = {"ticket_was": was or "", "active_ticket": st.get("active_ticket") or "",
+                 "next": "jira-create" if str(record["assume"]).strip().lower() == "new" else "continue"}
+    return _questions_report(st, "ad-state ask", path, extra=extra or None)
 
 
 def _same_words(text: str) -> str:
@@ -211,9 +221,19 @@ def cmd_answer(a) -> int:
             return _questions_report(st, "ad-state answer", textio.norm_path(a.file),
                                      extra={"already_answered": qid, "answer": str(done.get("answer") or "")})
     _known(st, qid)
+    asked = next(q for q in st["open_questions"] if isinstance(q, dict) and str(q.get("id") or "") == qid)
+    was = st.get("active_ticket")
     S.apply(st, {}, answers={qid: text})
     path = S.save(st, a.file)
-    return _questions_report(st, "ad-state answer", path, extra={"answered": qid})
+    extra = {"answered": qid}
+    if asked.get("kind") == "ticket":
+        # The router reads `next`: a key moved the work (`active_ticket` says where), `new` hands
+        # the next turn to `jira-create`, and anything else left the scope as it was.
+        word = S.apply_ticket_answer(dict(st), text)
+        extra.update({"ticket_was": was or "", "active_ticket": st.get("active_ticket") or "",
+                      "next": {"create": "jira-create", "moved": "continue", "untracked": "continue"}.get(word, "continue"),
+                      "ticket_answer": word})
+    return _questions_report(st, "ad-state answer", path, extra=extra)
 
 
 def cmd_supersede(a) -> int:
@@ -302,6 +322,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="state a safe, reversible default and CONTINUE instead of blocking")
     p.add_argument("--followup", action="store_true",
                    help="an optional follow-up: recorded for the operator, never a stop, nothing assumed")
+    p.add_argument("--kind", choices=["ticket"],
+                   help="ticket: 'which ticket is this work?' -- answered by a key, `new` or `none`, and the "
+                        "answer (or --assume) sets active_ticket itself (ad-jira match prints the line to run)")
     p.add_argument("--again", action="store_true",
                    help="ask even though the operator already answered these words on this ticket "
                         "(by default their answer is handed back and nothing blocks)")
