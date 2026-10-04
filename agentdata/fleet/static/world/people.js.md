@@ -1,0 +1,156 @@
+# `world/people.js`
+
+The reasoning for this script, kept out of the source (decisions 18 and 19 on #429). The source keeps
+its code and the JSDoc types `tsc` reads; the server strips every comment from what it serves
+(`agentdata/fleet/strip.py`).
+
+A `###` heading is the declaration or statement the notes sit in or above, in source order.
+
+### The file
+
+The world's people: the player's character as a skinned human, and the pedestrians as an instanced,
+skinned crowd. Poly Haven has no people, and the operator asked for the same pass for them: *"Well then
+we need to kick off a separate background agent to accomplish the same task Poly Haven is doing but for
+people"* (2026-10-03), with the bar *"far cry 3 / rdr2 / gta 6 / cyberpunk quality world ... that can
+run in browser"*, and the standing requirement *"Create diverse character options so everyone feels
+included"*. The realistic people are to be MetaHumans the operator exports from Unreal Engine; until
+then a CC0 stand-in built from MakeHuman's assets proves the whole path (`static/world/people/LICENSE`).
+
+Nothing here is tied to one character. The files come from `people/people.json` (read by
+`WorldAssets.people`), and the code reads only what the world's people pipeline writes into a binary
+glTF: a skin whose joints carry Unreal Engine body bone names, primitives whose materials say their
+role (skin, top, bottom, shoes, hair, brows, lashes, beard, glasses, eyes) and their tone, optional
+morph targets with the joint and anchor offsets that go with them, and optional animation clips.
+Dropping MetaHuman exports in is a change to the manifest and the files.
+
+When anything is missing or fails to load, `ready` is false and the world keeps its procedural people
+(`world/hero.js`'s character, `world/street.js`'s walkers). A classic script after `world/assets.js`;
+it defines one global, `WorldPeople`.
+
+### `var D`
+
+The people's data: the parsed hero and crowd files, and from the manifest the look-to-style maps
+(which hair, beard or glasses file a look's `hair`, `face` or `glasses` value names), the morph
+weights each `figure`, `build` and `age` value sets, an optional idle clip, and what each hero file
+fits (`fits`: a MetaHuman set picks the export closest to the look).
+
+### `var S`
+
+What is made once and kept: textures and materials by the part they belong to (a picker change
+rebuilds the character, never a texture upload or a shader compile), the fill uniform the world sets
+with the daylight, and the crowd.
+
+### `var FRAMES`
+
+The crowd's walk cycle is baked at this many poses; the shader blends between two of them.
+
+### `function use`
+
+Takes what `WorldAssets.load` read. `world.js` hands it `null` where vertex textures cannot hold
+floats, where a skinned mesh cannot draw.
+
+### `function ready`
+
+True when there is a hero to build.
+
+### `function frameQ`
+
+The rotation of a frame given by an aim and a pole: the bone's axis and the direction its hinge bends
+towards. Every limb is posed by frames, never by Euler angles on its own axes, so the animation does
+not care how an exporter rolled its bones or whether the rest pose is an A or a T.
+
+### `function rig`
+
+A skeleton as the animation needs it: world rest rotations and positions, the spine and neck chains
+(as many bones as there are: MetaHuman's five spine bones, MakeHuman's three), each leg and arm with
+the frame its rest pose has, and the fingers with the axis they curl about. `move` is the joints' morph
+offset for the chosen body. The palm's normal comes from the pipeline's anchors, or from the knuckles.
+
+### `function posture`
+
+The animation, as a handful of numbers a pose is built from: thigh and arm pitch and abduction, knee
+and elbow flex, foot pitch, palm direction, finger curl, the pelvis, spine and head. A gait (walk
+blending into a run with speed, from the distance covered, so feet do not slide), idle (breathing, a
+slow weight shift, hands relaxed), presenting (one arm out and open, palm up, the other forearm
+forward, the head tilted), seated in the wheelchair (pushing the rims as it rolls) and holding an
+umbrella (the crowd). The character's world moves at 4.5 m/s when walking, which is a jog; the stride
+lengthens with speed.
+
+### `function solve`
+
+From those numbers to every bone's local rotation and the pelvis position. Legs and arms are aimed
+by frames, the spine and head turned in body space, the fingers curled in their own, every other bone
+kept at rest. A standing pose is put on the ground: the lowest ankle or toe is lowered to where it
+stands at rest. It returns what the page reports: the left thigh's forward swing (`legL`), the right
+arm's angle out from the side (`armR`) and the pelvis height (`hips`), measured from the posed bones.
+
+### `function choose`
+
+The hero file whose `fits` matches most of the look.
+
+### `function material`
+
+A part's material, through the city's lights and rain (`WorldKit.lit`), with the character's own fill.
+
+### `function tint`
+
+The colour a role takes from the look. The pipeline turned each tintable colour map into a detail map
+(its mean is the part's `tone`), so a material's colour is the look's colour over that tone: the same
+texture becomes every skin tone, hair colour and cloth colour the picker offers. Brows take the hair
+colour, or dark brown where the hair is covered or gone.
+
+### `function geometry`
+
+A part's geometry with the body's morph targets applied on the CPU, once per build.
+
+### `function anchored`
+
+The head's anchors (eyes, crown, chin, nose, back, sides) moved with the chosen body.
+
+### `function hull`
+
+The body's outline around its axis, height by height, arms left out: what the headscarf's drape is
+laid over.
+
+### `function transfer`
+
+Gives each vertex of the procedural accessories the bones and weights of the nearest body vertex, so
+a headscarf moves with the shoulders and locs with the head.
+
+### `function hero`
+
+The player's character for a look: the body and the parts the look chooses (one hair, beard and
+glasses style each), dyed, bound to one skeleton; the styles no file has (locs, the headscarf, the
+wrap, or any a set of exports lacks) are drawn by `WorldHero.dress` and skinned by `transfer`.
+
+### `function sample`
+
+An animation clip's rotations, blended over the procedural idle when the manifest names one.
+
+### `function pose`
+
+A frame of the character: the gait advanced by the distance walked, its amplitude eased with speed
+(at once under reduced motion), turning in place stepping, and the clip on top when there is one.
+
+### `function bake`
+
+The crowd's walk, holding an umbrella, posed `FRAMES` times and written as bone matrices; the right
+hand's path is kept for the umbrella.
+
+### `function crowd`
+
+The pedestrians: every crowd character at two levels of detail, each an `InstancedMesh` of one
+geometry and one atlas, skinned in the vertex shader from a float texture of baked bone matrices (a
+row per character and frame; `texelFetch`, so WebGL 2, which every tier with pedestrians has). Each
+instance has its phase and pace, its row, and its skin, top, bottom and hair colours, which the
+`_ROLE` attribute picks between. Draw calls are characters times levels, whatever the number of
+people; the low tier has no pedestrians.
+
+### `function hand`
+
+Where a crowd character's right hand is at a point of its walk, for the umbrella.
+
+### `function draw`
+
+Each frame, every pedestrian into the mesh of its character and level of detail (near ones detailed,
+far ones not); an empty mesh is not drawn.
