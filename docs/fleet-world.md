@@ -1,6 +1,6 @@
 # The world
 
-`/world` (#626) is the fleet as a place: a wet plaza in the rain, one figure per agent, and you, a
+`/world` (#626) is the fleet as a place: a wet plaza in the rain, one robot per agent, and you, a
 character you choose, walked with a controller or the keyboard. The operator chose it as the next thing to explore
 when asked which parked concepts came next (#400, 2026-10-02):
 
@@ -70,12 +70,15 @@ person.
 
 ## The agents
 
-Every `/api/fleet` row is a figure on a circle around the plaza, sorted by name and facing the middle.
-Each figure has a plinth, a body tinted towards its state's colour, a floating ring and a visor in
-that colour. Over its head is a label with its name and state in words. The label is page text, not a
-texture, so it stays sharp. A running agent's ring turns.
+Every `/api/fleet` row is a small robot on a circle around the plaza, sorted by name and facing the
+middle. Each robot has a white shell tinted a pale colour from its name, a dark visor with eyes and a
+smile, a chest light, an antenna and a hover base, and a ring at its waist. The eyes, the lights and
+the ring are in its state's colour and glow at night. It bobs on its base, faster while it works,
+when its ring turns too; under reduced motion it holds still. Over its head is a label with its name
+and state in words. The label is page text, not a texture, so it stays sharp.
 
-An agent that needs a person raises a red beam that shows through the rain and the fog, and the HUD's
+An agent that needs a person raises a red beam that shows through the rain and the fog (and fades
+when you stand at it, so it never fills the view), its eyes pulse, and the HUD's
 compass points at the nearest one with its distance. **You talk to an agent only within 3.2 m of it,
 facing it.** That is the operator's rule ("a user has to move to the agent"): nothing on this page
 answers, approves or sends from a distance. A conversation opens beside the agent, with:
@@ -88,13 +91,83 @@ answers, approves or sends from a distance. A conversation opens beside the agen
 Everything posts the desk's own verbs (`answer`, `approve`, `deny`, `send`, or `say` to a console), so
 every refusal is the server's, in its words. The page adds no route.
 
+## The place
+
+The operator, 2026-10-02: *"We're looking for a far cry 3 / rdr2 / gta 6 / cyberpunk quality world
+with rich assets and quality features that can run in browser."* The plaza is the middle of a
+district you can walk into.
+
+- **The plaza** is paved in rings of granite, with a brass compass at its centre. Eight cast-iron
+  lamps stand round the agents' circle, with a bench between each pair and a tree behind each bench.
+  The circle, the plaza and everything round it grow with the fleet.
+- **The streets.** A ring road goes round the plaza and four avenues lead out of it, crossed by side
+  streets every 64 m. They have:
+  - lane markings, zebra crossings, stop lines and manhole covers;
+  - granite kerbs, and gutters where the water gathers;
+  - street lamps every 24 m (sodium orange or LED white), each with a cone of light in the rain;
+  - traffic lights at every crossing, cycling red, amber and green;
+  - trees, hydrants, bins, newspaper boxes, utility cabinets, parking meters and bus shelters;
+  - on the side streets, bags and boxes by the bins, air-conditioning units against the walls,
+    concrete barriers at a few corners, and the odd car under a cover.
+- **The buildings.** About 150 of them, in five styles: brick walk-ups with fire escapes and water
+  tanks, stucco with balconies, concrete, stone with cornices, and glass towers further out. They
+  have:
+  - windows set into the walls;
+  - shopfronts with awnings, lit signs and neon;
+  - rooftop air-conditioning units, antennas and billboards.
+
+  Behind every window there is a room: its walls, floor, ceiling and furniture are drawn by the glass
+  itself (interior mapping). By night some rooms are lit, warm or cool, switching on and off over the
+  evening; some show only a television's flicker.
+- **Life.** Cars drive the avenues and the ring road. They keep their distance and stop at red
+  lights, with their headlights on the wet road at night. Cars are parked along the side streets,
+  and people with umbrellas walk the sidewalks.
+- **Walking.** You walk up to 150 m from the plaza. Buildings, benches, trees, lamp posts and street
+  furniture are solid.
+
+The shapes are built in the page from code: three.js's own shapes, merged by material, and
+shaders. The surfaces and the small things are real:
+
+- **Photo textures.** Brick, stucco, concrete, asphalt and sidewalk are Poly Haven's photographed
+  materials, at the size each covers in reality (a 3 m photo of brick is laid 3 m wide). The rest
+  (stone, granite, metal, roofing, wood, leaves) are baked on the GPU when the page loads
+  (`world/bake.js`). Every surface has colour, roughness, occlusion and relief.
+- **Scanned props.** The hydrants, bins, bags, boxes, cabinets, air-conditioning units, barriers and
+  covered cars are Poly Haven's photo-scanned models, decimated to a few thousand triangles and
+  drawn instanced: one draw call per kind of prop, however many stand in the street.
+- **Real skies for light.** The light everything is lit and reflects by comes from two photographed
+  city skies, an overcast square by day and a lamp-lit one by night, blended with the hour. The sky
+  you see is still the page's own, raining.
+
+The operator allowed them on 2026-10-03: *"If it is open source and safe, you may use Poly Haven
+assets."* Every one is CC0 (public domain), credited by name and author in
+`agentdata/fleet/static/world/cc0/LICENSE`. They were made small for a browser before they were
+committed (WebP textures, decimated models, 512 x 256 skies): 4 MiB in all, in the package, served by
+the fleet's own server like its scripts. Nothing comes from the internet. If a file is missing, the
+world falls back to its own version of that thing (a baked material, the sky shader, a built
+hydrant). Poly Haven has no people, so the characters are still the page's own. The world's script
+is 61.5 KiB.
+
 ## Rain, day and night
 
-It is always raining. The rain is 6,000 streaks in a box around you, plus rings where drops land in
-the puddles. The local clock decides the light. Overcast day runs from about 07:30 to 18:30, with
-dawn from 06:00 and dusk until 20:00. By night the eight lamps are lit and reflect in the wet ground.
-`?hour=0..23` pins the clock, for tests and screenshots. The scene is the world's own look: a palette
-or skin you chose dresses the HUD, never the rain.
+It is always raining. There are 6,000 streaks in a box around you and rings where drops land, and
+the streaks are lit by the lights they fall past. Everything is wet:
+
+- surfaces are darker and glossier;
+- puddles gather in the gutters and the low spots, and drops ring them;
+- the street is a mirror of the city above it, sharp in a puddle and smeared on wet asphalt.
+
+The local clock decides the light. Overcast day runs from about 07:30 to 18:30, with dawn from 06:00
+and dusk until 20:00. By night:
+
+- the lamps, the shop signs, the neon, the billboards and the cars' headlights light the street
+  round them in their own colours;
+- the windows light up;
+- the city's glow shows on the low cloud.
+
+Hundreds of lights, and a pixel adds up the nearest few. `?hour=0..23` pins the clock, for tests and
+screenshots. The scene is the world's own look: a palette or skin you chose dresses the HUD, never
+the rain.
 
 ## Frames
 
@@ -102,30 +175,103 @@ The frame budget is **10 ms**: 100 frames a second.
 
 - **The display sets the ceiling.** The browser draws at most once per display refresh. A 120 or
   144 Hz display runs the world at its own rate; a 60 Hz display caps it at 60, whatever the GPU.
+- **The frame is drawn the way open-world games draw theirs** (`world/render.js`): light in high
+  dynamic range, a reflection of the scene for the wet street, ambient occlusion, bloom round every
+  light, the ACES tone curve and a grade. There are no shadow maps: under overcast cloud and in the
+  rain, occlusion is the shadow.
+- **The quality fits the GPU.** `?quality=low|medium|high|ultra` chooses; otherwise the GPU decides:
+  - **high** for a discrete GPU: 4x MSAA, the mirror at half resolution, 24 lights a pixel;
+  - **medium** for an integrated one: FXAA, the mirror at a third, 16 lights;
+  - **low** for WebGL1 or a software renderer: straight to the screen, no mirror, plainer facades,
+    8 lights;
+  - **ultra** only when asked for.
+
+  Each tier draws the same scene, at a different cost.
 - **The page keeps every frame within the budget.**
-  - The scene is 13 draw calls however many agents there are. The rain is one draw call, the figures
-    are instanced (each part is one draw call for every agent), and the names are page text. Your
-    character adds ten (twelve in a wheelchair): the parts that move together are one mesh each, all
-    sharing one material, so a change of look compiles no shader.
-  - It has no shadows and no post-processing.
-  - The wet ground's reflection of the sky is rendered once, not per frame.
+  - The draw calls do not grow with the fleet. The city is merged by material (a dozen draw calls
+    for every building), and the robots, cars and people are instanced (four draw calls for every
+    agent, every car and every walker). The names are page text.
+  - Your character adds ten draw calls (twelve in a wheelchair). The parts that move together are
+    one mesh each, all sharing one material, so a change of look compiles no shader.
   - When frames run long it lowers its render resolution. Once a second it compares the median frame
-    with the display's rate (or the 10 ms budget on a display faster than 100 Hz), steps down to half
-    resolution at worst, and back up when there is room.
+    with the display's rate (or the 10 ms budget on a display faster than 100 Hz), and steps down to
+    half resolution at worst. If that is not enough, it drops a quality tier. It steps back up when
+    there is room.
+  - The surfaces are baked or uploaded once at load, and the sky's environment made once a minute,
+    never per frame.
 - **It stops drawing when the tab is hidden.**
 
-`FleetWorld.inspect()` reports `fps`, `frameMs` (the median interval), `workMs` (the script's own time
-per frame), `scale`, `calls` and `triangles`; F3 shows the same in the toolbar.
+`FleetWorld.inspect()` reports:
 
-CI draws in SwiftShader, on the CPU, at a few frames a second, so the tests measure what does not
-depend on the machine: the draw calls (at most 13, plus the character's ten or twelve), the
-triangles (under 80,000), the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames),
-reach, and the verbs a conversation posts. **The frame rate is the laptop's to measure:** open
-`/world`, press F3, and read the fps line in Edge or Chrome on the operator's GPU.
+- `fps`, `frameMs` (the median interval) and `workMs` (the script's own time per frame);
+- `scale` and `quality`;
+- `calls` and `triangles` (the scene), and `passes` (the whole frame's draw calls);
+- `town` (buildings, lights, cars, parked cars, people, scanned props);
+- `cc0`, how many of the CC0 textures, skies and props loaded.
+
+F3 shows the frame figures in the toolbar.
+
+**On a software renderer** (SwiftShader in CI, or a virtual desktop without a GPU), the page draws
+its lightest path: the `low` quality, plainer facades, no parked cars or walkers, props only within
+75 m, half resolution, and the scene at most about ten times a second. The walk keeps the display's pace. The tests therefore
+measure what does not depend on the machine:
+
+- the draw calls (at most 64) and triangles (under 400,000) on that path;
+- that the full pipeline compiles and draws (`?quality=high`), and that what reaches the screen is
+  the frame, not a cleared canvas;
+- that every CC0 file loads;
+- the walk (`FleetWorld.hold` and `FleetWorld.step` advance it without waiting on frames), reach, and
+  the verbs a conversation posts.
+
+**The frame rate is the laptop's to measure:** open `/world`, press F3, and read the fps line in Edge
+or Chrome on the operator's GPU.
 
 ## What it is not (yet)
 
-- No multiplayer or physics; nobody else sees your character.
+- No multiplayer or physics; nobody else sees your character. The cars do not hit you, nor you them.
+- You cannot enter the buildings: their rooms are drawn by the glass.
 - No on-screen keyboard for free text with a controller.
 - The scene is not themed.
 - It is not the map's scene (#409–#414): that is a different page that draws zero frames at rest.
+
+## Future considerations
+
+### Realistic people (MetaHuman)
+
+Poly Haven has no people, so the CC0 pass (2026-10-03) improved the place but not its characters: your
+character and the people on the sidewalks are still built in the page. The operator has Unreal Engine
+installed and named MetaHuman as the likely source of lifelike people. That is deferred. Work on a
+loader and animation path that can take MetaHuman exports, with an openly licensed stand-in, may land
+separately. These questions stay open until someone takes them up:
+
+- **Licence.** MetaHuman is not open source; Epic's EULA governs it. Since the June 2025 licence
+  change, MetaHuman characters and animation may be used in other engines and creative software,
+  including at runtime and commercially, without royalties. Two points still need an answer from
+  whoever owns licensing:
+  - **Seat licences.** Free below $1M a year of revenue. Organisations above it that use MetaHumans
+    need Unreal Engine seat licences, about $1,850 per seat per year in 2025. Check whether this
+    deployment counts.
+  - **Redistribution.** Every other asset here is CC0, committed to the repository and shipped in
+    the wheel. MetaHuman files in a public repository would be downloadable on their own, outside any
+    product. Check whether the EULA allows that, or whether they must stay out of the repository
+    (fetched at install, or kept private).
+- **AI.** MetaHumans may be used in workflows that involve AI, but not to train or improve AI models.
+  The agents' later persona work (agents as people) must stay on the right side of that.
+- **Export, on the operator's machine.** The cloud sessions cannot reach Unreal. Someone with Unreal
+  Engine 5.6 or later would:
+  1. create a diverse set of MetaHumans (skin tones, body types, ages, hair, and a wheelchair user),
+     none based on a real person;
+  2. export a higher level of detail for your character and a low one for the crowd, with hair as
+     cards (strand grooms do not export);
+  3. hand the files over outside git (a shared Drive folder, for example), so large raw exports never
+     enter the repository's history.
+
+  Here they would be decimated, given 512 to 1024 px WebP textures, and fitted to the page's budgets,
+  as the Poly Haven files were.
+- **Animation.** It has to come from somewhere licensed for this page:
+  - procedural animation on the MetaHuman (Unreal 5) skeleton, which needs no files;
+  - Epic's animations, under the same EULA questions;
+  - or CC0 libraries.
+
+  The crowd needs it to be cheap: baked vertex-animation textures or instanced skinning, within the
+  `low` path's 64 draw calls and 400,000 triangles.

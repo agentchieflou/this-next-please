@@ -67,6 +67,8 @@ The material adds a fill of its own colour (`uFill`, a line patched into three.j
 the overcast sky a body's sides and front, which face the horizon rather than the zenith, took about
 a third of the light the plaza does, and a face in the picker read as a shadow. The fill lights only
 the character, so the scene keeps its rainy look; `fill` sets it with the daylight (`vWeather`).
+The material also takes the city's lights and the rain (`WorldKit.lit`): under a street lamp or by
+a neon sign your character is lit in its colour, and its coat is darker for the wet.
 
 ### `function piece`
 

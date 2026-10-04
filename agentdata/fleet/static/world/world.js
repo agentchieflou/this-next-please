@@ -11,7 +11,7 @@ var V_STATE = {
   blocked: 0xe8485c, error: 0xe8485c, done: 0x3db874, idle: 0x8c99a6
 };
 var V_DAY = { top: 0xc3cbd2, horizon: 0x9aa5ae, ground: 0x2b3136, fog: 0x9aa5ae, rain: 0xd5dde4 };
-var V_NIGHT = { top: 0x03060b, horizon: 0x101a26, ground: 0x0d1216, fog: 0x0c141d, rain: 0x7f99b8 };
+var V_NIGHT = { top: 0x03060b, horizon: 0x101a26, ground: 0x0d1216, fog: 0x0c141d, rain: 0x6f7a88 };
 var V_REACH = 3.2;
 var V_FACING = 0.55;
 var V_WALK = 4.5;
@@ -40,7 +40,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -49,7 +49,9 @@ var vState = {
   frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0,
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0,
-  source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0
+  source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
+  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, compiling: true, warming: false, warm: null,
+  assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
@@ -104,22 +106,6 @@ function vContext() {
 }
 
 /** @param {any} T @returns {any} */
-function vSky(T) {
-  var mat = new T.ShaderMaterial({
-    uniforms: { uTop: { value: new T.Color() }, uHorizon: { value: new T.Color() } },
-    vertexShader: "varying float vY; void main() { vY = normalize(position).y;"
-      + " gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-    fragmentShader: "uniform vec3 uTop; uniform vec3 uHorizon; varying float vY;"
-      + " void main() { gl_FragColor = vec4(mix(uHorizon, uTop, smoothstep(-0.05, 0.6, vY)), 1.0); }",
-    side: T.BackSide, depthWrite: false, fog: false
-  });
-  var sky = new T.Mesh(new T.SphereGeometry(320, 24, 12), mat);
-  sky.renderOrder = -1;
-  sky.frustumCulled = false;
-  return sky;
-}
-
-/** @param {any} T @returns {any} */
 function vRain(T) {
   var g = new T.BufferGeometry();
   var drop = new Float32Array(V_RAIN * 2 * 4);
@@ -135,16 +121,20 @@ function vRain(T) {
   g.setAttribute("aDrop", new T.BufferAttribute(drop, 4));
   var mat = new T.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() },
-                uAlpha: { value: 0.35 }, uSpeed: { value: 14 } },
-    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; attribute vec4 aDrop; varying float vA;"
+                uAlpha: { value: 0.35 }, uSpeed: { value: 14 }, uNight: { value: 0 },
+                uWkP: { value: WorldKit.L.pos }, uWkC: { value: WorldKit.L.col } },
+    defines: { WK_N: WorldKit.L.n },
+    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; uniform vec4 uWkP[WK_N]; uniform vec3 uWkC[WK_N];"
+      + " uniform float uNight; attribute vec4 aDrop; varying float vA; varying vec3 vLit;"
       + " void main() { float box = 44.0; float high = 22.0;"
       + " vec2 xz = uCam.xz + (fract(aDrop.xz - uCam.xz / box) - 0.5) * box;"
       + " float y = uCam.y - 6.0 + fract(aDrop.y - uTime * uSpeed / high) * high;"
       + " vec3 p = vec3(xz.x + aDrop.w * 0.08, y - aDrop.w * 0.55, xz.y + aDrop.w * 0.03);"
       + " vec4 mv = modelViewMatrix * vec4(p, 1.0); vA = (1.0 - smoothstep(6.0, 22.0, -mv.z)) * (0.4 + 0.6 * aDrop.w);"
-      + " gl_Position = projectionMatrix * mv; }",
-    fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA;"
-      + " void main() { gl_FragColor = vec4(uColor, uAlpha * vA); }",
+      + " vLit = vec3(0.0); for (int i = 0; i < WK_N; i++) { float r = uWkP[i].w * 0.42; float w = 1.0 - smoothstep(0.0, r, distance(p, uWkP[i].xyz));"
+      + " vLit += uWkC[i] * w * w * 0.028; } gl_Position = projectionMatrix * mv; }",
+    fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA; varying vec3 vLit;"
+      + " void main() { float l = min(dot(vLit, vec3(0.33)), 2.0); gl_FragColor = vec4(uColor * (1.0 - 0.4 * min(l, 1.0)) + vLit, uAlpha * vA * (1.0 + 1.8 * l)); }",
     transparent: true, depthWrite: false, fog: false
   });
   var lines = new T.LineSegments(g, mat);
@@ -155,7 +145,7 @@ function vRain(T) {
 
 /** @param {any} T @returns {any} */
 function vSplash(T) {
-  var g = new T.RingGeometry(0.06, 0.1, 16);
+  var g = new T.RingGeometry(0.075, 0.09, 20);
   g.rotateX(-Math.PI / 2);
   var seed = new Float32Array(V_SPLASH * 3);
   for (var i = 0; i < V_SPLASH; i++) {
@@ -163,12 +153,12 @@ function vSplash(T) {
   }
   g.setAttribute("aSeed", new T.InstancedBufferAttribute(seed, 3));
   var mat = new T.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uAlpha: { value: 0.5 } },
+    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uAlpha: { value: 0.32 } },
     vertexShader: "uniform float uTime; uniform vec3 uCam; attribute vec3 aSeed; varying float vA;"
       + " void main() { float box = 16.0; float t = fract(uTime * 1.6 + aSeed.z); float cycle = floor(uTime * 1.6 + aSeed.z);"
       + " vec2 jitter = fract(aSeed.xy + cycle * vec2(0.618, 0.414));"
       + " vec2 xz = uCam.xz + (fract(jitter - uCam.xz / box) - 0.5) * box;"
-      + " vec3 p = position * (0.3 + 2.4 * t) + vec3(xz.x, 0.03, xz.y); vA = 1.0 - t;"
+      + " vec3 p = position * (0.25 + 1.5 * t) + vec3(xz.x, 0.03, xz.y); vA = (1.0 - t) * (1.0 - t);"
       + " gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }",
     fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA;"
       + " void main() { gl_FragColor = vec4(uColor, uAlpha * vA); }",
@@ -182,52 +172,58 @@ function vSplash(T) {
 
 /** @param {any} T @param {any} scene */
 function vProps(T, scene) {
-  var m = new T.Matrix4();
-  var ground = new T.Mesh(new T.PlaneGeometry(600, 600), new T.MeshStandardMaterial({ color: 0x3a4249, roughness: 0.32, metalness: 0.2 }));
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-  var plaza = new T.Mesh(new T.RingGeometry(1, 1.035, 96, 1), new T.MeshLambertMaterial({
-    color: 0x5d666f, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-  plaza.rotation.x = -Math.PI / 2;
-  plaza.position.y = 0.02;
-  scene.add(plaza);
-  var towers = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshLambertMaterial({ color: 0x1c2228 }), 36);
-  for (var i = 0; i < 36; i++) {
-    var a = i / 36 * Math.PI * 2 + (i % 3) * 0.05, r = 85 + (i * 37 % 60), h = 14 + (i * 53 % 38), w = 10 + (i * 29 % 14);
-    m.makeScale(w, h, w).setPosition(Math.cos(a) * r, h / 2, Math.sin(a) * r);
-    towers.setMatrixAt(i, m);
-  }
-  scene.add(towers);
-  var posts = new T.InstancedMesh(new T.CylinderGeometry(0.07, 0.09, 4, 8), new T.MeshLambertMaterial({ color: 0x1b2126 }), V_LAMPS);
-  var heads = new T.InstancedMesh(new T.SphereGeometry(0.22, 12, 8), new T.MeshBasicMaterial({ color: 0xffd9a0 }), V_LAMPS);
-  scene.add(posts, heads);
-  var bulbs = [];
-  for (var j = 0; j < 4; j++) {
-    var bulb = new T.PointLight(0xffc98a, 0, 34, 1.2);
-    scene.add(bulb);
-    bulbs.push(bulb);
-  }
-  vState.parts.plaza = plaza;
-  vState.parts.posts = posts;
-  vState.parts.heads = heads;
-  vState.lights.bulbs = bulbs;
+  vState.parts.ground = WorldCity.ground(T, vState.lib, vState.tier === "low" ? 0 : 1);
+  vState.parts.glows = WorldScenery.glows(T);
+  scene.add(vState.parts.ground, vState.parts.glows);
+  vState.parts.ground.layers.set(1);
+  vState.edge = 0;
+  vState.solids = [];
 }
 
 /** @param {any} T @param {any} scene */
 function vFigures(T, scene) {
-  var p = vState.parts;
-  p.base = new T.InstancedMesh(new T.CylinderGeometry(0.62, 0.7, 0.22, 20), new T.MeshLambertMaterial({ color: 0x4a525a }), V_CAP);
-  p.body = new T.InstancedMesh(new T.CapsuleGeometry(0.34, 0.9, 6, 14), new T.MeshLambertMaterial({ color: 0xffffff }), V_CAP);
-  p.ring = new T.InstancedMesh(new T.TorusGeometry(0.55, 0.05, 8, 32), new T.MeshBasicMaterial({ color: 0xffffff }), V_CAP);
-  p.visor = new T.InstancedMesh(new T.BoxGeometry(0.46, 0.12, 0.08), new T.MeshBasicMaterial({ color: 0xffffff }), V_CAP);
-  vState.mats.beacon = new T.MeshBasicMaterial({ color: V_STATE.needs_human, transparent: true, opacity: 0.28, depthWrite: false, fog: false });
-  p.beacon = new T.InstancedMesh(new T.CylinderGeometry(0.22, 0.22, 40, 10, 1, true), vState.mats.beacon, V_CAP);
-  p.beacon.renderOrder = 3;
-  ["base", "body", "ring", "visor", "beacon"].forEach(function (k) {
-    p[k].count = 0;
-    p[k].frustumCulled = false;
-    scene.add(p[k]);
+  var b = WorldBots.build(T, V_CAP);
+  Object.assign(vState.parts, b);
+  scene.add(b.shell, b.glow, b.ring, b.beacon);
+}
+
+/** @param {number} edge */
+function vPlaza(edge) {
+  var T = vState.T, p = vState.parts;
+  if (vState.edge === edge) return;
+  vState.edge = edge;
+  [p.props, p.glass, p.leaves].forEach(function (m) {
+    if (!m) return;
+    vState.scene.remove(m);
+    m.geometry.dispose();
+    if (m !== p.leaves) m.material.dispose();
   });
+  var made = WorldScenery.plaza(T, edge, vState.lib);
+  p.props = made.props;
+  p.glass = made.glass;
+  p.leaves = made.leaves;
+  vState.scene.add(made.props, made.glass, made.leaves);
+  vState.solids = made.solids;
+  WorldScenery.placeGlows(p.glows, T, made.lamps);
+  WorldKit.forget("plaza");
+  made.lamps.forEach(function (l) { WorldKit.light([l[0], l[1] - 0.25, l[2]], [16, 11.5, 6.8], 17, "plaza"); });
+  var P = Math.round((edge + 6) * 2) / 2;
+  if (vState.cityP !== P) {
+    vState.cityP = P;
+    var lod = vState.tier === "low" ? 0 : 1;
+    var city = WorldCity.build(T, vState.lib, vState.scene, P, lod);
+    vState.boxes = city.solids;
+    WorldKit.forget("city");
+    city.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "city", { f: l.f }); });
+    p.ground.userData.P.value = P;
+    var street = WorldStreet.build(T, vState.lib, vState.scene, P, lod, vState.scans);
+    WorldKit.forget("street");
+    street.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "street", { f: l.f }); });
+    vState.streetSolids = street.solids;
+    vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people, scans: street.scans };
+  }
+  vState.solids = vState.solids.concat(vState.streetSolids || []);
+  vWeather();
 }
 
 function vLayout() {
@@ -259,87 +255,47 @@ function vLayout() {
 }
 
 function vPlace() {
-  var T = vState.T, p = vState.parts, m = new T.Matrix4(), c = new T.Color(), q = new T.Quaternion();
-  var up = new T.Vector3(0, 1, 0), one = new T.Vector3(1, 1, 1), at = new T.Vector3();
-  var list = Array.from(vState.agents.values()).slice(0, V_CAP);
-  var beacons = 0;
-  list.forEach(function (ag, k) {
-    q.setFromAxisAngle(up, ag.yaw);
-    m.compose(at.set(ag.x, 0.11, ag.z), q, one);
-    p.base.setMatrixAt(k, m);
-    m.compose(at.set(ag.x, 0.92, ag.z), q, one);
-    p.body.setMatrixAt(k, m);
-    c.setHex(V_STATE[ag.state] || V_STATE.idle).lerp(new T.Color(0xffffff), 0.35);
-    p.body.setColorAt(k, c);
-    c.setHex(V_STATE[ag.state] || V_STATE.idle);
-    p.ring.setColorAt(k, c);
-    p.visor.setColorAt(k, c);
-    m.compose(at.set(ag.x + Math.sin(ag.yaw) * 0.31, 1.42, ag.z + Math.cos(ag.yaw) * 0.31), q, one);
-    p.visor.setMatrixAt(k, m);
-    if (ag.needs) {
-      m.compose(at.set(ag.x, 20, ag.z), new T.Quaternion(), one);
-      p.beacon.setMatrixAt(beacons++, m);
-    }
-  });
-  p.base.count = p.body.count = p.ring.count = p.visor.count = list.length;
-  p.beacon.count = beacons;
-  ["base", "body", "ring", "visor", "beacon"].forEach(function (k) {
-    p[k].instanceMatrix.needsUpdate = true;
-    if (p[k].instanceColor) p[k].instanceColor.needsUpdate = true;
-  });
-  vSpinRings(0);
-  var r = vState.radius + 3.5;
-  p.plaza.scale.set(r, r, 1);
-  var lm = new T.Matrix4();
-  for (var i = 0; i < V_LAMPS; i++) {
-    var a = (i + 0.5) / V_LAMPS * Math.PI * 2, lx = Math.cos(a) * (r + 1.5), lz = Math.sin(a) * (r + 1.5);
-    lm.makeTranslation(lx, 2, lz);
-    p.posts.setMatrixAt(i, lm);
-    lm.makeTranslation(lx, 4.05, lz);
-    p.heads.setMatrixAt(i, lm);
-    if (i % 2 === 0) vState.lights.bulbs[i / 2].position.set(lx, 3.9, lz);
-  }
-  p.posts.instanceMatrix.needsUpdate = true;
-  p.heads.instanceMatrix.needsUpdate = true;
+  vBots(vState.time);
+  vPlaza(Math.round((vState.radius + 3.5) * 10) / 10);
 }
 
 /** @param {number} t */
-function vSpinRings(t) {
-  var T = vState.T, p = vState.parts, m = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler();
-  var at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
-  var k = 0;
-  vState.agents.forEach(function (ag) {
-    if (k >= V_CAP) return;
-    var spin = ag.state === "running" || ag.state === "starting" ? t * 1.8 : 0;
-    e.set(Math.PI / 2, 0, spin + ag.i);
-    q.setFromEuler(e);
-    m.compose(at.set(ag.x, 2.1 + (ag.needs ? Math.sin(t * 2.4) * 0.08 : 0), ag.z), q, one);
-    p.ring.setMatrixAt(k++, m);
-  });
-  p.ring.instanceMatrix.needsUpdate = true;
+function vBots(t) {
+  var list = Array.from(vState.agents.values()).slice(0, V_CAP);
+  WorldBots.place(vState.T, vState.parts, list, V_STATE, t, vReduced());
 }
 
 function vWeather() {
   var T = vState.T, d = vDaylight(vState.hour == null ? vHour() : vState.hour);
   vState.daylight = d;
   var mix = function (a, b) { return new T.Color(a).lerp(new T.Color(b), d); };
+  var night = 1 - d;
   var sky = vState.parts.sky.material.uniforms;
   sky.uTop.value.copy(mix(V_NIGHT.top, V_DAY.top));
   sky.uHorizon.value.copy(mix(V_NIGHT.horizon, V_DAY.horizon));
+  sky.uCloud.value.copy(mix(0x161d27, 0xd9dee2));
+  sky.uGlow.value.setHex(0x3a2a1c).multiplyScalar(night);
   vState.scene.fog.color.copy(mix(V_NIGHT.fog, V_DAY.fog));
-  vState.scene.fog.density = 0.014 + (1 - d) * 0.01;
+  vState.scene.fog.density = 0.014 + night * 0.008;
   vReflect();
   vState.renderer.setClearColor(vState.scene.fog.color);
-  vState.lights.hemi.intensity = 0.12 + 0.95 * d;
-  vState.lights.sun.intensity = 0.55 * d;
+  vState.lights.hemi.intensity = 0.16 + 0.95 * d;
+  vState.lights.sun.intensity = 0.55 * d + 0.12 * night;
+  vState.lights.sun.color.copy(mix(0x6f86b8, 0xdfe6ec));
   WorldHero.fill(0.08 + 0.17 * d);
-  var night = 1 - d;
-  vState.lights.bulbs.forEach(function (b) { b.intensity = 18 * night; });
-  vState.parts.heads.material.color.setHex(night > 0.5 ? 0xffd9a0 : 0x8f8a80);
-  vState.mats.beacon.opacity = 0.2 + 0.25 * night;
+  WorldBots.fill.value = 0.1 + 0.12 * d;
+  vState.lamp = 16 * night;
+  vState.exposure = 1 + 0.45 * night;
+  WorldKit.uniforms.night.value = night;
+  WorldKit.uniforms.lit.value = 0.3 + 0.06 * night;
+  if (vState.parts.glass) vState.parts.glass.material.color.copy(mix(0xffd9a0, 0xb9c2c9));
+  vState.parts.glows.material.uniforms.uOpacity.value = night * 0.9;
+  vState.parts.glows.visible = night > 0.05;
+  WorldBots.beat.opacity.value = 0.32 + 0.3 * night;
   var rain = vState.parts.rain.material.uniforms, splash = vState.parts.splash.material.uniforms;
   rain.uColor.value.copy(mix(V_NIGHT.rain, V_DAY.rain));
-  rain.uAlpha.value = 0.3 + 0.15 * night;
+  rain.uAlpha.value = 0.26 - 0.06 * night;
+  rain.uNight.value = night;
   rain.uSpeed.value = vReduced() ? 5 : 14;
   splash.uColor.value.copy(rain.uColor.value);
 }
@@ -348,7 +304,10 @@ function vReflect() {
   var T = vState.T;
   if (!vState.pmrem) vState.pmrem = new T.PMREMGenerator(vState.renderer);
   var room = new T.Scene();
-  room.add(new T.Mesh(vState.parts.sky.geometry, vState.parts.sky.material));
+  if (vState.dome) {
+    vState.dome.material.uniforms.uMix.value = 1 - vState.daylight;
+    room.add(vState.dome);
+  } else room.add(new T.Mesh(vState.parts.sky.geometry, vState.parts.sky.material));
   var made = vState.pmrem.fromScene(room, 0.02);
   if (vState.scene.environment) vState.scene.environment.dispose();
   vState.scene.environment = made.texture;
@@ -359,9 +318,7 @@ function vBuild() {
   var ctx = vContext();
   var renderer = new T.WebGLRenderer({ canvas: ctx.canvas, context: ctx.gl, antialias: false, powerPreference: "high-performance" });
   renderer.outputColorSpace = T.SRGBColorSpace;
-  vState.maxScale = Math.min(window.devicePixelRatio || 1, 1.5);
-  vState.scale = vState.maxScale;
-  renderer.setPixelRatio(vState.scale);
+  renderer.setPixelRatio(1);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   document.getElementById("world").appendChild(ctx.canvas);
   ctx.canvas.tabIndex = 0;
@@ -372,13 +329,26 @@ function vBuild() {
   vState.renderer = renderer;
   vState.scene = scene;
   vState.camera = camera;
+  vState.tier = WorldRender.create(T, renderer, scene, camera, PARAMS.get("quality") || "auto");
+  vState.topTier = vState.tier;
+  vState.maxScale = vMaxScale();
+  vState.scale = vState.maxScale;
+  renderer.setPixelRatio(vState.scale);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  WorldRender.resize();
+  WorldKit.lights(T, WorldRender.TIERS[vState.tier].lights, renderer.capabilities.isWebGL2 && WorldRender.cfg.reflect > 0);
+  vState.lib = WorldBake.make(T, renderer, vState.tier === "low" ? 256 : 512, vState.assets.tex);
+  vState.dome = WorldAssets.dome(T, vState.assets.sky);
+  vState.scans = WorldAssets.scans(T, vState.assets.props, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
   vState.lights.hemi = new T.HemisphereLight(0xc4ccd4, 0x20262b, 1);
   vState.lights.sun = new T.DirectionalLight(0xdfe6ec, 0.5);
   vState.lights.sun.position.set(-30, 60, 20);
   scene.add(vState.lights.hemi, vState.lights.sun);
-  vState.parts.sky = vSky(T);
+  vState.parts.sky = WorldScenery.sky(T);
   vState.parts.rain = vRain(T);
   vState.parts.splash = vSplash(T);
+  vState.parts.rain.layers.set(1);
+  vState.parts.splash.layers.set(1);
   scene.add(vState.parts.sky, vState.parts.rain, vState.parts.splash);
   vProps(T, scene);
   vFigures(T, scene);
@@ -388,6 +358,8 @@ function vBuild() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight, false);
+    WorldRender.resize();
+    vState.drawn = 0;
   });
   ctx.canvas.addEventListener("click", function () {
     if (!vState.open && ctx.canvas.requestPointerLock) {
@@ -456,7 +428,17 @@ function vStep(dt) {
     var dx = P.x - ag.x, dz = P.z - ag.z, d = Math.hypot(dx, dz);
     if (d < 1.05 && d > 0.0001) { P.x = ag.x + dx / d * 1.05; P.z = ag.z + dz / d * 1.05; }
   });
-  var lim = vState.radius + 20, r = Math.hypot(P.x, P.z);
+  (vState.solids || []).forEach(function (o) {
+    var dx = P.x - o[0], dz = P.z - o[1], d = Math.hypot(dx, dz), r = o[2] + 0.3;
+    if (d < r && d > 0.0001) { P.x = o[0] + dx / d * r; P.z = o[1] + dz / d * r; }
+  });
+  (vState.boxes || []).forEach(function (b) {
+    var x0 = b[0] - 0.35, z0 = b[1] - 0.35, x1 = b[2] + 0.35, z1 = b[3] + 0.35;
+    if (P.x <= x0 || P.x >= x1 || P.z <= z0 || P.z >= z1) return;
+    var dl = P.x - x0, dr = x1 - P.x, dn = P.z - z0, df = z1 - P.z, m = Math.min(dl, dr, dn, df);
+    if (m === dl) P.x = x0; else if (m === dr) P.x = x1; else if (m === dn) P.z = z0; else P.z = z1;
+  });
+  var lim = WorldCity.LIMIT, r = Math.hypot(P.x, P.z);
   if (r > lim) { P.x *= lim / r; P.z *= lim / r; }
   var went = Math.hypot(P.x - x0, P.z - z0);
   vState.walk += went * V_STRIDE * (fwd < 0 ? -1 : 1);
@@ -651,18 +633,56 @@ function vFrame(now) {
   rain.uTime.value = splash.uTime.value = vState.time;
   rain.uCam.value.copy(cam.position);
   splash.uCam.value.copy(cam.position);
+  WorldStreet.frame(vState.time, dt, 1 - vState.daylight, vReduced());
   if (!vReduced()) {
-    vSpinRings(vState.time);
-    vState.mats.beacon.opacity = (0.2 + 0.25 * (1 - vState.daylight)) * (0.75 + 0.25 * Math.sin(vState.time * 3));
+    vBots(vState.time);
+    WorldKit.uniforms.time.value = WorldBots.beat.time.value = vState.time;
   }
   drawHud();
-  vState.renderer.render(vState.scene, cam);
+  if (vState.warming) {
+    vState.warming = !vWarm();
+    if (!vState.warming) { vState.intervals.length = 0; vState.lastTune = now; }
+  } else if (!vState.compiling) {
+    if (now - vState.lastTune > 1000 && vTune(now)) vState.drawn = 0;
+    if (!WorldRender.soft || now - vState.drawn > 95 || !vState.drawn) {
+      vState.drawn = now;
+      WorldKit.pick(cam, vState.time, 1 - vState.daylight);
+      WorldRender.render(vState.time, 1 - vState.daylight, vState.exposure);
+    }
+  }
   drawLabels();
   vState.frames += 1;
   vState.work.push(performance.now() - t0);
   if (vState.intervals.length > 240) vState.intervals.splice(0, vState.intervals.length - 240);
   if (vState.work.length > 240) vState.work.splice(0, vState.work.length - 240);
-  if (now - vState.lastTune > 1000) vTune(now);
+}
+
+/** @returns {boolean} */
+function vWarm() {
+  var T = vState.T, r = vState.renderer, w = vState.warm;
+  if (!w) {
+    var list = [];
+    vState.scene.traverse(function (o) { if ((o.isMesh || o.isLine || o.isPoints) && o.material) list.push(o); });
+    w = vState.warm = { list: list, vis: list.map(function (o) { return o.visible; }), i: 0, target: new T.WebGLRenderTarget(1, 1) };
+  }
+  if (w.i <= w.list.length) {
+    w.list.forEach(function (o, k) { o.visible = k === w.i; });
+    var one = w.list[w.i], count = one && one.isInstancedMesh ? one.count : -1, screen = vState.tier === "low";
+    if (count === 0) one.count = 1;
+    r.setRenderTarget(screen ? null : w.target);
+    if (screen) { r.setScissorTest(true); r.setScissor(0, 0, 1, 1); }
+    if (one) r.render(vState.scene, vState.camera);
+    else WorldRender.warmPasses(w.target);
+    if (screen) r.setScissorTest(false);
+    if (count === 0) one.count = 0;
+    r.setRenderTarget(null);
+    w.list.forEach(function (o, k) { o.visible = w.vis[k]; });
+    w.i += 1;
+    return false;
+  }
+  w.target.dispose();
+  vState.warm = null;
+  return true;
 }
 
 /** @param {Array<number>} xs @param {number} p @returns {number} */
@@ -672,11 +692,11 @@ function vPct(xs, p) {
   return s[Math.min(s.length - 1, Math.floor(p * s.length))];
 }
 
-/** @param {number} now */
+/** @param {number} now @returns {boolean} */
 function vTune(now) {
   vState.lastTune = now;
   var recent = vState.intervals.slice(-90);
-  if (recent.length < 30) return;
+  if (recent.length < 30) return false;
   var floor = vPct(vState.intervals, 0.05);
   vState.refresh = floor;
   var target = Math.max(floor, Math.min(V_BUDGET_MS, floor * 1.5));
@@ -684,10 +704,21 @@ function vTune(now) {
   var was = vState.scale;
   if (mid > target * 1.15 && vState.scale > 0.5) vState.scale = Math.max(0.5, vState.scale * 0.85);
   else if (mid < target * 1.03 && vState.scale < vState.maxScale) vState.scale = Math.min(vState.maxScale, vState.scale * 1.08);
-  if (vState.scale !== was) {
-    vState.renderer.setPixelRatio(vState.scale);
-    vState.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  if (mid > target * 1.15 && was <= 0.5 && WorldRender.step(-1)) {
+    vState.tier = WorldRender.tier;
+    vState.maxScale = vMaxScale();
+    vState.scale = Math.max(0.5, vState.maxScale * 0.8);
   }
+  if (vState.scale === was) return false;
+  vState.renderer.setPixelRatio(vState.scale);
+  vState.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  WorldRender.resize();
+  return true;
+}
+
+/** @returns {number} */
+function vMaxScale() {
+  return WorldRender.soft ? 0.5 : Math.min(window.devicePixelRatio || 1, WorldRender.cfg.cap);
 }
 
 function drawLabels() {
@@ -978,8 +1009,9 @@ document.addEventListener("visibilitychange", function () {
 
 function vStart() {
   hide(document.getElementById("wstats"), PARAMS.get("hud") !== "1");
-  return Promise.all([import(q(V_THREE)), vRefresh()]).then(function (got) {
+  return Promise.all([import(q(V_THREE)), vRefresh(), WorldAssets.load()]).then(function (got) {
     vState.T = got[0];
+    vState.assets = got[2];
     vBuild();
     vState.ready = true;
     vLayout();
@@ -987,6 +1019,8 @@ function vStart() {
     vLook(kept || WorldHero.preset(0));
     vView(PARAMS.get("view") === "first" ? "first" : "third");
     if (!kept) vWho(true);
+    var compiled = function () { vState.compiling = false; vState.warming = true; };
+    WorldRender.prepare().then(compiled, compiled);
     var first = vState.rows.filter(function (r) { return r.needs_human; })[0] || vState.rows[0];
     var ag = first && vState.agents.get(first.repo);
     if (ag) vState.player.yaw = Math.atan2(-ag.x, -ag.z);
@@ -1014,8 +1048,9 @@ window.FleetWorld = Object.freeze({
       beacons: vState.parts.beacon ? vState.parts.beacon.count : 0,
       player: Object.assign({}, vState.player), near: vState.near, open: vState.open,
       daylight: vState.daylight, night: vState.daylight < 0.5,
-      lamps: vState.lights.bulbs ? vState.lights.bulbs[0].intensity : 0,
-      rain: V_RAIN, calls: r ? r.info.render.calls : 0, triangles: r ? r.info.render.triangles : 0,
+      lamps: vState.lamp || 0, quality: vState.tier, soft: WorldRender.soft, town: vState.town && Object.assign({}, vState.town),
+      cc0: { textures: Object.keys(vState.assets.tex).length, skies: Object.keys(vState.assets.sky).length, props: Object.keys(vState.assets.props).length },
+      rain: V_RAIN, calls: WorldRender.calls, triangles: WorldRender.triangles, passes: WorldRender.frameCalls,
       fps: vState.intervals.length ? Math.round(1000 / vPct(vState.intervals.slice(-120), 0.5)) : 0,
       frameMs: vPct(vState.intervals.slice(-120), 0.5), workMs: vPct(vState.work.slice(-120), 0.5),
       scale: vState.scale, refreshMs: vState.refresh, budgetMs: V_BUDGET_MS,

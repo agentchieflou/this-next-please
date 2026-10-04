@@ -154,7 +154,8 @@
       "paths": [
         "docs/**",
         "*.md",
-        "HANDOFF.md"
+        "HANDOFF.md",
+        "tools/**"
       ]
     },
     "shells": {
