@@ -310,7 +310,10 @@ def test_the_newest_transcript_is_the_baseline_and_a_dialect_change_is_drift():
 
 
 def test_no_pipe_says_where_the_switch_is_and_off_windows_there_is_no_policy():
-    assert BR.policy() == "unknown"
+    # `native=False` is the off-Windows path on every platform. The bare call read the real
+    # registry on the Windows runners, where the policy key is absent, and answered `unset`
+    # (red on main's nightly 37111989993 and on every PR's Windows shard 2/4 since 0.18.0).
+    assert BR.policy(native=False) == "unknown"
     why = BR.no_pipe_reason(4321)
     assert "pipe for pid 4321 not found" in why
     assert "Security > Desktop Bridge" in why and "on by default" in why
