@@ -24,6 +24,8 @@ CASES: dict[str, dict] = {
     "sql-check":  {"args": ["--dialect", "teradata", "--sql", "SELECT 1"], "toon": True},
     "graph":      {"args": ["build", "@repo", "--out", "@graphdir"], "needs": ["repo"], "toon": True},
     "test":       {"args": ["detect", "@repo"], "needs": ["repo"], "toon": True},
+    # `status` walks the fixture repo's file list and reads nothing else; it writes nothing.
+    "context":    {"args": ["status", "--root", "@repo"], "needs": ["repo"], "toon": True},
     "argv":       {"args": ["--", "one", "two"], "toon": True},
     # `repo list` on an empty registry: no `copilot`, no processes, and the fleet directory is the
     # temporary AGENTDATA_CONFIG's, so this touches nothing outside the test's own tmp dir.
