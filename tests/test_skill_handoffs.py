@@ -34,7 +34,8 @@ def body(name: str) -> str:
 # Reachable from everywhere by design, so they are neither interesting edges nor real
 # prerequisites: `friction-log` is the escape hatch every skill has, `state-update` is bookkeeping,
 # and the routers are where everything starts.
-UNIVERSAL = {"friction-log", "state-update", "router", "pbi-router", "session-bootstrap"}
+ROUTERS = ("router", "pbi-router", "jira-router", "data-router", "dpm-router", "code-router")
+UNIVERSAL = {"friction-log", "state-update", "session-bootstrap", "research-spike", *ROUTERS}
 
 # A prerequisite is what the sentence says *before* it starts describing what to do when the
 # prerequisite is missing. "Prereq: `pbip-projection` ran; missing → `friction-log`. STOP." names
@@ -103,7 +104,7 @@ def test_every_skill_a_skill_names_actually_exists(name):
     unknown = sorted(s for s in suspects if s not in NAMES)
     # Hyphenated things that are not skills: `ad-*` verbs (filtered above), the classes the
     # findings files use, the friction types, and one `ad-jira` subcommand.
-    known_not_skills = {"missing-info", "tool-error", "history-gap", "report-bug",
+    known_not_skills = {"missing-info", "tool-error", "coverage-gap", "history-gap", "report-bug",
                         "inactive-relationship", "expectation-wrong", "mapping-bug",
                         "warehouse-drift", "dry-run", "no-op", "read-only", "one-prompt",
                         "sprint-replay", "visual-query", "jira-hist", "hist-coverage",
@@ -191,11 +192,11 @@ def test_the_deploy_step_still_states_the_prerequisite_that_makes_the_order_matt
 def test_every_skill_can_be_reached_from_a_router_or_from_another_skill():
     """A skill nothing points at and no router lists is a skill nobody will ever run.
 
-    Both routers count: `router` sends Power BI work to `pbi-router`, which is where the seven
-    report-authoring skills are listed. A test that only read the top-level router would call them
-    orphans and be wrong.
+    Every router counts: `router` sends Power BI work to `pbi-router`, which is where the seven
+    report-authoring skills are listed, and the four domain routers hold theirs the same way. A
+    test that only read the top-level router would call them orphans and be wrong.
     """
-    routing = body("router") + body("pbi-router")
+    routing = "".join(body(r) for r in ROUTERS)
     # A skill can be *referred* to rather than handed to: `data-adapter` is read by whoever hits
     # the row-count rule, not invoked. That counts as reachable -- just not by routing.
     referenced = {ref for n in NAMES for ref in re.findall(r"see `([a-z0-9-]+)`", body(n))}

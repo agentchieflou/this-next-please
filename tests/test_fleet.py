@@ -132,10 +132,11 @@ def test_the_auto_tier_goes_only_under_an_option_the_installed_cli_named(monkeyp
 
     monkeypatch.setattr(M, "auto_tier_flag", lambda: "")
     argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={}, model="auto")
-    assert "efficiency" not in argv, "nothing guessed"
+    assert "balance" not in argv and "efficiency" not in argv, "nothing guessed"
     monkeypatch.setattr(M, "auto_tier_flag", lambda: "--auto-tier")
     argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={}, model="auto")
-    assert _patterns(argv, "--auto-tier") == ["efficiency"], "the default tier"
+    # `efficiency` until 2026-10-03; `balance` since the allowance went to 50,000 (credits.py).
+    assert _patterns(argv, "--auto-tier") == ["balance"], "the default tier"
     argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", model="auto",
                                  cfg={"fleet": {"copilot": {"auto_tier": "intelligence"}}})
     assert _patterns(argv, "--auto-tier") == ["intelligence"]

@@ -20,6 +20,7 @@ from . import handoff as H
 from . import lifecycle
 from . import overrides as OV
 from .launch import child_env, launch_command, prompt_for, console_command
+from . import credits as CREDITS
 from . import launch as LAUNCH
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
 
@@ -549,7 +550,8 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"),
                           cfg=OV.for_agent(cfg, name), usage_file=os.path.join(directory, USAGE),
-                          session=resume, model=model, effort=effort)
+                          session=resume, model=model, effort=effort,
+                          tier=CREDITS.tier_for(cfg, registry=reg))
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "ticket": key or "",
@@ -604,7 +606,8 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     argv = launch_command("copilot", repo.path, message,
                           log_dir=os.path.join(directory, "logs"), session=session,
                           cfg=OV.for_agent(cfg, name),
-                          usage_file=os.path.join(directory, USAGE), model=model, effort=effort)
+                          usage_file=os.path.join(directory, USAGE), model=model, effort=effort,
+                          tier=CREDITS.tier_for(cfg, registry=reg))
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "session": session,
@@ -789,7 +792,8 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"), session=session,
                           cfg=OV.for_agent(cfg, name),
-                          usage_file=os.path.join(directory, USAGE), model=model, effort=effort)
+                          usage_file=os.path.join(directory, USAGE), model=model, effort=effort,
+                          tier=CREDITS.tier_for(cfg, registry=reg))
     child = _spawn(repo, name, argv, exe)
     fresh = {"pid": child.pid, "repo": name, "path": repo.path, "session": session,
              "ticket": lock.get("ticket", ""), "summary": lock.get("summary", ""),

@@ -170,13 +170,19 @@ def test_pbi_router_and_two_level_resolution():
 
 
 # Every routing table in the repository. A sub-router that outgrows the limit is the same problem
-# one level down, and has the same fix.
-ROUTERS = ("router", "pbi-router")
+# one level down, and has the same fix. The four domain routers were split out of the top table
+# on 2026-10-03, when it stood at 23 rows against a limit of 24.
+ROUTERS = ("router", "pbi-router", "jira-router", "data-router", "dpm-router", "code-router")
 
 # The early warning, well under the 120-line hard limit every skill has. Two numbers because they
 # fail for different reasons: a router gets long (costly to read, every task) or it gets wide
 # (harder to pick from, and first-match-wins turns a near-miss into the wrong skill).
-ROUTER_LINES = 60
+#
+# 60 → 80 lines on 2026-10-03, at the operator's word: the credit allowance went from 23,000 to
+# 50,000 a month and the routing rows may now carry a precondition sentence or two each rather
+# than a bare word list. Still a third under the hard limit; the row count did not move, because
+# width is what makes a first-match table unreliable, and the split above is what buys width.
+ROUTER_LINES = 80
 ROUTER_ROWS = 24
 
 # What to do when one of them trips. Deliberately not "shorten the row text": the rows are already
@@ -210,7 +216,7 @@ def test_a_router_stays_small_enough_to_pick_from(name):
 def test_the_early_warning_is_still_early():
     """A limit quietly raised to 119 would pass its own test and warn nobody. This is what stops
     the guardrail from being disarmed by the edit that was supposed to trip it."""
-    assert ROUTER_LINES <= 60, "the router warning must stay well under the 120-line hard limit"
+    assert ROUTER_LINES <= 80, "the router warning must stay well under the 120-line hard limit"
     assert ROUTER_ROWS <= 24, "a flat first-match table stops being reliably scannable around here"
 
 
@@ -219,6 +225,19 @@ def test_the_router_says_what_to_do_when_it_outgrows_itself():
     text = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
     assert "sub-router" in text, "the router does not describe the split that is its own next step"
     assert "`pbi-router`" in text, "the note must point at the worked example"
+
+
+@pytest.mark.parametrize("name", [r for r in ROUTERS if r != "router"])
+def test_every_sub_router_is_one_hop_from_the_top_table_and_ends_where_it_does(name):
+    """A sub-router is a row in the top table, never a skill a leaf hands off to: that is what keeps
+    it one hop. And it ends the way the top table ends -- in `research-spike`, the bounded look that
+    replaced "no row matched → friction-log" when the allowance allowed one (2026-10-03)."""
+    router = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+    assert name in _rows(router), f"{name} is not a row of the top router"
+    text = open(os.path.join(ROOT, "skills", name, "SKILL.md"), encoding="utf-8").read()
+    assert name not in _rows(text), f"{name} routes to itself"
+    assert "`research-spike`" in text, f"{name} does not end in research-spike"
+    assert "Does no work itself" in text.split("---")[1], f"{name} must say it does no work"
 
 
 # Lines that are genuinely one-shell, with the reason. Kept explicit and short: an entry here is a

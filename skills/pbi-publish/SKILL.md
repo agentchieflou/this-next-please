@@ -10,7 +10,7 @@ Inputs: `pbip_path` fact or report directory, target workspace (`--workspace <na
 
 ## Workflow
 
-1. **Binding diff and dry-run** (`AGENTS.md` rule 8):
+1. **Binding diff and dry-run** (`AGENTS.md` rule 8; `ad-state set phase=deploying` first):
    Always run with `--dry-run` first to test entity bindings and inspect payload parts:
    `ad-pbi publish report <pbip> --workspace <workspace> --model <model> --dry-run`
    - Verifies all report visual fields, filters, and extension measures against target model's TMDL.

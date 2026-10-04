@@ -11,7 +11,7 @@ Prereq: a **rule set**, and it is an input like a DPM field list — supplied or
 rule set and no agreement on one → `friction-log` type `missing-info`. STOP. Guessing where somebody's documents go is
 how a loan packet ends up under the wrong borrower.
 
-1. Look at the real names first. `ad-sort plan` on any heap lists every file, so run it once with a starter rule set to
+1. `ad-state set phase=planning` (skill `state-update`). Look at the real names first. `ad-sort plan` on any heap lists every file, so run it once with a starter rule set to
    see what is actually in there:
 
 ```

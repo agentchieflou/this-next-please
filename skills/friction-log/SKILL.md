@@ -11,7 +11,7 @@ description: "Use the moment you second-guess yourself, repeat a tool call, hit 
 project: <state.project>
 ticket: <state.active_ticket>
 skill_in_use: <skill name>
-type: ambiguity | loop | contradiction | tool-error | missing-info | contract
+type: ambiguity | loop | contradiction | tool-error | missing-info | contract | coverage-gap
 severity: blocker | friction | nit      # REQUIRED. `nit` does not stop the agent; the other two do.
 model: <your model id>
 ---
@@ -29,4 +29,5 @@ model: <your model id>
 
 2. `ad-state ask "<the unblock sentence>"` (skill `state-update`). It sets `phase=blocked` and gives the question an id the operator can answer, scoped to the active ticket. Type `tool-error` for a refused tool, a missing executable or a broken install → add `--want access` and name the exact executable or permission: the fix is the operator's, and re-running the skill never is.
    If an `ad-*` launcher does not start (*Unable to create process*, *not recognized*), use `python -m agentdata state ask …` instead, and do not run the broken launcher again. For a write to Jira, Confluence or Bitbucket, do not look for another way: the type is `tool-error`, and the unblock sentence names the doctor's fix (`python -m agentdata doctor`, its `launchers` row) and says the operator's `ad-fleet wrapup <repo>` can make the write meanwhile.
+   Type `coverage-gap` is `research-spike`'s: the request was real work and no routing row named it. The *Proposed skill/instruction fix* is the route the spike recommended (a `## Project routes` row, or a new skill with its trigger words), copied from `.agent/out/spike-*.md`, so the architect pass can add it without re-reading the session.
 3. Print: `blocked — <unblock sentence>`. STOP. Do not continue the task. Do not retry.

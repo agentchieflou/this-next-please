@@ -37,14 +37,27 @@ def test_1_1_session_bootstrap_leaves_the_blocked_decision_to_the_router():
 
 
 def test_1_3_operational_run_requests_route_ahead_of_tickets_and_uat():
-    rows = re.findall(r"^\|[^|]*\|\s*`([a-z0-9\-]+)`\s*\|$", skill("router"), re.M)
-    assert rows[0] == "run-control"
-    assert rows.index("run-control") < rows.index("uat-jira-vs-source") < rows.index("jira-changelog")
+    """The split of 2026-10-03 kept the order the flat table had: a run request before a ticket,
+    a ticket key before a query, and a UAT before a sprint report -- which is why `jira-router`
+    has two rows in the top table with `data-router` between them, rather than one."""
+    rows = re.findall(r"^\|([^|]*)\|\s*`([a-z0-9\-]+)`\s*\|$", skill("router"), re.M)
+    assert rows[0][1] == "run-control"
+    by_skill = {}
+    for n, (words, target) in enumerate(rows):
+        by_skill.setdefault(target, []).append((n, words))
+    first_jira = by_skill["jira-router"][0][0]
+    uat = by_skill["data-router"][0][0]
+    changelog = next(n for n, words in by_skill["jira-router"] if "changelog" in words)
+    assert first_jira < uat < changelog
+    assert "ticket key" in by_skill["jira-router"][0][1] and "UAT" in by_skill["data-router"][0][1]
+    sub = re.findall(r"^\|[^|]*\|\s*`([a-z0-9\-]+)`\s*\|$", skill("data-router"), re.M)
+    assert sub.index("uat-jira-vs-warehouses") < sub.index("uat-jira-vs-source") < sub.index("teradata-query")
 
 
 def test_1_3_code_changes_have_a_fallback_and_bootstrap_only_requests_end_cleanly():
     router = skill("router")
-    assert "`code-change`" in step(router, 7)
+    assert "`code-change`" in step(router, 7) and "`code-router`" in step(router, 7)
+    assert "`research-spike`" in step(router, 7), "real work with no row gets a bounded look, not a stop"
     assert "ready —" in step(router, 4)
     assert "## Project routes" in router
 

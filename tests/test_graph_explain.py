@@ -326,7 +326,8 @@ def test_codebase_map_skill_forbids_self_approval():
 
 
 def test_router_routes_unfamiliar_code_to_codebase_map():
-    text = read_text(os.path.join(REPO_ROOT, "skills", "router", "SKILL.md"))
+    # Since the split of 2026-10-03 the leaf row lives in its domain sub-router (docs/plan-routing-expansion.md).
+    text = read_text(os.path.join(REPO_ROOT, "skills", "code-router", "SKILL.md"))
     row = next(ln for ln in text.splitlines() if "`codebase-map`" in ln)
     assert "unfamiliar code" in row
 

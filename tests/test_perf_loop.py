@@ -194,7 +194,8 @@ def test_skill_sequences_the_gates_in_order():
 
 
 def test_router_routes_performance_work_to_perf_optimize():
-    text = read_text(os.path.join(REPO_ROOT, "skills", "router", "SKILL.md"))
+    # Since the split of 2026-10-03 the leaf row lives in its domain sub-router (docs/plan-routing-expansion.md).
+    text = read_text(os.path.join(REPO_ROOT, "skills", "code-router", "SKILL.md"))
     row = next(ln for ln in text.splitlines() if "`perf-optimize`" in ln)
     assert "make it faster" in row
 

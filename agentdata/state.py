@@ -14,7 +14,12 @@ PATH = os.path.join(".agent", "state.json")
 # this `ad-state` knows is refused rather than half-understood: a skill and the CLI that disagree
 # about the file is the drift the scan found, and it should fail by name, not as a missing key.
 SCHEMA = 2
-PHASES = ("idle", "triaged", "querying", "optimizing", "validating", "documenting", "pr_open", "blocked", "done", "closed", "merged")
+# Working phases name what the agent is doing so a tile, a notification and `ad-fleet history` can
+# say it: `researching` (a spike), `planning` (a report plan, a sort plan), `mapping` (the code
+# graph), `editing` (code, TMDL, PBIR), `testing` (cover / regress), `deploying` (XMLA, Fabric, a
+# refresh). Terminal ones (`agentdata/fleet/agentstate.TERMINAL_PHASES`) are unchanged.
+PHASES = ("idle", "triaged", "researching", "planning", "mapping", "querying", "editing", "testing", "optimizing",
+          "validating", "deploying", "documenting", "pr_open", "blocked", "done", "closed", "merged")
 STRING_KEYS = ("active_ticket", "branch", "pr_url", "confluence_url", "project")
 TOOL_KEYS = ("doctor_verified", "pncli_verified", "graph_approved")
 ARTIFACT_DAYS = 7
