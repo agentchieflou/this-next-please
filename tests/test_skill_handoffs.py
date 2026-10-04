@@ -108,7 +108,9 @@ def test_every_skill_a_skill_names_actually_exists(name):
                         "inactive-relationship", "expectation-wrong", "mapping-bug",
                         "warehouse-drift", "dry-run", "no-op", "read-only", "one-prompt",
                         "sprint-replay", "visual-query", "jira-hist", "hist-coverage",
-                        "pr-create", "create-page", "update-page", "get-page"}
+                        "pr-create", "create-page", "update-page", "get-page",
+                        # `ad-jira match`'s `next` words, which the router quotes
+                        "ask-and-continue", "ask-and-stop"}
     unknown = [u for u in unknown if u not in known_not_skills]
     assert not unknown, f"{name} names {unknown}, which are not skills"
 

@@ -71,6 +71,7 @@
         "agentdata/install.py",
         "agentdata/jira_cache.py",
         "agentdata/jira_create.py",
+        "agentdata/jira_match.py",
         "agentdata/jira_stream.py",
         "agentdata/jira_workflow.py",
         "agentdata/log.py",

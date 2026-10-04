@@ -38,6 +38,44 @@ answers — each of which the panel shows honestly rather than papering over:
 | several declare it | a **pick one** with a button per repo | guessing would eventually start the wrong checkout, and twenty minutes of an agent editing the wrong repository is expensive and quiet |
 | none declares it | `` `ad-fleet repo add <path>` for the DATAENG checkout `` | the repository is not registered yet, which is a one-line fix worth naming |
 
+## A prompt that belongs to no ticket yet
+
+The board answers *which repo is this ticket's*. The other direction -- *which ticket is this prompt's* --
+is the agent's question, and since 2026-10-03 it is computed rather than guessed: the router's step 3 runs
+`ad-jira match "<the request>"` whenever a request names no key, **including when a ticket is already active**,
+so a one-off prompt is never silently charged to the ticket that happened to be open.
+
+```
+ad-jira match "the committed points on the sprint chart look wrong again"
+meta:
+  ok: true
+  verdict: match
+  next: ask-and-continue
+  ticket: RDSD-118
+  active_ticket: RDSD-101
+  why: RDSD-118 shares committed, point, sprint, chart (score 0.8)
+  ask: ad-state ask "This reads like RDSD-118 (Committed points wrong on the sprint chart). Track it there?" --kind ticket --choice RDSD-118 --choice RDSD-101 --choice new --choice none --assume RDSD-118
+candidates[2]{key,status,score,shared,summary}:
+  RDSD-118,To Do,0.8,chart committed point sprint,Committed points wrong on the sprint chart
+  RDSD-101,In Progress,0,-,Six measures are unused
+```
+
+It reads the same board this page shows (the fleet's cache, the operator's own open tickets, narrowed to the
+project's `jira_project`), scores each on word overlap with the summary (`agentdata/jira_match.py`), and prints
+the one `ad-state ask --kind ticket` line the router runs. The verdicts: `named` (a key in the prompt), `active`
+(the open ticket fits as well as anything), `match` (assumed, and shown on the tile with the runner-up keys as
+choices, because re-scoping is reversible), `weak` / `none` (untracked under `ticket_policy: optional`, with the
+reminder on the tile; a stop under `required`), and `create` (the operator answered `new`: the next turn is
+`jira-create`, which builds the ticket from the project's `jira_*` facts so it lands on this board).
+
+**The answer is the move.** `ad-state answer <id> RDSD-118` sets `active_ticket` itself; `none` untracks the work;
+`new` is reported as `next: jira-create`. Nothing here writes to Jira: the only write is the ticket the operator
+asked for, through `jira-create`'s dry run and the approval gate.
+
+**Unticketed work, fleet-wide.** `ad-fleet board` adds an `untracked` table -- every registered checkout's open
+ticket question, with the keys it offered -- so the operator sees from one page which agents are working on
+something no ticket owns, and answers from the tile.
+
 ## The dispatch card (#164)
 
 A drop used to be a launch. It opens a **card** on the tile instead, and the start is the card's

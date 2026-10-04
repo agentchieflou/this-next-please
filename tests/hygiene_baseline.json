@@ -336,7 +336,7 @@
       "tests": 34
     },
     "tests/test_fleet_board.py": {
-      "tests": 28
+      "tests": 29
     },
     "tests/test_fleet_board_desk.py": {
       "skips": 1,
@@ -815,6 +815,9 @@
     },
     "tests/test_jira_http.py": {
       "tests": 52
+    },
+    "tests/test_jira_match.py": {
+      "tests": 14
     },
     "tests/test_jira_scale.py": {
       "tests": 20
