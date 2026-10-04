@@ -79,7 +79,8 @@ def test_skill_states_its_hard_limits():
 
 
 def test_router_routes_to_test_cover():
-    text = read_text(os.path.join(REPO_ROOT, "skills", "router", "SKILL.md"))
+    # Since the split of 2026-10-03 the leaf row lives in its domain sub-router (docs/plan-routing-expansion.md).
+    text = read_text(os.path.join(REPO_ROOT, "skills", "code-router", "SKILL.md"))
     row = next(ln for ln in text.splitlines() if "`test-cover`" in ln)
     assert "characterization test" in row
 

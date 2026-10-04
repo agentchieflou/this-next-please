@@ -219,7 +219,8 @@ def test_the_skill_and_router_cover_the_cross_warehouse_case():
     assert "migration" in body.lower() or "parity" in body.lower()
     assert "friction-log" in body and "state-update" in body
 
-    router = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+    # Since the split of 2026-10-03 the leaf row lives in its domain sub-router (docs/plan-routing-expansion.md).
+    router = open(os.path.join(ROOT, "skills", "data-router", "SKILL.md"), encoding="utf-8").read()
     row = [ln for ln in router.splitlines() if "uat-jira-vs-warehouses" in ln]
     assert row, "the router cannot reach it"
     assert "both" in row[0].lower() or "two" in row[0].lower() or "parity" in row[0].lower()

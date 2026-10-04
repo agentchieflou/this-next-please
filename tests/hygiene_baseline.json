@@ -387,6 +387,9 @@
     "tests/test_fleet_copilot_files.py": {
       "tests": 9
     },
+    "tests/test_fleet_credits.py": {
+      "tests": 8
+    },
     "tests/test_fleet_demo_branches.py": {
       "tests": 2
     },
@@ -950,7 +953,7 @@
       "tests": 7
     },
     "tests/test_skills.py": {
-      "tests": 12
+      "tests": 13
     },
     "tests/test_sockets_script.py": {
       "tests": 5

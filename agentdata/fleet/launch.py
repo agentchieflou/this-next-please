@@ -39,9 +39,17 @@ tool access enabled." So `fleet.permissions` -- fleet-wide or per agent -- is on
 * `strict`: the enumerated whitelist and the full deny floor below, as before.
 
 And by default every agent runs with `--autopilot` (`fleet.copilot.autopilot`) on `--model auto`
-(`DEFAULT_MODEL`), with the auto tier `efficiency` (`fleet.copilot.auto_tier`) passed only when the
+(`DEFAULT_MODEL`), with the auto tier `balance` (`fleet.copilot.auto_tier`) passed only when the
 installed CLI's own `--help` names the option that takes it (`models.auto_tier_flag`): an option
 this file guessed and the CLI did not know would stop every agent from starting.
+
+**`efficiency` became `balance` on 2026-10-03.** The operator: the enterprise allowance went from
+23,000 credits a month (of which the fleet used 18,500 on `efficiency`) to 50,000, "which suggests
+that we should be able to get by more fluidly in an auto balanced mode as opposed to an auto
+efficiency mode". The quoted default of 2026-10-02 above is kept as history. What keeps `balance`
+from running the month dry is `credits.py`: inside the last `fleet.credits.reserve` percent of
+`fleet.credits.allowance` the supervisor hands `launch_command` the step-down tier instead, and
+nothing here needs to know why.
 """
 from __future__ import annotations
 import os
@@ -157,7 +165,7 @@ PERMISSIONS = ("all", "repo", "strict")
 DEFAULT_PERMISSIONS = "all"
 DEFAULT_MODEL = "auto"
 AUTO_TIERS = ("efficiency", "balance", "intelligence", "fast")
-DEFAULT_AUTO_TIER = "efficiency"
+DEFAULT_AUTO_TIER = "balance"
 
 # Never acceptable in an allow or deny *pattern* list, whatever a hurry says: a pattern is one
 # permission, and these flags are every permission. `fleet.permissions: copilot` is how an agent gets
@@ -352,7 +360,10 @@ def autopilot_max(cfg: dict | None = None) -> int:
 
 
 def auto_tier(cfg: dict | None = None) -> str:
-    """`fleet.copilot.auto_tier` for `--model auto`: `efficiency` unless set; blank for none."""
+    """`fleet.copilot.auto_tier` for `--model auto`: `balance` unless set; blank for none.
+
+    The *configured* tier. The one a launch really carries may be the reserve's step-down
+    (`credits.tier_for`), which the supervisor passes to `launch_command` as `tier`."""
     value = C.get(cfg or {}, "fleet.copilot.auto_tier")
     tier = DEFAULT_AUTO_TIER if value is None else str(value).strip().lower()
     if tier and tier not in AUTO_TIERS:
@@ -497,8 +508,13 @@ def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,
 
 def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
                    session: str | None = None, cfg: dict | None = None,
-                   usage_file: str | None = None, model: str = "", effort: str = "") -> list[str]:
+                   usage_file: str | None = None, model: str = "", effort: str = "",
+                   tier: str | None = None) -> list[str]:
     """The argv for one turn.
+
+    `tier` is the auto tier this launch carries when the caller has decided it (the supervisor,
+    from `credits.tier_for`: the configured tier, or `efficiency` inside the month's reserve).
+    `None` means the configured one (`auto_tier(cfg)`), which is what every other caller wants.
 
     The **logical** argv, starting with the bare name. Resolving it is `proc.command()`'s job and
     the supervisor's: on Windows an npm-installed CLI is a `.cmd` shim, and `proc` returns either
@@ -538,7 +554,7 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
         argv += ["--resume", session]
     # Empty means the flag is not there at all. Passing `--model ""` would be inventing a behaviour
     # nobody measured; the measured one is that with no flag the CLI selects a model itself.
-    argv += model_flags(model, effort, auto_tier(cfg))
+    argv += model_flags(model, effort, auto_tier(cfg) if tier is None else tier)
     for pattern in allow:
         argv += ["--allow-tool", pattern]
     for pattern in deny:

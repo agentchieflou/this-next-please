@@ -344,7 +344,8 @@ def test_the_skill_covers_every_engine_the_command_does():
 
 
 def test_the_router_sends_both_phrasings_to_it():
-    body = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+    # Since the split of 2026-10-03 the leaf row lives in its domain sub-router (docs/plan-routing-expansion.md).
+    body = open(os.path.join(ROOT, "skills", "data-router", "SKILL.md"), encoding="utf-8").read()
     row = [ln for ln in body.splitlines() if "uat-jira-vs-source" in ln]
     assert row, "the router has no row for it"
     assert "Teradata" in row[0] and ("Hadoop" in row[0] or "Hive" in row[0])

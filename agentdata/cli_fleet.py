@@ -745,10 +745,19 @@ def cmd_status(a) -> int:
     from .fleet import spend as SPEND
 
     fleet_spend = SPEND.for_fleet([r["repo"] for r in rows], today=_today())
+    # The month against the allowance, and the tier the next launch gets (#credits, 2026-10-03):
+    # `balanced` while the reserve is untouched, `reserve` once `auto` is stepped down to
+    # efficiency, `off` with no allowance recorded. `why` is the sentence a tile would show.
+    from .fleet import credits as CREDITS
+
+    posture = CREDITS.status(cfg, names=[r["repo"] for r in rows], today=_today())
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet status", "agents": len(rows),
                                 "fleet_dir": fleet_dir(), "toast": N.toast_status(cfg),
                                 "spent_today": fleet_spend["today"],
                                 "spent_total": fleet_spend["all_time"],
+                                "spent_month": posture["spent"],
+                                "credits": posture["mode"], "credits_tier": posture["tier"],
+                                "credits_why": posture["why"],
                                 "skills": _skills_warning()}}))
     print(toon.table("agents", COLUMNS, table))
     return EXIT_OK

@@ -426,5 +426,7 @@ def test_the_skill_exists_and_keeps_the_disciplines_every_dpm_skill_has():
     assert "never" in body.lower() and "run root" in body.lower()
     assert len(body.splitlines()) < 120
 
+    # Since the split of 2026-10-03 the leaf row lives in its domain sub-router (docs/plan-routing-expansion.md).
     router = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
-    assert "`dpm-field-extraction`" in router
+    sub = open(os.path.join(ROOT, "skills", "dpm-router", "SKILL.md"), encoding="utf-8").read()
+    assert "`dpm-router`" in router and "`dpm-field-extraction`" in sub

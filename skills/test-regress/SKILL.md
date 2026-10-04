@@ -11,7 +11,7 @@ This skill **never edits** a file and never re-runs a step "to see if it passes 
 (`AGENTS.md` rule 11): the same command twice with the same arguments is a stop condition, not a
 retry. It returns a verdict; the caller decides to commit or revert.
 
-1. Input: a node id, and a worktree with the change already applied and stashable. `git status
+1. `ad-state set phase=testing` (skill `state-update`). Input: a node id, and a worktree with the change already applied and stashable. `git status
    --porcelain` first. It lists only the change under test → **whole mode**: the stash below takes
    everything. It also lists unrelated files → **scoped mode**: name the change's files, and stash
    only those (`git stash push --include-untracked -- <the change's files>`), so the unrelated edits

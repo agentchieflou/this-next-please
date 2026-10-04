@@ -387,9 +387,14 @@ Every launch, headless or console, carries `--allow-all-tools` (`fleet.permissio
 `--autopilot` (`fleet.copilot.autopilot`, with `fleet.copilot.autopilot_max` as
 `--max-autopilot-continues` when set), keeps the built-in MCP servers a window has, and runs
 `--model auto` unless a model is chosen (a blank `fleet.model` is still "no `--model` at all"). The
-auto tier, `efficiency` by default (`fleet.copilot.auto_tier`), is passed only under the option the
+auto tier, `balance` by default (`fleet.copilot.auto_tier`; `efficiency` until 2026-10-03, when the
+enterprise allowance went from 23,000 credits a month to 50,000), is passed only under the option the
 installed CLI's own `--help` lists for it; the tier's command-line spelling is not documented, and an
-option the CLI did not know would stop every agent before its first word. The fleet's only deny is
+option the CLI did not know would stop every agent before its first word. **The allowance has a
+reserve** (`fleet.credits.allowance`, `fleet.credits.reserve`, default 20%): inside the last fifth of
+the month's credits every new launch steps `auto` down to `efficiency`, `ad-fleet status` prints
+`credits: reserve` with the sentence that says why, and nothing stops -- the per-agent budget is
+still the only stop ([fleet-lifecycle.md](fleet-lifecycle.md) §The budget). The fleet's only deny is
 its own commands (`ad-fleet`, `ad-update`, `ad-setup`), plus whatever you deny on the settings page.
 Writes made through `ad-*` commands still wait on the approval gate, which is in the command; a
 bare `pncli` or `curl` write is the agent's, as it is in a window where you said yes. Each of these

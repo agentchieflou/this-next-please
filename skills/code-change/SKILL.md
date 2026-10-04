@@ -20,7 +20,7 @@ is `perf-optimize` — and this skill is what is left: a named change to named c
    STOP. Then `ad-test run --snapshot before`. A red suite before you touched anything →
    `friction-log` type `contract`; STOP. Zero tests collected is not green: `friction-log` type
    `contract` naming `test_cmd`; STOP.
-4. **Edit** the named symbols only. The smallest change that does what step 1 says. Never change a
+4. **Edit** the named symbols only (`ad-state set phase=editing` first). The smallest change that does what step 1 says. Never change a
    public signature the request did not name, never touch a second module "while you are in there".
 5. `ad-graph guard`. `ok: false` → `git checkout -- <file>`, print the refused rows. An uncovered node
    → hand off to `test-cover` for it, then come back here. STOP otherwise.
