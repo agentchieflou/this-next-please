@@ -157,6 +157,64 @@ the fleet's own server like its scripts. Nothing comes from the internet. If a f
 world falls back to its own version of that thing (a baked material, the sky shader, a built
 hydrant). The world's script is 74.2 KiB.
 
+### The trees
+
+The operator, 2026-10-05: *"Work through everything you need to work through to enhance the people
+and the environment. We also have UE's TwinMotion installed"*, and then, for the environment,
+*"Building environment assets in UE/TwinMotion"*. Twinmotion was not installed (the launcher lists
+Unreal Engine 5.8, its Fab plugin and Quixel Bridge), and what its library holds could not be used
+here if it were: the Twinmotion EULA (section 1.2) lets its content be used only to visualise inside
+Unreal Engine, Twinmotion, RealityCapture and UEFN, and to export images and videos. That covers its
+plants, people, vehicles and props and the Megascans inside it; Unreal Engine's own "UE-only" content
+is bound the same way. Neither may be drawn by this page, even from the operator's own disk. What may
+is what is made here, so the trees are grown here, and the old ones (a stick, two branches and a few
+dozen oversized leaf cards) were the environment's weakest thing.
+
+They are one file, `agentdata/fleet/static/world/trees/trees.glb` (1.2 MiB), grown by
+`tools/world/trees/` from nothing but its own numbers and under the repository's licence (the folder's
+`LICENSE`): Blender, headless, draws each species' leaf (outline, lobes, teeth, veins, colour), lays
+leaves along twigs and renders clusters of them into one atlas (colour with occlusion, normals,
+roughness), makes the barks, and grows each tree (a trunk with its root flare, scaffold limbs from the
+crown's base, branches and twigs to an irregular crown), then spreads the twig cards evenly through
+the crown's outer shell and bakes how much sky each one sees into its colour. Node packs it (WebP,
+glTF's Y up).
+
+- **On the avenues** London planes (the mottled bark that flakes in patches, broad crowns) and
+  lindens (heart-shaped leaves, oval crowns), one species a stretch of avenue between crossings, as a
+  city plants them, about 10 m tall, in their pits. A spot that falls at a lamp is left empty: a crown
+  that size would swallow the lamp's head.
+- **In the plaza's planters** young lindens, 6.5 m.
+- **Near and far.** Within 42 m of the eye a tree is drawn whole (3,000 to 5,000 triangles), further
+  away with fewer and larger twigs (about a third of that). They are instanced: a few draw calls for
+  each kind of tree, however many stand in the street. Their leaves let light through, sway, and fade
+  where a card turns edge-on rather than showing as a streak.
+- **Cost.** On the operator's laptop (RTX 3050 Ti, Chromium, 1600 x 900, `high`, held at full
+  resolution) a frame went from 2.5 ms to 2.7 to 2.8 ms with the trees, and from 107 draw calls to 131
+  to 135 (the mirror of the wet street draws them twice) and from 1.32 to 1.43 million triangles.
+- The `low` quality keeps the page's own trees: two draw calls for all of them.
+
+### The cars
+
+The cars were the next weakest thing: boxes extruded from a side profile, a sedan and an SUV. They are
+grown here too, for the same reason as the trees, one file, `agentdata/fleet/static/world/cars/cars.glb`
+(0.4 MiB), lofted by `tools/world/cars/` and under the repository's licence (the folder's `LICENSE`),
+after no maker's design.
+
+- **Four kinds:** a sedan, a hatchback, an SUV and a van, each body lofted from its own profiles (the
+  top line from the bumper over the bonnet, windscreen, roof and rear window to the boot, the
+  beltline, the widths, the underside raised over the wheel arches) and closed at the ends with rounded
+  noses. Glass, head and tail lamps in their housings, grille, intakes, plates, pillars and door seams
+  are laid on the body from outlines seen from the side, above or the ends; tyres and five-spoke rims
+  are built for each wheel.
+- **Painted by the page:** the body takes each car's colour through the clearcoat paint, as before;
+  the glass, trim and lamps keep their own materials, the lamps lit on cars that drive.
+- **Near and far.** Within 36 m of the eye a car is drawn whole (about 3,900 triangles); further away
+  as about 850 triangles in two draw calls, the glass and trim in the body by colour.
+- **Cost.** On the operator's laptop (RTX 3050 Ti, Chromium, 1600 x 900, `high`, held at full
+  resolution) a frame went from 2.7 to 2.8 ms (with the trees) to 3.1 ms, at 147 to 163 draw calls
+  from 131.
+- The `low` quality keeps the page's own two cars.
+
 ### The people
 
 Poly Haven has no people, so they have their own folder, `agentdata/fleet/static/world/people/`, its

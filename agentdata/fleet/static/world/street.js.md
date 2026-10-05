@@ -43,7 +43,8 @@ How far down the avenues the traffic drives before it turns, in the fog where th
 
 A car from three.js's own shapes: the body extruded from a side profile with wheel arches and
 bevelled edges, the cabin from its own profile, roof and pillars, wheels with rims, bumpers, plates,
-a grille, head and tail lights. A sedan and an SUV.
+a grille, head and tail lights. A sedan and an SUV. They are the traffic on the `low` quality and
+wherever the cars' file did not load; elsewhere the cars are the file's (`traffic`).
 
 ### `function shape`
 
@@ -94,7 +95,8 @@ the lamp's colour.
 ### `function tree`
 
 A street tree on the avenues: a pit, a trunk, two branches and a crown of leaf cards. The pit, trunk
-and branches go to the bark mesh (`street-bark`), the crown to the trees' (`street-trees`).
+and branches go to the bark mesh (`street-bark`), the crown to the trees' (`street-trees`). With the
+trees' file only the pit is built here: the tree is the file's (`build`).
 
 ### `function put`
 
@@ -157,12 +159,25 @@ The street for a plaza of radius `P`. What is far from where you can walk is lef
 120 m (none on the `low` path, nor people). One parked car in a dozen is under a cover (a scan). The
 scans are instanced, one draw call per prop however many stand in the street, and share their
 geometry across rebuilds (`userData.shared`, never disposed). Returns the footprints you walk round,
-the lamps' lights, and how many cars, parked cars, people and scanned props there are.
+the lamps' lights, and how many cars, parked cars, people, scanned props and grown trees there are.
+
+With the trees' file (`woods`) the avenues are planted with its trees (`WorldKit.grove`, in a group
+named `street-trees`): one species a stretch of avenue between crossings, London planes or lindens,
+as a city plants them, either of two trees of it at each spot, each turned and sized a little apart.
+A spot that falls at a lamp (every third, where the 16 m of the trees meet the lamps' 24 m) is left
+empty: a crown nine metres high would have swallowed the lamp's head and its cone of light.
 
 ### `function traffic`
 
 The cars, spaced along their loops, each with its own top speed, and the parked cars along the side
 streets' kerbs, each its own colour, their lights off.
+
+With the cars' file (`fleet`, `static/world/cars/cars.glb`) there are four kinds, a sedan, a hatchback,
+an SUV and a van, each at two levels of detail: near, a body (painted), glass, trim (tyres, rims,
+grille, plates, pillars, seams) and lamps, each through the material of the same name; far, the body
+with its glass and trim in it by colour, and the lamps, two draw calls rather than four. A kind's
+cars are spread over its two levels every frame (`frame`), so a car keeps its colour wherever it is
+drawn: its paint is the car's, not its slot's.
 
 ### `function walkers`
 
@@ -180,7 +195,8 @@ has it.
 
 
 Every frame: a car keeps its distance from the one ahead and stops at a red light at the crossing
-ahead, then drives on; its headlights light the road ahead of it and its tail lights the road behind
+ahead, then drives on; every car, parked or moving, goes to its kind's near meshes within 36 m of the
+eye and to its far ones beyond, with its paint and its lamps lit or dark; its headlights light the road ahead of it and its tail lights the road behind
 (the kit's moving lights). The people walk. Under reduced motion nothing moves.
 
 ### `function stopLine`

@@ -218,16 +218,17 @@ var WorldStreet = (function () {
     solids.push([p[0], p[1], 0.25]);
   }
 
-  /** @param {any} T @param {Array<any>} bark @param {Array<any>} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
+  /** @param {any} T @param {Array<any>} bark @param {Array<any>|null} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
   function tree(T, bark, leaf, solids, x, z, seed) {
     var P = WorldKit.piece;
     bark.push(WorldKit.moved(T, P(T, new T.BoxGeometry(1.3, 0.06, 1.3), "#2b2520", [0, 0.03, 0]), x, z));
+    solids.push([x, z, 0.35]);
+    if (!leaf) return;
     bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.11, 0.17, 3.2, 7), "#56473a", [0, 1.6, 0], null, [0.03 * (seed - 0.5), 0, 0.04]), x, z));
     bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.4, 5), "#56473a", [0.35, 3.1, 0], null, [0, 0, -0.7]), x, z));
     bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.3, 5), "#56473a", [-0.3, 3.2, 0.1], null, [0.2, 0, 0.75]), x, z));
     WorldKit.canopy(T, leaf, x, 4.9, z, 2.0, seed * 17 + 3, 52);
     WorldKit.canopy(T, leaf, x + 0.6, 4.1, z - 0.3, 1.2, seed * 23 + 5, 18);
-    solids.push([x, z, 0.35]);
   }
 
   /** @param {string} id @param {number} x @param {number} z @param {number} yaw @returns {boolean} */
@@ -387,8 +388,8 @@ var WorldStreet = (function () {
     return out;
   }
 
-  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number}} */
-  function build(T, lib, scene, P, lod, scans) {
+  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @param {Object<string, Array<{geo: any, mat: any}>>} [woods] @param {Object<string, Array<{geo: any}>>} [fleet] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number, trees: number}} */
+  function build(T, lib, scene, P, lod, scans, woods, fleet) {
     M.T = T;
     M.scans = scans || {};
     M.pr = {};
@@ -400,7 +401,8 @@ var WorldStreet = (function () {
       M.group.traverse(function (m) { if (m.geometry && !m.userData.shared) m.geometry.dispose(); });
     }
     M.P = P;
-    var group = new T.Group(), f = [], bark = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [];
+    var group = new T.Group(), f = [], bark = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [], wood = [];
+    var grown = woods && woods.plane_0_lod0 && woods.linden_0_lod0;
     var segs = segments(P), parked = [];
     var near = function (/** @type {Array<number>} */ q, /** @type {number} */ r) { return Math.hypot(q[0], q[1]) < r; };
     segs.forEach(function (sg, i) {
@@ -409,7 +411,10 @@ var WorldStreet = (function () {
       if (sg.k === 0) {
         for (var b = sg.a0 + 14; b < sg.a1 - 4; b += 16) {
           var tp = spot(sg, b, sg.road + 1.4);
-          if (near(tp, 160 * far)) tree(T, bark, leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          if (!near(tp, 160 * far)) continue;
+          if (grown && !(Math.round(b - sg.a0 - 6) % 24)) continue;
+          tree(T, bark, grown ? null : leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          wood.push([tp[0], 0, tp[1], rnd(b * 2.1 + i) * 6.28, 0.9 + rnd(b * 1.7 + i) * 0.22, (rnd(i * 5.7 + 2) > 0.5 ? "plane_" : "linden_") + (rnd(b * 3.3 + i) > 0.5 ? 1 : 0)]);
         }
       }
       if (!near(mid, 150 * far)) return;
@@ -472,24 +477,31 @@ var WorldStreet = (function () {
         group.add(mesh);
       });
     });
-    traffic(T, group, P, parked);
+    var grove = new T.Group();
+    grove.name = "street-trees";
+    group.add(grove);
+    M.grove = grown ? WorldKit.grove(T, grove, /** @type {Object} */ (woods), wood) : null;
+    traffic(T, group, P, parked, fleet);
     walkers(T, group, segs, lod ? 46 : 0);
     scene.add(group);
     M.group = group;
     var moving = 0;
     M.cars.forEach(function (set) { moving += set.moving.length; });
     return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length, scans: placed,
-             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0 };
+             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0, trees: M.grove ? M.grove.placed : 0 };
   }
 
-  /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked */
-  function traffic(T, group, P, parked) {
-    var types = [car(T, false), car(T, true)], loops = [], moving = [[], []];
+  /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked @param {Object<string, Array<{geo: any}>>} [fleet] */
+  function traffic(T, group, P, parked, fleet) {
+    var kinds = ["sedan", "hatch", "suv", "van"].filter(function (k) { return fleet && fleet[k + "_lod0"] && fleet[k + "_lod1"]; });
+    var made = function (/** @type {Array<{geo: any}>} */ p) { return p.length > 2 ? { body: p[0].geo, glass: p[1].geo, trim: p[2].geo, lamp: p[3].geo } : { body: p[0].geo, lamp: p[1].geo }; };
+    var types = kinds.length ? kinds.map(function (k) { return [made(fleet[k + "_lod0"]), made(fleet[k + "_lod1"])]; }) : [[car(T, false)], [car(T, true)]];
+    var loops = [], moving = types.map(function () { return []; });
     [2, 5.8].forEach(function (lane, li) {
       var path = measure(loopPath(P, lane));
       var n = Math.round(path.len / 75);
       for (var i = 0; i < n; i++) {
-        var type = rnd(i * 7 + li) > 0.7 ? 1 : 0;
+        var type = Math.floor(rnd(i * 7 + li) * types.length);
         moving[type].push({ loop: li, s: path.len * i / n + rnd(i) * 20, v: 9 + rnd(i * 3 + li) * 3, max: 10 + rnd(i * 5 + li) * 4, k: moving[type].length });
       }
       loops.push(path);
@@ -502,30 +514,27 @@ var WorldStreet = (function () {
     loops.push(ring);
     for (var r = 0; r < Math.max(3, Math.round(ring.len / 40)); r++) moving[0].push({ loop: 2, s: ring.len * r / Math.round(ring.len / 40), v: 8, max: 9, k: moving[0].length });
     M.loops = loops;
-    M.cars = types.map(function (geo, ti) {
-      var still = parked.filter(function (p) { return (p[3] > 0.75 ? 1 : 0) === ti; });
-      var cap = still.length + moving[ti].length;
-      var mk = function (/** @type {any} */ g, /** @type {any} */ mat, /** @type {string} */ name) {
-        var m = new T.InstancedMesh(g, mat, Math.max(1, cap));
-        m.frustumCulled = false;
-        m.name = "car-" + name + ti;
-        group.add(m);
-        return m;
-      };
-      var set = { body: mk(geo.body, M.mats.paint, "body"), glass: mk(geo.glass, M.mats.glass, "glass"), trim: mk(geo.trim, M.mats.trim, "trim"),
-                  lamp: mk(geo.lamp, M.mats.lamps, "lamp"), still: still.length, moving: moving[ti] };
-      var mtx = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1), c = new T.Color();
-      still.forEach(function (p, i) {
-        mtx.compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, p[2] - Math.PI / 2, 0)), one);
-        [set.body, set.glass, set.trim, set.lamp].forEach(function (m) { m.setMatrixAt(i, mtx); });
-        set.body.setColorAt(i, c.set(PAINT[Math.floor(rnd(p[0] * 0.37 + p[1] * 0.11) * PAINT.length)]));
-        set.lamp.setColorAt(i, c.setRGB(0.04, 0.04, 0.04));
+    M.cars = types.map(function (geos, ti) {
+      var still = parked.filter(function (p) { return Math.min(types.length - 1, Math.floor(p[3] * types.length)) === ti; });
+      var cap = Math.max(1, still.length + moving[ti].length), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
+      var lods = geos.map(function (geo, l) {
+        var mk = function (/** @type {any} */ g, /** @type {any} */ mat, /** @type {string} */ name) {
+          if (!g) return null;
+          var m = new T.InstancedMesh(g, mat, cap);
+          m.frustumCulled = false;
+          m.name = "car-" + name + ti + (l ? "-far" : "");
+          if (name === "body" || name === "lamp") m.setColorAt(0, new T.Color(1, 1, 1));
+          group.add(m);
+          return m;
+        };
+        return { body: mk(geo.body, M.mats.paint, "body"), glass: mk(geo.glass, M.mats.glass, "glass"), trim: mk(geo.trim, M.mats.trim, "trim"),
+                 lamp: mk(geo.lamp, M.mats.lamps, "lamp") };
       });
-      moving[ti].forEach(function (mv, j) {
-        set.body.setColorAt(still.length + j, c.set(PAINT[Math.floor(rnd(j * 13.1 + ti * 3) * PAINT.length)]));
-        set.lamp.setColorAt(still.length + j, c.setRGB(1, 1, 1));
-      });
-      return set;
+      moving[ti].forEach(function (mv, j) { mv.paint = new T.Color(PAINT[Math.floor(rnd(j * 13.1 + ti * 3) * PAINT.length)]); });
+      return { lods: lods, moving: moving[ti], parked: still.map(function (p) {
+        return { m: new T.Matrix4().compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, p[2] - Math.PI / 2, 0)), one),
+                 paint: new T.Color(PAINT[Math.floor(rnd(p[0] * 0.37 + p[1] * 0.11) * PAINT.length)]) };
+      }) };
     });
   }
 
@@ -575,6 +584,7 @@ var WorldStreet = (function () {
   function frame(t, dt, night, still, eye) {
     var T = M.T;
     if (!T || !M.cars) return;
+    if (M.grove) M.grove.update(eye);
     var mtx = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
     var moving = [];
     M.cars.forEach(function (set) { set.moving.forEach(function (mv) { moving.push(mv); }); });
@@ -603,27 +613,37 @@ var WorldStreet = (function () {
         }
       });
     });
-    var light = [];
+    var light = [], off = new T.Color(0.04, 0.04, 0.04), on = new T.Color(1, 1, 1);
     M.cars.forEach(function (set) {
-      set.moving.forEach(function (mv, j) {
+      var n = [0, 0];
+      var put = function (/** @type {any} */ m, /** @type {any} */ paint, /** @type {any} */ lit) {
+        var l = set.lods[1] && eye && Math.hypot(m.elements[12] - eye.x, m.elements[14] - eye.z) > 36 ? 1 : 0, s = set.lods[l], k = n[l]++;
+        [s.body, s.glass, s.trim, s.lamp].forEach(function (x) { if (x) x.setMatrixAt(k, m); });
+        s.body.setColorAt(k, paint);
+        s.lamp.setColorAt(k, lit);
+      };
+      set.parked.forEach(function (c) { put(c.m, c.paint, off); });
+      set.moving.forEach(function (mv) {
         along(M.loops[mv.loop], mv.s, tmp);
         along(M.loops[mv.loop], mv.s + 2.5, ahead);
         var yaw = Math.atan2(ahead[0] - tmp[0], ahead[1] - tmp[1]);
-        mtx.compose(at.set(tmp[0], 0, tmp[1]), q.setFromEuler(e.set(0, yaw - Math.PI / 2, 0)), one);
-        var k = set.still + j;
-        [set.body, set.glass, set.trim, set.lamp].forEach(function (m) { m.setMatrixAt(k, mtx); });
+        put(mtx.compose(at.set(tmp[0], 0, tmp[1]), q.setFromEuler(e.set(0, yaw - Math.PI / 2, 0)), one), mv.paint, on);
         var fx = Math.sin(yaw), fz = Math.cos(yaw);
         if (night > 0.05) {
           light.push({ p: [tmp[0] + fx * 7, 0.9, tmp[1] + fz * 7], c: [14, 13, 11], r: 13, d: 0, f: 0, day: false });
           light.push({ p: [tmp[0] - fx * 2.8, 0.7, tmp[1] - fz * 2.8], c: [5, 0.25, 0.1], r: 5, d: 0, f: 0, day: false });
         }
       });
-      [set.body, set.glass, set.trim, set.lamp].forEach(function (m) {
-        m.count = set.still + set.moving.length;
-        m.instanceMatrix.needsUpdate = true;
-        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      set.lods.forEach(function (s, l) {
+        [s.body, s.glass, s.trim, s.lamp].forEach(function (m) {
+          if (!m) return;
+          m.count = n[l];
+          m.visible = n[l] > 0;
+          m.instanceMatrix.needsUpdate = true;
+          if (m.instanceColor) m.instanceColor.needsUpdate = true;
+        });
       });
-      set.lamp.material.color.setScalar(1.2 + 6 * night);
+      set.lods[0].lamp.material.color.setScalar(1.2 + 6 * night);
     });
     WorldKit.L.moving = light;
     var P = M.people;

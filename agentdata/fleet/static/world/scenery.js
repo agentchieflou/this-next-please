@@ -66,19 +66,20 @@ var WorldScenery = (function () {
     });
   }
 
-  /** @param {any} T @param {Array<any>} out @param {number} x @param {number} z @param {number} seed */
+  /** @param {any} T @param {Array<any>} out @param {Array<any>|null} leaves @param {number} x @param {number} z @param {number} seed */
   function tree(T, out, leaves, x, z, seed) {
     var at = function (/** @type {any} */ g) { return moved(T, g, x, z); };
     out.push(at(piece(T, new T.CylinderGeometry(0.72, 0.62, 0.5, 14), STONE, [0, 0.25, 0])));
     out.push(at(piece(T, new T.CylinderGeometry(0.64, 0.64, 0.04, 14), SOIL, [0, 0.49, 0])));
+    if (!leaves) return;
     out.push(at(piece(T, new T.CylinderGeometry(0.07, 0.12, 2.3, 7), BARK, [0, 1.6, 0], null, [0.04 * (seed - 0.5), 0, 0.05])));
     out.push(at(piece(T, new T.CylinderGeometry(0.03, 0.05, 0.8, 5), BARK, [0.22, 2.3, 0], null, [0, 0, -0.8])));
     WorldKit.canopy(T, leaves, x, 3.55, z, 1.45, seed * 31 + 7, 40);
   }
 
-  /** @param {any} T @param {number} edge @param {Object} lib @returns {{props: any, glass: any, leaves: any, lamps: Array<Array<number>>, solids: Array<Array<number>>}} */
-  function plaza(T, edge, lib) {
-    var metal = [], glass = [], lamps = [], solids = [], leaves = [];
+  /** @param {any} T @param {number} edge @param {Object} lib @param {Object<string, Array<{geo: any, mat: any}>>} [woods] @returns {{props: any, glass: any, leaves: any, lamps: Array<Array<number>>, solids: Array<Array<number>>}} */
+  function plaza(T, edge, lib, woods) {
+    var metal = [], glass = [], lamps = [], solids = [], leaves = [], wood = [], grown = woods && woods.linden_2_lod0;
     var kerb = new T.LatheGeometry([new T.Vector2(edge, 0), new T.Vector2(edge, 0.14), new T.Vector2(edge + 0.06, 0.16),
       new T.Vector2(edge + 0.4, 0.16), new T.Vector2(edge + 0.42, 0)], 120);
     metal.push(piece(T, kerb, "#9a9ea3", [0, 0, 0]));
@@ -91,7 +92,8 @@ var WorldScenery = (function () {
       bench(T, metal, bx, bz, -b - Math.PI / 2);
       solids.push([bx, bz, 0.75]);
       var tx = Math.cos(b) * (edge + 3.9), tz = Math.sin(b) * (edge + 3.9);
-      tree(T, metal, leaves, tx, tz, rnd(i + 41));
+      tree(T, metal, grown ? null : leaves, tx, tz, rnd(i + 41));
+      wood.push([tx, 0.5, tz, rnd(i + 7) * 6.28, 0.94 + rnd(i + 3) * 0.12, "linden_2"]);
       solids.push([tx, tz, 0.85]);
     }
     var mat = WorldKit.lit(new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.08 }), "plazaprops");
@@ -100,8 +102,9 @@ var WorldScenery = (function () {
     var gmat = new T.MeshBasicMaterial({ vertexColors: true, color: 0xffffff });
     var lights = new T.Mesh(merge(T, glass), gmat);
     lights.frustumCulled = false;
-    var crowns = new T.Mesh(WorldKit.merge(T, leaves), WorldKit.foliage(T, lib));
+    var crowns = grown ? new T.Group() : new T.Mesh(WorldKit.merge(T, leaves), WorldKit.foliage(T, lib));
     crowns.frustumCulled = false;
+    if (grown) WorldKit.grove(T, crowns, /** @type {Object} */ (woods), wood);
     return { props: props, glass: lights, leaves: crowns, lamps: lamps, solids: solids };
   }
 
