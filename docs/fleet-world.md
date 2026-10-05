@@ -308,6 +308,12 @@ Order of the slices, one issue each: a MetaHuman hero exported on the operator's
 through the pipeline locally, with its cost measured; the pipeline's meshopt and KTX2 with the new
 budgets; agents as people; state to place on sidewalk waypoints.
 
+The first slice's cost, measured 2026-10-05 on the operator's laptop (NVIDIA GeForce RTX 3050 Ti Laptop
+GPU, 4 GB; Chromium with vsync off, 1600x900, `hour=13` and `22`): with the MetaHuman hero (56,000
+triangles, 6.3 MB, nine parts) and the five-character crowd, `ultra` at full resolution takes 2.8-2.9 ms
+a frame, `high` 2.7-2.8 ms and `medium` 2.6 ms, with 107-111 draw calls and 1.46 million triangles; about
+2.5 ms of it is the page's own work on the CPU. The 10 ms budget has room on that machine.
+
 #### Still open
 
 Putting MetaHumans in is deferred, and these questions stay open until someone takes them up:
