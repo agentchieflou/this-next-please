@@ -144,7 +144,22 @@ async function load(files, cfg, F) {
   }
   const frameF = F || frame(src, cfg);
   applyFrame(src, frameF);
+  for (const p of src.prims) tileUV(p);
   return { src, F: frameF };
+}
+
+// A primitive whose UVs all lie in one UDIM tile other than the first (a MetaHuman body's are in 1002, u 1..2)
+// moved into 0..1. Its maps are one image, so this is the same picture; but the page clamps people's textures
+// to the edge, which would draw the whole body from one column of each map. UVs spanning several tiles (a
+// repeating pattern) are left as they are.
+function tileUV(p) {
+  if (!p.uv || !p.uv.length) return;
+  for (const c of [0, 1]) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = c; i < p.uv.length; i += 2) { lo = Math.min(lo, p.uv[i]); hi = Math.max(hi, p.uv[i]); }
+    const k = Math.floor(lo);
+    if (k !== 0 && Math.floor(hi - 1e-6) === k) for (let i = c; i < p.uv.length; i += 2) p.uv[i] -= k;
+  }
 }
 
 // Split a primitive into connected pieces, and give each piece to the role most of its weight is in.

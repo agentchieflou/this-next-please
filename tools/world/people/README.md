@@ -90,7 +90,9 @@ through there. The material's role must be in `orm`. One way to make the image: 
 `EMIT` from an Ambient Occlusion node set to `Inside` with a distance of 2.5 cm, inverted, then keep
 only the ears and fingers (lips and eyelids also read thin, but behind them is the mouth or the eye,
 not daylight; MetaHuman's head UVs keep the face within u 0.25..0.75). A MetaHuman body's UVs sit in
-UDIM tile 1002 (u 1..2): shift them by -1 for the bake, or it writes nothing.
+UDIM tile 1002 (u 1..2): shift them by -1 for the bake, or it writes nothing. The pipeline itself moves
+any primitive whose UVs lie in one tile other than the first into 0..1 when it reads a source: the page
+clamps people's textures to the edge, so a body left in tile 1002 drew every map from one column.
 
 **Eyes.** MetaHuman draws its eyes with a refracting shell and a separate shadow mesh, both of which
 the role rules drop (`eyeshell`, `occlusion`). Without them the eyeballs look painted on: bake the
