@@ -265,6 +265,8 @@ or Chrome on the operator's GPU.
 - You cannot enter the buildings: their rooms are drawn by the glass.
 - No on-screen keyboard for free text with a controller.
 - The scene is not themed.
+- The agents do not speak, and their faces do not move: what they say is text in the conversation
+  (decided below).
 - It is not the map's scene (#409–#414): that is a different page that draws zero frames at rest.
 
 ## Future considerations
@@ -274,6 +276,35 @@ or Chrome on the operator's GPU.
 Poly Haven has no people. Your character and the people on the sidewalks are MakeHuman's CC0 people
 (`static/world/people/`), on a loading and animation path built so that MetaHuman exports drop in
 (above). The operator has Unreal Engine installed and named MetaHuman as the source of lifelike people.
+#### Decided (operator, 2026-10-05)
+
+- **Source.** MetaHumans for your character and for the agents' people. MakeHuman's CC0 stand-in stays
+  as what ships whenever no MetaHuman file is present, so the page never depends on them.
+- **Tools.** Unreal Engine **5.8.3** for MetaHuman Creator and the export, Blender **5.2 LTS** for
+  cleanup and inspection. Blender MCP may automate the Blender side; it does not replace the people
+  pipeline, and it is optional.
+- **Files.** MetaHuman exports stay out of git and out of the wheel until the redistribution and seat
+  questions below are answered; `people.json` points at a local folder.
+- **Size is not the budget; the frame is.** A larger file is not by itself a slower page. Every slice
+  optimises both: the people pipeline adds meshopt geometry compression and KTX2 textures, and the
+  5 MiB bound on the people folder gives way to frame budgets (frame time, draw calls, triangles) and
+  a load-time budget. The bound stays until the slice that brings those budgets in.
+- **Agents become people.** Each `/api/fleet` row is a person instead of a robot; the robot stays as
+  the fallback. Where the person is comes from the agent's state: idle, it walks the plaza; working,
+  it is at a desk or bench; needing a person, it stops, faces you and raises its beam; done, it
+  leaves. People walk waypoints on the sidewalks that exist, with no navigation mesh.
+- **Talking still means walking up.** A person stops moving once your character is within about 6 m,
+  so the 3.2 m rule above still holds.
+- **No voice, no lip-sync, no facial animation.** What matters is what the agents decide and how
+  they write it down, not how they sound: that work belongs to the agents' skills, not this page. The
+  pipeline keeps folding the face, and idle and busy poses stay procedural (no animation files).
+
+Order of the slices, one issue each: a MetaHuman hero exported on the operator's machine and put
+through the pipeline locally, with its cost measured; the pipeline's meshopt and KTX2 with the new
+budgets; agents as people; state to place on sidewalk waypoints.
+
+#### Still open
+
 Putting MetaHumans in is deferred, and these questions stay open until someone takes them up:
 
 - **Licence.** MetaHuman is not open source; Epic's EULA governs it. Since the June 2025 licence
@@ -290,7 +321,7 @@ Putting MetaHumans in is deferred, and these questions stay open until someone t
 - **AI.** MetaHumans may be used in workflows that involve AI, but not to train or improve AI models.
   The agents' later persona work (agents as people) must stay on the right side of that.
 - **Export, on the operator's machine.** The cloud sessions cannot reach Unreal. Someone with Unreal
-  Engine 5.6 or later would:
+  Engine 5.8.3 (the version decided above) would:
   1. create a diverse set of MetaHumans (skin tones, body types, ages, hair, and a wheelchair user),
      none based on a real person;
   2. export a higher level of detail for your character and a low one for the crowd, with hair as
