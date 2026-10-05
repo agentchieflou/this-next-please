@@ -218,6 +218,47 @@ def test_the_full_pipeline_draws_without_a_shader_error(fleet_home, tmp_path, br
         _stop(server)
 
 
+TREES = """() => { const c = {}; vState.scene.traverse(m => { if (/^tree-/.test(m.name)) c[m.name] = m.count; }); return c; }"""
+
+
+@pytest.mark.browser
+def test_the_streets_are_planted_with_trees_drawn_near_and_far(fleet_home, tmp_path, browser):
+    """The trees are a file (`static/world/trees/trees.glb`, grown by `tools/world/trees/`), not shapes
+    the page builds: London planes and lindens along the avenues, young lindens in the plaza's planters,
+    an instanced mesh for each tree, level of detail and part (bark, leaves). Near the eye a tree is
+    drawn whole, further away with fewer and larger twigs, and the eye walking moves trees between the
+    two. The `low` quality keeps the page's own trees."""
+    _repo(tmp_path, "alpha")
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=medium", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        assert _inspect(page)["town"]["trees"] >= 12, _inspect(page)["town"]
+        counts = page.evaluate(TREES)
+        assert {"plane_0", "plane_1", "linden_0", "linden_1", "linden_2"} == {n.split("-")[1] for n in counts}, counts
+        assert counts["tree-linden_2-0-1"] == 8, counts
+        near = {k: v for k, v in counts.items() if k.endswith("-0-1") and k != "tree-linden_2-0-1"}
+        far = {k: v for k, v in counts.items() if k.endswith("-1-1") and k != "tree-linden_2-1-1"}
+        assert sum(far.values()) > 0 and sum(near.values()) > 0, counts
+        page.evaluate("() => { vState.player.x = 0; vState.player.z = -100; }")
+        frames = _inspect(page)["frames"]
+        page.wait_for_function(f"() => FleetWorld.inspect().frames > {frames + 3}", timeout=60000)
+        moved = page.evaluate(TREES)
+        assert moved != counts, (counts, moved)
+        assert sum(v for k, v in moved.items() if k.endswith("-1")) == sum(v for k, v in counts.items() if k.endswith("-1")), moved
+        assert errors == [], errors
+        page.close()
+
+        page, errors = _open(browser, port, token, "&hour=13&quality=low", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        assert page.evaluate(TREES) == {} and _inspect(page)["town"]["trees"] == 0
+        names = page.evaluate("() => { const n = []; vState.scene.traverse(m => { if (m.isMesh) n.push(m.name); }); return n; }")
+        assert "street-trees" in names, names
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
 @pytest.mark.browser
 def test_you_walk_to_an_agent_to_talk_to_it(fleet_home, tmp_path, browser, spawns):
     """From the middle of the plaza nothing is within reach and E opens nothing. W walks 4.5 m a

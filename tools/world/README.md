@@ -43,3 +43,35 @@ A new asset needs a line in `world/assets.js` (`TEX`, `SKY` or `PROPS`) and one 
 What `agentdata/fleet/static/world/people/` holds: the player's character and the pedestrians, made
 from MakeHuman's CC0 assets (Blender with MPFB 2, then `people/people.mjs`), on a path MetaHuman exports
 from Unreal Engine drop into. `people/README.md` has the steps, the config and the MetaHuman case.
+
+## Trees (`trees/`)
+
+What `agentdata/fleet/static/world/trees/` holds: `trees.glb`, the street and plaza trees, grown from
+nothing but the numbers in `trees/trees.py` (no photograph, scan or model goes in, so the file is the
+repository's own, under its licence). Needs Blender 5.2 (headless) and, for the packing, Node 22 with
+the pinned tools above. From the repository's root:
+
+    blender --background --factory-startup --python tools/world/trees/trees.py -- /tmp/trees
+    cd tools/world && node trees/trees.mjs /tmp/trees/raw ../../agentdata/fleet/static/world/trees
+
+`trees.py` runs in stages (`leaves twigs bark trees`, all when none is named; `preview` renders the
+trees side by side into `<dir>/preview.png` to look at):
+
+- `leaves`: each species' leaf as an image (`SPECIES`): its half outline from the tip to the stalk's
+  notch, smoothed with its lobes' tips kept sharp, teeth along the margin, primary and secondary veins,
+  a top and an underside colour.
+- `twigs`: clusters of twigs fanned off a short branchlet, the leaves on their stalks bent, folded,
+  tilted and tinted one by one (`TWIG`), rendered from above with Cycles into a 2 x 2 atlas: colour
+  (with the occlusion where leaves overlap), normals, occlusion and roughness.
+- `bark`: tiling barks, London plane's (old bark flaking in patches off cream new bark) and linden's
+  (fissured), with their normals.
+- `trees`: each tree in `VARIANTS` (`TREES` holds a species' trunk, crown and limbs): a trunk with its
+  root flare, scaffold limbs, branches and twigs grown to an irregular crown, twig cards spread evenly
+  through the crown's outer shell and anchored to the nearest branch, the sky each card and branch
+  sees baked into its vertex colour (Blender's BVH), and a far level of detail with fewer, larger
+  cards. Written raw (`raw/trees.json`, `raw/trees.bin`), Z up.
+
+`trees.mjs` packs it: a mesh a tree and level of detail (`<species>_<n>_lod<0|1>`), a bark and a
+leaves primitive each, turned to glTF's Y up, normals and colours as normalised bytes, the leaves'
+atlas at 1024 px and the barks at 512 px in WebP. `tests/test_fleet_serve.py` holds the folder to
+its budget.

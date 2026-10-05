@@ -37,7 +37,7 @@ Three seat slats and two back slats in wood, on two iron frames.
 ### `function tree`
 
 A stone planter with soil, a trunk and a branch; the crown is leaf cards (`WorldKit.canopy`), as on
-the streets.
+the streets. With the trees' file only the planter: its tree is a young linden from the file.
 
 ### `function plaza`
 
@@ -45,7 +45,8 @@ The plaza's furniture, built for its edge: a low kerb round the agents' circle, 
 outside it facing in, a bench between each pair, and a tree behind each bench. It is made again only
 when the edge moves (the circle grows with the fleet), never per frame. It returns where the lamps'
 glass is (the halos and the lights use it) and each object's footprint, `[x, z, radius]`, so you
-walk around a bench or a tree rather than through it.
+walk around a bench or a tree rather than through it. With the trees' file (`woods`) the crowns
+are a group of its instanced young lindens, standing in the planters' soil, always the whole tree.
 
 ### `function glows`
 

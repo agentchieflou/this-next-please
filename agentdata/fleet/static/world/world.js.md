@@ -161,7 +161,9 @@ only when the weather is (once a minute without `?hour=`), never per frame.
 
 The materials take Poly Haven's photo textures where they loaded (`vState.assets.tex`, handed to
 `WorldBake.make`), the environment its skies, and the street its scanned props (`WorldAssets.scans`,
-uploaded once and handed to every `WorldStreet.build`).
+uploaded once and handed to every `WorldStreet.build`). The trees' file is made into the trees' kinds
+the same way (`vState.woods`), for the street and the plaza, except on the `low` path, which keeps the
+page's own trees: two draw calls for every tree, where the file's cost a few for each kind.
 
 ### `function vPad`
 

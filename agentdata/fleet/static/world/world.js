@@ -40,7 +40,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, calmFrom: number, rose: boolean, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, calmFrom: number, rose: boolean, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object, trees: Object}, dome: any, scans: Object, woods: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -51,7 +51,7 @@ var vState = {
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0, turn: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
   tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, compiling: true, warming: false, warm: null,
-  assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}
+  assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}, woods: {}
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
@@ -195,10 +195,10 @@ function vPlaza(edge) {
   [p.props, p.glass, p.leaves].forEach(function (m) {
     if (!m) return;
     vState.scene.remove(m);
-    m.geometry.dispose();
+    if (m.isMesh) m.geometry.dispose();
     if (m !== p.leaves) m.material.dispose();
   });
-  var made = WorldScenery.plaza(T, edge, vState.lib);
+  var made = WorldScenery.plaza(T, edge, vState.lib, vState.woods);
   p.props = made.props;
   p.glass = made.glass;
   p.leaves = made.leaves;
@@ -216,12 +216,12 @@ function vPlaza(edge) {
     WorldKit.forget("city");
     city.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "city", { f: l.f }); });
     p.ground.userData.P.value = P;
-    var street = WorldStreet.build(T, vState.lib, vState.scene, P, lod, vState.scans);
+    var street = WorldStreet.build(T, vState.lib, vState.scene, P, lod, vState.scans, vState.woods);
     WorldKit.forget("street");
     street.lights.forEach(function (l) { WorldKit.light(l.p, l.c, l.r, "street", { f: l.f }); });
     vState.streetSolids = street.solids;
     vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people, scans: street.scans,
-                    crowd: street.crowd };
+                    crowd: street.crowd, trees: street.trees };
   }
   vState.solids = vState.solids.concat(vState.streetSolids || []);
   vWeather();
@@ -341,6 +341,7 @@ function vBuild() {
   vState.lib = WorldBake.make(T, renderer, vState.tier === "low" ? 256 : 512, vState.assets.tex);
   vState.dome = WorldAssets.dome(T, vState.assets.sky);
   vState.scans = WorldAssets.scans(T, vState.assets.props, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+  vState.woods = vState.tier === "low" ? {} : WorldAssets.scans(T, vState.assets.trees, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
   vState.lights.hemi = new T.HemisphereLight(0xc4ccd4, 0x20262b, 1);
   vState.lights.sun = new T.DirectionalLight(0xdfe6ec, 0.5);
   vState.lights.sun.position.set(-30, 60, 20);

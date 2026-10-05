@@ -218,16 +218,17 @@ var WorldStreet = (function () {
     solids.push([p[0], p[1], 0.25]);
   }
 
-  /** @param {any} T @param {Array<any>} bark @param {Array<any>} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
+  /** @param {any} T @param {Array<any>} bark @param {Array<any>|null} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
   function tree(T, bark, leaf, solids, x, z, seed) {
     var P = WorldKit.piece;
     bark.push(WorldKit.moved(T, P(T, new T.BoxGeometry(1.3, 0.06, 1.3), "#2b2520", [0, 0.03, 0]), x, z));
+    solids.push([x, z, 0.35]);
+    if (!leaf) return;
     bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.11, 0.17, 3.2, 7), "#56473a", [0, 1.6, 0], null, [0.03 * (seed - 0.5), 0, 0.04]), x, z));
     bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.4, 5), "#56473a", [0.35, 3.1, 0], null, [0, 0, -0.7]), x, z));
     bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.3, 5), "#56473a", [-0.3, 3.2, 0.1], null, [0.2, 0, 0.75]), x, z));
     WorldKit.canopy(T, leaf, x, 4.9, z, 2.0, seed * 17 + 3, 52);
     WorldKit.canopy(T, leaf, x + 0.6, 4.1, z - 0.3, 1.2, seed * 23 + 5, 18);
-    solids.push([x, z, 0.35]);
   }
 
   /** @param {string} id @param {number} x @param {number} z @param {number} yaw @returns {boolean} */
@@ -387,8 +388,8 @@ var WorldStreet = (function () {
     return out;
   }
 
-  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number}} */
-  function build(T, lib, scene, P, lod, scans) {
+  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @param {Object<string, Array<{geo: any, mat: any}>>} [woods] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number, trees: number}} */
+  function build(T, lib, scene, P, lod, scans, woods) {
     M.T = T;
     M.scans = scans || {};
     M.pr = {};
@@ -400,7 +401,8 @@ var WorldStreet = (function () {
       M.group.traverse(function (m) { if (m.geometry && !m.userData.shared) m.geometry.dispose(); });
     }
     M.P = P;
-    var group = new T.Group(), f = [], bark = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [];
+    var group = new T.Group(), f = [], bark = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [], wood = [];
+    var grown = woods && woods.plane_0_lod0 && woods.linden_0_lod0;
     var segs = segments(P), parked = [];
     var near = function (/** @type {Array<number>} */ q, /** @type {number} */ r) { return Math.hypot(q[0], q[1]) < r; };
     segs.forEach(function (sg, i) {
@@ -409,7 +411,10 @@ var WorldStreet = (function () {
       if (sg.k === 0) {
         for (var b = sg.a0 + 14; b < sg.a1 - 4; b += 16) {
           var tp = spot(sg, b, sg.road + 1.4);
-          if (near(tp, 160 * far)) tree(T, bark, leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          if (!near(tp, 160 * far)) continue;
+          if (grown && !(Math.round(b - sg.a0 - 6) % 24)) continue;
+          tree(T, bark, grown ? null : leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          wood.push([tp[0], 0, tp[1], rnd(b * 2.1 + i) * 6.28, 0.9 + rnd(b * 1.7 + i) * 0.22, (rnd(i * 5.7 + 2) > 0.5 ? "plane_" : "linden_") + (rnd(b * 3.3 + i) > 0.5 ? 1 : 0)]);
         }
       }
       if (!near(mid, 150 * far)) return;
@@ -472,6 +477,10 @@ var WorldStreet = (function () {
         group.add(mesh);
       });
     });
+    var grove = new T.Group();
+    grove.name = "street-trees";
+    group.add(grove);
+    M.grove = grown ? WorldKit.grove(T, grove, /** @type {Object} */ (woods), wood) : null;
     traffic(T, group, P, parked);
     walkers(T, group, segs, lod ? 46 : 0);
     scene.add(group);
@@ -479,7 +488,7 @@ var WorldStreet = (function () {
     var moving = 0;
     M.cars.forEach(function (set) { moving += set.moving.length; });
     return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length, scans: placed,
-             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0 };
+             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0, trees: M.grove ? M.grove.placed : 0 };
   }
 
   /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked */
@@ -575,6 +584,7 @@ var WorldStreet = (function () {
   function frame(t, dt, night, still, eye) {
     var T = M.T;
     if (!T || !M.cars) return;
+    if (M.grove) M.grove.update(eye);
     var mtx = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
     var moving = [];
     M.cars.forEach(function (set) { set.moving.forEach(function (mv) { moving.push(mv); }); });
