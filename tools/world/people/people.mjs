@@ -265,10 +265,12 @@ function fill(mask, W, H, uv, idx, value) {
 }
 
 // One colour map, resized, with each tintable primitive's region turned into a detail map whose mean is 0.5.
-async function colourMap(img, users, size) {
+// Roles in `kept` keep their authored colour (a realistic export's skin, cloth and hair), untinted.
+async function colourMap(img, users, size, kept = []) {
+  const tints = p => TINT[p.role] && !kept.includes(p.role);
   const { data, info } = await sharp(img.data).resize(size, size, { fit: "fill" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const W = info.width, H = info.height, region = new Int16Array(W * H).fill(-1);
-  users.forEach((p, k) => { if (TINT[p.role]) fill(region, W, H, p.uv, p.idx, k); });
+  users.forEach((p, k) => { if (tints(p)) fill(region, W, H, p.uv, p.idx, k); });
   const sums = users.map(() => [0, 0, 0, 0, 0]);
   for (let i = 0; i < W * H; i++) {
     const k = region[i];
@@ -292,8 +294,29 @@ async function colourMap(img, users, size) {
     else { const l = 0.5 * (0.2126 * r + 0.7152 * g + 0.0722 * b) / t[3]; o = [l, l, l]; }
     for (let c = 0; c < 3; c++) out[i * 4 + c] = Math.round(255 * srgb(Math.min(1, Math.max(0, o[c]))));
   }
-  const tone = users.map((p, k) => (TINT[p.role] && tones[k] ? [0.5, 0.5, 0.5] : tones[k] ? tones[k].slice(0, 3) : [0.5, 0.5, 0.5]));
+  const tone = users.map((p, k) => (tints(p) && tones[k] ? [0.5, 0.5, 0.5] : tones[k] ? tones[k].slice(0, 3) : [0.5, 0.5, 0.5]));
   return { raw: out, W, H, tone };
+}
+
+// One packed map for the page's roughnessMap and aoMap (glTF's layout): R occlusion, G roughness, B metalness.
+// Occlusion from the source's occlusion map (e.g. one baked in Blender), roughness from its metallic-roughness
+// map's G channel (scaled by its factor), else the role's constant. Metalness is 0: people are dielectric,
+// whatever an export's greyscale "metallic-roughness" map says. Null when the source has neither map.
+async function ormMap(mat, role, size) {
+  if (!mat.orm && !mat.occlusion) return null;
+  const chan = async (img, c) => (await sharp(img.data).resize(size, size, { fit: "fill" }).ensureAlpha().raw().toBuffer())
+    .filter((_, i) => i % 4 === c);
+  const ao = mat.occlusion ? await chan(mat.occlusion, 0) : null;
+  const rough = mat.orm ? await chan(mat.orm, 1) : null;
+  const k = mat.orm ? (mat.rough === undefined ? 1 : mat.rough) : 1, flat = Math.round(255 * (ROUGH[role] || 0.7));
+  const out = Buffer.alloc(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    out[i * 4] = ao ? ao[i] : 255;
+    out[i * 4 + 1] = rough ? Math.min(255, Math.round(rough[i] * k)) : flat;
+    out[i * 4 + 2] = 0;
+    out[i * 4 + 3] = 255;
+  }
+  return { img: await sharp(out, { raw: { width: size, height: size, channels: 4 } }).webp({ quality: 90, effort: 6 }).toBuffer(), ao: !!ao };
 }
 
 async function webp(raw, W, H, alpha, q) {
@@ -406,6 +429,10 @@ function material(doc, name, role, tone, maps, extras) {
   const tex = (img, suffix) => (img.getImage ? img : doc.createTexture(name + suffix).setImage(img).setMimeType("image/webp"));
   if (maps.base) m.setBaseColorTexture(tex(maps.base, "_c"));
   if (maps.normal) m.setNormalTexture(tex(maps.normal, "_n"));
+  if (maps.orm) {
+    m.setMetallicRoughnessTexture(tex(maps.orm.tex, "_orm")).setRoughnessFactor(1);
+    if (maps.orm.ao) m.setOcclusionTexture(tex(maps.orm.tex, "_orm"));
+  }
   if (ALPHA[role]) m.setAlphaMode("MASK").setAlphaCutoff(ALPHA[role]).setDoubleSided(true);
   m.setExtras(Object.assign({ role, tone: tone.map(v => +v.toFixed(4)) }, extras || {}));
   return m;
@@ -460,7 +487,7 @@ async function hero(o, cfg) {
   const report = {};
   for (const [img, users] of byImage) {
     const size = Math.max(...users.map(p => (o.texture || {})[p.role] || 512));
-    const cm = img ? await colourMap(users[0].mat.base, users, size) : null;
+    const cm = img ? await colourMap(users[0].mat.base, users, size, o.keep || []) : null;
     const baseImg = cm ? await webp(cm.raw, cm.W, cm.H, users.some(p => ALPHA[p.role]), o.quality) : null;
     const base = baseImg ? doc.createTexture(users[0].role + "_c").setImage(baseImg).setMimeType("image/webp") : null;
     let normal = null;
@@ -468,9 +495,13 @@ async function hero(o, cfg) {
       normal = doc.createTexture(users[0].role + "_n").setMimeType("image/webp")
         .setImage(await sharp(users[0].mat.normal.data).resize(Math.min(size, o.normalSize || 512), Math.min(size, o.normalSize || 512), { fit: "fill" }).webp({ quality: 88 }).toBuffer());
     }
+    const ormRole = users[0].role === "top" || users[0].role === "bottom" ? "outfit" : users[0].role;
+    const packed = (o.orm || []).includes(ormRole) ? await ormMap(users[0].mat, users[0].role, Math.min(size, o.normalSize || 512)) : null;
+    const orm = packed ? { tex: doc.createTexture(users[0].role + "_orm").setImage(packed.img).setMimeType("image/webp"), ao: packed.ao } : null;
     users.forEach((p, k) => {
       const style = OPTIONAL.includes(p.role) ? p.node.replace(/^[a-z]+\./, "") : undefined;
-      const mat = material(doc, p.role + (style ? "_" + style : ""), p.role, cm ? cm.tone[k] : [0.5, 0.5, 0.5], { base, normal }, style ? { style } : null);
+      const extras = Object.assign(style ? { style } : {}, (o.keep || []).includes(p.role) ? { tint: false } : {});
+      const mat = material(doc, p.role + (style ? "_" + style : ""), p.role, cm ? cm.tone[k] : [0.5, 0.5, 0.5], { base, normal, orm }, Object.keys(extras).length ? extras : null);
       mesh.addPrimitive(primitive(doc, p, mat, targetNames));
       report[p.role + (style ? ":" + style : "")] = p.idx.length / 3;
     });

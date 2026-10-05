@@ -1061,7 +1061,7 @@ window.FleetWorld = Object.freeze({
       hero: vState.hero ? Object.assign({ kind: vState.hero.kind, visible: vState.hero.group.visible, seated: vState.hero.seated, wheels: !!vState.hero.wheels,
                                           x: vState.hero.group.position.x, z: vState.hero.group.position.z, yaw: vState.hero.group.rotation.y },
                                         WorldHero.measure(vState.hero)) : null,
-      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0 }
+      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0, parts: WorldPeople.parts() }
     };
   },
   hold: function (on) { vState.held = !!on; vState.keys = {}; },

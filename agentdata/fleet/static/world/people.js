@@ -2,10 +2,20 @@
 
 var WorldPeople = (function () {
   var D = { hero: [], crowd: [], styles: {}, morphs: {}, clips: {}, fits: [] };
-  var S = { T: null, fill: { value: 0.25 }, tex: new Map(), mats: new Map(), crowd: null };
+  var S = { T: null, fill: { value: 0.25 }, tex: new Map(), mats: new Map(), crowd: null, parts: [] };
   var FRAMES = 24;
   var SIDES = [["l", -1], ["r", 1]];
   var FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
+  var SCATTER = [
+    "void RE_Direct_Skin( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {",
+    "  RE_Direct_Physical( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );",
+    "  float pkNl = dot( geometryNormal, directLight.direction );",
+    "  float pkWrap = max( ( pkNl + 0.45 ) / 1.45, 0.0 ) - max( pkNl, 0.0 );",
+    "  reflectedLight.directDiffuse += directLight.color * pkWrap * vec3( 0.55, 0.22, 0.14 ) * BRDF_Lambert( material.diffuseColor );",
+    "}",
+    "#undef RE_Direct",
+    "#define RE_Direct RE_Direct_Skin"
+  ].join("\n");
 
   /** @param {Object} data */
   function use(data) {
@@ -21,6 +31,11 @@ var WorldPeople = (function () {
   /** @returns {boolean} */
   function ready() {
     return D.hero.length > 0;
+  }
+
+  /** @returns {Array<{role: string, tinted: boolean, rough: boolean, ao: boolean, colour: string}>} */
+  function parts() {
+    return S.parts.slice();
   }
 
   /** @param {any} T @param {Array<number>} a @returns {any} */
@@ -289,14 +304,17 @@ var WorldPeople = (function () {
   /** @param {any} T @param {Object} part @returns {any} */
   function material(T, part) {
     if (S.mats.has(part)) return S.mats.get(part);
+    var orm = texture(T, part.orm, false), skin = part.role === "skin";
     var mat = new T.MeshStandardMaterial({
       map: texture(T, part.map, true), normalMap: texture(T, part.normal, false), roughness: part.rough, metalness: 0,
+      roughnessMap: orm, aoMap: part.ao ? orm : null,
       alphaTest: part.alpha || 0, side: part.two ? T.DoubleSide : T.FrontSide
     });
-    WorldKit.lit(mat, "person-" + part.role + (part.normal ? "-n" : "") + (part.alpha ? "-a" : ""), { porous: part.role === "skin" ? 0.3 : 0.8, extra: function (/** @type {any} */ sh) {
+    WorldKit.lit(mat, "person-" + part.role + (part.normal ? "-n" : "") + (part.alpha ? "-a" : "") + (orm ? "-r" : "") + (part.ao ? "-o" : ""), { porous: skin ? 0.3 : 0.8, extra: function (/** @type {any} */ sh) {
       sh.uniforms.uFill = S.fill;
       sh.fragmentShader = "uniform float uFill;\n" + sh.fragmentShader.replace("#include <emissivemap_fragment>",
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill;");
+      if (skin) sh.fragmentShader = sh.fragmentShader.replace("#include <lights_physical_pars_fragment>", "#include <lights_physical_pars_fragment>\n" + SCATTER);
     } });
     S.mats.set(part, mat);
     return mat;
@@ -304,6 +322,7 @@ var WorldPeople = (function () {
 
   /** @param {Object} part @param {Object} look @returns {string} */
   function tint(part, look) {
+    if (part.tint === false) return "";
     var covered = look.hair === "none" || look.hair === "scarf" || look.hair === "wrap";
     if (part.role === "skin") return look.skin;
     if (part.role === "top") return look.top;
@@ -415,13 +434,14 @@ var WorldPeople = (function () {
       if (R.parent[i] >= 0) bones[R.parent[i]].add(b); else group.add(b);
     });
     group.updateMatrixWorld(true);
-    var skel = new T.Skeleton(bones), found = {}, body = [];
+    var skel = new T.Skeleton(bones), found = {}, body = [], drawn = S.parts = [];
     fig.parts.forEach(function (part) {
       var opt = D.styles[part.role];
       if (opt && part.style !== opt[1][look[opt[0]]]) return;
       if (opt) found[part.role] = true;
       var mat = material(T, part), hex = tint(part, look);
       if (hex) mat.color.set(hex).multiply(new T.Color(1 / part.tone[0], 1 / part.tone[1], 1 / part.tone[2]));
+      drawn.push({ role: part.role, tinted: !!hex, rough: !!mat.roughnessMap, ao: !!mat.aoMap, colour: mat.color.getHexString() });
       var mesh = new T.SkinnedMesh(geometry(T, part, w), mat);
       if (part.role === "skin" || part.role === "top") body.push(mesh.geometry);
       mesh.frustumCulled = false;
@@ -610,5 +630,5 @@ var WorldPeople = (function () {
     });
   }
 
-  return Object.freeze({ FRAMES: FRAMES, use: use, ready: ready, hero: hero, pose: pose, dispose: dispose, fill: fill, crowd: crowd, hand: hand, draw: draw, rig: rig, solve: solve, posture: posture });
+  return Object.freeze({ FRAMES: FRAMES, use: use, ready: ready, parts: parts, hero: hero, pose: pose, dispose: dispose, fill: fill, crowd: crowd, hand: hand, draw: draw, rig: rig, solve: solve, posture: posture });
 })();

@@ -67,6 +67,18 @@ Hair, beard and glasses primitives carry a `style` (the node name after its role
 }
 ```
 
+**Realistic characters.** A hero output's `keep` lists roles whose colour maps keep their authored colour
+(no detail map, `tint: false` on the material): the page leaves them undyed, so a realistic export's
+skin and cloth look as made, and the picker's look chooses among several exports by their `fits`
+instead of dyeing one. `orm` lists roles (`outfit` for top and bottom) that get one packed map in
+glTF's layout: R occlusion from the source's occlusion map, G roughness from its metallic-roughness
+map (else the role's constant), B metalness 0, since people are not metal (Ready Player Me exports
+ship greyscale maps that would otherwise make trousers a third metallic). The occlusion comes from a
+bake: in Blender 5.2, select the character's meshes, give each material an image node for the target,
+bake `AO` in Cycles with the world's AO distance near 0.25 m and everything else hidden from render,
+then connect each image (its R) to a `glTF Material Output` group's `Occlusion` input and export the
+selection as GLB without animations or shape keys. That GLB is the hero's source.
+
 A crowd character's `dropNodes` (node or mesh names) leaves out props its file carries (a chair,
 a briefcase).
 

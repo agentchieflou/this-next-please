@@ -40,6 +40,16 @@ What is made once and kept: textures and materials by the part they belong to (a
 rebuilds the character, never a texture upload or a shader compile), the fill uniform the world sets
 with the daylight, and the crowd.
 
+### `var SCATTER`
+
+Skin is not plastic: light enters it and comes out a little further on, reddened, so a lit face has a
+soft, warm edge where the light falls away instead of a hard line. A full subsurface model costs far
+more than a frame here allows, so skin replaces three.js's direct-light function with itself plus a
+wrapped diffuse term (`(N·L + 0.45) / 1.45`, less the ordinary `N·L`), coloured blood-red and
+weighted by the surface colour. It adds light only near and past the terminator, costs a few
+instructions a light, and touches no other material. The kit's light loop calls `RE_Direct`, so the
+city's own lights scatter too.
+
 ### `var FRAMES`
 
 The crowd's walk cycle is baked at this many poses; the shader blends between two of them.
@@ -52,6 +62,12 @@ floats, where a skinned mesh cannot draw.
 ### `function ready`
 
 True when there is a hero to build.
+
+### `function parts`
+
+What the character last built draws, one entry a part: its role, whether the look dyed it, whether it
+reads a roughness and an occlusion map, and its colour. `FleetWorld.inspect().people.parts` reports it,
+so a test can hold a realistic export to its own colours and maps without reading pixels.
 
 ### `function frameQ`
 
@@ -91,13 +107,19 @@ The hero file whose `fits` matches most of the look.
 ### `function material`
 
 A part's material, through the city's lights and rain (`WorldKit.lit`), with the character's own fill.
+A part whose file carries a packed map (`orm`, glTF's layout: R occlusion, G roughness) reads its
+roughness from it, and its occlusion when the file says it has one (`ao`); the pipeline writes it
+(`tools/world/people/README.md`, `orm`). Metalness stays 0: people are not metal. Skin adds `SCATTER`.
+Each combination is its own program key, fixed per part, so a change of look still compiles nothing.
 
 ### `function tint`
 
 The colour a role takes from the look. The pipeline turned each tintable colour map into a detail map
 (its mean is the part's `tone`), so a material's colour is the look's colour over that tone: the same
 texture becomes every skin tone, hair colour and cloth colour the picker offers. Brows take the hair
-colour, or dark brown where the hair is covered or gone.
+colour, or dark brown where the hair is covered or gone. A part the pipeline kept in its authored colour
+(`tint: false`, a realistic export's skin or cloth) takes none: dyeing a photographed skin another tone
+reads as paint, so a realistic character's look is chosen by its `fits` among several exports instead.
 
 ### `function geometry`
 

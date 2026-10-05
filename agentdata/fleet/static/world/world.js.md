@@ -344,6 +344,6 @@ to stand within reach of an agent.
 `vStart` hands `WorldPeople` the people `WorldAssets` loaded, unless vertex textures cannot hold floats
 (then the procedural character stays). `vStep` keeps the turn rate (`turn`), which the character steps
 on the spot to. `inspect().hero` reports `kind` (`skinned` or `doll`) and the pose measured from the
-character either way (`WorldHero.measure`); `inspect().people` says whether the realistic character
+character either way (`WorldHero.measure`); `inspect().people` says whether the realistic character (and, in `parts`, what each of its parts draws with)
 and how many crowd characters are in.
 

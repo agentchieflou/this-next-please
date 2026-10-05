@@ -68,7 +68,8 @@ glTF lays them out, and without colour conversion: a normal map is data, not a p
 
 A character from `static/world/people/`: its skins (joints with their parents and rest transforms, the
 pipeline's extras: morph joint offsets, head anchors), its skinned primitives with their roles, tones,
-morph targets and maps, and its animation clips. Built for the world's people pipeline's output.
+morph targets and maps (colour, normal, and the packed occlusion-roughness map when there is one), whether
+the part is tinted (`tint`), and its animation clips. Built for the world's people pipeline's output.
 
 ### `function people`
 

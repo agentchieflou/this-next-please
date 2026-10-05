@@ -117,8 +117,8 @@ var WorldAssets = (function () {
                        rough: pbr.roughnessFactor === undefined ? 0.7 : pbr.roughnessFactor, alpha: mt.alphaMode === "MASK" ? (mt.alphaCutoff || 0.5) : 0,
                        two: !!mt.doubleSided, pos: g.read(a.POSITION).a, nor: g.read(a.NORMAL).a, uv: g.read(a.TEXCOORD_0).a,
                        joint: g.read(a.JOINTS_0).a, weight: g.read(a.WEIGHTS_0).a, roles: a._ROLE === undefined ? null : Float32Array.from(g.read(a._ROLE).a),
-                       idx: g.read(p.indices).a, morph: morph, map: null, normal: null };
-          jobs.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture)]).then(function (im) { part.map = im[0]; part.normal = im[1]; }));
+                       idx: g.read(p.indices).a, morph: morph, map: null, normal: null, orm: null, ao: !!mt.occlusionTexture, tint: ex.tint !== false };
+          jobs.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture), g.pic(pbr.metallicRoughnessTexture)]).then(function (im) { part.map = im[0]; part.normal = im[1]; part.orm = im[2]; }));
           parts.push(part);
         });
       });
