@@ -21,6 +21,20 @@ models, the people two: a little over twenty draw calls for every street, howeve
 Car colours as they are on real streets: mostly black, white, grey and silver, some dark blue, red
 and green, a few yellow (taxis).
 
+### `var BARK`
+
+Bark in the trunk's own UVs: two noises stretched along the trunk (fine around it, coarse up it) read
+as furrows and plates, darkening the colour between them. No texture to load or bake.
+
+### `var SODIUM`
+
+A sodium lamp's colours, its cone's and its halo's (each linear, as the shaders take them; the halo's is the
+plaza lamps' warm white, `0xffc98a` in sRGB), which before this were the colour of every lamp.
+
+### `var LED`
+
+An LED lamp's colours, cone and halo, cool white, so they match the light it casts (`lampPost`).
+
 ### `var REACH`
 
 How far down the avenues the traffic drives before it turns, in the fog where the turn is not seen.
@@ -51,7 +65,10 @@ Car paint with a clear coat (`MeshPhysicalMaterial`), dark glass, trim, lamps (u
 night); people whose legs and arms swing as they walk, and who bob; umbrellas; street furniture;
 the shelters' glass; the traffic lights, whose shader switches green, amber and red on a 30-second
 cycle, the two directions half a cycle apart; and the light cones under the street lamps, the rain
-lit in them, added to what is behind.
+lit in them, added to what is behind, each in its lamp's colour (an instance colour, `SODIUM` or `LED`).
+
+The trees' trunks have a material of their own (`bark`): rough, not metal, furrowed (`BARK`). They
+shared the furniture's, whose metalness (0.35) suits iron poles and made the trunks read as metal.
 
 The cone's two fades are clamped to 0..1 before `pow`. Its facing fade is near zero along the cone's
 silhouette, and with multisampling a fragment there is shaded at the pixel's centre, outside the
@@ -71,11 +88,13 @@ Each side of each street between two crossings, stopping at the ring road.
 ### `function lampPost`
 
 A street lamp every 24 m on both sides: a pole, an arm over the road and a head, sodium orange or LED
-white, one in a few dozen failing. Each is one of the kit's lights, a halo and a cone.
+white, one in a few dozen failing. Each is one of the kit's lights, a halo and a cone, all three in
+the lamp's colour.
 
 ### `function tree`
 
-A street tree on the avenues: a pit, a trunk, two branches and a crown of leaf cards.
+A street tree on the avenues: a pit, a trunk, two branches and a crown of leaf cards. The pit, trunk
+and branches go to the bark mesh (`street-bark`), the crown to the trees' (`street-trees`).
 
 ### `function put`
 

@@ -102,7 +102,19 @@ A tree's crown as leaf cards: quads scattered through a squashed sphere, each tu
 normals pointing out from the crown's centre rather than off each card, so the crown is lit as one
 soft volume, as foliage is, instead of as many flat cards.
 
+### `var LEAF`
+
+Leaves let light through: a crown seen from below or against the sky glows yellow-green where light
+comes through its leaves from behind. The environment and hemisphere light seen from behind the
+card (`-N`) are added, weighted to what a leaf passes (green, a little red, almost no blue). It is
+the same idea as the people's thin skin (`people.js.md`, `SCATTER`), and like it touches only this
+material.
+
 ### `function foliage`
 
 One material for every crown: the baked leaf texture with its alpha cut out, both sides drawn, and
 the crowns swaying a little in the wind.
+
+Its grazing reflection is capped (`specularF90` 0.3): a crown's normals point out from its centre, so
+its top and rim face the bright, rain-wet sky at a grazing angle, and at full Fresnel every crown read
+as grey-white, a sheet of reflected sky, rather than green. Light comes through it (`LEAF`).

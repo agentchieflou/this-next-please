@@ -223,6 +223,14 @@ var WorldKit = (function () {
   }
 
   var F = { mat: null };
+  var LEAF = [
+    "#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )",
+    "iblIrradiance += vec3( 0.3, 0.38, 0.1 ) * getIBLIrradiance( -geometryNormal );",
+    "#endif",
+    "#if NUM_HEMI_LIGHTS > 0",
+    "for ( int wkh = 0; wkh < NUM_HEMI_LIGHTS; wkh ++ ) irradiance += vec3( 0.3, 0.38, 0.1 ) * getHemisphereLightIrradiance( hemisphereLights[ wkh ], -geometryNormal );",
+    "#endif"
+  ].join("\n");
 
   /** @param {any} T @param {Object} lib @returns {any} */
   function foliage(T, lib) {
@@ -231,6 +239,8 @@ var WorldKit = (function () {
                                            alphaTest: 0.42, side: T.DoubleSide });
     F.mat = lit(mat, "foliage", { porous: 0.3, extra: function (/** @type {any} */ sh) {
       sh.uniforms.uTime = u.time;
+      sh.fragmentShader = sh.fragmentShader.replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\nmaterial.specularF90 = 0.3;")
+        .replace("#include <lights_fragment_maps>", "#include <lights_fragment_maps>\n" + LEAF);
       sh.vertexShader = "uniform float uTime;\n" + sh.vertexShader.replace("#include <begin_vertex>",
         "#include <begin_vertex>\nvec4 lw = modelMatrix * vec4( transformed, 1.0 ); float lsw = max( transformed.y - 2.2, 0.0 ) * 0.03;"
         + " transformed.x += sin( uTime * 1.3 + lw.x * 0.3 + lw.z * 0.2 ) * lsw; transformed.z += cos( uTime * 1.1 + lw.z * 0.3 ) * lsw;");

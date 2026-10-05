@@ -19,12 +19,12 @@ var WorldScenery = (function () {
   function sky(T) {
     var mat = new T.ShaderMaterial({
       uniforms: { uTop: { value: new T.Color() }, uHorizon: { value: new T.Color() }, uGlow: { value: new T.Color(0x000000) },
-                  uCloud: { value: new T.Color() } },
+                  uCloud: { value: new T.Color() }, uTime: WorldKit.uniforms.time },
       vertexShader: "varying vec3 vDir; void main() { vDir = normalize(position);"
         + " gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-      fragmentShader: "uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uGlow; uniform vec3 uCloud; varying vec3 vDir;\n" + NOISE
+      fragmentShader: "uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uGlow; uniform vec3 uCloud; uniform float uTime; varying vec3 vDir;\n" + NOISE
         + "void main() { float y = vDir.y; vec3 c = mix(uHorizon, uTop, smoothstep(-0.05, 0.6, y));"
-        + " vec2 p = vDir.xz / max(y + 0.12, 0.06) * 1.4; float cl = wsF(p) * 0.7 + wsF(p * 2.7 + 5.0) * 0.3;"
+        + " vec2 p = vDir.xz / max(y + 0.12, 0.06) * 1.4 + uTime * vec2(0.006, 0.0025); float cl = wsF(p) * 0.7 + wsF(p * 2.7 + 5.0 + uTime * 0.008) * 0.3;"
         + " c = mix(c, uCloud, smoothstep(0.38, 0.75, cl) * smoothstep(-0.02, 0.18, y) * 0.75);"
         + " c += uGlow * (1.0 - smoothstep(-0.05, 0.28, y));"
         + " gl_FragColor = vec4(c, 1.0); }",
@@ -108,13 +108,13 @@ var WorldScenery = (function () {
   /** @param {any} T @param {number} [n] @returns {any} */
   function glows(T, n) {
     var mat = new T.ShaderMaterial({
-      uniforms: { uOpacity: { value: 0 }, uColor: { value: new T.Color(0xffc98a) } },
-      vertexShader: "varying vec2 vUv; void main() { vUv = position.xy;"
+      uniforms: { uOpacity: { value: 0 }, uColor: { value: new T.Color(0xffffff) } },
+      vertexShader: "varying vec2 vUv; varying vec3 vC; void main() { vUv = position.xy; vC = vec3(1.0, 0.578, 0.255);\n#ifdef USE_INSTANCING_COLOR\nvC = instanceColor;\n#endif\n"
         + " vec4 mv = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); mv.xy += position.xy * 1.6;"
         + " gl_Position = projectionMatrix * mv; }",
-      fragmentShader: "uniform float uOpacity; uniform vec3 uColor; varying vec2 vUv;"
+      fragmentShader: "uniform float uOpacity; uniform vec3 uColor; varying vec2 vUv; varying vec3 vC;"
         + " void main() { float r = length(vUv); float a = pow(max(0.0, 1.0 - r), 2.4) + 0.5 * pow(max(0.0, 1.0 - r * 3.0), 2.0);"
-        + " gl_FragColor = vec4(uColor * a * uOpacity, 1.0); }",
+        + " gl_FragColor = vec4(uColor * vC * a * uOpacity, 1.0); }",
       transparent: true, depthWrite: false, blending: T.AdditiveBlending, fog: false
     });
     var mesh = new T.InstancedMesh(new T.PlaneGeometry(2, 2), mat, Math.max(1, n || 8));
@@ -126,10 +126,14 @@ var WorldScenery = (function () {
 
   /** @param {any} mesh @param {any} T @param {Array<Array<number>>} lamps */
   function placeGlows(mesh, T, lamps) {
-    var m = new T.Matrix4();
-    lamps.forEach(function (p, i) { mesh.setMatrixAt(i, m.makeTranslation(p[0], p[1], p[2])); });
+    var m = new T.Matrix4(), c = new T.Color();
+    lamps.forEach(function (p, i) {
+      mesh.setMatrixAt(i, m.makeTranslation(p[0], p[1], p[2]));
+      mesh.setColorAt(i, p[3] ? c.fromArray(p[3][1]) : c.setRGB(1, 0.578, 0.255));
+    });
     mesh.count = lamps.length;
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
   return Object.freeze({ sky: sky, plaza: plaza, glows: glows, placeGlows: placeGlows });

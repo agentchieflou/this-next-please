@@ -20,7 +20,9 @@ The kit's noise (`WorldKit.NOISE`), for the sky's clouds.
 
 A sphere drawn from inside, before everything, without depth: the gradient from horizon to zenith,
 two layers of fbm cloud (bright by day, dark by night), and by night a warm glow at the horizon, a
-city's light on low cloud. The wet ground's environment map is rendered from it (`vReflect`).
+city's light on low cloud. The clouds drift with the kit's clock, the upper layer a little faster than
+the lower, so the sky is weather rather than a painted ceiling. The environment map comes from the
+Poly Haven skies when they load (`WorldAssets.dome`, `vReflect`), else from this sphere.
 
 ### `function lamp`
 
@@ -53,4 +55,5 @@ it. Hidden by day.
 
 ### `function placeGlows`
 
-The halos where the lamps are.
+The halos where the lamps are, each in its lamp's colour when the lamp gives one (a street lamp's
+sodium or LED), else the plaza lamps' warm white.

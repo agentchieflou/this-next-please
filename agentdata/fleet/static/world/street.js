@@ -11,6 +11,9 @@ var WorldStreet = (function () {
   var LEGS = ["#1f2124", "#2e3450", "#3a3f46", "#4a3b2c", "#22303f", "#6b7078", "#2b2d33"];
   var HAIRS = ["#1c1a22", "#2b1d16", "#3b2a20", "#6b4528", "#a5512b", "#c9c6c2", "#d7b26a"];
   var GRIP = [0.18, 1.42, 0.18];
+  var BARK = "float wkb = wsN( vec2( vUv.x * 18.0, vUv.y * 2.5 ) ) * 0.6 + wsN( vec2( vUv.x * 43.0, vUv.y * 7.0 ) ) * 0.4; diffuseColor.rgb *= 0.58 + 0.62 * wkb;";
+  var SODIUM = [[1.0, 0.72, 0.42], [1.0, 0.578, 0.255]];
+  var LED = [[0.78, 0.88, 1.0], [0.62, 0.74, 1.0]];
   var REACH = 200;
   var M = { T: null, mats: null, group: null, cars: null, people: null, loops: [], walkers: [], signals: null, P: -1, light: [], scans: {}, pr: {}, reach: 110 };
 
@@ -142,18 +145,24 @@ var WorldStreet = (function () {
     };
     var furn = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 });
     var shelter = new T.MeshStandardMaterial({ color: 0x9fb3c0, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.25, depthWrite: false });
+    var bark = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+    bark.defines.USE_UV = "";
     var cone = new T.ShaderMaterial({
       uniforms: { uNight: u.night },
-      vertexShader: "varying float vH; varying float vF; void main() { vH = uv.y; vec4 wp = modelMatrix * instanceMatrix * vec4( position, 1.0 );"
+      vertexShader: "varying float vH; varying float vF; varying vec3 vC; void main() { vH = uv.y; vec4 wp = modelMatrix * instanceMatrix * vec4( position, 1.0 );"
         + " vec3 n = normalize( mat3( modelMatrix * instanceMatrix ) * normal ); vF = abs( dot( n, normalize( cameraPosition - wp.xyz ) ) );"
+        + " vC = vec3( 1.0, 0.72, 0.42 );\n#ifdef USE_INSTANCING_COLOR\nvC = instanceColor;\n#endif\n"
         + " gl_Position = projectionMatrix * viewMatrix * wp; }",
-      fragmentShader: "uniform float uNight; varying float vH; varying float vF;"
-        + " void main() { float a = pow( clamp( vH, 0.0, 1.0 ), 1.6 ) * pow( clamp( vF, 0.0, 1.0 ), 1.5 ) * uNight * 0.05; gl_FragColor = vec4( vec3( 1.0, 0.72, 0.42 ) * a, 1.0 ); }",
+      fragmentShader: "uniform float uNight; varying float vH; varying float vF; varying vec3 vC;"
+        + " void main() { float a = pow( clamp( vH, 0.0, 1.0 ), 1.6 ) * pow( clamp( vF, 0.0, 1.0 ), 1.5 ) * uNight * 0.05; gl_FragColor = vec4( vC * a, 1.0 ); }",
       transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide, fog: false
     });
     return {
       paint: WorldKit.lit(paint, "paint", { porous: 0 }), people: WorldKit.lit(people, "people", { porous: 1 }),
       brolly: WorldKit.lit(brolly, "brolly", { porous: 0 }), leaves: WorldKit.foliage(T, lib),
+      bark: WorldKit.lit(bark, "bark", { porous: 0.6, extra: function (/** @type {any} */ sh) {
+        sh.fragmentShader = WorldKit.NOISE + sh.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n" + BARK);
+      } }),
       furn: WorldKit.lit(furn, "furn", { porous: 0.5 }), glass: WorldKit.lit(new T.MeshStandardMaterial({ color: 0x0a0d10, roughness: 0.04, metalness: 0.2 }), "carglass", { porous: 0 }),
       trim: WorldKit.lit(new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.4 }), "cartrim", { porous: 0.2 }),
       lamps: lamps, sig: sig, shelter: shelter, cone: cone
@@ -203,19 +212,19 @@ var WorldStreet = (function () {
     f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.06, 1.9, 6), iron, [0, 7.1, 0.85], null, [Math.PI / 2 - 0.12, 0, 0], yaw), p[0], p[1]));
     f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(0.42, 0.16, 0.85), "#3a3f45", [0, 7.18, 1.9], null, null, yaw), p[0], p[1]));
     var hx = p[0] + dir[0] * 1.9, hz = p[1] + dir[1] * 1.9;
-    glowAt.push([hx, 7.02, hz]);
     var sodium = rnd(sg.k * 7 + a) > 0.45;
+    glowAt.push([hx, 7.02, hz, sodium ? SODIUM : LED]);
     lights.push({ p: [hx, 6.8, hz], c: sodium ? [44, 25, 10] : [28, 31, 36], r: 20, f: rnd(a * 3.3 + sg.k) > 0.97 ? 1 : 0 });
     solids.push([p[0], p[1], 0.25]);
   }
 
-  /** @param {any} T @param {Array<any>} f @param {Array<any>} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
-  function tree(T, f, leaf, solids, x, z, seed) {
+  /** @param {any} T @param {Array<any>} bark @param {Array<any>} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
+  function tree(T, bark, leaf, solids, x, z, seed) {
     var P = WorldKit.piece;
-    f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(1.3, 0.06, 1.3), "#2b2520", [0, 0.03, 0]), x, z));
-    f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.11, 0.17, 3.2, 7), "#3c2c22", [0, 1.6, 0], null, [0.03 * (seed - 0.5), 0, 0.04]), x, z));
-    f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.4, 5), "#3c2c22", [0.35, 3.1, 0], null, [0, 0, -0.7]), x, z));
-    f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.3, 5), "#3c2c22", [-0.3, 3.2, 0.1], null, [0.2, 0, 0.75]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.BoxGeometry(1.3, 0.06, 1.3), "#2b2520", [0, 0.03, 0]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.11, 0.17, 3.2, 7), "#56473a", [0, 1.6, 0], null, [0.03 * (seed - 0.5), 0, 0.04]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.4, 5), "#56473a", [0.35, 3.1, 0], null, [0, 0, -0.7]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.3, 5), "#56473a", [-0.3, 3.2, 0.1], null, [0.2, 0, 0.75]), x, z));
     WorldKit.canopy(T, leaf, x, 4.9, z, 2.0, seed * 17 + 3, 52);
     WorldKit.canopy(T, leaf, x + 0.6, 4.1, z - 0.3, 1.2, seed * 23 + 5, 18);
     solids.push([x, z, 0.35]);
@@ -391,7 +400,7 @@ var WorldStreet = (function () {
       M.group.traverse(function (m) { if (m.geometry && !m.userData.shared) m.geometry.dispose(); });
     }
     M.P = P;
-    var group = new T.Group(), f = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [];
+    var group = new T.Group(), f = [], bark = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [];
     var segs = segments(P), parked = [];
     var near = function (/** @type {Array<number>} */ q, /** @type {number} */ r) { return Math.hypot(q[0], q[1]) < r; };
     segs.forEach(function (sg, i) {
@@ -400,7 +409,7 @@ var WorldStreet = (function () {
       if (sg.k === 0) {
         for (var b = sg.a0 + 14; b < sg.a1 - 4; b += 16) {
           var tp = spot(sg, b, sg.road + 1.4);
-          if (near(tp, 160 * far)) tree(T, f, leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          if (near(tp, 160 * far)) tree(T, bark, leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
         }
       }
       if (!near(mid, 150 * far)) return;
@@ -432,13 +441,15 @@ var WorldStreet = (function () {
       return mesh;
     };
     add(f, M.mats.furn, "furniture");
+    add(bark, M.mats.bark, "bark");
     add(leaf, M.mats.leaves, "trees");
     add(glassy, M.mats.shelter, "shelters");
     add(emit, M.mats.sig, "emit", ["aSig"]);
     var cone = new T.CylinderGeometry(0.2, 2.9, 6.6, 18, 1, true);
     cone.translate(0, -3.3, 0);
     var cones = new T.InstancedMesh(cone, M.mats.cone, glowAt.length), mtx = new T.Matrix4();
-    glowAt.forEach(function (g, i) { cones.setMatrixAt(i, mtx.makeTranslation(g[0], g[1] + 0.05, g[2])); });
+    var tint = new T.Color();
+    glowAt.forEach(function (g, i) { cones.setMatrixAt(i, mtx.makeTranslation(g[0], g[1] + 0.05, g[2])); cones.setColorAt(i, tint.fromArray(g[3][0])); });
     cones.frustumCulled = false;
     cones.renderOrder = 3;
     cones.name = "street-cones";
