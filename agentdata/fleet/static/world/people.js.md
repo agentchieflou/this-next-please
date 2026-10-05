@@ -106,8 +106,8 @@ sitting poses are baked over exactly one, so their loop has no seam.
 
 ### `var MOTIONS`
 
-How many motions the crowd's bone texture holds: walking (the street's), standing, presenting and
-sitting (the agents').
+How many motions the crowd's bone texture holds: walking with an umbrella (the street's), standing,
+presenting, sitting and walking with free arms (the agents', who stroll the plaza without umbrellas).
 
 ### `function use`
 
@@ -216,7 +216,7 @@ A frame of the character: the gait advanced by the distance walked, its amplitud
 The crowd's walk, holding an umbrella, posed `FRAMES` times and written as bone matrices; the right
 hand's path is kept for the umbrella. With `motion` 1 it bakes standing instead, with 2 presenting
 (the hero's talking pose) and with 3 sitting (the seated pose, hands in the lap): no stride, one breath
-(`BREATH`), and no slow sway, which would not loop.
+(`BREATH`), and no slow sway, which would not loop. With 4 it bakes the walk again, its arms free.
 
 ### `function crowd`
 
@@ -229,7 +229,8 @@ hair cards stop mirroring the sky (`CROWD`). Draw calls are characters times lev
 of people; the low tier has no pedestrians.
 
 The texture holds `MOTIONS` motions: every character's walk first (rows `character × FRAMES`, as the
-street places them), then every character's standing, presenting and sitting, for the agents.
+street places them), then every character's standing, presenting, sitting and free-armed walk, for the
+agents.
 
 ### `function agents`
 
@@ -244,8 +245,9 @@ visit and every machine.
 
 ### `function placeAgents`
 
-Each frame: every agent's person where the world put it, walking (motion 0, at its own `rate` of
-strides), standing (1), presenting (2) or sitting (3), at its own phase, in its colours. Says how many it
+Each frame: every agent's person where the world put it, walking (motion 4, arms free, at its own `rate`
+of strides; 0 is the street's walk with its umbrella), standing (1), presenting (2) or sitting (3), at its
+own phase, in its colours. Says how many it
 placed.
 
 ### `function hand`

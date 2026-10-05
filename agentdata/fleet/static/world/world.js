@@ -340,7 +340,7 @@ function vPersons(list) {
     var tints = [V_SKIN[h % V_SKIN.length], null, V_LEGS[(h >>> 4) % V_LEGS.length], V_HAIR[(h >>> 8) % V_HAIR.length]].map(function (c) {
       return c ? new T.Color(c).multiplyScalar(2) : new T.Color().setHSL((h % 360) / 360, 0.42, 0.42).multiplyScalar(2);
     });
-    var motion = ag.mode === "walk" ? 0 : ag.mode === "sit" ? 3 : vState.open === ag.repo ? 2 : 1;
+    var motion = ag.mode === "walk" ? 4 : ag.mode === "sit" ? 3 : vState.open === ag.repo ? 2 : 1;
     return { key: ag.repo, m: m, motion: motion, phase: (h % 997) / 997, rate: V_STROLL / 1.5, tints: tints };
   });
 }

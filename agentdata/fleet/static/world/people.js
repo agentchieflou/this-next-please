@@ -5,7 +5,7 @@ var WorldPeople = (function () {
   var S = { T: null, fill: { value: 0.25 }, tex: new Map(), mats: new Map(), crowd: null, parts: [] };
   var FRAMES = 24;
   var BREATH = Math.PI * 2 / 1.7;
-  var MOTIONS = 4;
+  var MOTIONS = 5;
   var SIDES = [["l", -1], ["r", 1]];
   var FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
   var SCATTER = [
@@ -536,7 +536,8 @@ var WorldPeople = (function () {
     var bones = new Float32Array(FRAMES * R.n * 16), hand = new Float32Array(FRAMES * 3), hr = R.index.hand_r;
     for (var f = 0; f < FRAMES; f++) {
       var still = { gait: 0, amp: 0, run: 0, talk: motion === 2 ? 1 : 0, t: f / FRAMES * BREATH, still: false, sway: false, seated: motion === 3, rolled: 0, hold: false };
-      var out = solve(T, R, posture(motion ? still : { gait: f / FRAMES * Math.PI * 2, amp: 1, run: 0, talk: 0, t: 0, still: true, seated: false, rolled: 0, hold: hold }), Q, hip);
+      var walk = { gait: f / FRAMES * Math.PI * 2, amp: 1, run: 0, talk: 0, t: 0, still: true, seated: false, rolled: 0, hold: motion === 4 ? false : hold };
+      var out = solve(T, R, posture(motion && motion !== 4 ? still : walk), Q, hip);
       for (var i = 0; i < R.n; i++) {
         m.compose(out.wp[i], out.W[i], one).multiply(R.ibm[i]);
         bones.set(m.elements, (f * R.n + i) * 16);
@@ -557,7 +558,7 @@ var WorldPeople = (function () {
         if (!lods.length) return;
         var R = rig(T, skin.joints, null, skin.extras.anchors), baked = bake(T, R, true);
         width = Math.max(width, R.n * 4);
-        chars.push({ R: R, lods: lods, baked: baked, motions: [baked, bake(T, R, false, 1), bake(T, R, false, 2), bake(T, R, false, 3)] });
+        chars.push({ R: R, lods: lods, baked: baked, motions: [baked, bake(T, R, false, 1), bake(T, R, false, 2), bake(T, R, false, 3), bake(T, R, false, 4)] });
       });
     });
     if (!chars.length) return null;
@@ -661,7 +662,7 @@ var WorldPeople = (function () {
     list.forEach(function (a) {
       var ci = cast(a.key), mesh = A[ci], k = mesh.count++, g = mesh.geometry;
       mesh.setMatrixAt(k, a.m);
-      g.attributes.aWalk.setXYZ(k, a.phase, a.motion ? 1 / BREATH : a.rate, (a.motion * n + ci) * FRAMES);
+      g.attributes.aWalk.setXYZ(k, a.phase, a.motion % 4 ? 1 / BREATH : a.rate, (a.motion * n + ci) * FRAMES);
       ["aSkin", "aTop", "aBottom", "aHair"].forEach(function (at, i) { g.attributes[at].setXYZ(k, a.tints[i].r, a.tints[i].g, a.tints[i].b); });
     });
     A.forEach(function (m) {
