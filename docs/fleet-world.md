@@ -193,6 +193,28 @@ glTF's Y up).
   to 135 (the mirror of the wet street draws them twice) and from 1.32 to 1.43 million triangles.
 - The `low` quality keeps the page's own trees: two draw calls for all of them.
 
+### The cars
+
+The cars were the next weakest thing: boxes extruded from a side profile, a sedan and an SUV. They are
+grown here too, for the same reason as the trees, one file, `agentdata/fleet/static/world/cars/cars.glb`
+(0.4 MiB), lofted by `tools/world/cars/` and under the repository's licence (the folder's `LICENSE`),
+after no maker's design.
+
+- **Four kinds:** a sedan, a hatchback, an SUV and a van, each body lofted from its own profiles (the
+  top line from the bumper over the bonnet, windscreen, roof and rear window to the boot, the
+  beltline, the widths, the underside raised over the wheel arches) and closed at the ends with rounded
+  noses. Glass, head and tail lamps in their housings, grille, intakes, plates, pillars and door seams
+  are laid on the body from outlines seen from the side, above or the ends; tyres and five-spoke rims
+  are built for each wheel.
+- **Painted by the page:** the body takes each car's colour through the clearcoat paint, as before;
+  the glass, trim and lamps keep their own materials, the lamps lit on cars that drive.
+- **Near and far.** Within 36 m of the eye a car is drawn whole (about 3,900 triangles); further away
+  as about 850 triangles in two draw calls, the glass and trim in the body by colour.
+- **Cost.** On the operator's laptop (RTX 3050 Ti, Chromium, 1600 x 900, `high`, held at full
+  resolution) a frame went from 2.7 to 2.8 ms (with the trees) to 3.1 ms, at 147 to 163 draw calls
+  from 131.
+- The `low` quality keeps the page's own two cars.
+
 ### The people
 
 Poly Haven has no people, so they have their own folder, `agentdata/fleet/static/world/people/`, its

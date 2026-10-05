@@ -867,6 +867,28 @@ def test_the_worlds_trees_are_the_file_it_loads_made_here_and_bounded():
     assert size < TREES_BUDGET, size
 
 
+#: What `static/world/cars/` may weigh: about 0.4 MiB today (four cars, near and far, no textures).
+#: `tools/world/cars/` remakes the file from its own profiles; raise this with the operator's rule above.
+CARS_BUDGET = 1024 * 1024
+
+
+def test_the_worlds_cars_are_the_file_it_loads_made_here_and_bounded():
+    """`static/world/cars/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/cars/`, from no third-party asset and after no maker's design, under the
+    repository's own licence; and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "cars")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'CARS = "/static/world/cars/"' in src and 'CARS + "cars.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "cars.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/cars/", "no third-party asset", "maker's design", "MIT", "cars.glb"):
+        assert words in licence, words
+    for tool in ("cars.py", "cars.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "cars", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < CARS_BUDGET, size
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""

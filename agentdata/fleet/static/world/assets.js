@@ -4,6 +4,7 @@ var WorldAssets = (function () {
   var DIR = "/static/world/cc0/";
   var PEOPLE = "/static/world/people/";
   var TREES = "/static/world/trees/";
+  var CARS = "/static/world/cars/";
   var TEX = {
     brick: ["brick_wall_001", 3, 3, 1], stucco: ["painted_plaster_wall", 2, 2, 1], concrete: ["concrete_slab_wall", 2.3, 2.3, 1],
     asphalt: ["asphalt_02", 3, 3, 0.6], sidewalk: ["concrete_pavement", 1.8, 1.8, 0.78]
@@ -85,7 +86,8 @@ var WorldAssets = (function () {
           var mt = g.json.materials[p.material], pbr = mt.pbrMetallicRoughness, a = p.attributes;
           names.push(m.name);
           parts.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture), g.pic(pbr.metallicRoughnessTexture)]).then(function (im) {
-            return { pos: g.read(a.POSITION), nor: g.read(a.NORMAL), uv: g.read(a.TEXCOORD_0), idx: g.read(p.indices), col: a.COLOR_0 === undefined ? null : g.read(a.COLOR_0),
+            return { pos: g.read(a.POSITION), nor: g.read(a.NORMAL), uv: a.TEXCOORD_0 === undefined ? null : g.read(a.TEXCOORD_0), idx: g.read(p.indices),
+                     col: a.COLOR_0 === undefined ? null : g.read(a.COLOR_0),
                      mat: mt.name, map: im[0], normal: im[1], orm: im[2] };
           }));
         });
@@ -156,9 +158,9 @@ var WorldAssets = (function () {
     }).catch(function () { return out; });
   }
 
-  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, trees: Object<string, Array<Object>>|null, people: Object}>} */
+  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, trees: Object<string, Array<Object>>|null, cars: Object<string, Array<Object>>|null, people: Object}>} */
   function load() {
-    var out = { tex: {}, sky: {}, props: {}, trees: null, people: null }, jobs = [];
+    var out = { tex: {}, sky: {}, props: {}, trees: null, cars: null, people: null }, jobs = [];
     Object.keys(TEX).forEach(function (k) {
       var id = TEX[k][0];
       jobs.push(Promise.all([image(id + "_diff.webp"), image(id + "_arm.webp"), image(id + "_nor.webp")]).then(function (im) {
@@ -167,6 +169,7 @@ var WorldAssets = (function () {
     });
     PROPS.forEach(function (id) { jobs.push(glb(DIR + id + ".glb").then(function (parts) { if (parts) out.props[id] = parts; })); });
     jobs.push(glb(TREES + "trees.glb", true).then(function (t) { out.trees = t; }));
+    jobs.push(glb(CARS + "cars.glb", true).then(function (t) { out.cars = t; }));
     Object.keys(SKY).forEach(function (k) {
       jobs.push(rgbe(SKY[k][0] + ".hdr").then(function (s) { if (s) out.sky[k] = Object.assign(s, { k: SKY[k][1] }); }));
     });
@@ -233,18 +236,19 @@ var WorldAssets = (function () {
     return t;
   }
 
-  /** @param {any} T @param {Object<string, Array<Object>>|null} props @param {number} aniso @returns {Object<string, Array<{geo: any, mat: any}>>} */
-  function scans(T, props, aniso) {
+  /** @param {any} T @param {Object<string, Array<Object>>|null} props @param {number} aniso @param {boolean} [bare] @returns {Object<string, Array<{geo: any, mat: any}>>} */
+  function scans(T, props, aniso, bare) {
     var out = {}, mats = {};
     Object.keys(props || {}).forEach(function (id) {
       out[id] = props[id].map(function (/** @type {Object} */ p) {
         var g = new T.BufferGeometry();
         g.setAttribute("position", new T.BufferAttribute(p.pos.a, 3));
         g.setAttribute("normal", new T.BufferAttribute(p.nor.a, 3));
-        g.setAttribute("uv", new T.BufferAttribute(p.uv.a, 2));
+        if (p.uv) g.setAttribute("uv", new T.BufferAttribute(p.uv.a, 2));
         if (p.col) g.setAttribute("color", new T.BufferAttribute(p.col.a, 3));
         g.setIndex(new T.BufferAttribute(p.idx.a, 1));
         g.computeBoundingSphere();
+        if (bare) return { geo: g, mat: null };
         var key = p.col ? p.mat : "";
         if (!mats[key]) {
           var orm = bitmap(T, p.orm, false, aniso);
@@ -263,5 +267,5 @@ var WorldAssets = (function () {
     return out;
   }
 
-  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TREES: TREES, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
+  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TREES: TREES, CARS: CARS, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
 })();

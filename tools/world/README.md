@@ -75,3 +75,24 @@ trees side by side into `<dir>/preview.png` to look at):
 leaves primitive each, turned to glTF's Y up, normals and colours as normalised bytes, the leaves'
 atlas at 1024 px and the barks at 512 px in WebP. `tests/test_fleet_serve.py` holds the folder to
 its budget.
+
+## Cars (`cars/`)
+
+What `agentdata/fleet/static/world/cars/` holds: `cars.glb`, the traffic, lofted from nothing but the
+numbers in `cars/cars.py` (after no maker's design). Needs Blender 5.2 (headless) and Node 22 with the
+pinned tools above. From the repository's root:
+
+    blender --background --factory-startup --python tools/world/cars/cars.py -- /tmp/cars
+    cd tools/world && node cars/cars.mjs /tmp/cars/raw ../../agentdata/fleet/static/world/cars
+
+`cars.py` builds each car in `CARS` twice (`lod` 0 near, 1 far): the body lofted through stations along
+it (`stations`), sixteen points a half section (`Car.half`) from the underside's middle round the side
+and over the top, from the profiles (top line, beltline, the top's half width, the underside, raised
+over the arches), closed by rounded ends; then, cast onto it with Blender's BVH and lifted off it, the
+glass (side windows round the B pillar, windscreen, rear window), the lamps in their housings, the
+grille, intakes, plates, seams and pillars from the outlines in `ends`; mirrors; tyres and five-spoke
+rims. `preview` renders one car (`CAR=sedan_lod0`) from four sides into `<dir>/view0..3.png`.
+
+`cars.mjs` packs it: a mesh a car and level of detail (`<kind>_lod<0|1>`), near with body, glass, trim
+and lamp primitives in that order, far with body and lamp; glTF's Y up, normals and colours as
+normalised bytes, no textures.
