@@ -57,6 +57,9 @@ otherwise (`THIN`), so a skin without a thinness map draws as before. The world 
 so nothing darkens an ear's front face when the light is behind it; were shadows added, this term would
 need the light unshadowed, or it would vanish exactly where it shows.
 
+`pkSkin` gates the wrapped term: 1 for a skin material, set per fragment where one material draws skin
+and cloth together (the crowd, `CROWD`).
+
 ### `var CARDS`
 
 The roles drawn as alpha-tested cards (strands painted on flat strips). A card's one normal stands for
@@ -77,6 +80,13 @@ Lashes reflect nothing: at their size a highlight is only ever a spark on the ey
 Reads the thinness from the packed map's blue channel, where the pipeline puts it
 (`tools/world/people/README.md`, `thin`); glTF calls that channel metalness, which the material's
 `metallicFactor` of 0 switches off for any other viewer.
+
+### `var CROWD`
+
+The crowd's share of what the hero's materials do, decided per fragment because one material draws a
+whole pedestrian: skin (`_ROLE` 0) scatters (`pkSkin`), hair cards (3: hair, brows, lashes, beard) cap
+their grazing reflection as `GRAZE` does. Without it the crowd's skin was plastic beside the hero's and
+their hair a grey sheen under the rain.
 
 ### `var BEHIND`
 
@@ -202,8 +212,9 @@ The pedestrians: every crowd character at two levels of detail, each an `Instanc
 geometry and one atlas, skinned in the vertex shader from a float texture of baked bone matrices (a
 row per character and frame; `texelFetch`, so WebGL 2, which every tier with pedestrians has). Each
 instance has its phase and pace, its row, and its skin, top, bottom and hair colours, which the
-`_ROLE` attribute picks between. Draw calls are characters times levels, whatever the number of
-people; the low tier has no pedestrians.
+`_ROLE` attribute picks between; the role also reaches the fragment shader, where skin scatters and
+hair cards stop mirroring the sky (`CROWD`). Draw calls are characters times levels, whatever the number
+of people; the low tier has no pedestrians.
 
 ### `function hand`
 

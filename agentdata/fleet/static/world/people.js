@@ -8,12 +8,12 @@ var WorldPeople = (function () {
   var FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
   var SCATTER = [
     "#define PK_THROUGH vec3( 0.62, 0.24, 0.14 )",
-    "float pkThin = 0.0;",
+    "float pkThin = 0.0; float pkSkin = 1.0;",
     "void RE_Direct_Skin( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {",
     "  RE_Direct_Physical( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );",
     "  float pkNl = dot( geometryNormal, directLight.direction );",
     "  float pkWrap = max( ( pkNl + 0.45 ) / 1.45, 0.0 ) - max( pkNl, 0.0 );",
-    "  reflectedLight.directDiffuse += directLight.color * ( pkWrap * vec3( 0.55, 0.22, 0.14 ) + max( -pkNl, 0.0 ) * pkThin * PK_THROUGH ) * BRDF_Lambert( material.diffuseColor );",
+    "  reflectedLight.directDiffuse += directLight.color * ( pkWrap * vec3( 0.55, 0.22, 0.14 ) * pkSkin + max( -pkNl, 0.0 ) * pkThin * PK_THROUGH ) * BRDF_Lambert( material.diffuseColor );",
     "}",
     "#undef RE_Direct",
     "#define RE_Direct RE_Direct_Skin"
@@ -22,6 +22,7 @@ var WorldPeople = (function () {
   var GRAZE = "material.specularF90 = 0.25;";
   var MATTE = "material.specularColor = vec3( 0.0 ); material.specularF90 = 0.0;";
   var THIN = "pkThin = texelRoughness.b;";
+  var CROWD = "pkSkin = step( vRole, 0.5 ); material.specularF90 = abs( vRole - 3.0 ) < 0.5 ? 0.25 : 1.0;";
   var BEHIND = [
     "#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )",
     "iblIrradiance += pkThin * PK_THROUGH * getIBLIrradiance( -geometryNormal );",
@@ -576,7 +577,7 @@ var WorldPeople = (function () {
         "uniform highp sampler2D uBones; uniform float uTime; uniform float uFrames;",
         "attribute vec4 aJoint; attribute vec4 aWeight; attribute float aRole;",
         "attribute vec3 aWalk; attribute vec3 aSkin; attribute vec3 aTop; attribute vec3 aBottom; attribute vec3 aHair;",
-        "varying vec3 vTint;",
+        "varying vec3 vTint; varying float vRole;",
         "mat4 wpBone( float j, float f ) { ivec2 c = ivec2( int( j ) * 4, int( aWalk.z + f ) );",
         "  return mat4( texelFetch( uBones, c, 0 ), texelFetch( uBones, c + ivec2( 1, 0 ), 0 ), texelFetch( uBones, c + ivec2( 2, 0 ), 0 ), texelFetch( uBones, c + ivec2( 3, 0 ), 0 ) ); }",
         "mat4 wpSkin( float f ) { return wpBone( aJoint.x, f ) * aWeight.x + wpBone( aJoint.y, f ) * aWeight.y + wpBone( aJoint.z, f ) * aWeight.z + wpBone( aJoint.w, f ) * aWeight.w; }",
@@ -585,12 +586,14 @@ var WorldPeople = (function () {
           "float wpF = fract( uTime * aWalk.y + aWalk.x ) * uFrames; float wp0 = floor( wpF );",
           "mat4 wpM = wpSkin( wp0 ) * ( 1.0 - ( wpF - wp0 ) ) + wpSkin( mod( wp0 + 1.0, uFrames ) ) * ( wpF - wp0 );",
           "objectNormal = mat3( wpM ) * objectNormal;",
-          "vTint = aRole < 0.5 ? aSkin : aRole < 1.5 ? aTop : aRole < 2.5 ? aBottom : aRole < 3.5 ? aHair : vec3( 1.0 );"
+          "vTint = aRole < 0.5 ? aSkin : aRole < 1.5 ? aTop : aRole < 2.5 ? aBottom : aRole < 3.5 ? aHair : vec3( 1.0 ); vRole = aRole;"
         ].join("\n")).replace("#include <begin_vertex>", "#include <begin_vertex>\ntransformed = ( wpM * vec4( transformed, 1.0 ) ).xyz;")
       ].join("\n");
-      sh.fragmentShader = "uniform float uFill; varying vec3 vTint;\n" + sh.fragmentShader
+      sh.fragmentShader = "uniform float uFill; varying vec3 vTint; varying float vRole;\n" + sh.fragmentShader
         .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb *= vTint;")
-        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill * 0.5;");
+        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill * 0.5;")
+        .replace("#include <lights_physical_pars_fragment>", "#include <lights_physical_pars_fragment>\n" + SCATTER)
+        .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n" + CROWD);
     } });
     var meshes = [];
     chars.forEach(function (c, ci) {

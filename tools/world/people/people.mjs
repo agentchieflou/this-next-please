@@ -67,6 +67,21 @@ function roleOf(p, rules) {
   return "other";
 }
 
+// The rotation that stands a source up: its "up" is the way from the pelvis to the head (else the neck,
+// else the upper spine), whichever axis and sign that is. Extents were a guess that failed on a crowd
+// character whose bind pose lay along another axis: it walked bent double. Without those joints, a
+// source is Z-up when it is more than twice as tall in z as in y; `cfg.up` ("y" or "z") overrides both.
+function upright(src, cfg, ext) {
+  if (cfg.up) return cfg.up === "z" ? M.rotX(-Math.PI / 2) : M.ident();
+  const P = n => src.joints.get(n) && M.translation(src.joints.get(n).world);
+  const a = P("pelvis"), b = P("head") || P("neck_01") || P("spine_05");
+  if (!a || !b) return ext[2] > 2 * ext[1] ? M.rotX(-Math.PI / 2) : M.ident();
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const c = [0, 1, 2].reduce((m, i) => (Math.abs(d[i]) > Math.abs(d[m]) ? i : m), 0), s = Math.sign(d[c]);
+  if (c === 1) return s > 0 ? M.ident() : M.rotX(Math.PI);
+  return c === 2 ? M.rotX(-s * Math.PI / 2) : M.rotZ(s * Math.PI / 2);
+}
+
 // The transform from a source's world to the web's: metres, Y up, facing -Z, feet on 0, pelvis at x = z = 0.
 function frame(src, cfg) {
   const ext = [0, 1, 2].map(c => {
@@ -74,8 +89,7 @@ function frame(src, cfg) {
     for (const p of src.prims) for (let i = c; i < p.pos.length; i += 3) { lo = Math.min(lo, p.pos[i]); hi = Math.max(hi, p.pos[i]); }
     return hi - lo;
   });
-  const up = cfg.up || (ext[2] > 2 * ext[1] ? "z" : "y");
-  let F = up === "z" ? M.rotX(-Math.PI / 2) : M.ident();
+  let F = upright(src, cfg, ext);
   const J = n => src.joints.get(n) && M.point(F, ...M.translation(src.joints.get(n).world));
   let ys = [Infinity, -Infinity];
   for (const p of src.prims) for (let i = 1; i < p.pos.length; i += 3) {

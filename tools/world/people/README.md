@@ -20,8 +20,9 @@ For each character, in order:
    nodes' own transforms: an export saved mid-animation (Fab's "Animated" characters are saved
    sitting or walking) otherwise comes out in that pose.
 2. Finds the world frame: metres (an export over 20 units tall is taken as centimetres, or set
-   `scale`), Y up (`"up": "z"` for a Z-up file; without `up`, a character more than twice as deep in Z
-   as it is tall in Y is taken as Z-up), facing -Z (from the feet: `foot_l` to `ball_l`; or
+   `scale`), Y up (the way from `pelvis` to `head`, else `neck_01` or `spine_05`, whichever axis and
+   sign it is; without those joints, a character more than twice as deep in Z as it is tall in Y is
+   taken as Z-up; `"up": "z"` or `"y"` overrides both), facing -Z (from the feet: `foot_l` to `ball_l`; or
    set `facing`), feet on y = 0, pelvis over the origin.
 3. Keeps the Unreal Engine body bones (`pelvis`, `spine_01`..`spine_05`, `neck_01`, `neck_02`, `head`,
    `clavicle/upperarm/lowerarm/hand_l/r`, `thigh/calf/foot/ball_l/r`, and the 30 finger bones for the
