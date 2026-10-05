@@ -50,6 +50,41 @@ weighted by the surface colour. It adds light only near and past the terminator,
 instructions a light, and touches no other material. The kit's light loop calls `RE_Direct`, so the
 city's own lights scatter too.
 
+Where skin is thin (an ear, a finger) light also comes through it: a light behind the surface
+(`-N·L`) adds its share, weighted by `pkThin` and coloured `PK_THROUGH`, what is left of daylight
+after a few millimetres of flesh (red keeps, blue goes). `pkThin` stays 0 unless the part's map says
+otherwise (`THIN`), so a skin without a thinness map draws as before. The world casts no shadow maps,
+so nothing darkens an ear's front face when the light is behind it; were shadows added, this term would
+need the light unshadowed, or it would vanish exactly where it shows.
+
+### `var CARDS`
+
+The roles drawn as alpha-tested cards (strands painted on flat strips). A card's one normal stands for
+a tuft of hair, so at a grazing view it reflects as a sheet: under the city's bright, rain-wet sky a
+hair cap read as a grey helmet and the lashes as white sparks along the lid.
+
+### `var GRAZE`
+
+Hair, brows and beard keep their sheen but cap the grazing reflection (`specularF90`) at a quarter, the
+most a tuft of real strands, which shade each other, sends back edge-on.
+
+### `var MATTE`
+
+Lashes reflect nothing: at their size a highlight is only ever a spark on the eye's edge.
+
+### `var THIN`
+
+Reads the thinness from the packed map's blue channel, where the pipeline puts it
+(`tools/world/people/README.md`, `thin`); glTF calls that channel metalness, which the material's
+`metallicFactor` of 0 switches off for any other viewer.
+
+### `var BEHIND`
+
+The light through a thin part from the sky and the city's hemisphere light, as `SCATTER` does for
+the sun and lamps: the environment and hemisphere light seen from behind the surface (`-N`), weighted
+and coloured the same way. The sun is high and dim here and the light mostly comes from the overcast
+sky, so without this an ear would glow only on the rare frame the sun is behind it.
+
 ### `var FRAMES`
 
 The crowd's walk cycle is baked at this many poses; the shader blends between two of them.
@@ -66,7 +101,7 @@ True when there is a hero to build.
 ### `function parts`
 
 What the character last built draws, one entry a part: its role, whether the look dyed it, whether it
-reads a roughness and an occlusion map, and its colour. `FleetWorld.inspect().people.parts` reports it,
+reads a roughness and an occlusion map, whether light shows through it (`thin`), and its colour. `FleetWorld.inspect().people.parts` reports it,
 so a test can hold a realistic export to its own colours and maps without reading pixels.
 
 ### `function frameQ`
@@ -109,8 +144,10 @@ The hero file whose `fits` matches most of the look.
 A part's material, through the city's lights and rain (`WorldKit.lit`), with the character's own fill.
 A part whose file carries a packed map (`orm`, glTF's layout: R occlusion, G roughness) reads its
 roughness from it, and its occlusion when the file says it has one (`ao`); the pipeline writes it
-(`tools/world/people/README.md`, `orm`). Metalness stays 0: people are not metal. Skin adds `SCATTER`.
-Each combination is its own program key, fixed per part, so a change of look still compiles nothing.
+(`tools/world/people/README.md`, `orm`). Metalness stays 0: people are not metal. Skin adds `SCATTER`,
+and a skin whose file marks it `thin` reads its thinness (`THIN`) and adds the light from behind
+(`BEHIND`). Cards (`CARDS`) cap or drop their grazing reflection. Each combination is its own program
+key, fixed per part, so a change of look still compiles nothing.
 
 ### `function tint`
 

@@ -7,14 +7,28 @@ var WorldPeople = (function () {
   var SIDES = [["l", -1], ["r", 1]];
   var FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
   var SCATTER = [
+    "#define PK_THROUGH vec3( 0.62, 0.24, 0.14 )",
+    "float pkThin = 0.0;",
     "void RE_Direct_Skin( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {",
     "  RE_Direct_Physical( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );",
     "  float pkNl = dot( geometryNormal, directLight.direction );",
     "  float pkWrap = max( ( pkNl + 0.45 ) / 1.45, 0.0 ) - max( pkNl, 0.0 );",
-    "  reflectedLight.directDiffuse += directLight.color * pkWrap * vec3( 0.55, 0.22, 0.14 ) * BRDF_Lambert( material.diffuseColor );",
+    "  reflectedLight.directDiffuse += directLight.color * ( pkWrap * vec3( 0.55, 0.22, 0.14 ) + max( -pkNl, 0.0 ) * pkThin * PK_THROUGH ) * BRDF_Lambert( material.diffuseColor );",
     "}",
     "#undef RE_Direct",
     "#define RE_Direct RE_Direct_Skin"
+  ].join("\n");
+  var CARDS = ["hair", "beard", "brows", "lashes"];
+  var GRAZE = "material.specularF90 = 0.25;";
+  var MATTE = "material.specularColor = vec3( 0.0 ); material.specularF90 = 0.0;";
+  var THIN = "pkThin = texelRoughness.b;";
+  var BEHIND = [
+    "#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )",
+    "iblIrradiance += pkThin * PK_THROUGH * getIBLIrradiance( -geometryNormal );",
+    "#endif",
+    "#if NUM_HEMI_LIGHTS > 0",
+    "for ( int pkI = 0; pkI < NUM_HEMI_LIGHTS; pkI ++ ) irradiance += pkThin * PK_THROUGH * getHemisphereLightIrradiance( hemisphereLights[ pkI ], -geometryNormal );",
+    "#endif"
   ].join("\n");
 
   /** @param {Object} data */
@@ -33,7 +47,7 @@ var WorldPeople = (function () {
     return D.hero.length > 0;
   }
 
-  /** @returns {Array<{role: string, tinted: boolean, rough: boolean, ao: boolean, colour: string}>} */
+  /** @returns {Array<{role: string, tinted: boolean, rough: boolean, ao: boolean, thin: boolean, colour: string}>} */
   function parts() {
     return S.parts.slice();
   }
@@ -304,17 +318,22 @@ var WorldPeople = (function () {
   /** @param {any} T @param {Object} part @returns {any} */
   function material(T, part) {
     if (S.mats.has(part)) return S.mats.get(part);
-    var orm = texture(T, part.orm, false), skin = part.role === "skin";
+    var orm = texture(T, part.orm, false), skin = part.role === "skin", thin = skin && !!orm && !!part.thin;
     var mat = new T.MeshStandardMaterial({
       map: texture(T, part.map, true), normalMap: texture(T, part.normal, false), roughness: part.rough, metalness: 0,
       roughnessMap: orm, aoMap: part.ao ? orm : null,
       alphaTest: part.alpha || 0, side: part.two ? T.DoubleSide : T.FrontSide
     });
-    WorldKit.lit(mat, "person-" + part.role + (part.normal ? "-n" : "") + (part.alpha ? "-a" : "") + (orm ? "-r" : "") + (part.ao ? "-o" : ""), { porous: skin ? 0.3 : 0.8, extra: function (/** @type {any} */ sh) {
+    WorldKit.lit(mat, "person-" + part.role + (part.normal ? "-n" : "") + (part.alpha ? "-a" : "") + (orm ? "-r" : "") + (part.ao ? "-o" : "") + (thin ? "-t" : ""), { porous: skin ? 0.3 : 0.8, extra: function (/** @type {any} */ sh) {
       sh.uniforms.uFill = S.fill;
       sh.fragmentShader = "uniform float uFill;\n" + sh.fragmentShader.replace("#include <emissivemap_fragment>",
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill;");
       if (skin) sh.fragmentShader = sh.fragmentShader.replace("#include <lights_physical_pars_fragment>", "#include <lights_physical_pars_fragment>\n" + SCATTER);
+      if (CARDS.indexOf(part.role) >= 0) sh.fragmentShader = sh.fragmentShader.replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n" + (part.role === "lashes" ? MATTE : GRAZE));
+      if (thin) {
+        sh.fragmentShader = sh.fragmentShader.replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n" + THIN)
+          .replace("#include <lights_fragment_maps>", "#include <lights_fragment_maps>\n" + BEHIND);
+      }
     } });
     S.mats.set(part, mat);
     return mat;
@@ -441,7 +460,7 @@ var WorldPeople = (function () {
       if (opt) found[part.role] = true;
       var mat = material(T, part), hex = tint(part, look);
       if (hex) mat.color.set(hex).multiply(new T.Color(1 / part.tone[0], 1 / part.tone[1], 1 / part.tone[2]));
-      drawn.push({ role: part.role, tinted: !!hex, rough: !!mat.roughnessMap, ao: !!mat.aoMap, colour: mat.color.getHexString() });
+      drawn.push({ role: part.role, tinted: !!hex, rough: !!mat.roughnessMap, ao: !!mat.aoMap, thin: !!part.thin && !!mat.roughnessMap, colour: mat.color.getHexString() });
       var mesh = new T.SkinnedMesh(geometry(T, part, w), mat);
       if (part.role === "skin" || part.role === "top") body.push(mesh.geometry);
       mesh.frustumCulled = false;

@@ -70,7 +70,8 @@ Hair, beard and glasses primitives carry a `style` (the node name after its role
 **Realistic characters.** A hero output's `keep` lists roles whose colour maps keep their authored colour
 (no detail map, `tint: false` on the material): the page leaves them undyed, so a realistic export's
 skin and cloth look as made, and the picker's look chooses among several exports by their `fits`
-instead of dyeing one. `orm` lists roles (`outfit` for top and bottom) that get one packed map in
+instead of dyeing one. Leave a MetaHuman's lashes out of `keep`: their colour map is near white (Unreal
+colours them in the material), so kept they draw white; dyed, the page makes them near black. `orm` lists roles (`outfit` for top and bottom) that get one packed map in
 glTF's layout: R occlusion from the source's occlusion map, G roughness from its metallic-roughness
 map (else the role's constant), B metalness 0, since people are not metal (Ready Player Me exports
 ship greyscale maps that would otherwise make trousers a third metallic). The occlusion comes from a
@@ -80,6 +81,22 @@ then connect each image (its R) to a `glTF Material Output` group's `Occlusion` 
 selection as GLB without animations or shape keys. That GLB is the hero's source. A hero output's `rough` (by role) overrides the
 roughness a role gets when it has no map, e.g. `{"hair": 0.75}` for hair cards, which read as a
 shiny helmet at the stand-in's 0.55.
+
+A hero output's `thin` maps a source material's name to a greyscale image (a path from the config's
+folder) that is 1 where skin is thin enough to glow when lit from behind, ears and fingers, and 0
+elsewhere. It goes into the blue channel of that material's packed map (glTF's metalness, which the
+material's `metallicFactor` of 0 leaves unused), the material is marked `thin`, and the page lets light
+through there. The material's role must be in `orm`. One way to make the image: in Blender, bake
+`EMIT` from an Ambient Occlusion node set to `Inside` with a distance of 2.5 cm, inverted, then keep
+only the ears and fingers (lips and eyelids also read thin, but behind them is the mouth or the eye,
+not daylight; MetaHuman's head UVs keep the face within u 0.25..0.75). A MetaHuman body's UVs sit in
+UDIM tile 1002 (u 1..2): shift them by -1 for the bake, or it writes nothing.
+
+**Eyes.** MetaHuman draws its eyes with a refracting shell and a separate shadow mesh, both of which
+the role rules drop (`eyeshell`, `occlusion`). Without them the eyeballs look painted on: bake the
+lids' shadow (an `AO` bake within about 1.2 cm, head visible) into the eye colour. Both eyes share one
+UV square, so move each to its own half of a 2:1 atlas first, or one eye's corner shadow lands on the
+other's wrong side.
 
 A crowd character's `dropNodes` (node or mesh names) leaves out props its file carries (a chair,
 a briefcase).

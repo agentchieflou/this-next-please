@@ -241,7 +241,7 @@ The frame budget is **10 ms**: 100 frames a second.
 - `hero` (where it is, its `kind`, `skinned` or `doll`, and its pose: `legL`, `armR`, `hips`) and
   `people` (whether the realistic character loaded, how many crowd characters, and `parts`: each
   drawn part of your character with its role, whether the look dyed it, its roughness and occlusion
-  maps and its colour);
+  maps, whether light shows through it (`thin`) and its colour);
 - `cc0`, how many of the CC0 textures, skies and props loaded.
 
 F3 shows the frame figures in the toolbar.
