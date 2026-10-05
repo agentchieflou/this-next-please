@@ -342,6 +342,137 @@ def test_you_choose_who_you_are_and_the_world_keeps_it(fleet_home, tmp_path, bro
         _stop(server)
 
 
+def _standin_kept(folder):
+    """The operator's own people folder holding the stand-in with its skin kept in its authored colour
+    (`tint: false`) and given a packed occlusion-roughness map whose blue channel says where light shows
+    through (`thin`), as `tools/world/people` writes for a realistic export. The map is the skin's own
+    normal map's image: what is held is that the page reads it, not what it holds. The crowd file is
+    left out, so it comes from the package."""
+    import json
+    import shutil
+    import struct
+
+    src = os.path.join(STATIC, "world", "people")
+    raw = open(os.path.join(src, "standin.glb"), "rb").read()
+    n = struct.unpack("<I", raw[12:16])[0]
+    doc, rest = json.loads(raw[20:20 + n]), raw[20 + n:]
+    for m in doc["materials"]:
+        if (m.get("extras") or {}).get("role") == "skin":
+            m["extras"]["tint"] = False
+            m["extras"]["thin"] = True
+            tex = (m.get("normalTexture") or m["pbrMetallicRoughness"]["baseColorTexture"])["index"]
+            m["pbrMetallicRoughness"]["metallicRoughnessTexture"] = {"index": tex}
+            m["occlusionTexture"] = {"index": tex}
+    body = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    body += b" " * (-len(body) % 4)
+    folder.mkdir()
+    (folder / "standin.glb").write_bytes(raw[:8] + struct.pack("<II", 20 + len(body) + len(rest), len(body)) + b"JSON"
+                                         + body + rest)
+    shutil.copy(os.path.join(src, "people.json"), folder / "people.json")
+
+
+@pytest.mark.browser
+def test_agents_are_people_where_the_crowd_is_drawn(fleet_home, tmp_path, browser):
+    """Agents become people (docs/fleet-world.md, decided 2026-10-05): where pedestrians are drawn (WebGL 2,
+    every tier but `low`), each agent is one of the crowd's characters standing in the robot's place, its
+    ring at its feet in its state's colour, the one that needs you still under its beacon, and no robot.
+    It faces you once you are within 6 m and presents while you talk to it. The robot stays where no crowd
+    is drawn (`test_agents_stand_in_the_rain_by_day_and_by_night`, the `low` path)."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    count = """() => { const out = { agents: 0, shell: -1 }; vState.scene.traverse(o => {
+      if (/^agent-/.test(o.name)) out.agents += o.count; if (o === vState.parts.shell) out.shell = o.count; }); return out; }"""
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high")
+        page.wait_for_function("() => FleetWorld.inspect().people.agents === 2", timeout=120000)
+        drawn = page.evaluate(count)
+        assert drawn == {"agents": 2, "shell": 0}, drawn
+        assert _inspect(page)["beacons"] == 1
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_agents_go_where_their_state_puts_them(fleet_home, tmp_path, browser):
+    """Where the agents are people, their state places them (docs/fleet-world.md, decided 2026-10-05):
+    the one that needs you stays at its place under its beacon; a working one walks to a plaza bench
+    and sits; a done one walks out of the plaza and is gone, its label with it; an idle one strolls
+    round inside the kerb. You stand in the middle, more than 6 m from all of them, so none stops.
+    `FleetWorld.step` moves the agents as it moves you, so 30 s of the world pass at once."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    busy = make_project(tmp_path / "busy", phase="build", ticket="RDSD-8")
+    Registry().add(busy, name="busy")
+    E.append("busy", [E.event("busy", "started", {"prompt": "Ticket RDSD-8", "session": ""}, ticket="RDSD-8"),
+                      E.event("busy", "turn_started", {"turn": "0"}, ticket="RDSD-8")])
+    gone = make_project(tmp_path / "gone", phase="done")
+    Registry().add(gone, name="gone")
+    server, token, port = _serve()
+    modes = "() => Object.fromEntries(FleetWorld.inspect().agents.map(a => [a.repo, [a.state, a.mode, Math.hypot(a.x, a.z)]]))"
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high", n=4)
+        page.wait_for_function("() => FleetWorld.inspect().people.agents >= 3", timeout=120000)
+        page.evaluate("() => FleetWorld.step(30)")
+        got = page.evaluate(modes)
+        assert got["busy"][1] == "sit" and got["gone"][1] == "gone" and got["alpha"][1] == "walk", got
+        assert got["asks"][1] == "stand" and abs(got["asks"][2] - 7) < 0.01, got
+        assert got["busy"][0] == "running" and got["gone"][0] == "done", got
+        edge = page.evaluate("() => vState.edge")
+        assert abs(got["busy"][2] - (edge + 0.95)) < 0.05, (got, edge)
+        assert page.evaluate("() => FleetWorld.inspect().people.agents") == 3
+        tags = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.hidden]))")
+        assert tags["gone"] is True, tags
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_a_realistic_character_keeps_its_own_colours_and_maps(fleet_home, tmp_path, browser, monkeypatch):
+    """The stand-in is dyed by the look: every skin part takes the chosen tone and reads no maps but its
+    colour and normal. A realistic export's kept parts are not dyed (their colour stays white, so the
+    texture shows as made), read their roughness and occlusion from the packed map, and the skin's
+    scattering shader compiles, with the light through its thin parts; the parts it did not keep are
+    still dyed."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+
+    def drawn():
+        page = browser.new_page(viewport={"width": 640, "height": 360})
+        problems = []
+        page.on("pageerror", lambda e: problems.append(str(e)))
+        page.on("console", lambda m: problems.append(m.text[:300])
+                if m.type == "error" and "Failed to load resource" not in m.text else None)
+        page.goto(f"http://127.0.0.1:{port}/world?t={token}&hour=13&who=0", wait_until="domcontentloaded")
+        page.wait_for_function(READY, arg=2, timeout=60000)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        frames = _inspect(page)["frames"]
+        page.wait_for_function(f"() => FleetWorld.inspect().frames > {frames + 2}", timeout=60000)
+        parts = _inspect(page)["people"]["parts"]
+        page.close()
+        assert problems == [], problems
+        return parts
+
+    try:
+        shipped = drawn()
+        skin = [p for p in shipped if p["role"] == "skin"]
+        assert skin and all(p["tinted"] and not p["rough"] and not p["ao"] and not p["thin"] and p["colour"] != "ffffff"
+                        for p in skin), shipped
+
+        _standin_kept(tmp_path / "own")
+        monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(tmp_path / "own"))
+        kept = drawn()
+        skin = [p for p in kept if p["role"] == "skin"]
+        assert skin and all(not p["tinted"] and p["rough"] and p["ao"] and p["thin"] and p["colour"] == "ffffff"
+                        for p in skin), kept
+        assert any(p["tinted"] for p in kept if p["role"] in ("top", "bottom")), kept
+    finally:
+        _stop(server)
+
+
 @pytest.mark.browser
 def test_your_character_walks_turns_to_the_agent_and_presents(fleet_home, tmp_path, browser, spawns):
     """In the third person the character is where you are and faces where you face; its legs swing as
