@@ -40,13 +40,13 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, calmFrom: number, rose: boolean, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
   player: { x: 0, z: 0, yaw: 0, pitch: 0 }, keys: {}, look: { dx: 0, dy: 0 }, pad: [], padWas: [], padAxes: [0, 0, 0, 0],
   near: "", open: "", hour: null, daylight: 1, held: false, time: 0, last: 0,
-  frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0,
+  frames: 0, intervals: [], work: [], scale: 1, maxScale: 1, refresh: 0, lastTune: 0, calmFrom: 0, rose: false,
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0, turn: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
@@ -643,7 +643,7 @@ function vFrame(now) {
   drawHud();
   if (vState.warming) {
     vState.warming = !vWarm();
-    if (!vState.warming) { vState.intervals.length = 0; vState.lastTune = now; }
+    if (!vState.warming) { vState.intervals.length = 0; vState.lastTune = now; vState.calmFrom = now; }
   } else if (!vState.compiling) {
     if (now - vState.lastTune > 1000 && vTune(now)) vState.drawn = 0;
     if (!WorldRender.soft || now - vState.drawn > 95 || !vState.drawn) {
@@ -706,7 +706,14 @@ function vTune(now) {
   var was = vState.scale;
   if (mid > target * 1.15 && vState.scale > 0.5) vState.scale = Math.max(0.5, vState.scale * 0.85);
   else if (mid < target * 1.03 && vState.scale < vState.maxScale) vState.scale = Math.min(vState.maxScale, vState.scale * 1.08);
-  if (mid > target * 1.15 && was <= 0.5 && WorldRender.step(-1)) {
+  var settled = now - vState.calmFrom > 15000;
+  if (mid > target * 1.15 && was <= 0.5 && settled && WorldRender.step(-1)) {
+    vState.tier = WorldRender.tier;
+    vState.maxScale = vMaxScale();
+    vState.scale = Math.max(0.5, vState.maxScale * 0.8);
+  } else if (mid < target * 0.5 && was >= vState.maxScale && settled && !vState.rose && vState.tier !== vState.topTier && WorldRender.step(1)) {
+    vState.rose = true;
+    vState.calmFrom = now;
     vState.tier = WorldRender.tier;
     vState.maxScale = vMaxScale();
     vState.scale = Math.max(0.5, vState.maxScale * 0.8);

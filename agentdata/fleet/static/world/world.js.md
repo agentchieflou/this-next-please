@@ -280,6 +280,12 @@ resolution; one under it raises it again, up to the device's pixel ratio or the 
 half resolution is still too slow, the quality steps down a tier (`WorldRender.step`). Says whether it
 resized, so `vFrame` draws straight after.
 
+Not in the first 15 s after the warm-up (`calmFrom`): the shaders compiled late (the people, the
+crowd, whatever the first views bring in) make the first frames long, and on a laptop with an RTX 3050 Ti
+that alone dropped a page asked for `medium` to `low` (2026-10-05), where it stayed: nothing ever
+stepped a tier back up. Now, once per page (`rose`), a tier below the one the page started at steps
+back up when, settled, the median frame is under half the target at full resolution.
+
 ### `function vMaxScale`
 
 The most the render scale may be: the device's pixel ratio or the tier's cap, and on a software

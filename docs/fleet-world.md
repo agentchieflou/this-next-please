@@ -226,8 +226,9 @@ The frame budget is **10 ms**: 100 frames a second.
     one mesh each, all sharing one material, so a change of look compiles no shader.
   - When frames run long it lowers its render resolution. Once a second it compares the median frame
     with the display's rate (or the 10 ms budget on a display faster than 100 Hz), and steps down to
-    half resolution at worst. If that is not enough, it drops a quality tier. It steps back up when
-    there is room.
+    half resolution at worst. If that is not enough, it drops a quality tier, but not in the first 15 s
+    after the warm-up, when late shader compiles make frames long. It steps the resolution back up when
+    there is room, and a dropped tier back up once, when frames run under half the target.
   - The surfaces are baked or uploaded once at load, and the sky's environment made once a minute,
     never per frame.
 - **It stops drawing when the tab is hidden.**
