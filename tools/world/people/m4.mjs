@@ -75,5 +75,6 @@ export function translation(m) { return [m[12], m[13], m[14]]; }
 
 export function rotY(a) { const c = Math.cos(a), s = Math.sin(a), o = ident(); o[0] = c; o[2] = -s; o[8] = s; o[10] = c; return o; }
 export function rotX(a) { const c = Math.cos(a), s = Math.sin(a), o = ident(); o[5] = c; o[6] = s; o[9] = -s; o[10] = c; return o; }
+export function rotZ(a) { const c = Math.cos(a), s = Math.sin(a), o = ident(); o[0] = c; o[1] = s; o[4] = -s; o[5] = c; return o; }
 export function scale(k) { const o = ident(); o[0] = o[5] = o[10] = k; return o; }
 export function translate(x, y, z) { const o = ident(); o[12] = x; o[13] = y; o[14] = z; return o; }

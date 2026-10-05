@@ -298,7 +298,10 @@ The frame budget is **10 ms**: 100 frames a second.
 - `calls` and `triangles` (the scene), and `passes` (the whole frame's draw calls);
 - `town` (buildings, lights, cars, parked cars, people, scanned props, crowd characters);
 - `hero` (where it is, its `kind`, `skinned` or `doll`, and its pose: `legL`, `armR`, `hips`) and
-  `people` (whether the realistic character loaded, how many crowd characters);
+  `people` (whether the realistic character loaded, how many crowd characters, and `parts`: each
+  drawn part of your character with its role, whether the look dyed it, its roughness and occlusion
+  maps, whether light shows through it (`thin`) and its colour; and `agents`, how many agents are drawn
+  as people);
 - `cc0`, how many of the CC0 textures, skies and props loaded.
 
 F3 shows the frame figures in the toolbar.
@@ -343,7 +346,10 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   cleanup and inspection. Blender MCP may automate the Blender side; it does not replace the people
   pipeline, and it is optional.
 - **Files.** MetaHuman exports stay out of git and out of the wheel until the redistribution and seat
-  questions below are answered; `people.json` points at a local folder.
+  questions below are answered; `people.json` points at a local folder. That folder is
+  `~/.agentdata/world/people/` (or `$AGENTDATA_WORLD_PEOPLE_DIR`): with its own `people.json`, the
+  server answers `/static/world/people/` from it, and falls back to the stand-in for anything it
+  lacks or when it has no manifest (`tools/world/people/README.md`).
 - **Size is not the budget; the frame is.** A larger file is not by itself a slower page. Every slice
   optimises both: the people pipeline adds meshopt geometry compression and KTX2 textures, and the
   5 MiB bound on the people folder gives way to frame budgets (frame time, draw calls, triangles) and
@@ -352,6 +358,14 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   the fallback. Where the person is comes from the agent's state: idle, it walks the plaza; working,
   it is at a desk or bench; needing a person, it stops, faces you and raises its beam; done, it
   leaves. People walk waypoints on the sidewalks that exist, with no navigation mesh.
+  Built so far (agents as people): where the crowd is drawn, each agent is one of its characters in the
+  robot's place, standing and breathing, facing you within 6 m and presenting while you talk, its shirt
+  the robot's hue, its state ring at its feet and its beacon over it; the robot remains on the `low`
+  path. Placement by state: the one that needs you stays at its place on the circle; a working one
+  walks to a plaza bench and sits (the first eight, by name); a done one walks out past the end of the
+  plaza's paving and is gone; an idle one strolls round inside the kerb; any walking one stops and faces
+  you within 6 m. They keep to the plaza's own paving rather than the street's sidewalks, which is
+  where the agents are; walking the avenues is left for when there is a reason to go there.
 - **Talking still means walking up.** A person stops moving once your character is within about 6 m,
   so the 3.2 m rule above still holds.
 - **No voice, no lip-sync, no facial animation.** What matters is what the agents decide and how
@@ -361,6 +375,12 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
 Order of the slices, one issue each: a MetaHuman hero exported on the operator's machine and put
 through the pipeline locally, with its cost measured; the pipeline's meshopt and KTX2 with the new
 budgets; agents as people; state to place on sidewalk waypoints.
+
+The first slice's cost, measured 2026-10-05 on the operator's laptop (NVIDIA GeForce RTX 3050 Ti Laptop
+GPU, 4 GB; Chromium with vsync off, 1600x900, `hour=13` and `22`): with the MetaHuman hero (56,000
+triangles, 6.3 MB, nine parts) and the five-character crowd, `ultra` at full resolution takes 2.8-2.9 ms
+a frame, `high` 2.7-2.8 ms and `medium` 2.6 ms, with 107-111 draw calls and 1.46 million triangles; about
+2.5 ms of it is the page's own work on the CPU. The 10 ms budget has room on that machine.
 
 #### Still open
 

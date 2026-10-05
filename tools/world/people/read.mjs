@@ -27,11 +27,24 @@ export async function readSource(path, opts = {}) {
   const joints = new Map();
   const jointNodes = new Set();
   for (const skin of root.listSkins()) for (const j of skin.listJoints()) jointNodes.add(j);
+  // opts.pose "bind": the rest pose is the one the inverse bind matrices hold, not the nodes' own
+  // transforms (an export saved mid-animation, e.g. sitting, would otherwise come out sitting).
+  const bind = new Map();
+  if (opts.pose === "bind") for (const skin of root.listSkins()) {
+    const ibm = skin.getInverseBindMatrices();
+    if (ibm) skin.listJoints().forEach((j, i) => {
+      if (bind.has(j)) return;
+      const inv = new Array(16);
+      ibm.getElement(i, inv);
+      bind.set(j, M.invert(Float64Array.from(inv)));
+    });
+  }
+  const worldOf = j => bind.get(j) || Float64Array.from(j.getWorldMatrix());
   for (const node of jointNodes) {
     const name = nm(node.getName());
     let p = node.getParentNode();
     while (p && !jointNodes.has(p)) p = p.getParentNode();
-    if (!joints.has(name)) joints.set(name, { name, world: Float64Array.from(node.getWorldMatrix()), parent: p ? nm(p.getName()) : null });
+    if (!joints.has(name)) joints.set(name, { name, world: worldOf(node), parent: p ? nm(p.getName()) : null });
   }
   const prims = [];
   for (const node of root.listNodes()) {
@@ -45,7 +58,7 @@ export async function readSource(path, opts = {}) {
       jm = skin.listJoints().map((j, i) => {
         const inv = new Array(16);
         if (ibm) ibm.getElement(i, inv); else M.ident().forEach((v, k) => { inv[k] = v; });
-        return M.mul(Float64Array.from(j.getWorldMatrix()), Float64Array.from(inv));
+        return M.mul(worldOf(j), Float64Array.from(inv));
       });
     }
     const nodeWorld = Float64Array.from(node.getWorldMatrix());
