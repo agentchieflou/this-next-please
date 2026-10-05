@@ -148,7 +148,7 @@ var WorldStreet = (function () {
         + " vec3 n = normalize( mat3( modelMatrix * instanceMatrix ) * normal ); vF = abs( dot( n, normalize( cameraPosition - wp.xyz ) ) );"
         + " gl_Position = projectionMatrix * viewMatrix * wp; }",
       fragmentShader: "uniform float uNight; varying float vH; varying float vF;"
-        + " void main() { float a = pow( vH, 1.6 ) * pow( vF, 1.5 ) * uNight * 0.05; gl_FragColor = vec4( vec3( 1.0, 0.72, 0.42 ) * a, 1.0 ); }",
+        + " void main() { float a = pow( clamp( vH, 0.0, 1.0 ), 1.6 ) * pow( clamp( vF, 0.0, 1.0 ), 1.5 ) * uNight * 0.05; gl_FragColor = vec4( vec3( 1.0, 0.72, 0.42 ) * a, 1.0 ); }",
       transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide, fog: false
     });
     return {

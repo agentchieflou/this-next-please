@@ -53,6 +53,17 @@ the shelters' glass; the traffic lights, whose shader switches green, amber and 
 cycle, the two directions half a cycle apart; and the light cones under the street lamps, the rain
 lit in them, added to what is behind.
 
+The cone's two fades are clamped to 0..1 before `pow`. Its facing fade is near zero along the cone's
+silhouette, and with multisampling a fragment there is shaded at the pixel's centre, outside the
+triangle, where the interpolated value goes a hair below zero; `pow` of a negative base is undefined,
+and on many GPUs (Direct3D's `pow` is `exp2(y * log2(x))`) it is NaN. Added into the HDR target, one
+NaN pixel per cone edge went through the bloom's mip chain, which spread it into blocks a sixty-fourth
+of the screen wide and wider, and the grade drew them black: two great dark shapes over the plaza that
+followed the camera wherever a lamp was in view (operator report, 2026-10-05). SwiftShader's `pow`
+gave a number there, which is why CI never saw it; Mesa's llvmpipe gives NaN, as the operator's GPU did.
+`tests/regressions/test_20261005_any_chrome_world_black_shapes_over_the_plaza.py` holds every GLSL
+`pow` in the world's scripts to a base that cannot go negative.
+
 ### `function segments`
 
 Each side of each street between two crossings, stopping at the ring road.

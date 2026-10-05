@@ -227,6 +227,9 @@
     "tests/regressions/test_20261002_any_chrome_check_drawn_over_struck_cross.py": {
       "tests": 1
     },
+    "tests/regressions/test_20261005_any_chrome_world_black_shapes_over_the_plaza.py": {
+      "tests": 3
+    },
     "tests/regressions/test_convention.py": {
       "tests": 3
     },
