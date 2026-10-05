@@ -77,7 +77,9 @@ ship greyscale maps that would otherwise make trousers a third metallic). The oc
 bake: in Blender 5.2, select the character's meshes, give each material an image node for the target,
 bake `AO` in Cycles with the world's AO distance near 0.25 m and everything else hidden from render,
 then connect each image (its R) to a `glTF Material Output` group's `Occlusion` input and export the
-selection as GLB without animations or shape keys. That GLB is the hero's source.
+selection as GLB without animations or shape keys. That GLB is the hero's source. A hero output's `rough` (by role) overrides the
+roughness a role gets when it has no map, e.g. `{"hair": 0.75}` for hair cards, which read as a
+shiny helmet at the stand-in's 0.55.
 
 A crowd character's `dropNodes` (node or mesh names) leaves out props its file carries (a chair,
 a briefcase).

@@ -424,8 +424,8 @@ function newDoc() {
   return doc;
 }
 
-function material(doc, name, role, tone, maps, extras) {
-  const m = doc.createMaterial(name).setRoughnessFactor(ROUGH[role] || 0.7).setMetallicFactor(0).setBaseColorFactor([1, 1, 1, 1]);
+function material(doc, name, role, tone, maps, extras, rough) {
+  const m = doc.createMaterial(name).setRoughnessFactor((rough || {})[role] || ROUGH[role] || 0.7).setMetallicFactor(0).setBaseColorFactor([1, 1, 1, 1]);
   const tex = (img, suffix) => (img.getImage ? img : doc.createTexture(name + suffix).setImage(img).setMimeType("image/webp"));
   if (maps.base) m.setBaseColorTexture(tex(maps.base, "_c"));
   if (maps.normal) m.setNormalTexture(tex(maps.normal, "_n"));
@@ -501,7 +501,7 @@ async function hero(o, cfg) {
     users.forEach((p, k) => {
       const style = OPTIONAL.includes(p.role) ? p.node.replace(/^[a-z]+\./, "") : undefined;
       const extras = Object.assign(style ? { style } : {}, (o.keep || []).includes(p.role) ? { tint: false } : {});
-      const mat = material(doc, p.role + (style ? "_" + style : ""), p.role, cm ? cm.tone[k] : [0.5, 0.5, 0.5], { base, normal, orm }, Object.keys(extras).length ? extras : null);
+      const mat = material(doc, p.role + (style ? "_" + style : ""), p.role, cm ? cm.tone[k] : [0.5, 0.5, 0.5], { base, normal, orm }, Object.keys(extras).length ? extras : null, o.rough);
       mesh.addPrimitive(primitive(doc, p, mat, targetNames));
       report[p.role + (style ? ":" + style : "")] = p.idx.length / 3;
     });
