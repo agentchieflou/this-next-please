@@ -25,6 +25,10 @@ var V_RAIN = 6000;
 var V_SPLASH = 160;
 var V_LAMPS = 8;
 var V_CAP = 64;
+var V_FACE = 6;
+var V_SKIN = ["#3b2219", "#5c3a26", "#7b4a2d", "#9c6643", "#b98058", "#d39d74", "#e8bd98", "#f5d9c2"];
+var V_LEGS = ["#1f2124", "#2e3450", "#3a3f46", "#4a3b2c", "#22303f", "#6b7078", "#2b2d33"];
+var V_HAIR = ["#1c1a22", "#2b1d16", "#3b2a20", "#6b4528", "#a5512b", "#c9c6c2", "#d7b26a"];
 var V_REDUCED = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 var V_LOOK_KEY = "fleet.world.look";
 var V_STRIDE = 3.4;
@@ -40,7 +44,7 @@ var V_STRIDE = 3.4;
  * @property {boolean} needs
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, persons: number, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -50,7 +54,7 @@ var vState = {
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0, turn: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
-  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, compiling: true, warming: false, warm: null,
+  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, persons: 0, compiling: true, warming: false, warm: null,
   assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}
 };
 
@@ -222,6 +226,9 @@ function vPlaza(edge) {
     vState.streetSolids = street.solids;
     vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people, scans: street.scans,
                     crowd: street.crowd };
+    (p.agents || []).forEach(function (m) { vState.scene.remove(m); m.geometry.dispose(); });
+    p.agents = WorldPeople.agents(T, V_CAP);
+    (p.agents || []).forEach(function (m) { vState.scene.add(m); });
   }
   vState.solids = vState.solids.concat(vState.streetSolids || []);
   vWeather();
@@ -263,7 +270,25 @@ function vPlace() {
 /** @param {number} t */
 function vBots(t) {
   var list = Array.from(vState.agents.values()).slice(0, V_CAP);
-  WorldBots.place(vState.T, vState.parts, list, V_STATE, t, vReduced());
+  var people = !!vState.parts.agents;
+  if (people) vState.persons = WorldPeople.placeAgents(vPersons(list));
+  WorldBots.place(vState.T, vState.parts, list, V_STATE, t, vReduced(), people);
+}
+
+/** @param {Array<Agent>} list @returns {Array<Object>} */
+function vPersons(list) {
+  var T = vState.T, P = vState.player;
+  return list.map(function (ag) {
+    var h = 0;
+    for (var i = 0; i < ag.repo.length; i++) h = (h * 31 + ag.repo.charCodeAt(i)) >>> 0;
+    var dx = P.x - ag.x, dz = P.z - ag.z, near = dx * dx + dz * dz < V_FACE * V_FACE;
+    var yaw = near ? Math.atan2(-dx, -dz) : Math.atan2(ag.x, ag.z);
+    var m = new T.Matrix4().compose(new T.Vector3(ag.x, 0, ag.z), new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), yaw), new T.Vector3(1, 1, 1));
+    var tints = [V_SKIN[h % V_SKIN.length], null, V_LEGS[(h >>> 4) % V_LEGS.length], V_HAIR[(h >>> 8) % V_HAIR.length]].map(function (c) {
+      return c ? new T.Color(c).multiplyScalar(2) : new T.Color().setHSL((h % 360) / 360, 0.42, 0.42).multiplyScalar(2);
+    });
+    return { key: ag.repo, m: m, motion: vState.open === ag.repo ? 2 : 1, phase: (h % 997) / 997, tints: tints };
+  });
 }
 
 function vWeather() {
@@ -1061,7 +1086,8 @@ window.FleetWorld = Object.freeze({
       hero: vState.hero ? Object.assign({ kind: vState.hero.kind, visible: vState.hero.group.visible, seated: vState.hero.seated, wheels: !!vState.hero.wheels,
                                           x: vState.hero.group.position.x, z: vState.hero.group.position.z, yaw: vState.hero.group.rotation.y },
                                         WorldHero.measure(vState.hero)) : null,
-      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0, parts: WorldPeople.parts() }
+      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0, parts: WorldPeople.parts(),
+                agents: vState.parts.agents ? vState.persons || 0 : 0 }
     };
   },
   hold: function (on) { vState.held = !!on; vState.keys = {}; },

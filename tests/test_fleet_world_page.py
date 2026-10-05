@@ -372,6 +372,29 @@ def _standin_kept(folder):
 
 
 @pytest.mark.browser
+def test_agents_are_people_where_the_crowd_is_drawn(fleet_home, tmp_path, browser):
+    """Agents become people (docs/fleet-world.md, decided 2026-10-05): where pedestrians are drawn (WebGL 2,
+    every tier but `low`), each agent is one of the crowd's characters standing in the robot's place, its
+    ring at its feet in its state's colour, the one that needs you still under its beacon, and no robot.
+    It faces you once you are within 6 m and presents while you talk to it. The robot stays where no crowd
+    is drawn (`test_agents_stand_in_the_rain_by_day_and_by_night`, the `low` path)."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    count = """() => { const out = { agents: 0, shell: -1 }; vState.scene.traverse(o => {
+      if (/^agent-/.test(o.name)) out.agents += o.count; if (o === vState.parts.shell) out.shell = o.count; }); return out; }"""
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high")
+        page.wait_for_function("() => FleetWorld.inspect().people.agents === 2", timeout=120000)
+        drawn = page.evaluate(count)
+        assert drawn == {"agents": 2, "shell": 0}, drawn
+        assert _inspect(page)["beacons"] == 1
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
 def test_a_realistic_character_keeps_its_own_colours_and_maps(fleet_home, tmp_path, browser, monkeypatch):
     """The stand-in is dyed by the look: every skin part takes the chosen tone and reads no maps but its
     colour and normal. A realistic export's kept parts are not dyed (their colour stays white, so the

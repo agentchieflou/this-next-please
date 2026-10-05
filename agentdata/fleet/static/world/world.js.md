@@ -58,6 +58,23 @@ which `vTune` holds by lowering the render resolution.
 6,000 streaks in one draw call. The rain is a box of streaks around the camera, animated entirely in
 the vertex shader from `uTime`, so no drop is touched on the CPU after it is made.
 
+### `var V_FACE`
+
+How near you are, in metres, when an agent's person turns from the plaza to face you: the 6 m the
+decision gives for a person stopping as you come up (docs/fleet-world.md).
+
+### `var V_SKIN`
+
+An agent's person's skin tones: the street's walkers' palette, so the agents look like the city's people.
+
+### `var V_LEGS`
+
+An agent's person's trousers: the walkers' palette.
+
+### `var V_HAIR`
+
+An agent's person's hair colours: the walkers' palette.
+
 ### `var V_CAP`
 
 The robots are instanced: every agent's shell, glow, ring and beacon is one draw call each, however
@@ -127,7 +144,8 @@ the plaza's lights; the benches, trees and lamp posts become `vState.solids`, wh
 (`vStep`). The plaza's paving ends 6 m further out, where the ring road begins: when that changes
 (by half a metre or more) the city and the street are built again round it (`WorldCity.build`,
 `WorldStreet.build`), their lights replace the old ones, and the buildings' footprints become
-`vState.boxes`. On the `low` path both are built plainer (`lod` 0).
+`vState.boxes`. On the `low` path both are built plainer (`lod` 0). With the street come its crowd and so
+the agents' people (`WorldPeople.agents`), made again with it.
 
 ### `function vLayout`
 
@@ -137,7 +155,17 @@ A row that leaves takes its figure and its label with it.
 ### `function vBots`
 
 The robots where the agents are, at time `t` (`WorldBots.place`): on every layout, and every frame
-unless motion is reduced, when they hold still.
+unless motion is reduced, when they hold still. Where the crowd is drawn, the agents are people instead
+(decided 2026-10-05, `vPersons`): the robots' rings stay, at their feet, and their beacons; the robot
+itself is the fallback where there is no crowd (the `low` path).
+
+### `function vPersons`
+
+Each agent as a person: one of the crowd's characters (`WorldPeople.cast`), in its place, facing the
+plaza's middle, or you once you are within `V_FACE`; presenting while you talk to it, standing
+otherwise. Its shirt is its own colour, the hue its robot was tinted, darker, so a person and the robot
+it replaces read as the same agent; skin, trousers and hair come from the walkers' palettes by a hash of
+its name.
 
 ### `function vWeather`
 

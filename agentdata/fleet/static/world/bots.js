@@ -65,8 +65,8 @@ var WorldBots = (function () {
     return new T.Color().setHSL((h % 360) / 360, 0.32, 0.86);
   }
 
-  /** @param {any} T @param {{shell: any, glow: any, ring: any, beacon: any}} p @param {Array<{repo: string, x: number, z: number, yaw: number, state: string, needs: boolean, i: number}>} list @param {Object<string, number>} colours @param {number} t @param {boolean} still */
-  function place(T, p, list, colours, t, still) {
+  /** @param {any} T @param {{shell: any, glow: any, ring: any, beacon: any}} p @param {Array<{repo: string, x: number, z: number, yaw: number, state: string, needs: boolean, i: number}>} list @param {Object<string, number>} colours @param {number} t @param {boolean} still @param {boolean} [people] */
+  function place(T, p, list, colours, t, still, people) {
     var m = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
     var c = new T.Color(), beacons = 0;
     list.forEach(function (ag, k) {
@@ -83,12 +83,13 @@ var WorldBots = (function () {
       p.glow.setColorAt(k, c);
       p.ring.setColorAt(k, c.setHex(colours[ag.state] || colours.idle));
       var spin = busy && !still ? t * 1.8 : 0;
-      q.setFromEuler(e.set(Math.PI / 2 - 0.22, 0, spin + ag.i));
-      m.compose(at.set(ag.x, 0.95 + bob, ag.z), q, one);
+      q.setFromEuler(e.set(Math.PI / 2 - (people ? 0 : 0.22), 0, spin + ag.i));
+      m.compose(at.set(ag.x, people ? 0.03 : 0.95 + bob, ag.z), q, one);
       p.ring.setMatrixAt(k, m);
       if (ag.needs) p.beacon.setMatrixAt(beacons++, m.compose(at.set(ag.x, 20, ag.z), q.identity(), one));
     });
-    p.shell.count = p.glow.count = p.ring.count = list.length;
+    p.shell.count = p.glow.count = people ? 0 : list.length;
+    p.ring.count = list.length;
     p.beacon.count = beacons;
     [p.shell, p.glow, p.ring, p.beacon].forEach(function (mm) {
       mm.instanceMatrix.needsUpdate = true;

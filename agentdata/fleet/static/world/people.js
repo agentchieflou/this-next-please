@@ -4,6 +4,7 @@ var WorldPeople = (function () {
   var D = { hero: [], crowd: [], styles: {}, morphs: {}, clips: {}, fits: [] };
   var S = { T: null, fill: { value: 0.25 }, tex: new Map(), mats: new Map(), crowd: null, parts: [] };
   var FRAMES = 24;
+  var BREATH = Math.PI * 2 / 1.7;
   var SIDES = [["l", -1], ["r", 1]];
   var FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
   var SCATTER = [
@@ -165,7 +166,7 @@ var WorldPeople = (function () {
   function posture(s) {
     var g = s.gait, a = s.amp, r = s.run, tk = s.talk, br = s.still ? 0 : Math.sin(s.t * 1.7);
     var P = { hip: [0, 0, 0], pel: [0, 0, 0], spine: [0.02 * br * 0.4, 0, 0], head: [0, 0, 0], clav: [0, 0], legs: [], arms: [], seated: s.seated, ground: !s.seated };
-    var sway = s.still ? 0 : Math.sin(s.t * 0.45);
+    var sway = s.still || s.sway === false ? 0 : Math.sin(s.t * 0.45);
     if (s.seated) {
       P.spine = [-0.06 + 0.01 * br, 0, 0];
       P.legs = [[1.42, 0.1, 1.45, 0.05], [1.42, 0.1, 1.45, 0.05]];
@@ -528,12 +529,13 @@ var WorldPeople = (function () {
     S.fill.value = v;
   }
 
-  /** @param {any} T @param {Object} R @param {boolean} hold @returns {{bones: Float32Array, hand: Float32Array}} */
-  function bake(T, R, hold) {
+  /** @param {any} T @param {Object} R @param {boolean} hold @param {number} [motion] @returns {{bones: Float32Array, hand: Float32Array}} */
+  function bake(T, R, hold, motion) {
     var Q = R.lq.map(function () { return new T.Quaternion(); }), hip = new T.Vector3(), m = new T.Matrix4(), one = new T.Vector3(1, 1, 1);
     var bones = new Float32Array(FRAMES * R.n * 16), hand = new Float32Array(FRAMES * 3), hr = R.index.hand_r;
     for (var f = 0; f < FRAMES; f++) {
-      var out = solve(T, R, posture({ gait: f / FRAMES * Math.PI * 2, amp: 1, run: 0, talk: 0, t: 0, still: true, seated: false, rolled: 0, hold: hold }), Q, hip);
+      var still = { gait: 0, amp: 0, run: 0, talk: motion === 2 ? 1 : 0, t: f / FRAMES * BREATH, still: false, sway: false, seated: false, rolled: 0, hold: false };
+      var out = solve(T, R, posture(motion ? still : { gait: f / FRAMES * Math.PI * 2, amp: 1, run: 0, talk: 0, t: 0, still: true, seated: false, rolled: 0, hold: hold }), Q, hip);
       for (var i = 0; i < R.n; i++) {
         m.compose(out.wp[i], out.W[i], one).multiply(R.ibm[i]);
         bones.set(m.elements, (f * R.n + i) * 16);
@@ -554,15 +556,17 @@ var WorldPeople = (function () {
         if (!lods.length) return;
         var R = rig(T, skin.joints, null, skin.extras.anchors), baked = bake(T, R, true);
         width = Math.max(width, R.n * 4);
-        chars.push({ R: R, lods: lods, baked: baked });
+        chars.push({ R: R, lods: lods, baked: baked, motions: [baked, bake(T, R, false, 1), bake(T, R, false, 2)] });
       });
     });
     if (!chars.length) return null;
-    var data = new Float32Array(width * 4 * chars.length * FRAMES);
+    var data = new Float32Array(width * 4 * chars.length * FRAMES * 3);
     chars.forEach(function (c, ci) {
-      for (var f = 0; f < FRAMES; f++) data.set(c.baked.bones.subarray(f * c.R.n * 16, (f + 1) * c.R.n * 16), ((ci * FRAMES + f) * width) * 4);
+      c.motions.forEach(function (b, mo) {
+        for (var f = 0; f < FRAMES; f++) data.set(b.bones.subarray(f * c.R.n * 16, (f + 1) * c.R.n * 16), (((mo * chars.length + ci) * FRAMES + f) * width) * 4);
+      });
     });
-    var tex = new T.DataTexture(data, width, chars.length * FRAMES, T.RGBAFormat, T.FloatType);
+    var tex = new T.DataTexture(data, width, chars.length * FRAMES * 3, T.RGBAFormat, T.FloatType);
     tex.minFilter = tex.magFilter = T.NearestFilter;
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
@@ -617,8 +621,54 @@ var WorldPeople = (function () {
         return mesh;
       });
     });
-    S.crowd = { chars: chars, meshes: meshes };
+    S.crowd = { chars: chars, meshes: meshes, mat: mat, agents: null };
     return { meshes: meshes, count: chars.length };
+  }
+
+  /** @param {any} T @param {number} cap @returns {Array<any>|null} */
+  function agents(T, cap) {
+    if (!S.crowd) return null;
+    S.crowd.agents = S.crowd.chars.map(function (c, ci) {
+      var g0 = c.meshes[0].geometry, g = new T.InstancedBufferGeometry();
+      ["position", "normal", "uv", "aJoint", "aWeight", "aRole"].forEach(function (a) { g.setAttribute(a, g0.attributes[a]); });
+      g.setIndex(g0.index);
+      [["aWalk", 3], ["aSkin", 3], ["aTop", 3], ["aBottom", 3], ["aHair", 3]].forEach(function (a) {
+        g.setAttribute(a[0], new T.InstancedBufferAttribute(new Float32Array(cap * 3), 3).setUsage(T.DynamicDrawUsage));
+      });
+      var mesh = new T.InstancedMesh(g, S.crowd.mat, cap);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.name = "agent-" + ci;
+      return mesh;
+    });
+    return S.crowd.agents;
+  }
+
+  /** @param {string} key @returns {number} */
+  function cast(key) {
+    var h = 0;
+    for (var i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+    return S.crowd ? h % S.crowd.chars.length : 0;
+  }
+
+  /** @param {Array<{key: string, m: any, motion: number, phase: number, tints: Array<any>}>} list @returns {number} */
+  function placeAgents(list) {
+    var A = S.crowd && S.crowd.agents;
+    if (!A) return 0;
+    var n = S.crowd.chars.length;
+    A.forEach(function (m) { m.count = 0; });
+    list.forEach(function (a) {
+      var ci = cast(a.key), mesh = A[ci], k = mesh.count++, g = mesh.geometry;
+      mesh.setMatrixAt(k, a.m);
+      g.attributes.aWalk.setXYZ(k, a.phase, 1 / BREATH, (a.motion * n + ci) * FRAMES);
+      ["aSkin", "aTop", "aBottom", "aHair"].forEach(function (at, i) { g.attributes[at].setXYZ(k, a.tints[i].r, a.tints[i].g, a.tints[i].b); });
+    });
+    A.forEach(function (m) {
+      m.visible = m.count > 0;
+      m.instanceMatrix.needsUpdate = true;
+      ["aWalk", "aSkin", "aTop", "aBottom", "aHair"].forEach(function (at) { m.geometry.attributes[at].needsUpdate = true; });
+    });
+    return list.length;
   }
 
   /** @param {number} ci @param {number} f @returns {Array<number>} */
@@ -652,5 +702,6 @@ var WorldPeople = (function () {
     });
   }
 
-  return Object.freeze({ FRAMES: FRAMES, use: use, ready: ready, parts: parts, hero: hero, pose: pose, dispose: dispose, fill: fill, crowd: crowd, hand: hand, draw: draw, rig: rig, solve: solve, posture: posture });
+  return Object.freeze({ FRAMES: FRAMES, use: use, ready: ready, parts: parts, hero: hero, pose: pose, dispose: dispose, fill: fill, crowd: crowd, hand: hand, draw: draw, rig: rig, solve: solve, posture: posture,
+                         agents: agents, placeAgents: placeAgents, cast: cast });
 })();

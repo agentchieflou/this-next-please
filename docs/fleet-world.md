@@ -241,7 +241,8 @@ The frame budget is **10 ms**: 100 frames a second.
 - `hero` (where it is, its `kind`, `skinned` or `doll`, and its pose: `legL`, `armR`, `hips`) and
   `people` (whether the realistic character loaded, how many crowd characters, and `parts`: each
   drawn part of your character with its role, whether the look dyed it, its roughness and occlusion
-  maps, whether light shows through it (`thin`) and its colour);
+  maps, whether light shows through it (`thin`) and its colour; and `agents`, how many agents are drawn
+  as people);
 - `cc0`, how many of the CC0 textures, skies and props loaded.
 
 F3 shows the frame figures in the toolbar.
@@ -298,6 +299,10 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   the fallback. Where the person is comes from the agent's state: idle, it walks the plaza; working,
   it is at a desk or bench; needing a person, it stops, faces you and raises its beam; done, it
   leaves. People walk waypoints on the sidewalks that exist, with no navigation mesh.
+  Built so far (agents as people): where the crowd is drawn, each agent is one of its characters in the
+  robot's place, standing and breathing, facing you within 6 m and presenting while you talk, its shirt
+  the robot's hue, its state ring at its feet and its beacon over it; the robot remains on the `low`
+  path. Placement by state (walking, a bench, leaving) is the next slice.
 - **Talking still means walking up.** A person stops moving once your character is within about 6 m,
   so the 3.2 m rule above still holds.
 - **No voice, no lip-sync, no facial animation.** What matters is what the agents decide and how

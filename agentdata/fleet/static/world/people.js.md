@@ -99,6 +99,11 @@ sky, so without this an ear would glow only on the rare frame the sun is behind 
 
 The crowd's walk cycle is baked at this many poses; the shader blends between two of them.
 
+### `var BREATH`
+
+One breath, in seconds, at the rate `posture` breathes (1.7 rad/s): the standing and presenting poses
+are baked over exactly one, so their loop has no seam.
+
 ### `function use`
 
 Takes what `WorldAssets.load` read. `world.js` hands it `null` where vertex textures cannot hold
@@ -204,7 +209,8 @@ A frame of the character: the gait advanced by the distance walked, its amplitud
 ### `function bake`
 
 The crowd's walk, holding an umbrella, posed `FRAMES` times and written as bone matrices; the right
-hand's path is kept for the umbrella.
+hand's path is kept for the umbrella. With `motion` 1 it bakes standing instead, and with 2 presenting
+(the hero's talking pose): no stride, one breath (`BREATH`), and no slow sway, which would not loop.
 
 ### `function crowd`
 
@@ -215,6 +221,25 @@ instance has its phase and pace, its row, and its skin, top, bottom and hair col
 `_ROLE` attribute picks between; the role also reaches the fragment shader, where skin scatters and
 hair cards stop mirroring the sky (`CROWD`). Draw calls are characters times levels, whatever the number
 of people; the low tier has no pedestrians.
+
+The texture holds three motions: every character's walk first (rows `character × FRAMES`, as the street
+places them), then every character's standing, then every character's presenting, for the agents.
+
+### `function agents`
+
+The agents as people: per crowd character one more `InstancedMesh`, sharing that character's near
+geometry and the crowd's material, with instance attributes of its own, up to `cap` agents. Null
+without a crowd, and the world keeps its robots.
+
+### `function cast`
+
+Which crowd character an agent is: a hash of its name, so the same agent is the same person on every
+visit and every machine.
+
+### `function placeAgents`
+
+Each frame: every agent's person where its robot stood, standing (motion 1) or presenting (2), at its
+own phase of the breath, in its colours. Says how many it placed.
 
 ### `function hand`
 
