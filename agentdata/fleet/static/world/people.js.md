@@ -101,8 +101,13 @@ The crowd's walk cycle is baked at this many poses; the shader blends between tw
 
 ### `var BREATH`
 
-One breath, in seconds, at the rate `posture` breathes (1.7 rad/s): the standing and presenting poses
-are baked over exactly one, so their loop has no seam.
+One breath, in seconds, at the rate `posture` breathes (1.7 rad/s): the standing, presenting and
+sitting poses are baked over exactly one, so their loop has no seam.
+
+### `var MOTIONS`
+
+How many motions the crowd's bone texture holds: walking (the street's), standing, presenting and
+sitting (the agents').
 
 ### `function use`
 
@@ -209,8 +214,9 @@ A frame of the character: the gait advanced by the distance walked, its amplitud
 ### `function bake`
 
 The crowd's walk, holding an umbrella, posed `FRAMES` times and written as bone matrices; the right
-hand's path is kept for the umbrella. With `motion` 1 it bakes standing instead, and with 2 presenting
-(the hero's talking pose): no stride, one breath (`BREATH`), and no slow sway, which would not loop.
+hand's path is kept for the umbrella. With `motion` 1 it bakes standing instead, with 2 presenting
+(the hero's talking pose) and with 3 sitting (the seated pose, hands in the lap): no stride, one breath
+(`BREATH`), and no slow sway, which would not loop.
 
 ### `function crowd`
 
@@ -222,8 +228,8 @@ instance has its phase and pace, its row, and its skin, top, bottom and hair col
 hair cards stop mirroring the sky (`CROWD`). Draw calls are characters times levels, whatever the number
 of people; the low tier has no pedestrians.
 
-The texture holds three motions: every character's walk first (rows `character × FRAMES`, as the street
-places them), then every character's standing, then every character's presenting, for the agents.
+The texture holds `MOTIONS` motions: every character's walk first (rows `character × FRAMES`, as the
+street places them), then every character's standing, presenting and sitting, for the agents.
 
 ### `function agents`
 
@@ -238,8 +244,9 @@ visit and every machine.
 
 ### `function placeAgents`
 
-Each frame: every agent's person where its robot stood, standing (motion 1) or presenting (2), at its
-own phase of the breath, in its colours. Says how many it placed.
+Each frame: every agent's person where the world put it, walking (motion 0, at its own `rate` of
+strides), standing (1), presenting (2) or sitting (3), at its own phase, in its colours. Says how many it
+placed.
 
 ### `function hand`
 

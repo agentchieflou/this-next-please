@@ -302,7 +302,11 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   Built so far (agents as people): where the crowd is drawn, each agent is one of its characters in the
   robot's place, standing and breathing, facing you within 6 m and presenting while you talk, its shirt
   the robot's hue, its state ring at its feet and its beacon over it; the robot remains on the `low`
-  path. Placement by state (walking, a bench, leaving) is the next slice.
+  path. Placement by state: the one that needs you stays at its place on the circle; a working one
+  walks to a plaza bench and sits (the first eight, by name); a done one walks out past the end of the
+  plaza's paving and is gone; an idle one strolls round inside the kerb; any walking one stops and faces
+  you within 6 m. They keep to the plaza's own paving rather than the street's sidewalks, which is
+  where the agents are; walking the avenues is left for when there is a reason to go there.
 - **Talking still means walking up.** A person stops moving once your character is within about 6 m,
   so the 3.2 m rule above still holds.
 - **No voice, no lip-sync, no facial animation.** What matters is what the agents decide and how
