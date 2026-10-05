@@ -19,7 +19,8 @@ before they were committed (see that file). They come from the machine the page 
 `q()` with the token like every other file. Nothing is fetched from the internet. Poly Haven has no
 people, so the characters are still the page's own.
 
-The street trees are a file too, but made here: `static/world/trees/trees.glb`, grown by
+The cars are made here the same way: `static/world/cars/cars.glb`, lofted by `tools/world/cars/` from
+the profiles in it, after no maker's design. The street trees are a file too, but made here: `static/world/trees/trees.glb`, grown by
 `tools/world/trees/` (Blender, then Node) from nothing but its own numbers, every leaf, twig, bark and
 branch, so it is the repository's own and under its licence (that folder's `LICENSE`). The operator
 asked for the environment's assets to be built with Unreal Engine and Twinmotion (2026-10-05);
@@ -118,7 +119,8 @@ colour, normal and roughness/metalness maps, through the kit's lights and rain (
 hydrant under a sodium lamp turns orange and darkens in the rain. The scans' red channel is not used
 as occlusion: several assets leave it empty, which would black out all indirect light.
 
-The trees go through it too. Theirs have vertex colours (occlusion baked from the crown, darker inside
+The cars go through it `bare`: geometry only (no UVs, no maps), for `world/street.js` to paint with
+its own materials. The trees go through it too. Theirs have vertex colours (occlusion baked from the crown, darker inside
 and under it) and no metal, and their materials are shared by name across every tree: one bark a
 species, tiled (its texture repeats round and up the trunk), and one material for all the leaves,
 `WorldKit.crown`'s.

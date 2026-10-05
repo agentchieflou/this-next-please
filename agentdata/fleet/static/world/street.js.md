@@ -43,7 +43,8 @@ How far down the avenues the traffic drives before it turns, in the fog where th
 
 A car from three.js's own shapes: the body extruded from a side profile with wheel arches and
 bevelled edges, the cabin from its own profile, roof and pillars, wheels with rims, bumpers, plates,
-a grille, head and tail lights. A sedan and an SUV.
+a grille, head and tail lights. A sedan and an SUV. They are the traffic on the `low` quality and
+wherever the cars' file did not load; elsewhere the cars are the file's (`traffic`).
 
 ### `function shape`
 
@@ -171,6 +172,13 @@ empty: a crown nine metres high would have swallowed the lamp's head and its con
 The cars, spaced along their loops, each with its own top speed, and the parked cars along the side
 streets' kerbs, each its own colour, their lights off.
 
+With the cars' file (`fleet`, `static/world/cars/cars.glb`) there are four kinds, a sedan, a hatchback,
+an SUV and a van, each at two levels of detail: near, a body (painted), glass, trim (tyres, rims,
+grille, plates, pillars, seams) and lamps, each through the material of the same name; far, the body
+with its glass and trim in it by colour, and the lamps, two draw calls rather than four. A kind's
+cars are spread over its two levels every frame (`frame`), so a car keeps its colour wherever it is
+drawn: its paint is the car's, not its slot's.
+
 ### `function walkers`
 
 With `WorldPeople`'s crowd the walkers are realistic people, each a crowd character with its own skin,
@@ -187,7 +195,8 @@ has it.
 
 
 Every frame: a car keeps its distance from the one ahead and stops at a red light at the crossing
-ahead, then drives on; its headlights light the road ahead of it and its tail lights the road behind
+ahead, then drives on; every car, parked or moving, goes to its kind's near meshes within 36 m of the
+eye and to its far ones beyond, with its paint and its lamps lit or dark; its headlights light the road ahead of it and its tail lights the road behind
 (the kit's moving lights). The people walk. Under reduced motion nothing moves.
 
 ### `function stopLine`

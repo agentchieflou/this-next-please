@@ -259,6 +259,38 @@ def test_the_streets_are_planted_with_trees_drawn_near_and_far(fleet_home, tmp_p
         _stop(server)
 
 
+CARS = """() => { const c = {}; vState.scene.traverse(m => { if (/^car-/.test(m.name)) c[m.name] = m.count; }); return c; }"""
+
+
+@pytest.mark.browser
+def test_the_traffic_is_cars_from_a_file_drawn_near_and_far(fleet_home, tmp_path, browser):
+    """The cars are a file (`static/world/cars/cars.glb`, lofted by `tools/world/cars/`): a sedan, a
+    hatchback, an SUV and a van, each drawn near with its body, glass, trim and lamps and far as one
+    mesh and its lamps, every car painted its own colour. Every car, driving or parked, is drawn once,
+    near or far. The `low` quality keeps the page's own two."""
+    _repo(tmp_path, "alpha")
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=medium", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        town = _inspect(page)["town"]
+        counts = page.evaluate(CARS)
+        near = {f"car-{p}{t}" for p in ("body", "glass", "trim", "lamp") for t in range(4)}
+        assert set(counts) == near | {f"car-{p}{t}-far" for p in ("body", "lamp") for t in range(4)}, counts
+        bodies = sum(v for k, v in counts.items() if k.startswith("car-body"))
+        assert bodies == town["cars"] + town["parked"] and bodies > 20, (bodies, town)
+        assert sum(counts[f"car-body{t}"] for t in range(4)) == sum(counts[f"car-glass{t}"] for t in range(4)), counts
+        assert errors == [], errors
+        page.close()
+
+        page, errors = _open(browser, port, token, "&hour=13&quality=low", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        assert set(page.evaluate(CARS)) == {f"car-{p}{t}" for p in ("body", "glass", "trim", "lamp") for t in range(2)}
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
 @pytest.mark.browser
 def test_you_walk_to_an_agent_to_talk_to_it(fleet_home, tmp_path, browser, spawns):
     """From the middle of the plaza nothing is within reach and E opens nothing. W walks 4.5 m a
