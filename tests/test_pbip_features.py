@@ -418,7 +418,20 @@ def test_live_feature_verification(tmp_path):
 
 
 def test_doctor_feature_decay_check(monkeypatch):
-    """ad-doctor --online verifies powerbi/feature_decay check against docs/power-bi-features.md."""
+    """ad-doctor --online verifies powerbi/feature_decay check against docs/power-bi-features.md.
+
+    The clock is pinned six days after the doc's `Verified On` dates: on the wall clock this test
+    started failing on its own 30 days after them (2026-10-05), whatever the change under test.
+    """
+    import datetime
+
+    class PinnedClock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 10, 12, 0, tzinfo=tz)
+
+    monkeypatch.setattr(datetime, "datetime", PinnedClock)
+
     class FakeDet(Detectors):
         def run(self, cmd, timeout=120):
             return 0, json.dumps({"value": []}), ""
