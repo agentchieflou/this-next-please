@@ -59,3 +59,6 @@ Each frame: a robot bobs on its hover base and turns a little, faster when it is
 takes its state's colour, pulsing when it needs you; its ring turns while it works. Under reduced
 motion all of it holds still. A beacon is placed only for an agent that needs you, so the count of
 beacons is the count of agents waiting.
+
+With `people` (the agents drawn as people, `WorldPeople.placeAgents`) the robot's shell and glow are not
+drawn; its ring lies flat at the person's feet, still in its state's colour, and the beacon stays.

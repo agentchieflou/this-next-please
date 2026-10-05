@@ -372,6 +372,64 @@ def _standin_kept(folder):
 
 
 @pytest.mark.browser
+def test_agents_are_people_where_the_crowd_is_drawn(fleet_home, tmp_path, browser):
+    """Agents become people (docs/fleet-world.md, decided 2026-10-05): where pedestrians are drawn (WebGL 2,
+    every tier but `low`), each agent is one of the crowd's characters standing in the robot's place, its
+    ring at its feet in its state's colour, the one that needs you still under its beacon, and no robot.
+    It faces you once you are within 6 m and presents while you talk to it. The robot stays where no crowd
+    is drawn (`test_agents_stand_in_the_rain_by_day_and_by_night`, the `low` path)."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    count = """() => { const out = { agents: 0, shell: -1 }; vState.scene.traverse(o => {
+      if (/^agent-/.test(o.name)) out.agents += o.count; if (o === vState.parts.shell) out.shell = o.count; }); return out; }"""
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high")
+        page.wait_for_function("() => FleetWorld.inspect().people.agents === 2", timeout=120000)
+        drawn = page.evaluate(count)
+        assert drawn == {"agents": 2, "shell": 0}, drawn
+        assert _inspect(page)["beacons"] == 1
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_agents_go_where_their_state_puts_them(fleet_home, tmp_path, browser):
+    """Where the agents are people, their state places them (docs/fleet-world.md, decided 2026-10-05):
+    the one that needs you stays at its place under its beacon; a working one walks to a plaza bench
+    and sits; a done one walks out of the plaza and is gone, its label with it; an idle one strolls
+    round inside the kerb. You stand in the middle, more than 6 m from all of them, so none stops.
+    `FleetWorld.step` moves the agents as it moves you, so 30 s of the world pass at once."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    busy = make_project(tmp_path / "busy", phase="build", ticket="RDSD-8")
+    Registry().add(busy, name="busy")
+    E.append("busy", [E.event("busy", "started", {"prompt": "Ticket RDSD-8", "session": ""}, ticket="RDSD-8"),
+                      E.event("busy", "turn_started", {"turn": "0"}, ticket="RDSD-8")])
+    gone = make_project(tmp_path / "gone", phase="done")
+    Registry().add(gone, name="gone")
+    server, token, port = _serve()
+    modes = "() => Object.fromEntries(FleetWorld.inspect().agents.map(a => [a.repo, [a.state, a.mode, Math.hypot(a.x, a.z)]]))"
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high", n=4)
+        page.wait_for_function("() => FleetWorld.inspect().people.agents >= 3", timeout=120000)
+        page.evaluate("() => FleetWorld.step(30)")
+        got = page.evaluate(modes)
+        assert got["busy"][1] == "sit" and got["gone"][1] == "gone" and got["alpha"][1] == "walk", got
+        assert got["asks"][1] == "stand" and abs(got["asks"][2] - 7) < 0.01, got
+        assert got["busy"][0] == "running" and got["gone"][0] == "done", got
+        edge = page.evaluate("() => vState.edge")
+        assert abs(got["busy"][2] - (edge + 0.95)) < 0.05, (got, edge)
+        assert page.evaluate("() => FleetWorld.inspect().people.agents") == 3
+        tags = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.hidden]))")
+        assert tags["gone"] is True, tags
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
 def test_a_realistic_character_keeps_its_own_colours_and_maps(fleet_home, tmp_path, browser, monkeypatch):
     """The stand-in is dyed by the look: every skin part takes the chosen tone and reads no maps but its
     colour and normal. A realistic export's kept parts are not dyed (their colour stays white, so the

@@ -58,6 +58,33 @@ which `vTune` holds by lowering the render resolution.
 6,000 streaks in one draw call. The rain is a box of streaks around the camera, animated entirely in
 the vertex shader from `uTime`, so no drop is touched on the CPU after it is made.
 
+### `var V_FACE`
+
+How near you are, in metres, when an agent's person stops walking and turns to face you: the 6 m the
+decision gives for a person stopping as you come up (docs/fleet-world.md), so talking still means
+walking up, and the person you walk to holds still for you.
+
+### `var V_STROLL`
+
+An agent's walking pace, in metres a second: a stroll, slower than the street's walkers (1.1 to 1.6).
+
+### `var V_SEAT`
+
+How far a sitting agent is lowered onto a plaza bench: the seated pose holds the pelvis at the
+wheelchair's height, a bench's seat is a little lower.
+
+### `var V_SKIN`
+
+An agent's person's skin tones: the street's walkers' palette, so the agents look like the city's people.
+
+### `var V_LEGS`
+
+An agent's person's trousers: the walkers' palette.
+
+### `var V_HAIR`
+
+An agent's person's hair colours: the walkers' palette.
+
 ### `var V_CAP`
 
 The robots are instanced: every agent's shell, glow, ring and beacon is one draw call each, however
@@ -127,7 +154,8 @@ the plaza's lights; the benches, trees and lamp posts become `vState.solids`, wh
 (`vStep`). The plaza's paving ends 6 m further out, where the ring road begins: when that changes
 (by half a metre or more) the city and the street are built again round it (`WorldCity.build`,
 `WorldStreet.build`), their lights replace the old ones, and the buildings' footprints become
-`vState.boxes`. On the `low` path both are built plainer (`lod` 0).
+`vState.boxes`. On the `low` path both are built plainer (`lod` 0). With the street come its crowd and so
+the agents' people (`WorldPeople.agents`), made again with it.
 
 ### `function vLayout`
 
@@ -137,7 +165,36 @@ A row that leaves takes its figure and its label with it.
 ### `function vBots`
 
 The robots where the agents are, at time `t` (`WorldBots.place`): on every layout, and every frame
-unless motion is reduced, when they hold still.
+unless motion is reduced, when they hold still. Where the crowd is drawn, the agents are people instead
+(decided 2026-10-05, `vPersons`): the robots' rings stay, at their feet, and their beacons; the robot
+itself is the fallback where there is no crowd (the `low` path). A person who has left (`vWalk`) is
+neither drawn nor ringed.
+
+### `function vWalk`
+
+Where each agent's person is, from its state (decided 2026-10-05, "Agents become people"):
+- needing you: at its place on the circle (its home), under its beacon;
+- working (`running`, `starting`): on a plaza bench, the first eight by name, each to the bench at its
+  index, sitting; the rest at home;
+- done: walks straight out of the plaza, past the end of its paving, and is gone (no label, no ring);
+- idle: strolls a loop just inside the kerb, each at its own place round it.
+
+A person walking stops and faces you once you are within `V_FACE`, and goes on when you leave. It walks
+at `V_STROLL` and takes the pose its goal asks for on arriving. It walks as people cross a plaza, round
+it rather than through its middle: out (or in) to its goal's distance from the centre first, then round
+the circle to it. A straight line from the circle to a bench cut inside the ring of agents, through
+the middle where you stand, and stopped for you when you had not come up to it. Under reduced motion,
+and for an agent seen for the first time, it is placed at its goal at once (an idle one at home,
+standing). The decision names waypoints on the street's sidewalks; this keeps to the plaza's own
+paving, which is where the agents are: the loop for strolling, a line straight out for leaving.
+
+### `function vPersons`
+
+Each agent as a person: one of the crowd's characters (`WorldPeople.cast`), where `vWalk` put it:
+walking (the crowd's walk, at its pace), sitting (lowered by `V_SEAT`), presenting while you talk to
+it, standing otherwise, and facing you when it stands within `V_FACE`. Its shirt is its own colour, the
+hue its robot was tinted, darker, so a person and the robot it replaces read as the same agent; skin,
+trousers and hair come from the walkers' palettes by a hash of its name.
 
 ### `function vWeather`
 
@@ -293,7 +350,7 @@ that point through the camera every frame, and scaled by distance. Words in the 
 textures in the scene: nothing under `static/` asks for a 2D context (#257, held by
 `tests/test_fleet_trace.py`), a label is as sharp as the page's own text at any resolution scale, and
 the scene's draw calls do not grow with the fleet. A label behind you, beyond 48 m, off the
-screen or under an open conversation is hidden. The transform is rounded to the pixel and the scale to
+screen, under an open conversation or over an agent who has left (`vWalk`) is hidden. The transform is rounded to the pixel and the scale to
 a twentieth, so a label is written only when it moves visibly: standing still writes nothing.
 
 ### `function drawHud`
@@ -336,8 +393,9 @@ the lamps, the quality and whether the renderer is software, the town (buildings
 parked cars, people, scanned props), how many of the CC0 textures, skies and props loaded (`cc0`), the scene's draw calls and triangles and the whole frame's draw calls
 (`passes`), fps, frame and work time, the render scale, the view, the picker, the look, and the
 character's place, turn and pose), `hold()` and
-`step()` to walk without depending on the frame rate (CI draws in SwiftShader), and `teleport(repo)`
-to stand within reach of an agent.
+`step()` to walk without depending on the frame rate (CI draws in SwiftShader; it moves the agents'
+people too, `vWalk`), and `teleport(repo)` to stand within reach of an agent. Each agent in `inspect()`
+says where `vWalk` has it (`mode`: `walk`, `stand`, `sit` or `gone`).
 
 ### People (2026-10-03)
 
