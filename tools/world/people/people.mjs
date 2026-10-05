@@ -69,7 +69,13 @@ function roleOf(p, rules) {
 
 // The transform from a source's world to the web's: metres, Y up, facing -Z, feet on 0, pelvis at x = z = 0.
 function frame(src, cfg) {
-  let F = cfg.up === "z" ? M.rotX(-Math.PI / 2) : M.ident();
+  const ext = [0, 1, 2].map(c => {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of src.prims) for (let i = c; i < p.pos.length; i += 3) { lo = Math.min(lo, p.pos[i]); hi = Math.max(hi, p.pos[i]); }
+    return hi - lo;
+  });
+  const up = cfg.up || (ext[2] > 2 * ext[1] ? "z" : "y");
+  let F = up === "z" ? M.rotX(-Math.PI / 2) : M.ident();
   const J = n => src.joints.get(n) && M.point(F, ...M.translation(src.joints.get(n).world));
   let ys = [Infinity, -Infinity];
   for (const p of src.prims) for (let i = 1; i < p.pos.length; i += 3) {
@@ -130,7 +136,7 @@ function collapse(src, keep) {
 
 async function load(files, cfg, F) {
   const parts = [];
-  for (const f of files) parts.push(await readSource(path.resolve(cfg.base, f), { rename: cfg.rename, attach: cfg.attach }));
+  for (const f of files) parts.push(await readSource(path.resolve(cfg.base, f), { rename: cfg.rename, attach: cfg.attach, pose: cfg.pose }));
   const src = { joints: new Map(), prims: [] };
   for (const s of parts) {
     for (const [n, j] of s.joints) if (!src.joints.has(n)) src.joints.set(n, j);
@@ -481,7 +487,7 @@ async function crowd(o, cfg) {
   for (const c of o.characters) {
     const { src } = await load(c.sources, cfg);
     const joints = collapse(src, UE_BODY);
-    let prims = src.prims.map(p => Object.assign(p, { role: roleOf(p, rules) })).filter(p => p.role !== "drop" && !(o.skip || ["brows", "lashes"]).includes(p.role));
+    let prims = src.prims.map(p => Object.assign(p, { role: roleOf(p, rules) })).filter(p => p.role !== "drop" && !(o.skip || ["brows", "lashes"]).includes(p.role) && !(c.dropNodes || []).some(n => n === p.node || n === p.mesh));
     prims = prims.flatMap(p => (p.role === "outfit" ? split(p) : [p]));
     chars.push({ name: c.name, joints, prims, palm: palms(src) });
   }

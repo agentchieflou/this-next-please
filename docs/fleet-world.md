@@ -284,7 +284,10 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   cleanup and inspection. Blender MCP may automate the Blender side; it does not replace the people
   pipeline, and it is optional.
 - **Files.** MetaHuman exports stay out of git and out of the wheel until the redistribution and seat
-  questions below are answered; `people.json` points at a local folder.
+  questions below are answered; `people.json` points at a local folder. That folder is
+  `~/.agentdata/world/people/` (or `$AGENTDATA_WORLD_PEOPLE_DIR`): with its own `people.json`, the
+  server answers `/static/world/people/` from it, and falls back to the stand-in for anything it
+  lacks or when it has no manifest (`tools/world/people/README.md`).
 - **Size is not the budget; the frame is.** A larger file is not by itself a slower page. Every slice
   optimises both: the people pipeline adds meshopt geometry compression and KTX2 textures, and the
   5 MiB bound on the people folder gives way to frame budgets (frame time, draw calls, triangles) and

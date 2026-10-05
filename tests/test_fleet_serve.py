@@ -844,6 +844,51 @@ def test_the_worlds_people_are_the_ones_it_loads_credited_and_bounded():
     assert size < PEOPLE_BUDGET, size
 
 
+def test_the_operators_own_people_are_served_before_the_stand_in(running, tmp_path, monkeypatch):
+    """Characters that may not be redistributed (MetaHuman or Fab exports) live in the operator's own
+    folder, never in git or the wheel: with a `people.json` there, `/static/world/people/` answers
+    from it, and what it lacks still comes from the stand-in. Nothing escapes the folder."""
+    base, token, _ = running
+    own = tmp_path / "people"
+    own.mkdir()
+    (own / "people.json").write_text('{"hero": [{"file": "mine.glb"}], "crowd": []}', encoding="utf-8")
+    (own / "mine.glb").write_bytes(b"glTF-mine")
+    (own / "notes.md").write_text("private", encoding="utf-8")
+    (tmp_path / "outside.glb").write_bytes(b"outside")
+    monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(own))
+
+    status, body, _ = get(base, "/static/world/people/people.json", token)
+    assert status == 200 and json.loads(body)["hero"] == [{"file": "mine.glb"}]
+    assert get(base, "/static/world/people/mine.glb", token)[1] == "glTF-mine"
+    with open(os.path.join(STATIC, "world", "people", "standin.glb"), "rb") as f:
+        standin = f.read()
+    with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
+        assert r.read() == standin
+    for name in ("notes.md", "..%2Foutside.glb", "../outside.glb", "missing.glb"):
+        with pytest.raises(urllib.error.HTTPError) as no:
+            get(base, f"/static/world/people/{name}", token)
+        assert no.value.code == 404, name
+
+
+def test_without_the_operators_people_the_stand_in_is_served(running, tmp_path, monkeypatch):
+    """No folder, or a folder without its manifest (a half-finished copy), changes nothing: the page
+    gets the CC0 stand-in the package ships. The default folder sits beside the config."""
+    base, token, _ = running
+    assert S.people_dir() == os.path.join(os.path.dirname(os.path.abspath(os.environ["AGENTDATA_CONFIG"])),
+                                          "world", "people")
+    shipped = json.load(open(os.path.join(STATIC, "world", "people", "people.json"), encoding="utf-8"))
+    assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
+
+    half = tmp_path / "half"
+    half.mkdir()
+    (half / "standin.glb").write_bytes(b"not the stand-in")
+    monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(half))
+    assert S.people_file("standin.glb") is None
+    assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
+    with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
+        assert r.read() != b"not the stand-in"
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""

@@ -16,8 +16,12 @@ For each character, in order:
    cards) and skins every vertex to the rest pose in world space, so exporter conventions (mesh node
    transforms, inverse bind matrices) all come out the same. Meshes without a skin (hair cards, glasses
    exported as static meshes) are bound to `attach` (default `head`).
+   With `"pose": "bind"` the rest pose is the one the inverse bind matrices hold rather than the
+   nodes' own transforms: an export saved mid-animation (Fab's "Animated" characters are saved
+   sitting or walking) otherwise comes out in that pose.
 2. Finds the world frame: metres (an export over 20 units tall is taken as centimetres, or set
-   `scale`), Y up (`"up": "z"` for a Z-up file), facing -Z (from the feet: `foot_l` to `ball_l`; or
+   `scale`), Y up (`"up": "z"` for a Z-up file; without `up`, a character more than twice as deep in Z
+   as it is tall in Y is taken as Z-up), facing -Z (from the feet: `foot_l` to `ball_l`; or
    set `facing`), feet on y = 0, pelvis over the origin.
 3. Keeps the Unreal Engine body bones (`pelvis`, `spine_01`..`spine_05`, `neck_01`, `neck_02`, `head`,
    `clavicle/upperarm/lowerarm/hand_l/r`, `thigh/calf/foot/ball_l/r`, and the 30 finger bones for the
@@ -63,7 +67,16 @@ Hair, beard and glasses primitives carry a `style` (the node name after its role
 }
 ```
 
-Then edit `agentdata/fleet/static/world/people/people.json`: `hero` lists the hero files (each with
+A crowd character's `dropNodes` (node or mesh names) leaves out props its file carries (a chair,
+a briefcase).
+
+**Files that may not be redistributed** (MetaHuman, Fab) never go into the package: set `"out"` to the
+operator's own folder, `~/.agentdata/world/people/` (or `$AGENTDATA_WORLD_PEOPLE_DIR`), and write its
+own `people.json` there. With that manifest present the server answers `/static/world/people/` from
+the folder, falling back file by file to the stand-in; without it, the stand-in is served
+(`serve.people_file`). Nothing in the repository changes.
+
+For the stand-in itself, edit `agentdata/fleet/static/world/people/people.json`: `hero` lists the hero files (each with
 `fits`, e.g. `{"figure": "curved", "age": "older"}`, so the picker's look chooses the closest export),
 `crowd` the crowd files, `hair`/`face`/`glasses` map picker values to styles, `morphs` maps figure,
 build and age values to morph weights (empty for exports without variants), and `clips.idle` may name an
