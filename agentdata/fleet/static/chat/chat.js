@@ -549,6 +549,33 @@ function cResetIt(repo) {
   });
 }
 
+/** @param {Object} row */
+function cApplyRow(row) {
+  if (!row || !row.repo) return;
+  var was = cKey();
+  cState.rows = cState.rows.map(function (r) { return r.repo === row.repo ? row : r; });
+  drawAgents();
+  drawMain();
+  if (cKey() !== was || cState.shown.key !== cKey()) chatLoad();
+}
+
+/** @param {string} state */
+function cMarkState(state) {
+  var chip = document.getElementById("chatstate");
+  setClass(cMain, "tile state-" + state);
+  setClass(chip, "chip " + state);
+  text(chip.querySelector(".chipword"), state);
+  text(chip.querySelector(".chipage"), "");
+}
+
+/** @param {string} repo */
+function cFetchRow(repo) {
+  return fetch(q("/api/row", { repo: repo })).then(function (r) { return r.json(); }).then(function (d) {
+    if (d && d.ok && d.row) cApplyRow(d.row);
+    else cSoon();
+  }, function () { cSoon(); });
+}
+
 function cSubmit() {
   var row = cRow(cState.repo);
   if (!row) return;
@@ -561,12 +588,17 @@ function cSubmit() {
   if (!message) { text(cSaid, "type a message first"); return; }
   var forcing = cState.force;
   disable(cSend, true);
-  return cPost(verb, { repo: row.repo, message: message, force: forcing }).then(function (r) {
+  cMarkState("starting");
+  return cPost(verb, { repo: row.repo, message: message, force: forcing, row: false }).then(function (r) {
     disable(cSend, false);
     cState.force = !r.ok && r.code === "budget_exceeded" && !forcing;
     if (cState.force) text(cSaid, (r.error || "") + " — press Send anyway to spend one more turn");
-    if (r.ok) cMessage.value = "";
-    drawMain();
+    if (!r.ok) { drawMain(); return; }
+    cMessage.value = "";
+    if (r.row) { cApplyRow(r.row); return; }
+    if (r.state) cMarkState(r.state);
+    else drawMain();
+    cFetchRow(row.repo);
   });
 }
 

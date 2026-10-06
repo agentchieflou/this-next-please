@@ -158,10 +158,31 @@ holding the session's title, the run line and `why`. An earlier session wears th
 and never `needs-human`: nothing on it is waiting. The head's *start fresh* is the desk's offer
 (`.freshtoggle.is-offer`, shown only when the row offers one); the bottom row's is always there.
 
+### `function cApplyRow`
+
+One agent's row, from an action's answer or `/api/row`, put in place of the one the page had and drawn,
+and the conversation reloaded if it now names another session.
+
+### `function cMarkState`
+
+The pane's state and chip, written as `drawMain` writes them: *starting* the moment a message goes,
+then the state the answer names, until the row is drawn over them (2026-10-06, the operator: "aim
+for 50ms load times, especially when actually interacting with agents (the time from clicking send,
+or pressing Enter, to the agent 'running')").
+
+### `function cFetchRow`
+
+The row a quick answer left to fetch (`/api/row`); the whole fleet, debounced, when it cannot be had.
+
 ### `function cSubmit`
 
 Enter sends, Shift+Enter is a new line. Over budget, the server refuses `budget_exceeded` and the
 button becomes *Send anyway*: the next press spends one more turn, as on the desk.
+
+The message goes with `row: false`, as the desk's does: the pane says *starting* at once, *running*
+when the server answers that the turn's process is up, and the row comes from `/api/row`. A server
+that answers with the row instead is drawn from it; a refusal draws the pane as it was. It used to
+wait out `cSoon`'s 400 ms and a whole `/api/fleet`, about 0.6 s, before the pane said anything.
 
 ### `function cFresh`
 
