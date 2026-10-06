@@ -469,7 +469,7 @@
       "tests": 10
     },
     "tests/test_fleet_events.py": {
-      "tests": 43
+      "tests": 44
     },
     "tests/test_fleet_fresh.py": {
       "tests": 16
@@ -627,6 +627,9 @@
     "tests/test_fleet_notify.py": {
       "tests": 30
     },
+    "tests/test_fleet_page_speed.py": {
+      "tests": 8
+    },
     "tests/test_fleet_page_theme.py": {
       "tests": 14
     },
@@ -654,14 +657,14 @@
     },
     "tests/test_fleet_serve.py": {
       "skips": 2,
-      "tests": 49
+      "tests": 57
     },
     "tests/test_fleet_served_comments.py": {
       "skips": 3,
       "tests": 9
     },
     "tests/test_fleet_sessions.py": {
-      "tests": 6
+      "tests": 7
     },
     "tests/test_fleet_settings_api.py": {
       "tests": 12
@@ -725,7 +728,7 @@
       "tests": 13
     },
     "tests/test_fleet_world_page.py": {
-      "tests": 7
+      "tests": 13
     },
     "tests/test_fleet_wrapup.py": {
       "tests": 27

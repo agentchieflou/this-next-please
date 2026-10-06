@@ -211,20 +211,35 @@ def cmd_answer(a) -> int:
     it resumes the agent (`lifecycle.record_answers`), and the agent, told so or not, may record it
     again -- a refusal there read as a failure and sent the agent back to `blocked`.
     """
-    st = S.load(a.file)
-    qid, text = _answer_target(st, list(a.args))
+    st, path, extra = _answer(a.file, list(a.args))
+    return _questions_report(st, "ad-state answer", path, extra=extra)
+
+
+def record_answer(file: str, qid: str, text: str) -> dict:
+    """`ad-state answer <id> <text>` for a caller in this process, without the report: the same
+    checks and the same write (`_answer`), and what the report would say (`answered` or
+    `already_answered`, and the ticket's fields for a ticket question). Raises `StateError` where the
+    command refuses. The desk records an operator's answers with it before resuming the agent
+    (`lifecycle.record_answers`): a process of its own was about 200 ms an answer on Windows, on the
+    way from Send to the agent running (2026-10-06, page loads)."""
+    return _answer(file, [qid, text])[2]
+
+
+def _answer(file: str, args: list[str]) -> tuple[dict, str, dict]:
+    """What `ad-state answer` does, before it reports: `(state, path, what the report adds)`."""
+    st = S.load(file)
+    qid, text = _answer_target(st, list(args))
     is_open = any(isinstance(q, dict) and str(q.get("id") or "") == qid for q in st.get("open_questions") or [])
     if not is_open:
         done = next((q for q in reversed(st.get("answered_questions") or [])
                      if isinstance(q, dict) and str(q.get("id") or "") == qid), None)
         if done is not None:
-            return _questions_report(st, "ad-state answer", textio.norm_path(a.file),
-                                     extra={"already_answered": qid, "answer": str(done.get("answer") or "")})
+            return st, textio.norm_path(file), {"already_answered": qid, "answer": str(done.get("answer") or "")}
     _known(st, qid)
     asked = next(q for q in st["open_questions"] if isinstance(q, dict) and str(q.get("id") or "") == qid)
     was = st.get("active_ticket")
     S.apply(st, {}, answers={qid: text})
-    path = S.save(st, a.file)
+    path = S.save(st, file)
     extra = {"answered": qid}
     if asked.get("kind") == "ticket":
         # The router reads `next`: a key moved the work (`active_ticket` says where), `new` hands
@@ -233,7 +248,7 @@ def cmd_answer(a) -> int:
         extra.update({"ticket_was": was or "", "active_ticket": st.get("active_ticket") or "",
                       "next": {"create": "jira-create", "moved": "continue", "untracked": "continue"}.get(word, "continue"),
                       "ticket_answer": word})
-    return _questions_report(st, "ad-state answer", path, extra=extra)
+    return st, path, extra
 
 
 def cmd_supersede(a) -> int:

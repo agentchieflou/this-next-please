@@ -220,3 +220,8 @@ The phone page's stream (`notify=0`, so a desk's notification sweep is never tak
 addition: a frame for the agent on screen is appended to the log when it belongs to the session on
 screen and is newer than the last line in it. Only a newer frame can say the conversation moved
 (`cForeign`): a reconnect that replays an older `started` is history the log already holds.
+
+### `prerender("#toworld");`
+
+The world loads while the pointer rests on its link (`common.js`'s `prerender`, 2026-10-06), as it
+does from the desk.

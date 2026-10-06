@@ -66,6 +66,37 @@ def clear_lock(name: str) -> None:
         pass
 
 
+def _alive_nt(pid: int) -> bool | None:
+    """Windows' own answer, from the kernel: open the process for a query and ask whether it has
+    exited (a zero wait on its handle). Microseconds, where `tasklist` is a process of its own and
+    took about 120 ms a call -- once per running agent on every `/api/fleet`, and the row an action
+    answers with read the whole fleet's (2026-10-06, the operator: "aim for 50ms ... from clicking
+    send, or pressing Enter, to the agent running"). None when it cannot say (no `ctypes`, or a
+    process it may not open), and `pid_alive` asks `tasklist` instead."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:                    # noqa: BLE001 - an interpreter without ctypes
+        return None
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    query_and_wait = 0x1000 | 0x00100000          # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+    handle = kernel.OpenProcess(query_and_wait, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:                           # ERROR_INVALID_PARAMETER: no such process
+            return False
+        return None                               # access denied and the like: ask tasklist
+    try:
+        return kernel.WaitForSingleObject(handle, 0) == 0x102     # WAIT_TIMEOUT: still running
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def pid_alive(pid: int) -> bool:
     """Is that process still running? Never raises -- callers use it to decide whether to kill.
 
@@ -76,6 +107,12 @@ def pid_alive(pid: int) -> bool:
     if not pid or pid <= 0:
         return False
     if os.name == "nt":
+        try:
+            said = _alive_nt(pid)
+        except Exception:                # noqa: BLE001 - the kernel's answer is a shortcut, never a failure
+            said = None
+        if said is not None:
+            return said
         try:
             out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                                  capture_output=True, text=True, timeout=60,
@@ -1007,13 +1044,16 @@ def reset(name: str, *, cfg: dict | None = None, registry: Registry | None = Non
             "summary": lock.get("summary", ""), "restarts": lock.get("restarts", 1)}
 
 
-def status(registry: Registry | None = None) -> list[dict]:
+def status(registry: Registry | None = None, names: list[str] | None = None) -> list[dict]:
+    """Every registered agent's row, or only those `names` names (`serve.fleet_snapshot(only=)`)."""
     reg = registry or Registry()
     # Notice the dead before reporting on them: a killed process leaves a lock behind, and a row
     # that said "running" about a pid that is gone is the one lie the whole fleet turns on.
-    lifecycle.reap_all(registry=reg)
+    lifecycle.reap_all(registry=reg, names=names)
     rows = []
     for repo in reg.sorted():
+        if names is not None and repo.name not in names:
+            continue
         # `project` rides beside `repo` rather than replacing it: the lock, the agent directory and
         # the events are all per working tree, and the project is only what says two of them are
         # the same piece of work (#175). One agent per registered working tree.

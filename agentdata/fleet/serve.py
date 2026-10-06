@@ -210,8 +210,24 @@ def ink_skins() -> list[str]:
 # says: the number that matters is what goes over the wire, not what sits on the disk.
 GZIP_FROM = 1024
 JSON_GZIP_FROM = 8 * 1024
+#: How many compressed (and, below, stripped) bodies are remembered before the memory is cleared and
+#: refilled. The world alone serves about fifty text files, and at 32 the cache was emptied on every
+#: world load, so three.js and every script were compressed again each time a page opened (2026-10-06,
+#: the operator: "We're aiming for ~200ms loads"). A few megabytes at most.
+GZIP_ENTRIES = 512
 _GZIPPED: dict[tuple, bytes] = {}
 _GZIP_LOCK = threading.Lock()
+
+
+def static_etag(stamp: os.stat_result) -> str:
+    """A static file's version, as its validator: when it was written and how long it is. The token
+    is in every asset's URL and is new on every run, so a cached copy never outlives the server that
+    served it; within a run the browser keeps each file and asks whether it changed (`_unchanged`),
+    which is a 304 of a few hundred bytes instead of the file -- the world alone is ten megabytes of
+    textures, models and scripts -- and lets the browser keep its compiled code for a script
+    (2026-10-06, the operator: "We're aiming for ~200ms loads"). Weak, because the bytes on the wire
+    are gzipped for one client and not for another."""
+    return f'W/"{stamp.st_mtime_ns:x}-{stamp.st_size:x}"'
 
 
 def gzip_for(body: bytes, key: tuple) -> bytes:
@@ -223,7 +239,7 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
     # mtime=0: the same bytes in, the same bytes out, so a test can compare two runs.
     packed = gzip.compress(body, 6, mtime=0)
     with _GZIP_LOCK:
-        if len(_GZIPPED) > 32:                # one entry per asset per token; a long-lived server
+        if len(_GZIPPED) > GZIP_ENTRIES:      # one entry per asset per token; a long-lived server
             _GZIPPED.clear()                  # that has been restyled all day still stays small
         _GZIPPED[key] = packed
     return packed
@@ -252,9 +268,10 @@ def strip_asset(name: str, raw: bytes) -> bytes:
         return raw
 
 
-def static_body(name: str) -> bytes:
-    """The bytes `/static/<name>` answers with, stripped once per version of the file."""
-    path = os.path.join(STATIC, name)
+def static_body(name: str, path: str | None = None) -> bytes:
+    """The bytes `/static/<name>` answers with, stripped once per version of the file. `path` is
+    where the file is when it is not `STATIC/<name>` (the operator's own people, `people_file`)."""
+    path = path or os.path.join(STATIC, name)
     stamp = os.stat(path)
     key = (path, stamp.st_mtime_ns, stamp.st_size)
     with _STRIP_LOCK:
@@ -264,10 +281,43 @@ def static_body(name: str) -> bytes:
     with open(path, "rb") as f:
         body = strip_asset(name, f.read())
     with _STRIP_LOCK:
-        if len(_STRIPPED) > 64:               # one entry per file version; a server whose files
+        if len(_STRIPPED) > GZIP_ENTRIES:     # one entry per file version; a server whose files
             _STRIPPED.clear()                 # are edited all day still stays small
         _STRIPPED[key] = body
     return body
+
+# The world's people from the operator's own folder (docs/fleet-world.md, "Realistic people",
+# decided 2026-10-05): characters that may not be redistributed -- MetaHuman or Fab exports put
+# through `tools/world/people/` -- stay out of git and out of the wheel, in
+# `~/.agentdata/world/people/` beside the config (or `$AGENTDATA_WORLD_PEOPLE_DIR`). When that folder
+# holds a `people.json`, every `/static/world/people/<file>` it also holds is answered from it;
+# anything it lacks, and everything when it has no manifest, comes from the package's CC0 stand-in.
+# The page is unchanged: it reads the same manifest at the same address either way.
+PEOPLE_ROUTE = "world/people/"
+PEOPLE_DIR_ENV = "AGENTDATA_WORLD_PEOPLE_DIR"
+
+
+def people_dir() -> str:
+    """`~/.agentdata/world/people`, or `$AGENTDATA_WORLD_PEOPLE_DIR`. Beside the config, like
+    `fleet_dir()`, so a test that redirects `AGENTDATA_CONFIG` never reads a developer's own people."""
+    from .. import config as C
+    override = os.environ.get(PEOPLE_DIR_ENV)
+    if override:
+        return os.path.abspath(C.expand(override))
+    return os.path.join(os.path.dirname(os.path.abspath(C.path())), "world", "people")
+
+
+def people_file(name: str) -> str | None:
+    """The operator's own file for `/static/world/people/<name>`, or None for the stand-in's.
+
+    Only a folder with a manifest takes over (a half-copied folder without one changes nothing), and
+    only a plain file directly inside it: no subfolders, nothing above it, no `.md`."""
+    root = people_dir()
+    if "/" in name or "\\" in name or name.endswith(UNSERVED) or not os.path.isfile(os.path.join(root, "people.json")):
+        return None
+    path = os.path.normpath(os.path.join(root, name))
+    return path if os.path.dirname(path) == os.path.normpath(root) and os.path.isfile(path) else None
+
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
 # *names*, like the catalogue's: `.agent/out/` also holds trace jsonl, screenshots and the debug log,
@@ -282,7 +332,11 @@ VERIFY_HEAD = 3000           # characters of the summary the pane shows; the lin
 
 # The page may load nothing but itself. Belt and braces with shipping no external references: if a
 # later edit pastes in a CDN script tag, the browser refuses it and the test below catches it.
-CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+#: `script-src` is `default-src`'s `'self'` plus inline speculation rules and nothing else inline:
+#: `common.js`'s `prerender` writes one so a link to the chat or the world is loaded while the pointer
+#: rests on it (2026-10-06, page loads). Any other inline script is still refused.
+CSP = ("default-src 'self'; script-src 'self' 'inline-speculation-rules'; img-src 'self' data:; "
+       "style-src 'self' 'unsafe-inline'; connect-src 'self'")
 
 
 # A relative URL inside a stylesheet does not inherit the query string the stylesheet was fetched
@@ -596,9 +650,15 @@ def read_order() -> dict:
         return dict(_read_order)
 
 
+def prefers_minimal(prefer: str | None) -> bool:
+    """`Prefer: return=minimal` (RFC 7240) among a request's preferences: answer without the row."""
+    return any(p.split(";")[0].strip().lower() == "return=minimal" for p in (prefer or "").split(","))
+
+
 def row_for(name: str) -> dict:
-    """One tile's row, exactly as `/api/fleet` would send it. What an action answers with."""
-    for row in fleet_snapshot().get("repos", []):
+    """One tile's row, exactly as `/api/fleet` would send it. What an action answers with: only that
+    checkout's row and its siblings' are built (`fleet_snapshot(only=)`), not the whole fleet's."""
+    for row in fleet_snapshot(only=name).get("repos", []):
         if row.get("repo") == name:
             return row
     return {}
@@ -651,8 +711,19 @@ def approval_answer(id: str) -> dict | None:
     return None
 
 
-def fleet_snapshot() -> dict:
+def fleet_snapshot(only: str = "") -> dict:
+    """Everything the page needs to draw itself from cold (`_fleet_snapshot`), each agent's stream
+    parsed once for all of it (`events.reading`)."""
+    with E.reading():
+        return _fleet_snapshot(only)
+
+
+def _fleet_snapshot(only: str = "") -> dict:
     """Everything the page needs to draw itself from cold. Also the reconnect path.
+
+    `only` names one checkout (`row_for`, what an action answers with): its row is built, and the
+    rows of its project's other checkouts, which its switcher strip is made of (`_add_siblings`),
+    and nothing else -- no other agent's events are read and nothing but `repos` is answered.
 
     The row is built field by field rather than merged from `supervisor.status()` wholesale, because
     that dict also carries an `agent` word for the same idea as `state`. Two state words on one row
@@ -720,9 +791,17 @@ def fleet_snapshot() -> dict:
     # the one already held.
     from . import adopt as A
 
+    wanted = None
+    if only and registry is not None:
+        # The named checkout and the others of its project: the rows its switcher strip is made of.
+        try:
+            project = registry.get(only).project or only
+        except RegistryError:
+            project = only
+        wanted = [r.name for r in registry.sorted() if r.name == only or (r.project or r.name) == project]
     try:
-        offers = {c["repo"]: c for c in A.candidates(registry,
-                                                      processes=A.agent_processes(wait=False))}
+        offers = {c["repo"]: c for c in A.candidates(registry, processes=A.agent_processes(wait=False),
+                                                      names=wanted)}
     except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
         offers = {}
 
@@ -739,7 +818,8 @@ def fleet_snapshot() -> dict:
 
     # The same registry the states are read from (#586): a second `Registry()` in `status()` could
     # list a repo registered since, whose `state.json` this snapshot would then never read.
-    for row in supervisor.status(registry):
+    statuses = supervisor.status(registry) if wanted is None else supervisor.status(registry, names=wanted)
+    for row in statuses:
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
         repo_state: dict = {}                # the previous row's repository (and its state) in hand
@@ -903,6 +983,8 @@ def fleet_snapshot() -> dict:
                                            offer=offers.get(name), cfg=cfg)
 
     _add_siblings(rows)
+    if only:
+        return {"repos": rows}
     from .. import config as C
 
     # `fleet.preflight: false` restores #98's immediate start: a drop launches instead of opening
@@ -2489,7 +2571,13 @@ ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "ap
 
 
 def act(what: str, body: dict) -> dict:
-    """One action. The same function the CLI verb calls, so the two cannot drift apart."""
+    """One action. The same function the CLI verb calls, so the two cannot drift apart. Each
+    agent's stream is parsed once for the action and the row it answers with (`events.reading`)."""
+    with E.reading():
+        return _act(what, body)
+
+
+def _act(what: str, body: dict) -> dict:
     repo = str(body.get("repo") or "")
     if what == "start":
         from .. import config as C
@@ -2539,6 +2627,12 @@ def act(what: str, body: dict) -> dict:
         # over-budget agent was simply unreachable from the page and `ad-fleet send --force` in a
         # terminal was the only door.
         lock = supervisor.send(repo, message, cfg=C.load(), force=bool(body.get("force")))
+        if body.get("row") is False:
+            # The page asked to hear as soon as the turn is running (2026-10-06, the operator: "aim
+            # for 50ms ... from clicking send, or pressing Enter, to the agent running"): its process
+            # is up, which is what `running` is, and the page fetches the row itself (`/api/row`).
+            # Building the row is most of an answer's time (a ledger, a stream, a lock or two).
+            return {"repo": repo, "pid": lock["pid"], "state": "running"}
         return {"repo": repo, "pid": lock["pid"], "row": row_for(repo)}
     if what == "scope/resolve":
         # Hashes in, paths out. Nothing is written and nothing is uploaded: the page has sent the
@@ -2675,8 +2769,10 @@ def act(what: str, body: dict) -> dict:
                     "recorded": recorded, "via": "console"}
         lock = supervisor.send(repo, lifecycle.answers_prompt(answers, recorded), cfg=C.load(),
                                force=bool(body.get("force")))
-        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers],
-                "recorded": recorded}
+        out = {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers],
+               "recorded": recorded}
+        # As `send`'s: a page that asked not to wait for the row hears the turn is running (2026-10-06).
+        return {**out, "state": "running"} if body.get("row") is False else out
     if what == "stop":
         return supervisor.stop(repo)
     if what == "reset":
@@ -3484,7 +3580,9 @@ class Handler(BaseHTTPRequestHandler):
         return bool(self.token) and hmac.compare_digest(given, self.token)
 
     def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None,
-              cache_key: tuple | None = None) -> None:
+              cache_key: tuple | None = None, etag: str = "") -> None:
+        """One answer. Everything is `no-store` but a static file, which carries `etag` and is kept
+        by the browser and asked about again on every use (`no-cache`, `_static`)."""
         extra = dict(extra or {})
         if cache_key is not None and len(body) >= GZIP_FROM and \
                 "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
@@ -3499,11 +3597,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "no-cache" if etag else "no-store")
+        if etag:
+            self.send_header("ETag", etag)
         for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _unchanged(self, etag: str) -> bool:
+        """Answer 304 when the browser already holds this version of a static file (its
+        `If-None-Match` names `etag`), and say whether it did."""
+        asked = self.headers.get("If-None-Match") or ""
+        if not etag or not (asked.strip() == "*" or etag in [t.strip() for t in asked.split(",")]):
+            return False
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Vary", "Accept-Encoding")
+        self.end_headers()
+        return True
 
     def _json(self, payload: dict, code: int = 200, *, gzip_ok: bool = False) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -3593,6 +3706,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()}, gzip_ok=True)
+        if route == "/api/row":
+            # One agent's row, as `/api/fleet` would carry it (`row_for`): what a page fetches after a
+            # `send` that answered as soon as the turn was running (2026-10-06).
+            name = (query.get("repo") or [""])[0]
+            if not name:
+                return self._refuse(400, "which repository?", "pass ?repo=<name>")
+            return self._json({"ok": True, "row": row_for(name)}, gzip_ok=True)
         if route == "/api/attention":
             # The phone's view of the fleet (#559): the bridge's allow-listed rows, never `/api/fleet`'s.
             return self._json(attention_answer())
@@ -3875,11 +3995,15 @@ class Handler(BaseHTTPRequestHandler):
         which is exactly why this would be found by an attacker rather than by a test.
         """
         root = os.path.join(STATIC, "")      # the directory, with its trailing separator
-        path = os.path.normpath(os.path.join(STATIC, name))
-        if not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED):
+        own = people_file(name[len(PEOPLE_ROUTE):]) if name.startswith(PEOPLE_ROUTE) else None
+        path = own or os.path.normpath(os.path.join(STATIC, name))
+        if not own and (not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED)):
             return self._refuse(404, f"no file {name}")
         stamp = os.stat(path)
-        body = static_body(os.path.relpath(path, STATIC))
+        tag = static_etag(stamp)
+        if self._unchanged(tag):
+            return None
+        body = static_body(name, own) if own else static_body(os.path.relpath(path, STATIC))
         # Decided from the *base* type, before the charset is appended -- and not from what this
         # machine happens to call a `.js` file. `mimetypes` reads the registry on Windows, where
         # `.js` is commonly `application/javascript`; deciding after the append left that failing
@@ -3892,7 +4016,8 @@ class Handler(BaseHTTPRequestHandler):
         if base == "text/css":
             body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
         self._send(200, body, ctype,
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None)
+                   cache_key=(own or name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None,
+                   etag=tag)
 
     def _sse(self, query: dict) -> None:
         self.send_response(200)
@@ -3967,13 +4092,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(400, "body is not JSON")
         if not isinstance(body, dict):
             return self._refuse(400, "body must be a JSON object")
+        # A page that will not wait for the row says so in a header, `Prefer: return=minimal` (RFC 7240,
+        # 2026-10-06), so an action's body stays the action; `act` reads the wish as `row: False`.
+        body.pop("row", None)
+        if prefers_minimal(self.headers.get("Prefer")):
+            body["row"] = False
         what = route[len("/api/"):]
         try:
             out = act(what, body)
             # The row this action changed, with the answer (#219). One round trip where there
             # were two, and the tile is patched from what the server already had in hand rather
             # than from a second snapshot of the whole fleet.
-            if what in ROW_ACTIONS:
+            # Once: an action that answered with its row already (`send`) is not given a second, and
+            # a page that asked not to wait for it (`Prefer: return=minimal`, 2026-10-06) fetches it itself.
+            if what in ROW_ACTIONS and "row" not in out and body.get("row") is not False:
                 changed = str(out.get("repo") or body.get("repo") or "")
                 if changed:
                     row = row_for(changed)

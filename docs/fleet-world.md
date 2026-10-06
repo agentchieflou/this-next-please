@@ -80,8 +80,8 @@ person.
 
 ## The agents
 
-Every `/api/fleet` row is a small robot on a circle around the plaza, sorted by name and facing the
-middle. Each robot has a white shell tinted a pale colour from its name, a dark visor with eyes and a
+Every `/api/fleet` row has a desk in the office, sorted by name round its ring; where people cannot be
+drawn, the agent is a small robot at its desk. Each robot has a white shell tinted a pale colour from its name, a dark visor with eyes and a
 smile, a chest light, an antenna and a hover base, and a ring at its waist. The eyes, the lights and
 the ring are in its state's colour and glow at night. It bobs on its base, faster while it works,
 when its ring turns too; under reduced motion it holds still. Over its head is a label with its name
@@ -104,12 +104,13 @@ every refusal is the server's, in its words. The page adds no route.
 ## The place
 
 The operator, 2026-10-02: *"We're looking for a far cry 3 / rdr2 / gta 6 / cyberpunk quality world
-with rich assets and quality features that can run in browser."* The plaza is the middle of a
+with rich assets and quality features that can run in browser."* The office is the middle of a
 district you can walk into.
 
-- **The plaza** is paved in rings of granite, with a brass compass at its centre. Eight cast-iron
-  lamps stand round the agents' circle, with a bench between each pair and a tree behind each bench.
-  The circle, the plaza and everything round it grow with the fleet.
+- **The office** (the operator, 2026-10-06; see *The office* below) is a round glass pavilion on the
+  plaza's granite, its brass compass in the middle of the floor: a desk for every agent round a ring,
+  each with a screen showing what that agent is doing, a door to each avenue, planters with young
+  lindens outside and inside. The ring, the office and everything round it grow with the fleet.
 - **The streets.** A ring road goes round the plaza and four avenues lead out of it, crossed by side
   streets every 64 m. They have:
   - lane markings, zebra crossings, stop lines and manhole covers;
@@ -132,8 +133,8 @@ district you can walk into.
 - **Life.** Cars drive the avenues and the ring road. They keep their distance and stop at red
   lights, with their headlights on the wet road at night. Cars are parked along the side streets,
   and people with umbrellas walk the sidewalks.
-- **Walking.** You walk up to 150 m from the plaza. Buildings, benches, trees, lamp posts and street
-  furniture are solid.
+- **Walking.** You walk up to 150 m from the office. Buildings, desks, planters, trees, lamp posts and
+  street furniture are solid, and so is the office's glass: you go in and out by its doors.
 
 The shapes are built in the page from code: three.js's own shapes, merged by material, and
 shaders. The surfaces and the small things are real:
@@ -156,6 +157,93 @@ committed (WebP textures, decimated models, 512 x 256 skies): 4 MiB in all, in t
 the fleet's own server like its scripts. Nothing comes from the internet. If a file is missing, the
 world falls back to its own version of that thing (a baked material, the sky shader, a built
 hydrant). The world's script is 74.2 KiB.
+
+### The trees
+
+The operator, 2026-10-05: *"Work through everything you need to work through to enhance the people
+and the environment. We also have UE's TwinMotion installed"*, and then, for the environment,
+*"Building environment assets in UE/TwinMotion"*. Twinmotion was not installed (the launcher lists
+Unreal Engine 5.8, its Fab plugin and Quixel Bridge), and what its library holds could not be used
+here if it were: the Twinmotion EULA (section 1.2) lets its content be used only to visualise inside
+Unreal Engine, Twinmotion, RealityCapture and UEFN, and to export images and videos. That covers its
+plants, people, vehicles and props and the Megascans inside it; Unreal Engine's own "UE-only" content
+is bound the same way. Neither may be drawn by this page, even from the operator's own disk. What may
+is what is made here, so the trees are grown here, and the old ones (a stick, two branches and a few
+dozen oversized leaf cards) were the environment's weakest thing.
+
+They are one file, `agentdata/fleet/static/world/trees/trees.glb` (1.2 MiB), grown by
+`tools/world/trees/` from nothing but its own numbers and under the repository's licence (the folder's
+`LICENSE`): Blender, headless, draws each species' leaf (outline, lobes, teeth, veins, colour), lays
+leaves along twigs and renders clusters of them into one atlas (colour with occlusion, normals,
+roughness), makes the barks, and grows each tree (a trunk with its root flare, scaffold limbs from the
+crown's base, branches and twigs to an irregular crown), then spreads the twig cards evenly through
+the crown's outer shell and bakes how much sky each one sees into its colour. Node packs it (WebP,
+glTF's Y up).
+
+- **On the avenues** London planes (the mottled bark that flakes in patches, broad crowns) and
+  lindens (heart-shaped leaves, oval crowns), one species a stretch of avenue between crossings, as a
+  city plants them, about 10 m tall, in their pits. A spot that falls at a lamp is left empty: a crown
+  that size would swallow the lamp's head.
+- **Round the office** young lindens in planters, 6.5 m, eight outside and four inside behind the
+  desks (smaller, as indoor trees).
+- **Near and far.** Within 42 m of the eye a tree is drawn whole (3,000 to 5,000 triangles), further
+  away with fewer and larger twigs (about a third of that). They are instanced: a few draw calls for
+  each kind of tree, however many stand in the street. Their leaves let light through, sway, and fade
+  where a card turns edge-on rather than showing as a streak.
+- **Cost.** On the operator's laptop (RTX 3050 Ti, Chromium, 1600 x 900, `high`, held at full
+  resolution) a frame went from 2.5 ms to 2.7 to 2.8 ms with the trees, and from 107 draw calls to 131
+  to 135 (the mirror of the wet street draws them twice) and from 1.32 to 1.43 million triangles.
+- The `low` quality keeps the page's own trees: two draw calls for all of them.
+
+### The cars
+
+The cars were the next weakest thing: boxes extruded from a side profile, a sedan and an SUV. They are
+grown here too, for the same reason as the trees, one file, `agentdata/fleet/static/world/cars/cars.glb`
+(0.4 MiB), lofted by `tools/world/cars/` and under the repository's licence (the folder's `LICENSE`),
+after no maker's design.
+
+- **Four kinds:** a sedan, a hatchback, an SUV and a van, each body lofted from its own profiles (the
+  top line from the bumper over the bonnet, windscreen, roof and rear window to the boot, the
+  beltline, the widths, the underside raised over the wheel arches) and closed at the ends with rounded
+  noses. Glass, head and tail lamps in their housings, grille, intakes, plates, pillars and door seams
+  are laid on the body from outlines seen from the side, above or the ends; tyres and five-spoke rims
+  are built for each wheel.
+- **Painted by the page:** the body takes each car's colour through the clearcoat paint, as before;
+  the glass, trim and lamps keep their own materials, the lamps lit on cars that drive.
+- **Near and far.** Within 36 m of the eye a car is drawn whole (about 3,900 triangles); further away
+  as about 850 triangles in two draw calls, the glass and trim in the body by colour.
+- **Cost.** On the operator's laptop (RTX 3050 Ti, Chromium, 1600 x 900, `high`, held at full
+  resolution) a frame went from 2.7 to 2.8 ms (with the trees) to 3.1 ms, at 147 to 163 draw calls
+  from 131.
+- The `low` quality keeps the page's own two cars.
+
+### The office
+
+The operator, 2026-10-06: *"Let's create an office building with the humans as agents and when we walk
+up to them we have the opportunity to 'take over their screen' which would bring us back to the
+Desk/Chat screen."* Asked where, they chose the office in place of the plaza, and the chat as the screen
+taken over.
+
+- **The building** is a round pavilion of glass between dark mullions under a flat roof that overhangs
+  it, with a door to each avenue and a lamp each side of every door. Inside: a polished floor round the
+  plaza's brass compass, a light grey ceiling with two rings of light, a warm light over every desk.
+  No rain falls under the roof (the rain and the splashes skip it), the floor is dry, and by night the
+  office glows through its glass. It is built in the page (`WorldScenery.plaza`) and grows with the
+  fleet: the desks' ring is 7 m across at the least and wider as agents come.
+- **The desks** are a file grown here like the trees and the cars,
+  `agentdata/fleet/static/world/office/office.glb` (0.12 MiB, `tools/world/office/`): a bench desk
+  with an oak top, a monitor, keyboard, mouse and a mug, an office chair, and a planter. They are drawn
+  instanced, one draw call a material whatever the number of agents; the desks face out to the glass,
+  so from the middle you see every agent from behind, and its screen.
+- **The screens** show their agent: its name and state in its colour, what it says it is doing, and
+  the last thing it said, a terminal's look on one shared texture (an 8 x 8 atlas), redrawn only when
+  an agent's row changes. One that needs you is framed in amber.
+- **Taking over a screen.** Walk up to an agent: the prompt offers to talk (E, or A on a pad) and to
+  take over its screen (T, or X); the agent's panel has the button too. Taking over opens the chat on
+  that agent (`/chat#<agent>`), its conversation and its session's controls.
+- **Inside**, the third-person camera stays under the roof and within the glass.
+- **Cost.** About 3,600 triangles a desk; the office adds a few draw calls in all. The world's scripts
+  grew by 2.9 KiB gzipped (the budget moved to 92 KiB, `tests/test_fleet_serve.py`).
 
 ### The people
 
@@ -226,8 +314,9 @@ The frame budget is **10 ms**: 100 frames a second.
     one mesh each, all sharing one material, so a change of look compiles no shader.
   - When frames run long it lowers its render resolution. Once a second it compares the median frame
     with the display's rate (or the 10 ms budget on a display faster than 100 Hz), and steps down to
-    half resolution at worst. If that is not enough, it drops a quality tier. It steps back up when
-    there is room.
+    half resolution at worst. If that is not enough, it drops a quality tier, but not in the first 15 s
+    after the warm-up, when late shader compiles make frames long. It steps the resolution back up when
+    there is room, and a dropped tier back up once, when frames run under half the target.
   - The surfaces are baked or uploaded once at load, and the sky's environment made once a minute,
     never per frame.
 - **It stops drawing when the tab is hidden.**
@@ -239,7 +328,10 @@ The frame budget is **10 ms**: 100 frames a second.
 - `calls` and `triangles` (the scene), and `passes` (the whole frame's draw calls);
 - `town` (buildings, lights, cars, parked cars, people, scanned props, crowd characters);
 - `hero` (where it is, its `kind`, `skinned` or `doll`, and its pose: `legL`, `armR`, `hips`) and
-  `people` (whether the realistic character loaded, how many crowd characters);
+  `people` (whether the realistic character loaded, how many crowd characters, and `parts`: each
+  drawn part of your character with its role, whether the look dyed it, its roughness and occlusion
+  maps, whether light shows through it (`thin`) and its colour; and `agents`, how many agents are drawn
+  as people);
 - `cc0`, how many of the CC0 textures, skies and props loaded.
 
 F3 shows the frame figures in the toolbar.
@@ -258,6 +350,42 @@ measure what does not depend on the machine:
 
 **The frame rate is the laptop's to measure:** open `/world`, press F3, and read the fps line in Edge
 or Chrome on the operator's GPU.
+
+## Loading
+
+The operator, 2026-10-06: *"work on optimizing the load time when clicking between chat, desk, and
+world. We're aiming for ~200ms loads. Right now we're at several seconds."* Measured on the office's
+demo fleet (ten agents) in Chromium on the laptop's GPU, a click on the world to its first real frame:
+
+| | before | after |
+| --- | --- | --- |
+| the pointer rested on the link for about 2 s | 2.6 s | about 0.1 s (prerendered) |
+| a click straight away | 2.6 s | 1.2 to 1.4 s |
+| a browser profile's very first load | 7.1 s | about 4 s (the GPU's shader cache is cold) |
+
+What took the time, and what changed:
+
+- **Every file was fetched again.** The server answered everything `no-store`, so each load fetched
+  the world's ten megabytes again and kept no compiled script. Static files now revalidate (`ETag`,
+  a 304 when unchanged): a second load transfers about 20 KB.
+- **The shaders were compiled twice.** `WorldRender.prepare` compiled them in the background for
+  the screen, while the scene is drawn into a high-dynamic-range target, which needs other programs:
+  those ~50 were compiled again, one at a time, at their first draw. It now compiles for the target
+  the scene is drawn into.
+- **The warm-up drew one object a frame**, 110 frames for the office's world; it now draws as many as
+  fit in 8 ms a frame. Shader logs are read only under test automation (`?shaders=check` asks too):
+  each read waited on the GPU.
+- **The world is prerendered from the desk and the chat** when the pointer rests on its link
+  (Chrome's speculation rules, a 200 ms hover): it builds, compiles and warms up behind the page,
+  and the click shows its first frame. Built behind another page it takes about 2 s, so a shorter
+  hover saves what it lasted.
+
+The desk opens in about 0.1 s and the chat in about 0.2 s (the server's `/api/fleet` for ten active
+agents went from about 0.4 s to 0.1 s: Copilot's session store is read once per change, and a poll
+that finds nothing new writes nothing).
+
+What is left on a click straight away is the build (about 0.7 s: the city's geometry, three.js's
+scene graph, parsing the models) and the uploads of the textures at the first frames (about 0.4 s).
 
 ## What it is not (yet)
 
@@ -284,7 +412,10 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   cleanup and inspection. Blender MCP may automate the Blender side; it does not replace the people
   pipeline, and it is optional.
 - **Files.** MetaHuman exports stay out of git and out of the wheel until the redistribution and seat
-  questions below are answered; `people.json` points at a local folder.
+  questions below are answered; `people.json` points at a local folder. That folder is
+  `~/.agentdata/world/people/` (or `$AGENTDATA_WORLD_PEOPLE_DIR`): with its own `people.json`, the
+  server answers `/static/world/people/` from it, and falls back to the stand-in for anything it
+  lacks or when it has no manifest (`tools/world/people/README.md`).
 - **Size is not the budget; the frame is.** A larger file is not by itself a slower page. Every slice
   optimises both: the people pipeline adds meshopt geometry compression and KTX2 textures, and the
   5 MiB bound on the people folder gives way to frame budgets (frame time, draw calls, triangles) and
@@ -293,6 +424,17 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
   the fallback. Where the person is comes from the agent's state: idle, it walks the plaza; working,
   it is at a desk or bench; needing a person, it stops, faces you and raises its beam; done, it
   leaves. People walk waypoints on the sidewalks that exist, with no navigation mesh.
+  Built so far (agents as people): where the crowd is drawn, each agent is one of its characters in the
+  robot's place, standing and breathing, facing you within 6 m and presenting while you talk, its shirt
+  the robot's hue, its state ring at its feet and its beacon over it; the robot remains on the `low`
+  path. Placement by state: the one that needs you stays at its place on the circle; a working one
+  walks to a plaza bench and sits (the first eight, by name); a done one walks out past the end of the
+  plaza's paving and is gone; an idle one strolls round inside the kerb; any walking one stops and faces
+  you within 6 m. They keep to the plaza's own paving rather than the street's sidewalks, which is
+  where the agents are; walking the avenues is left for when there is a reason to go there.
+  Since the office (2026-10-06) the places are its desks: a working agent types at its desk; the one
+  that needs you stands up beside its desk, facing the middle, under its beacon; an idle one sits back
+  at its desk; a done one walks round inside the ring to the nearest door and out, and is gone.
 - **Talking still means walking up.** A person stops moving once your character is within about 6 m,
   so the 3.2 m rule above still holds.
 - **No voice, no lip-sync, no facial animation.** What matters is what the agents decide and how
@@ -302,6 +444,12 @@ Poly Haven has no people. Your character and the people on the sidewalks are Mak
 Order of the slices, one issue each: a MetaHuman hero exported on the operator's machine and put
 through the pipeline locally, with its cost measured; the pipeline's meshopt and KTX2 with the new
 budgets; agents as people; state to place on sidewalk waypoints.
+
+The first slice's cost, measured 2026-10-05 on the operator's laptop (NVIDIA GeForce RTX 3050 Ti Laptop
+GPU, 4 GB; Chromium with vsync off, 1600x900, `hour=13` and `22`): with the MetaHuman hero (56,000
+triangles, 6.3 MB, nine parts) and the five-character crowd, `ultra` at full resolution takes 2.8-2.9 ms
+a frame, `high` 2.7-2.8 ms and `medium` 2.6 ms, with 107-111 draw calls and 1.46 million triangles; about
+2.5 ms of it is the page's own work on the CPU. The 10 ms budget has room on that machine.
 
 #### Still open
 

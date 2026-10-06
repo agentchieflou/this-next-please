@@ -815,3 +815,5 @@ window.FleetChat = Object.freeze({
              busy: !!cState.timer || cState.reading > 0 };
   }
 });
+
+prerender("#toworld");

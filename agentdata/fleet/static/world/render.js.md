@@ -84,6 +84,13 @@ Compiles every material in the scene, and the passes, with `compileAsync`: where
 page never freezes for it. Where it does not (SwiftShader), the promise resolves at once and `vWarm`
 spreads the compiling over frames instead.
 
+The scene is compiled for where it is drawn: into `R.hdr`, or the screen on the `low` path. three.js
+compiles a material once for the screen (with the tone mapping and the sRGB output) and once for a
+render target (linear, no tone mapping), and `compileAsync` compiles for whichever target is set. It
+ran with the screen's, so on every tier but `low` it compiled programs the scene never used, and the
+ones it did use, some fifty for the office's world, were compiled one by one in `vWarm`, blocking,
+at 15 to 140 ms each (2026-10-06, page loads).
+
 ### `function render`
 
 One frame: the mirror, the scene, occlusion, bloom, then the composite to the screen (or through
