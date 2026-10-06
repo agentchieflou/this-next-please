@@ -67,9 +67,29 @@ function roleOf(p, rules) {
   return "other";
 }
 
+// The rotation that stands a source up: its "up" is the way from the pelvis to the head (else the neck,
+// else the upper spine), whichever axis and sign that is. Extents were a guess that failed on a crowd
+// character whose bind pose lay along another axis: it walked bent double. Without those joints, a
+// source is Z-up when it is more than twice as tall in z as in y; `cfg.up` ("y" or "z") overrides both.
+function upright(src, cfg, ext) {
+  if (cfg.up) return cfg.up === "z" ? M.rotX(-Math.PI / 2) : M.ident();
+  const P = n => src.joints.get(n) && M.translation(src.joints.get(n).world);
+  const a = P("pelvis"), b = P("head") || P("neck_01") || P("spine_05");
+  if (!a || !b) return ext[2] > 2 * ext[1] ? M.rotX(-Math.PI / 2) : M.ident();
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const c = [0, 1, 2].reduce((m, i) => (Math.abs(d[i]) > Math.abs(d[m]) ? i : m), 0), s = Math.sign(d[c]);
+  if (c === 1) return s > 0 ? M.ident() : M.rotX(Math.PI);
+  return c === 2 ? M.rotX(-s * Math.PI / 2) : M.rotZ(s * Math.PI / 2);
+}
+
 // The transform from a source's world to the web's: metres, Y up, facing -Z, feet on 0, pelvis at x = z = 0.
 function frame(src, cfg) {
-  let F = cfg.up === "z" ? M.rotX(-Math.PI / 2) : M.ident();
+  const ext = [0, 1, 2].map(c => {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of src.prims) for (let i = c; i < p.pos.length; i += 3) { lo = Math.min(lo, p.pos[i]); hi = Math.max(hi, p.pos[i]); }
+    return hi - lo;
+  });
+  let F = upright(src, cfg, ext);
   const J = n => src.joints.get(n) && M.point(F, ...M.translation(src.joints.get(n).world));
   let ys = [Infinity, -Infinity];
   for (const p of src.prims) for (let i = 1; i < p.pos.length; i += 3) {
@@ -130,7 +150,7 @@ function collapse(src, keep) {
 
 async function load(files, cfg, F) {
   const parts = [];
-  for (const f of files) parts.push(await readSource(path.resolve(cfg.base, f), { rename: cfg.rename, attach: cfg.attach }));
+  for (const f of files) parts.push(await readSource(path.resolve(cfg.base, f), { rename: cfg.rename, attach: cfg.attach, pose: cfg.pose }));
   const src = { joints: new Map(), prims: [] };
   for (const s of parts) {
     for (const [n, j] of s.joints) if (!src.joints.has(n)) src.joints.set(n, j);
@@ -138,7 +158,22 @@ async function load(files, cfg, F) {
   }
   const frameF = F || frame(src, cfg);
   applyFrame(src, frameF);
+  for (const p of src.prims) tileUV(p);
   return { src, F: frameF };
+}
+
+// A primitive whose UVs all lie in one UDIM tile other than the first (a MetaHuman body's are in 1002, u 1..2)
+// moved into 0..1. Its maps are one image, so this is the same picture; but the page clamps people's textures
+// to the edge, which would draw the whole body from one column of each map. UVs spanning several tiles (a
+// repeating pattern) are left as they are.
+function tileUV(p) {
+  if (!p.uv || !p.uv.length) return;
+  for (const c of [0, 1]) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = c; i < p.uv.length; i += 2) { lo = Math.min(lo, p.uv[i]); hi = Math.max(hi, p.uv[i]); }
+    const k = Math.floor(lo);
+    if (k !== 0 && Math.floor(hi - 1e-6) === k) for (let i = c; i < p.uv.length; i += 2) p.uv[i] -= k;
+  }
 }
 
 // Split a primitive into connected pieces, and give each piece to the role most of its weight is in.
@@ -259,10 +294,12 @@ function fill(mask, W, H, uv, idx, value) {
 }
 
 // One colour map, resized, with each tintable primitive's region turned into a detail map whose mean is 0.5.
-async function colourMap(img, users, size) {
+// Roles in `kept` keep their authored colour (a realistic export's skin, cloth and hair), untinted.
+async function colourMap(img, users, size, kept = []) {
+  const tints = p => TINT[p.role] && !kept.includes(p.role);
   const { data, info } = await sharp(img.data).resize(size, size, { fit: "fill" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const W = info.width, H = info.height, region = new Int16Array(W * H).fill(-1);
-  users.forEach((p, k) => { if (TINT[p.role]) fill(region, W, H, p.uv, p.idx, k); });
+  users.forEach((p, k) => { if (tints(p)) fill(region, W, H, p.uv, p.idx, k); });
   const sums = users.map(() => [0, 0, 0, 0, 0]);
   for (let i = 0; i < W * H; i++) {
     const k = region[i];
@@ -286,8 +323,32 @@ async function colourMap(img, users, size) {
     else { const l = 0.5 * (0.2126 * r + 0.7152 * g + 0.0722 * b) / t[3]; o = [l, l, l]; }
     for (let c = 0; c < 3; c++) out[i * 4 + c] = Math.round(255 * srgb(Math.min(1, Math.max(0, o[c]))));
   }
-  const tone = users.map((p, k) => (TINT[p.role] && tones[k] ? [0.5, 0.5, 0.5] : tones[k] ? tones[k].slice(0, 3) : [0.5, 0.5, 0.5]));
+  const tone = users.map((p, k) => (tints(p) && tones[k] ? [0.5, 0.5, 0.5] : tones[k] ? tones[k].slice(0, 3) : [0.5, 0.5, 0.5]));
   return { raw: out, W, H, tone };
+}
+
+// One packed map for the page's roughnessMap and aoMap (glTF's layout): R occlusion, G roughness, B metalness.
+// Occlusion from the source's occlusion map (e.g. one baked in Blender), roughness from its metallic-roughness
+// map's G channel (scaled by its factor), else the role's constant. People are dielectric, whatever an
+// export's greyscale "metallic-roughness" map says, so the material's metallicFactor is 0 and B is free:
+// it carries `thin` (a greyscale image, 1 where light shows through, e.g. ears) for the page's skin, else 0.
+// Null when there is none of the three.
+async function ormMap(mat, role, size, thin) {
+  if (!mat.orm && !mat.occlusion && !thin) return null;
+  const chan = async (img, c) => (await sharp(img.data).resize(size, size, { fit: "fill" }).ensureAlpha().raw().toBuffer())
+    .filter((_, i) => i % 4 === c);
+  const ao = mat.occlusion ? await chan(mat.occlusion, 0) : null;
+  const rough = mat.orm ? await chan(mat.orm, 1) : null;
+  const through = thin ? await chan(thin, 0) : null;
+  const k = mat.orm ? (mat.rough === undefined ? 1 : mat.rough) : 1, flat = Math.round(255 * (ROUGH[role] || 0.7));
+  const out = Buffer.alloc(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    out[i * 4] = ao ? ao[i] : 255;
+    out[i * 4 + 1] = rough ? Math.min(255, Math.round(rough[i] * k)) : flat;
+    out[i * 4 + 2] = through ? through[i] : 0;
+    out[i * 4 + 3] = 255;
+  }
+  return { img: await sharp(out, { raw: { width: size, height: size, channels: 4 } }).webp({ quality: 90, effort: 6 }).toBuffer(), ao: !!ao, thin: !!through };
 }
 
 async function webp(raw, W, H, alpha, q) {
@@ -395,11 +456,15 @@ function newDoc() {
   return doc;
 }
 
-function material(doc, name, role, tone, maps, extras) {
-  const m = doc.createMaterial(name).setRoughnessFactor(ROUGH[role] || 0.7).setMetallicFactor(0).setBaseColorFactor([1, 1, 1, 1]);
+function material(doc, name, role, tone, maps, extras, rough) {
+  const m = doc.createMaterial(name).setRoughnessFactor((rough || {})[role] || ROUGH[role] || 0.7).setMetallicFactor(0).setBaseColorFactor([1, 1, 1, 1]);
   const tex = (img, suffix) => (img.getImage ? img : doc.createTexture(name + suffix).setImage(img).setMimeType("image/webp"));
   if (maps.base) m.setBaseColorTexture(tex(maps.base, "_c"));
   if (maps.normal) m.setNormalTexture(tex(maps.normal, "_n"));
+  if (maps.orm) {
+    m.setMetallicRoughnessTexture(tex(maps.orm.tex, "_orm")).setRoughnessFactor(1);
+    if (maps.orm.ao) m.setOcclusionTexture(tex(maps.orm.tex, "_orm"));
+  }
   if (ALPHA[role]) m.setAlphaMode("MASK").setAlphaCutoff(ALPHA[role]).setDoubleSided(true);
   m.setExtras(Object.assign({ role, tone: tone.map(v => +v.toFixed(4)) }, extras || {}));
   return m;
@@ -454,7 +519,7 @@ async function hero(o, cfg) {
   const report = {};
   for (const [img, users] of byImage) {
     const size = Math.max(...users.map(p => (o.texture || {})[p.role] || 512));
-    const cm = img ? await colourMap(users[0].mat.base, users, size) : null;
+    const cm = img ? await colourMap(users[0].mat.base, users, size, o.keep || []) : null;
     const baseImg = cm ? await webp(cm.raw, cm.W, cm.H, users.some(p => ALPHA[p.role]), o.quality) : null;
     const base = baseImg ? doc.createTexture(users[0].role + "_c").setImage(baseImg).setMimeType("image/webp") : null;
     let normal = null;
@@ -462,9 +527,15 @@ async function hero(o, cfg) {
       normal = doc.createTexture(users[0].role + "_n").setMimeType("image/webp")
         .setImage(await sharp(users[0].mat.normal.data).resize(Math.min(size, o.normalSize || 512), Math.min(size, o.normalSize || 512), { fit: "fill" }).webp({ quality: 88 }).toBuffer());
     }
+    const ormRole = users[0].role === "top" || users[0].role === "bottom" ? "outfit" : users[0].role;
+    const thinFile = (o.thin || {})[users[0].mat.name];
+    const thin = thinFile ? { data: fs.readFileSync(path.resolve(cfg.base, thinFile)) } : null;
+    const packed = (o.orm || []).includes(ormRole) ? await ormMap(users[0].mat, users[0].role, Math.min(size, o.normalSize || 512), thin) : null;
+    const orm = packed ? { tex: doc.createTexture(users[0].role + "_orm").setImage(packed.img).setMimeType("image/webp"), ao: packed.ao } : null;
     users.forEach((p, k) => {
       const style = OPTIONAL.includes(p.role) ? p.node.replace(/^[a-z]+\./, "") : undefined;
-      const mat = material(doc, p.role + (style ? "_" + style : ""), p.role, cm ? cm.tone[k] : [0.5, 0.5, 0.5], { base, normal }, style ? { style } : null);
+      const extras = Object.assign(style ? { style } : {}, (o.keep || []).includes(p.role) ? { tint: false } : {}, packed && packed.thin ? { thin: true } : {});
+      const mat = material(doc, p.role + (style ? "_" + style : ""), p.role, cm ? cm.tone[k] : [0.5, 0.5, 0.5], { base, normal, orm }, Object.keys(extras).length ? extras : null, o.rough);
       mesh.addPrimitive(primitive(doc, p, mat, targetNames));
       report[p.role + (style ? ":" + style : "")] = p.idx.length / 3;
     });
@@ -481,7 +552,7 @@ async function crowd(o, cfg) {
   for (const c of o.characters) {
     const { src } = await load(c.sources, cfg);
     const joints = collapse(src, UE_BODY);
-    let prims = src.prims.map(p => Object.assign(p, { role: roleOf(p, rules) })).filter(p => p.role !== "drop" && !(o.skip || ["brows", "lashes"]).includes(p.role));
+    let prims = src.prims.map(p => Object.assign(p, { role: roleOf(p, rules) })).filter(p => p.role !== "drop" && !(o.skip || ["brows", "lashes"]).includes(p.role) && !(c.dropNodes || []).some(n => n === p.node || n === p.mesh));
     prims = prims.flatMap(p => (p.role === "outfit" ? split(p) : [p]));
     chars.push({ name: c.name, joints, prims, palm: palms(src) });
   }

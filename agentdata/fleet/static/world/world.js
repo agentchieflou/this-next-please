@@ -25,6 +25,12 @@ var V_RAIN = 6000;
 var V_SPLASH = 160;
 var V_LAMPS = 8;
 var V_CAP = 64;
+var V_FACE = 6;
+var V_STROLL = 1.2;
+var V_SEAT = 0.07;
+var V_SKIN = ["#3b2219", "#5c3a26", "#7b4a2d", "#9c6643", "#b98058", "#d39d74", "#e8bd98", "#f5d9c2"];
+var V_LEGS = ["#1f2124", "#2e3450", "#3a3f46", "#4a3b2c", "#22303f", "#6b7078", "#2b2d33"];
+var V_HAIR = ["#1c1a22", "#2b1d16", "#3b2a20", "#6b4528", "#a5512b", "#c9c6c2", "#d7b26a"];
 var V_REDUCED = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 var V_LOOK_KEY = "fleet.world.look";
 var V_STRIDE = 3.4;
@@ -38,9 +44,14 @@ var V_STRIDE = 3.4;
  * @property {number} yaw
  * @property {string} state
  * @property {boolean} needs
+ * @property {number} hx
+ * @property {number} hz
+ * @property {string} mode
+ * @property {number} my
+ * @property {number} s
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, persons: number, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object}, dome: any, scans: Object}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -50,7 +61,7 @@ var vState = {
   ready: false, why: "", record: null, pmrem: null,
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0, turn: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
-  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, compiling: true, warming: false, warm: null,
+  tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, persons: 0, compiling: true, warming: false, warm: null,
   assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}
 };
 
@@ -222,6 +233,9 @@ function vPlaza(edge) {
     vState.streetSolids = street.solids;
     vState.town = { buildings: city.count, lights: WorldKit.L.all.length, cars: street.cars, parked: street.parked, people: street.people, scans: street.scans,
                     crowd: street.crowd };
+    (p.agents || []).forEach(function (m) { vState.scene.remove(m); m.geometry.dispose(); });
+    p.agents = WorldPeople.agents(T, V_CAP);
+    (p.agents || []).forEach(function (m) { vState.scene.add(m); });
   }
   vState.solids = vState.solids.concat(vState.streetSolids || []);
   vWeather();
@@ -242,10 +256,11 @@ function vLayout() {
     var x = Math.cos(a) * radius, z = Math.sin(a) * radius;
     var ag = vState.agents.get(repo);
     if (!ag) {
-      ag = { repo: repo, i: i, x: x, z: z, yaw: Math.atan2(-x, -z), state: state, needs: needs };
+      ag = { repo: repo, i: i, x: x, z: z, yaw: Math.atan2(-x, -z), state: state, needs: needs, hx: x, hz: z, mode: "stand", my: 0, s: -1 };
       vState.agents.set(repo, ag);
     }
-    ag.i = i; ag.x = x; ag.z = z; ag.yaw = Math.atan2(-x, -z); ag.state = state; ag.needs = needs;
+    ag.i = i; ag.hx = x; ag.hz = z; ag.yaw = Math.atan2(-x, -z); ag.state = state; ag.needs = needs;
+    if (!vState.parts.agents) { ag.x = x; ag.z = z; }
   });
   vState.agents.forEach(function (ag, repo) {
     if (!seen[repo]) vState.agents.delete(repo);
@@ -256,14 +271,78 @@ function vLayout() {
 }
 
 function vPlace() {
+  vWalk(0);
   vBots(vState.time);
   vPlaza(Math.round((vState.radius + 3.5) * 10) / 10);
 }
 
 /** @param {number} t */
 function vBots(t) {
-  var list = Array.from(vState.agents.values()).slice(0, V_CAP);
-  WorldBots.place(vState.T, vState.parts, list, V_STATE, t, vReduced());
+  var people = !!vState.parts.agents;
+  var list = Array.from(vState.agents.values()).filter(function (ag) { return !people || ag.mode !== "gone"; }).slice(0, V_CAP);
+  if (people) vState.persons = WorldPeople.placeAgents(vPersons(list));
+  WorldBots.place(vState.T, vState.parts, list, V_STATE, t, vReduced(), people);
+}
+
+/** @param {number} dt */
+function vWalk(dt) {
+  if (!vState.parts.agents) return;
+  var P = vState.player, edge = vState.edge || 10, still = vReduced() || dt === 0;
+  var busy = Array.from(vState.agents.values()).filter(function (ag) { return !ag.needs && (ag.state === "running" || ag.state === "starting"); })
+    .sort(function (a, b) { return a.repo < b.repo ? -1 : 1; });
+  vState.agents.forEach(function (ag) {
+    var k = busy.indexOf(ag), goal = [ag.hx, ag.hz], then = "stand", my = Math.atan2(ag.hx, ag.hz);
+    if (k >= 0 && k < 8) {
+      var b = k / 8 * Math.PI * 2;
+      goal = [Math.cos(b) * (edge + 0.95), Math.sin(b) * (edge + 0.95)];
+      then = "sit";
+      my = Math.atan2(Math.cos(b), Math.sin(b));
+    } else if (!ag.needs && ag.state === "done") {
+      var len = Math.hypot(ag.hx, ag.hz) || 1;
+      goal = [ag.hx / len * (edge + 5), ag.hz / len * (edge + 5)];
+      then = "gone";
+    } else if (!ag.needs && k < 0 && !still) {
+      var R = Math.max(3, edge - 1.4), a = Math.atan2(ag.z, ag.x) + 0.35;
+      goal = [Math.cos(a) * R, Math.sin(a) * R];
+      then = "walk";
+    }
+    if (still) {
+      if (vReduced() || ag.s < 0) { ag.x = goal[0]; ag.z = goal[1]; ag.mode = then === "walk" ? "stand" : then; ag.my = my; ag.s = 0; }
+      return;
+    }
+    var d = Math.hypot(goal[0] - ag.x, goal[1] - ag.z);
+    if (ag.mode === "gone" && then === "gone") return;
+    if (Math.hypot(P.x - ag.x, P.z - ag.z) < V_FACE && ag.mode !== "sit") {
+      ag.mode = "stand";
+    } else if (d > 0.05) {
+      var r = Math.hypot(ag.x, ag.z), th = Math.atan2(ag.z, ag.x), gr = Math.hypot(goal[0], goal[1]);
+      var dth = ((Math.atan2(goal[1], goal[0]) - th) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+      var step = V_STROLL * dt, x0 = ag.x, z0 = ag.z;
+      if (Math.abs(gr - r) > 0.02) r += Math.sign(gr - r) * Math.min(Math.abs(gr - r), step);
+      else th += Math.sign(dth) * Math.min(Math.abs(dth), step / Math.max(r, 1));
+      ag.x = Math.cos(th) * r; ag.z = Math.sin(th) * r;
+      ag.mode = "walk"; ag.my = Math.atan2(-(ag.x - x0), -(ag.z - z0));
+    } else {
+      ag.mode = then; ag.my = my;
+    }
+  });
+}
+
+/** @param {Array<Agent>} list @returns {Array<Object>} */
+function vPersons(list) {
+  var T = vState.T, P = vState.player;
+  return list.map(function (ag) {
+    var h = 0;
+    for (var i = 0; i < ag.repo.length; i++) h = (h * 31 + ag.repo.charCodeAt(i)) >>> 0;
+    var dx = P.x - ag.x, dz = P.z - ag.z, near = dx * dx + dz * dz < V_FACE * V_FACE;
+    var yaw = near && ag.mode === "stand" ? Math.atan2(-dx, -dz) : ag.my;
+    var m = new T.Matrix4().compose(new T.Vector3(ag.x, ag.mode === "sit" ? -V_SEAT : 0, ag.z), new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), yaw), new T.Vector3(1, 1, 1));
+    var tints = [V_SKIN[h % V_SKIN.length], null, V_LEGS[(h >>> 4) % V_LEGS.length], V_HAIR[(h >>> 8) % V_HAIR.length]].map(function (c) {
+      return c ? new T.Color(c).multiplyScalar(2) : new T.Color().setHSL((h % 360) / 360, 0.42, 0.42).multiplyScalar(2);
+    });
+    var motion = ag.mode === "walk" ? 4 : ag.mode === "sit" ? 3 : vState.open === ag.repo ? 2 : 1;
+    return { key: ag.repo, m: m, motion: motion, phase: (h % 997) / 997, rate: V_STROLL / 1.5, tints: tints };
+  });
 }
 
 function vWeather() {
@@ -637,6 +716,7 @@ function vFrame(now) {
   splash.uCam.value.copy(cam.position);
   WorldStreet.frame(vState.time, dt, 1 - vState.daylight, vReduced(), cam.position);
   if (!vReduced()) {
+    vWalk(dt);
     vBots(vState.time);
     WorldKit.uniforms.time.value = WorldBots.beat.time.value = vState.time;
   }
@@ -736,7 +816,7 @@ function drawLabels() {
     text(el.querySelector(".wtag-state"), (V_GLYPHS[ag.state] || "·") + " " + (ag.needs ? "needs you" : ag.state.replace(/_/g, " ")));
     var d = Math.hypot(ag.x - P.x, ag.z - P.z);
     at.set(ag.x, 2.75, ag.z).project(vState.camera);
-    var shown = at.z < 1 && d < 48 && Math.abs(at.x) < 1.2 && Math.abs(at.y) < 1.2 && !vState.open && !vState.who;
+    var shown = at.z < 1 && d < 48 && Math.abs(at.x) < 1.2 && Math.abs(at.y) < 1.2 && !vState.open && !vState.who && ag.mode !== "gone";
     hide(el, !shown);
     if (!shown) return;
     var x = Math.round((at.x + 1) / 2 * w), y = Math.round((1 - at.y) / 2 * h);
@@ -1046,7 +1126,7 @@ window.FleetWorld = Object.freeze({
     return {
       ready: vState.ready, why: vState.why, frames: vState.frames, held: vState.held,
       agents: Array.from(vState.agents.values()).map(function (a) {
-        return { repo: a.repo, x: a.x, z: a.z, state: a.state, needs: a.needs };
+        return { repo: a.repo, x: a.x, z: a.z, state: a.state, needs: a.needs, mode: a.mode };
       }),
       beacons: vState.parts.beacon ? vState.parts.beacon.count : 0,
       player: Object.assign({}, vState.player), near: vState.near, open: vState.open,
@@ -1061,13 +1141,14 @@ window.FleetWorld = Object.freeze({
       hero: vState.hero ? Object.assign({ kind: vState.hero.kind, visible: vState.hero.group.visible, seated: vState.hero.seated, wheels: !!vState.hero.wheels,
                                           x: vState.hero.group.position.x, z: vState.hero.group.position.z, yaw: vState.hero.group.rotation.y },
                                         WorldHero.measure(vState.hero)) : null,
-      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0 }
+      people: { hero: WorldPeople.ready(), crowd: vState.town ? vState.town.crowd || 0 : 0, parts: WorldPeople.parts(),
+                agents: vState.parts.agents ? vState.persons || 0 : 0 }
     };
   },
   hold: function (on) { vState.held = !!on; vState.keys = {}; },
   step: function (seconds) {
     var n = Math.max(1, Math.round(seconds * 60));
-    for (var i = 0; i < n; i++) vStep(1 / 60);
+    for (var i = 0; i < n; i++) { vStep(1 / 60); vWalk(1 / 60); }
     return Object.assign({}, vState.player);
   },
   teleport: function (repo, back) {
