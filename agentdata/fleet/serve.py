@@ -2756,8 +2756,10 @@ def _act(what: str, body: dict) -> dict:
                     "recorded": recorded, "via": "console"}
         lock = supervisor.send(repo, lifecycle.answers_prompt(answers, recorded), cfg=C.load(),
                                force=bool(body.get("force")))
-        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers],
-                "recorded": recorded}
+        out = {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers],
+               "recorded": recorded}
+        # As `send`'s: a page that asked not to wait for the row hears the turn is running (2026-10-06).
+        return {**out, "state": "running"} if body.get("row") is False else out
     if what == "stop":
         return supervisor.stop(repo)
     if what == "reset":

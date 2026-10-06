@@ -72,23 +72,23 @@ def record_answers(repo_path: str, answers: list[tuple[str, str]]) -> list[str]:
     found it still blocking and stopped again. Recording was left to the agent -- a model reading a
     prompt and deciding to run a command. Now the desk asks `ad-state` itself, as the inbox does for
     an attached file (`handoff.ask_ad_state`): `ad-state` stays the only writer of `state.json`, and
-    the answer is on the file before the agent's next turn reads it. Run as `python -m agentdata`,
-    the desk's own install, so a PATH without `ad-state` on it cannot quietly undo this.
+    the answer is on the file before the agent's next turn reads it. Its own code, in this process
+    (`cli_state.record_answer`, the desk's own install, so a PATH without `ad-state` on it cannot
+    quietly undo this): it ran as `python -m agentdata` until 2026-10-06, about 200 ms an answer of
+    Python starting on Windows, between Send and the agent running (the operator: "aim for 50ms ...
+    from clicking send, or pressing Enter, to the agent running").
     """
-    import sys
-
-    from .. import proc
+    from .. import cli_state as CS
+    from .. import state as S
 
     done = []
+    state_file = os.path.join(repo_path, S.PATH)
     for qid, text in answers:
         try:
-            code, _out, _err, _elapsed = proc.run(
-                [sys.executable, "-m", "agentdata", "state", "answer", qid, text],
-                cwd=repo_path, timeout=60)
-        except (proc.ProcError, OSError):
+            CS.record_answer(state_file, qid, text)
+        except Exception:                # noqa: BLE001 - a refusal or an unreadable file: the agent is asked to record it
             continue
-        if code == 0:
-            done.append(qid)
+        done.append(qid)
     return done
 
 

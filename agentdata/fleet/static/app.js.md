@@ -490,7 +490,7 @@ spends the extra turn. Two clicks, never a silent `force`.
 
 ### `var STARTS_A_TURN`
 
-The verbs that begin a turn: `send`, `say`, `start` and `reset`. The pane says *starting* the moment
+The verbs that begin a turn: `send`, `say`, `start`, `reset` and `answer` (which resumes the agent). The pane says *starting* the moment
 one is pressed (`markStarting`), before the server has answered (2026-10-06, the operator: "aim for
 50ms load times, especially when actually interacting with agents (the time from clicking send, or
 pressing Enter, to the agent 'running')"). The server's answer carries the row, which is drawn over

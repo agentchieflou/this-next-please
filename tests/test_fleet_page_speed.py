@@ -206,3 +206,28 @@ def test_the_desk_says_starting_at_once_and_running_from_the_sends_answer(fleet_
         page.close()
     finally:
         _stop(server)
+
+
+def test_an_answer_is_recorded_in_this_process_before_the_agent_resumes(fleet_home, tmp_path, spawns, monkeypatch):
+    """The desk records the operator's answers with `ad-state answer` before resuming the agent, so the
+    router does not find the question still blocking. It ran `python -m agentdata state answer` for
+    each, about 200 ms of Python starting on Windows, between Send and the agent running; it runs the
+    same code in this process now (`cli_state.record_answer`), and the file says so as before."""
+    from agentdata import proc
+
+    path = _repo(tmp_path, "asks")
+    with open(os.path.join(path, ".agent", "state.json"), "w", encoding="utf-8") as f:
+        json.dump({"project": "RDSD", "phase": "blocked", "blocked_from": "querying", "active_ticket": "RDSD-1",
+                   "open_questions": [{"id": "q1", "q": "which sprint table?", "blocking": True}]}, f)
+
+    def no_process(*a, **k):
+        raise AssertionError(f"a process was run to record an answer: {a}")
+
+    monkeypatch.setattr(proc, "run", no_process)
+    out = S.act("answer", {"repo": "asks", "answers": [{"id": "q1", "answer": "sprint_2026"}]})
+    assert out["recorded"] == ["q1"], out
+    with open(os.path.join(path, ".agent", "state.json"), encoding="utf-8") as f:
+        st = json.load(f)
+    assert st["open_questions"] == [] and st["phase"] == "querying", st
+    assert st["answered_questions"][0]["answer"] == "sprint_2026", st
+    assert spawns["launched"], "the agent was not resumed"

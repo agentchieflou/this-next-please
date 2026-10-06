@@ -628,7 +628,7 @@
       "tests": 30
     },
     "tests/test_fleet_page_speed.py": {
-      "tests": 7
+      "tests": 8
     },
     "tests/test_fleet_page_theme.py": {
       "tests": 14

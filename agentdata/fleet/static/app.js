@@ -472,7 +472,7 @@ function fail(el, message) {
   hide(p, !message);
 }
 
-var STARTS_A_TURN = { send: 1, say: 1, start: 1, reset: 1 };
+var STARTS_A_TURN = { send: 1, say: 1, start: 1, reset: 1, answer: 1 };
 
 /** @param {HTMLElement} el @param {string} [state] */
 function markStarting(el, state) {
@@ -593,7 +593,7 @@ function answerAll(el, row, forcing) {
     fail(el, "pick a choice or type an answer first: this box answers " + (target ? target.dataset.qid : "the question"));
     return;
   }
-  action(el, "answer", { repo: row.repo, answers: answers, force: forcing }).then(function (r) {
+  action(el, "answer", { repo: row.repo, answers: answers, force: forcing, row: false }).then(function (r) {
     if (r && r.ok) {
       var done = r.answered || [];
       asked.forEach(function (li) { if (done.indexOf(li.dataset.qid) >= 0) toggle(li, "is-answered", true); });
