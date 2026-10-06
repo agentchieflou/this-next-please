@@ -732,3 +732,29 @@ def test_approval_resolved_carries_the_reason(fleet_home, monkeypatch):
                                               if line.startswith('{"schema"'))}
     for kind in ("needs_approval", "approval_resolved"):
         assert set(samples[kind]) == set(emitted[kind]), (kind, sorted(samples[kind]), sorted(emitted[kind]))
+
+
+def test_a_refresh_that_finds_nothing_new_writes_nothing(fleet_home, tmp_path):
+    """Every page's poll refreshes every agent (2026-10-06, page loads): a refresh that found nothing
+    new rewrote the agent's cursor and opened its stream for appending anyway, once per agent per
+    poll. It now leaves both as they were -- and anything new still lands, numbered as before."""
+    repo = make_project(tmp_path / "repo-a", phase="idle")
+    Registry().add(repo, name="a")
+    _write_raw("a", RAW_TURN)
+    state = {"phase": "idle", "open_questions": [], "artifacts": []}
+    first = E.refresh("a", repo, repo_state=state)
+    assert first
+    cursor, stream = E._cursor_path("a"), E.normalized_path("a")
+    for path in (cursor, stream):
+        st = os.stat(path)
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns - 10 ** 9))
+    stamps = [os.stat(p).st_mtime_ns for p in (cursor, stream)]
+
+    assert E.refresh("a", repo, repo_state=state) == []
+    assert [os.stat(p).st_mtime_ns for p in (cursor, stream)] == stamps, "a refresh with nothing new wrote"
+
+    seq = E.read("a")[-1]["seq"]
+    E.append("a", [E.event("a", "assistant_text", {"text": "one more"})])
+    assert E.read("a")[-1]["seq"] == seq + 1
+    assert E.refresh("a", repo, repo_state=dict(state, phase="blocked"))
+    assert E.read("a")[-1]["seq"] > seq + 1

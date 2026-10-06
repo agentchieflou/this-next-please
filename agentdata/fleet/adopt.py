@@ -239,7 +239,8 @@ def _session_for_adopt(repo_name: str, repo_path: str, jira_project: str = "") -
     return supervisor.session_id(repo_name)
 
 
-def candidates(registry: Registry | None = None, *, processes: list[dict] | None = None) -> list[dict]:
+def candidates(registry: Registry | None = None, *, processes: list[dict] | None = None,
+               names: list[str] | None = None) -> list[dict]:
     """Registered repositories that appear to have a session the fleet did not start.
 
     A repository is only a candidate if the fleet is *not* already running an agent in it. That is
@@ -252,6 +253,8 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
     running = agent_processes() if processes is None else processes
     out = []
     for repo in reg.sorted():
+        if names is not None and repo.name not in names:
+            continue                        # one row and its siblings (`serve.row_for`)
         if supervisor.live(repo.name):
             continue                        # ours, and already the current session
         lock = supervisor.read_lock(repo.name)
