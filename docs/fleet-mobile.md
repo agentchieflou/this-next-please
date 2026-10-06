@@ -35,7 +35,9 @@ heartbeat is written at once and nothing catches up.
 `fleet.mobile.folder` has **no default** and is refused `mobile_folder_in_repo` inside any registered checkout, where
 records would sit in front of the agent, or under the fleet directory. It is the one exception to "the fleet writes
 only under `~/.agentdata/fleet/`" (`HANDOFF.md`, [fleet.md](fleet.md) §The repository belongs to the agent).
-`config.expand` applies, so `%OneDriveCommercial%/FleetAgent` resolves when it is read.
+`config.expand` applies, so `%OneDriveCommercial%/FleetAgent` resolves when it is read. A folder in a SharePoint document
+library works the same way once it is synced as a shortcut (*Add shortcut to My files*): the shortcut sits under the
+OneDrive root, so `%OneDriveCommercial%/<shortcut name>` names it.
 
 ```
 <fleet.mobile.folder>/                       e.g. %OneDriveCommercial%/FleetAgent
@@ -198,7 +200,14 @@ while the files keep the whole text, and the long ones are *Multiple lines of te
 | `FleetHeartbeat` | `laptop` | `At, EverySeconds, ExpireSeconds, Contract, Operator, Bridge, LaptopId, ServeUp, DeskStreams, Repos, NeedsHuman, ApprovalsPending, Notifications24h, Rejected24h, InboxLastSeen` | `FleetOutboxToLists`, one row updated |
 
 Under Excel, a table has a single writer, so `FleetDecide` writes its own copy of `FleetDecisions` and the app reads
-both. Every column's maximum and JSON source is in `mobile/data/README.md` §Columns per list (PR #535).
+both.
+
+**Several operators on one site.** The four lists other than `FleetHeartbeat` may carry an optional `Operator` column
+(the operator's UPN; `FleetHeartbeat` has always had one), so several operators' fleets can share one site's lists:
+each row is identified by `Operator` and `Title` together, and `FleetHeartbeat` holds one row per operator with `Title`
+equal to that UPN. The flows write `Operator` from their own configuration; nothing the laptop writes changes, and a
+single-operator deployment may leave the column out. That layout, with the lists and the bridge folders readable by
+the site's owners only, is built in [agentchieflou/Koa](https://github.com/agentchieflou/Koa). Every column's maximum and JSON source is in `mobile/data/README.md` §Columns per list (PR #535).
 
 ## `FleetDecide`, the only phone-to-laptop writer
 

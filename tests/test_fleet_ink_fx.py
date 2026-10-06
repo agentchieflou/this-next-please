@@ -675,6 +675,7 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
         assert fx["rows"] == 3 and fx["armed"] is True, fx
         assert got["cues"] == [] and (fx["queued"], fx["delivered"], fx["dropped"]) == (0, 0, 0), got
         # ... and the pointer (#376) is never read: moves ask for no frame, and `api.fx.pointer` stays null.
+        f = _frames(page)
         _choose(page, "example:pointer")
         page.wait_for_function("() => Ink.inspect().table === 'example:pointer' && !!window.__example.helpers()"
                                " && 'pointer' in window.__example.helpers()", timeout=20000)
@@ -685,6 +686,11 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
         # 3/4, 2026-10-02: one render). What is measured is the moves, which keep the same hover.
         at = _hover(page, "alpha")
         observe_quiet(page, passes=2, drive=False)
+        # ... and only once the layer is still (2026-10-06): the table's switch restyles the page, and
+        # the layer follows a restyle for `FOLLOW_MS`, drawing every frame of it under a table with a
+        # `tick`. Two quiet passes can end inside that window, and its last frames were then counted
+        # against the moves (+5 to +10 renders, Windows shard 3/4 and the shuffled browser shards).
+        _still(page, f)
         before = page.evaluate(POINTED)
         _moves(page, at)
         observe_quiet(page, passes=2, drive=False)

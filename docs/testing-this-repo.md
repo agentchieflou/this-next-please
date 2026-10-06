@@ -147,7 +147,7 @@ should carry one of the three.
 `pytest-xdist` is in the dev extra, and `-n auto` is what the inner loop and CI's **Linux** legs
 run for everything outside those two tiers. Three things make that safe, each checked rather than
 hoped for: the `suite · shuffled · seed <n>` jobs run two seeded orders on every pull request (and
-`suite · shuffled · browser · shard K/2` shuffles the browser tier, #312), `isolated_home`
+`suite · shuffled · browser · shard K/3` shuffles the browser tier, #312), `isolated_home`
 is autouse and hangs every home off the test's own `tmp_path`, and every server the suite starts is
 built on port 0.
 
@@ -197,9 +197,10 @@ match any required status check, only a run shows.
 
 **The Linux browser shards** (#312). The page does not depend on the Python version, so Linux runs the browser
 tier (`browser and not slow and not measured and not scale`) once per run, in two `--shard=K/2` jobs
-(`ubuntu · python 3.14 · browser · shard K/2`, under `-n 2`), and once more shuffled on seed 1 in two serial
-`suite · shuffled · browser · shard K/2` jobs, where it had never run: the old `suite · shuffled` job installed no
-browser and every browser test skipped. The one ubuntu leg (#591: 3.14 only) deselects `browser` from its
+(`ubuntu · python 3.14 · browser · shard K/2`, under `-n 2`), and once more shuffled on seed 1 in three serial
+`suite · shuffled · browser · shard K/3` jobs, where it had never run: the old `suite · shuffled` job installed no
+browser and every browser test skipped. (Two until 2026-10-06, when shard 1 of two took ~14 minutes on `main`
+and overran its 15-minute step cap as the world's tests grew; #309's rule keeps the cap where it is.) The one ubuntu leg (#591: 3.14 only) deselects `browser` from its
 parallel step and keeps Chromium for the browser tests that are also `measured` or `slow`, the desk's
 measurements and the demo. `suite · shuffled` is one job per seed
 (`suite · shuffled · seed 1`, `suite · shuffled · seed 20260904`), each the whole non-browser suite, serially,
@@ -942,7 +943,7 @@ Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh 
 | Tier | ubuntu · 3.14 | windows · 3.14 |
 |---|---|---|
 | `default` | parallel + parallel, named files + serial + serial, named files + shuffled + shuffled (2 seeds) | 4 shards, serial |
-| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 4 shards, serial |
+| `browser` | 2 shards, 2 workers + 3 shards, shuffled + serial, named files | 4 shards, serial |
 | `measured` | serial + shuffled + shuffled (2 seeds) | serial |
 | `scale` | serial + shuffled + shuffled (2 seeds) | serial |
 | `slow` | serial + shuffled + shuffled (2 seeds) | serial |
@@ -969,8 +970,9 @@ Per job, as the checks are named:
 | `coverage · per-module floors` | serial | — | serial | serial | serial | gated | — | — | serial | gated |
 | `suite · shuffled · seed 1` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
 | `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
-| `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — | — |
-| `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · browser · shard 1/3` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · browser · shard 2/3` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · browser · shard 3/3` | — | shuffled | — | — | — | — | — | — | — | — |
 | `suite · shuffled · seed of the day` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
 <!-- tier-matrix:end -->
 
@@ -994,10 +996,10 @@ tier markers the matrix does not list (#315). The table below is the prose per j
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
 | `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact. No browser is installed, so `-m "not browser"` (#312) |
 | `suite · shuffled · seed <n>` (n = 1, 20260904) | one seeded shuffle of the whole non-browser suite per job (`-m "not browser"`), to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything (#312: one job per seed, so the two run side by side) |
-| `suite · shuffled · browser · shard K/2` (K = 1, 2) | the browser tier shuffled on seed 1, serially, in two whole-file shards, with Chromium (#312): the tier with the most process-global state had never run in a shuffled order |
+| `suite · shuffled · browser · shard K/3` (K = 1, 2, 3) | the browser tier shuffled on seed 1, serially, in three whole-file shards (two until 2026-10-06), with Chromium (#312): the tier with the most process-global state had never run in a shuffled order |
 | `windows · python 3.14 · packaging and shells` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
-| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): the ubuntu leg, both `browser` jobs, both `suite · shuffled · browser` jobs and every Windows job (a `require_browser` matrix field). A skipped `browser` test fails there, and every other skip prints its reason |
+| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): the ubuntu leg, both `browser` jobs, the three `suite · shuffled · browser` jobs and every Windows job (a `require_browser` matrix field). A skipped `browser` test fails there, and every other skip prints its reason |
 | every pytest step | its own `timeout-minutes` and a `--junitxml=junit/<job>-<step>.xml` (#309); every job with one has a job cap and ends with the `if: always()` step *durations · the per-step table* |
 
 ### Step budgets and the durations table

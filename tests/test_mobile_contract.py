@@ -316,11 +316,18 @@ def test_each_inbox_example_is_what_fleet_decide_composes():
 # ------------------------------------------------------------------------------------ the lists and the flow
 
 
+#: Columns a list may define beyond the ones this repository's app copy reads, each optional: `Operator` tags every row
+#: when several operators' fleets share one site's lists (agentchieflou/Koa, the multi-operator layout).
+OPTIONAL_COLUMNS = {"Operator"}
+
+
 def test_the_five_lists_are_the_apps_columns_and_every_sample_row_validates():
     defs = _defs()
     assert set(LISTS) == set(COLUMNS)
     for table in LISTS:
-        assert list(defs[table]["properties"]) == COLUMNS[table] == defs[table]["required"], table
+        columns = list(defs[table]["properties"])
+        assert defs[table]["required"] == COLUMNS[table] == columns[:len(COLUMNS[table])], table
+        assert set(columns[len(COLUMNS[table]):]) <= OPTIONAL_COLUMNS, f"{table}: an extra column must be optional"
         with open(os.path.join(SAMPLE, f"{table}.json"), encoding="utf-8") as f:
             for row in json.load(f):
                 MC.check(row, table, where=f"mobile/powerapp/sample/{table}.json {row['Title']}")
