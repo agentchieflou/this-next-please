@@ -1,7 +1,7 @@
 # Plan: the Command Center — your open tickets with boundaries, seated at free agents, started at once
 
-_Status: PROPOSED (2026-10-06) — an exploration; nothing is built. The open questions at the end are the
-operator's to answer before slice A starts._
+_Status: DECIDED (2026-10-06) — the operator answered the four questions (§Decisions); slices A–E are being
+built on this branch._
 
 The operator, 2026-10-06:
 
@@ -59,7 +59,7 @@ The board's query, with the fields the gate needs:
   ("Acceptance Criteria", sometimes "Definition of Done"); `ad-jira fields --like acceptance` finds its id, and it
   is pinned the way Sprint and Story Points are (`ad-jira fields --pin`, a `fleet.jira.criteria_field` setting).
 - `issuetype` and `status`, already fetched, now used: an Epic is not a unit of work an agent finishes, and a
-  ticket already in progress may be in a person's hands (§Open questions, 3).
+  ticket already in progress may be in a person's hands (§Decisions, 3).
 
 `board.normalize` keeps today's eight fields and gains `description` and `criteria`; the cache's validity grows
 from "the JQL" to "the JQL and the fields", so pinning a field shows on the next read.
@@ -78,8 +78,8 @@ never tickable: the operator's word was *never*, so this is a gate, not the pre-
    Two bullets that happen to be in the description are **not** criteria (the pre-flight counts them today), and
    inline `AC: 1) …` is (the pre-flight misses it). `criteria_found` is tightened, with the fixtures that prove
    both, and the pre-flight's own row gets the fix too.
-2. **Its description says what to do.** Outside the criteria, at least `fleet.command.min_words` words (25, the
-   pre-flight's `THIN_WORDS`, by default), and none of these:
+2. **Its description says what to do.** Outside the criteria, at least `fleet.command.min_words` words (40 by default, the
+   operator's choice; the pre-flight's `THIN_WORDS` is 25), and none of these:
    - empty, or the summary repeated;
    - placeholder words standing in for a specification: *TBD*, *TODO*, *see title*, *as discussed*, *per
      conversation*, *details to follow*, *N/A* — when they are most of what is there;
@@ -101,7 +101,7 @@ A ready ticket is seated at a checkout:
   and then fails;
 - **one ticket each** — a checkout holds one agent and one agent works one ticket (the fleet's first rule). With
   more ready tickets than free checkouts of a project, the rest wait, in Jira's order (priority, then updated), and
-  say so: *"waiting for a desk — every RDSD checkout has a ticket"* (§Open questions, 2).
+  say so: *"waiting for a desk — every RDSD checkout has a ticket"* (§Decisions, 2).
 
 A ticket another agent already holds (`active_ticket` on some checkout) is shown as *already with* that agent and
 is not seated again.
@@ -165,16 +165,16 @@ does not chase them; the panes are where the operator answers.
 A, B and C are independent of the page and of each other's internals: B and C can be built against fixtures while
 A is in review. D needs all three; E needs D.
 
-## Open questions
+## Decisions (the operator, 2026-10-06)
 
-1. **Where do acceptance criteria live in your Jira?** A custom field, the description (under a heading), or both.
-   The plan reads both: the field when one is pinned, the description otherwise.
-2. **More ready tickets than free checkouts in one project.** One ticket per checkout and the rest wait (the plan),
-   or a git worktree created for each extra ticket, or the operator choosing per ticket.
-3. **Which assigned tickets are "open".** Not yet started only (*To Do*), or *In Progress* too — a ticket in progress
-   may already be in a person's hands. The board shows everything not *Done*; the plan slates *To Do* only unless told
-   otherwise, and shows the rest as *in progress — not slated*.
-4. **The words threshold.** 25 words outside the criteria (the pre-flight's) unless the operator wants it stricter.
+1. **Acceptance criteria: both.** The pinned criteria field when the instance has one, otherwise a section of the
+   description headed *Acceptance Criteria* / *AC* / *Definition of Done* (and Given/When/Then anywhere).
+2. **Seating: one each, the rest wait.** Each free checkout takes one ticket; the others say *waiting for a desk*,
+   in Jira's priority order, and start on a later press.
+3. **Open means To Do.** Only tickets not yet started are slated; *In Progress* ones are listed as *in progress —
+   not slated*, since a person may hold them.
+4. **Forty words.** A description needs 40 words outside its criteria (`fleet.command.min_words`, default 40), and
+   must not be empty, the summary repeated, placeholders or a bare template.
 
 ## Cost
 
