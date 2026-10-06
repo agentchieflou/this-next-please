@@ -1799,6 +1799,7 @@ var chatLink = /** @type {HTMLAnchorElement} */ (document.getElementById("chatbt
 if (chatLink) chatLink.href = pageUrl("/chat");
 var worldLink = /** @type {HTMLAnchorElement} */ (document.getElementById("worldbtn"));
 if (worldLink) worldLink.href = pageUrl("/world");
+prerender("#worldbtn");
 
 refresh().then(function () {
   LOAD.settled = document.body.dataset.skin || "";

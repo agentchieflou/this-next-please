@@ -763,6 +763,26 @@ function vFrame(now) {
   if (vState.work.length > 240) vState.work.splice(0, vState.work.length - 240);
 }
 
+var vTask = new MessageChannel();
+vTask.port1.onmessage = function () { vPrewarm(); };
+
+function vPrewarm() {
+  if (!(document.prerendering || document.hidden) || !vState.ready) return;
+  if (vState.compiling) {
+    var programs = vState.renderer.info.programs || [];
+    vState.renderer.getContext().flush();
+    if (programs.some(function (p) { return p.isReady && !p.isReady(); })) {
+      vTask.port2.postMessage(0);
+      return;
+    }
+    vState.compiling = false;
+    vState.warming = true;
+  }
+  if (!vState.warming) return;
+  vState.warming = !vWarm();
+  if (vState.warming) vTask.port2.postMessage(0);
+}
+
 /** @returns {boolean} */
 function vWarm() {
   var T = vState.T, r = vState.renderer, w = vState.warm;
@@ -1147,8 +1167,13 @@ function vStart() {
     vLook(kept || WorldHero.preset(0));
     vView(PARAMS.get("view") === "first" ? "first" : "third");
     if (!kept) vWho(true);
-    var compiled = function () { vState.compiling = false; vState.warming = true; };
+    var compiled = function () {
+      if (!vState.compiling) return;
+      vState.compiling = false;
+      vState.warming = true;
+    };
     WorldRender.prepare().then(compiled, compiled);
+    vPrewarm();
     var first = vState.rows.filter(function (r) { return r.needs_human; })[0] || vState.rows[0];
     var ag = first && vState.agents.get(first.repo);
     if (ag) vState.player.yaw = Math.atan2(-ag.x, -ag.z);

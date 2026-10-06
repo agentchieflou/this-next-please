@@ -1425,6 +1425,11 @@ Beside `if (worldLink) worldLink.href = pageUrl("/world");`:
 #626: the world, a 3D space walked with a controller or the keyboard, in the window the desk is in.
 Set here for the reason the settings link is.
 
+Beside `prerender("#worldbtn");`:
+
+the world loads while the pointer rests on its link, so the click shows it built and compiled
+(`common.js`'s `prerender`, 2026-10-06).
+
 Beside `LOAD.settled = document.body.dataset.skin || "";`:
 
 the skin the first refresh settled on (#351)

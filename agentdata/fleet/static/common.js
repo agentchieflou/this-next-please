@@ -18,6 +18,17 @@ function pageUrl(path, params) {
   return q(path, Object.assign(carry, params || {}));
 }
 
+/** @param {string} selector @returns {HTMLScriptElement|null} */
+function prerender(selector) {
+  var S = /** @type {any} */ (window.HTMLScriptElement);
+  if (navigator.webdriver || !S || !S.supports || !S.supports("speculationrules")) return null;
+  var rules = document.createElement("script");
+  rules.type = "speculationrules";
+  rules.textContent = JSON.stringify({ prerender: [{ source: "document", where: { selector_matches: selector }, eagerness: "moderate" }] });
+  document.head.appendChild(rules);
+  return rules;
+}
+
 var onAuthLost = null;
 
 function post(action, body) {

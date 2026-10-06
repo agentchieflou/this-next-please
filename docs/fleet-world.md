@@ -351,6 +351,42 @@ measure what does not depend on the machine:
 **The frame rate is the laptop's to measure:** open `/world`, press F3, and read the fps line in Edge
 or Chrome on the operator's GPU.
 
+## Loading
+
+The operator, 2026-10-06: *"work on optimizing the load time when clicking between chat, desk, and
+world. We're aiming for ~200ms loads. Right now we're at several seconds."* Measured on the office's
+demo fleet (ten agents) in Chromium on the laptop's GPU, a click on the world to its first real frame:
+
+| | before | after |
+| --- | --- | --- |
+| the pointer rested on the link for about 2 s | 2.6 s | about 0.1 s (prerendered) |
+| a click straight away | 2.6 s | 1.2 to 1.4 s |
+| a browser profile's very first load | 7.1 s | about 4 s (the GPU's shader cache is cold) |
+
+What took the time, and what changed:
+
+- **Every file was fetched again.** The server answered everything `no-store`, so each load fetched
+  the world's ten megabytes again and kept no compiled script. Static files now revalidate (`ETag`,
+  a 304 when unchanged): a second load transfers about 20 KB.
+- **The shaders were compiled twice.** `WorldRender.prepare` compiled them in the background for
+  the screen, while the scene is drawn into a high-dynamic-range target, which needs other programs:
+  those ~50 were compiled again, one at a time, at their first draw. It now compiles for the target
+  the scene is drawn into.
+- **The warm-up drew one object a frame**, 110 frames for the office's world; it now draws as many as
+  fit in 8 ms a frame. Shader logs are read only under test automation (`?shaders=check` asks too):
+  each read waited on the GPU.
+- **The world is prerendered from the desk and the chat** when the pointer rests on its link
+  (Chrome's speculation rules, a 200 ms hover): it builds, compiles and warms up behind the page,
+  and the click shows its first frame. Built behind another page it takes about 2 s, so a shorter
+  hover saves what it lasted.
+
+The desk opens in about 0.1 s and the chat in about 0.2 s (the server's `/api/fleet` for ten active
+agents went from about 0.4 s to 0.1 s: Copilot's session store is read once per change, and a poll
+that finds nothing new writes nothing).
+
+What is left on a click straight away is the build (about 0.7 s: the city's geometry, three.js's
+scene graph, parsing the models) and the uploads of the textures at the first frames (about 0.4 s).
+
 ## What it is not (yet)
 
 - No multiplayer or physics; nobody else sees your character. The cars do not hit you, nor you them.

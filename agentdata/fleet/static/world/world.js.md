@@ -353,6 +353,23 @@ while the shaders compile, and the frame times start again when they are done: t
 are slow for a reason that is over, and counted, they stepped the quality down before the first real
 frame.
 
+### `var vTask`
+
+The channel `vPrewarm` posts to for its next step: a message is a task the page runs as soon as it
+can, where a timer in a hidden or prerendered page is held back (to once a second, or not at all).
+
+### `function vPrewarm`
+
+The warm-up (`vWarm`) while the page is being prerendered (`common.js`'s `prerender`: the pointer
+rests on a link to the world) or opened in a tab behind the one in front. Such a page draws no
+frames, so the warm-up that runs in `vFrame` would wait for the click; run in steps here, it is done
+before, and the click shows the first real frame. The background compile `WorldRender.prepare`
+starts reports itself on timers, which a hidden page holds back, so it is asked here instead, each
+step, whether its programs are ready (`isReady`, which does not wait). Each step flushes the context
+first: a page that draws no frames never sends its queued commands to the GPU, the compile included,
+and the programs were still not ready when the page was shown. Once the page is shown,
+`vFrame` carries on from wherever it got to; a `compiled` that arrives after the warm-up is ignored.
+
 ### `function vWarm`
 
 Before the first real frame, each object is drawn alone (into a 1 by 1 target, or a single

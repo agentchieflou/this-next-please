@@ -627,6 +627,9 @@
     "tests/test_fleet_notify.py": {
       "tests": 30
     },
+    "tests/test_fleet_page_speed.py": {
+      "tests": 1
+    },
     "tests/test_fleet_page_theme.py": {
       "tests": 14
     },
@@ -654,7 +657,7 @@
     },
     "tests/test_fleet_serve.py": {
       "skips": 2,
-      "tests": 56
+      "tests": 57
     },
     "tests/test_fleet_served_comments.py": {
       "skips": 3,

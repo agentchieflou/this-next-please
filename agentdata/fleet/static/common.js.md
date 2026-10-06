@@ -39,6 +39,23 @@ Beside `var CARRIED = ["w", "shell", "ink"];`:
 
 the page's identity in its host; nothing else travels
 
+### `function prerender`
+
+A page's links that `selector` names are prerendered when the pointer rests on one (Chrome's
+speculation rules, `moderate`: a 200 ms hover, or the press itself), so the click shows a page that
+has already loaded (2026-10-06, the operator: "work on optimizing the load time when clicking between
+chat, desk, and world. We're aiming for ~200ms loads"). A document rule, so a link whose `href` is set
+later (`pageUrl`, at boot) is covered when it is. The desk names the world's link alone: the world is
+the page that takes a second to build and compile, and it does that behind the desk (`vPrewarm`).
+The chat loads in under 200 ms on its own, and every prerendered page holds an event stream open, of
+the six connections a browser allows one host. Never the desk: it already paints from its own
+snapshot, and its boot writes (the window's widths, the notifications it takes), which a page the
+operator never opens must not. Not under test automation (`navigator.webdriver`):
+a test that rests the pointer on a link must not build a second world behind the first. A browser
+without speculation rules (`HTMLScriptElement.supports`) loads the page when it is clicked, as
+before. The page's CSP allows inline speculation rules and nothing else inline
+(`'inline-speculation-rules'`, `serve.CSP`).
+
 ### `var onAuthLost`
 
 Above `var onAuthLost = null;`:

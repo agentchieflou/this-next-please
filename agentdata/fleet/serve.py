@@ -324,7 +324,11 @@ VERIFY_HEAD = 3000           # characters of the summary the pane shows; the lin
 
 # The page may load nothing but itself. Belt and braces with shipping no external references: if a
 # later edit pastes in a CDN script tag, the browser refuses it and the test below catches it.
-CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+#: `script-src` is `default-src`'s `'self'` plus inline speculation rules and nothing else inline:
+#: `common.js`'s `prerender` writes one so a link to the chat or the world is loaded while the pointer
+#: rests on it (2026-10-06, page loads). Any other inline script is still refused.
+CSP = ("default-src 'self'; script-src 'self' 'inline-speculation-rules'; img-src 'self' data:; "
+       "style-src 'self' 'unsafe-inline'; connect-src 'self'")
 
 
 # A relative URL inside a stylesheet does not inherit the query string the stylesheet was fetched

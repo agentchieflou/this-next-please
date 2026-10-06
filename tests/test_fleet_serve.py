@@ -1363,3 +1363,15 @@ def test_the_compressed_files_outlast_a_world_load():
 
     texts = [n for n in S2.ASSETS if n.endswith((".js", ".css"))] + ["vendor/three/three.module.min.js"]
     assert S2.GZIP_ENTRIES >= 4 * len(texts), (S2.GZIP_ENTRIES, len(texts))
+
+
+def test_the_one_inline_script_a_page_may_carry_is_a_speculation_rule(running):
+    """`common.js`'s `prerender` writes the speculation rule that loads the world while the pointer
+    rests on its link (2026-10-06, page loads). The policy allows that and nothing else inline: no
+    `'unsafe-inline'` for scripts, and `default-src 'self'` as it was."""
+    base, token, _ = running
+    _, _, headers = get(base, "/", token)
+    csp = headers["Content-Security-Policy"]
+    script = re.search(r"script-src ([^;]*)", csp).group(1).split()
+    assert script == ["'self'", "'inline-speculation-rules'"], csp
+    assert "default-src 'self'" in csp and "'unsafe-inline'" not in script
