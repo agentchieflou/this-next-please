@@ -5,6 +5,7 @@ var WorldAssets = (function () {
   var PEOPLE = "/static/world/people/";
   var TREES = "/static/world/trees/";
   var CARS = "/static/world/cars/";
+  var OFFICE = "/static/world/office/";
   var TEX = {
     brick: ["brick_wall_001", 3, 3, 1], stucco: ["painted_plaster_wall", 2, 2, 1], concrete: ["concrete_slab_wall", 2.3, 2.3, 1],
     asphalt: ["asphalt_02", 3, 3, 0.6], sidewalk: ["concrete_pavement", 1.8, 1.8, 0.78]
@@ -158,9 +159,9 @@ var WorldAssets = (function () {
     }).catch(function () { return out; });
   }
 
-  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, trees: Object<string, Array<Object>>|null, cars: Object<string, Array<Object>>|null, people: Object}>} */
+  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, trees: Object<string, Array<Object>>|null, cars: Object<string, Array<Object>>|null, office: Object<string, Array<Object>>|null, people: Object}>} */
   function load() {
-    var out = { tex: {}, sky: {}, props: {}, trees: null, cars: null, people: null }, jobs = [];
+    var out = { tex: {}, sky: {}, props: {}, trees: null, cars: null, office: null, people: null }, jobs = [];
     Object.keys(TEX).forEach(function (k) {
       var id = TEX[k][0];
       jobs.push(Promise.all([image(id + "_diff.webp"), image(id + "_arm.webp"), image(id + "_nor.webp")]).then(function (im) {
@@ -170,6 +171,7 @@ var WorldAssets = (function () {
     PROPS.forEach(function (id) { jobs.push(glb(DIR + id + ".glb").then(function (parts) { if (parts) out.props[id] = parts; })); });
     jobs.push(glb(TREES + "trees.glb", true).then(function (t) { out.trees = t; }));
     jobs.push(glb(CARS + "cars.glb", true).then(function (t) { out.cars = t; }));
+    jobs.push(glb(OFFICE + "office.glb", true).then(function (t) { out.office = t; }));
     Object.keys(SKY).forEach(function (k) {
       jobs.push(rgbe(SKY[k][0] + ".hdr").then(function (s) { if (s) out.sky[k] = Object.assign(s, { k: SKY[k][1] }); }));
     });
@@ -267,5 +269,5 @@ var WorldAssets = (function () {
     return out;
   }
 
-  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TREES: TREES, CARS: CARS, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
+  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TREES: TREES, CARS: CARS, OFFICE: OFFICE, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
 })();

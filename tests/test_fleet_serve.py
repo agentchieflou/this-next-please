@@ -764,7 +764,11 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
 #: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
-WORLD_BUDGET = 80 * 1024
+#: The realistic people, their agents, the grown trees and cars filled it to 79.6 KiB; the operator's
+#: office (2026-10-06: "Let's create an office building with the humans as agents"), the agents at
+#: their desks with their screens, took the world to 82.5 KiB, and the budget moved to 92 KiB under the
+#: rule above: the office costs no frame time a desk GPU measures (see docs/fleet-world.md, The office).
+WORLD_BUDGET = 92 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -932,6 +936,28 @@ def test_the_worlds_cars_are_the_file_it_loads_made_here_and_bounded():
         assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "cars", tool)), tool
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
     assert size < CARS_BUDGET, size
+
+
+#: What `static/world/office/` may weigh: about 0.12 MiB today (the workstation and the planter).
+#: `tools/world/office/` remakes the file; raise this with the operator's rule above (`WORLD_BUDGET`).
+OFFICE_BUDGET = 512 * 1024
+
+
+def test_the_worlds_office_is_the_file_it_loads_made_here_and_bounded():
+    """`static/world/office/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/office/`, from no third-party asset, under the repository's own licence;
+    and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "office")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'OFFICE = "/static/world/office/"' in src and 'OFFICE + "office.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "office.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/office/", "no third-party asset", "MIT", "office.glb"):
+        assert words in licence, words
+    for tool in ("office.py", "office.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "office", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < OFFICE_BUDGET, size
 
 
 def test_the_page_and_its_assets_are_served_compressed():

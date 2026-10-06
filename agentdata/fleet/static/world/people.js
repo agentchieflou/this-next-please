@@ -5,7 +5,7 @@ var WorldPeople = (function () {
   var S = { T: null, fill: { value: 0.25 }, tex: new Map(), mats: new Map(), crowd: null, parts: [] };
   var FRAMES = 24;
   var BREATH = Math.PI * 2 / 1.7;
-  var MOTIONS = 5;
+  var MOTIONS = 6;
   var SIDES = [["l", -1], ["r", 1]];
   var FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
   var SCATTER = [
@@ -163,7 +163,7 @@ var WorldPeople = (function () {
     return x > 0 ? x : 0;
   }
 
-  /** @param {{gait: number, amp: number, run: number, talk: number, t: number, still: boolean, seated: boolean, rolled: number, hold: boolean}} s @returns {Object} */
+  /** @param {{gait: number, amp: number, run: number, talk: number, t: number, still: boolean, seated: boolean, rolled: number, hold: boolean, type: boolean}} s @returns {Object} */
   function posture(s) {
     var g = s.gait, a = s.amp, r = s.run, tk = s.talk, br = s.still ? 0 : Math.sin(s.t * 1.7);
     var P = { hip: [0, 0, 0], pel: [0, 0, 0], spine: [0.02 * br * 0.4, 0, 0], head: [0, 0, 0], clav: [0, 0], legs: [], arms: [], seated: s.seated, ground: !s.seated };
@@ -173,6 +173,12 @@ var WorldPeople = (function () {
       P.legs = [[1.42, 0.1, 1.45, 0.05], [1.42, 0.1, 1.45, 0.05]];
       var push = Math.sin(s.rolled / 0.35) * Math.min(1, a);
       P.arms = [[-0.15 + 0.35 * push, 0.32, 0.55 - 0.25 * push, [-1, -0.4, 0], 0.55, 0], [-0.15 + 0.35 * push, 0.32, 0.55 - 0.25 * push, [1, -0.4, 0], 0.55, 0]];
+      if (s.type) {
+        var tap = 0.05 * Math.sin(s.t * 1.7 * 6);
+        P.spine = [0.05 + 0.005 * br, 0, 0];
+        P.head = [0.1, 0, 0];
+        P.arms = [[0.5 + tap, 0.18, 1.45 - tap, [-0.2, -1, 0.3], 0.3, 0], [0.5 - tap, 0.18, 1.45 + tap, [0.2, -1, 0.3], 0.3, 0]];
+      }
     } else {
       var L = [g, g + Math.PI].map(function (ph) {
         var th = mix(0.06 + 0.4 * Math.sin(ph), 0.2 + 0.72 * Math.sin(ph), r);
@@ -535,7 +541,7 @@ var WorldPeople = (function () {
     var Q = R.lq.map(function () { return new T.Quaternion(); }), hip = new T.Vector3(), m = new T.Matrix4(), one = new T.Vector3(1, 1, 1);
     var bones = new Float32Array(FRAMES * R.n * 16), hand = new Float32Array(FRAMES * 3), hr = R.index.hand_r;
     for (var f = 0; f < FRAMES; f++) {
-      var still = { gait: 0, amp: 0, run: 0, talk: motion === 2 ? 1 : 0, t: f / FRAMES * BREATH, still: false, sway: false, seated: motion === 3, rolled: 0, hold: false };
+      var still = { gait: 0, amp: 0, run: 0, talk: motion === 2 ? 1 : 0, t: f / FRAMES * BREATH, still: false, sway: false, seated: motion === 3 || motion === 5, type: motion === 5, rolled: 0, hold: false };
       var walk = { gait: f / FRAMES * Math.PI * 2, amp: 1, run: 0, talk: 0, t: 0, still: true, seated: false, rolled: 0, hold: motion === 4 ? false : hold };
       var out = solve(T, R, posture(motion && motion !== 4 ? still : walk), Q, hip);
       for (var i = 0; i < R.n; i++) {
@@ -558,7 +564,7 @@ var WorldPeople = (function () {
         if (!lods.length) return;
         var R = rig(T, skin.joints, null, skin.extras.anchors), baked = bake(T, R, true);
         width = Math.max(width, R.n * 4);
-        chars.push({ R: R, lods: lods, baked: baked, motions: [baked, bake(T, R, false, 1), bake(T, R, false, 2), bake(T, R, false, 3), bake(T, R, false, 4)] });
+        chars.push({ R: R, lods: lods, baked: baked, motions: [baked, bake(T, R, false, 1), bake(T, R, false, 2), bake(T, R, false, 3), bake(T, R, false, 4), bake(T, R, false, 5)] });
       });
     });
     if (!chars.length) return null;
