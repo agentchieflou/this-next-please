@@ -22,6 +22,7 @@ import contextlib
 import json
 import os
 import re
+import threading
 import time
 
 from .. import textio
@@ -623,25 +624,62 @@ def _append(name: str, events: list[dict], cursor: dict | None = None) -> int:
     return seq
 
 
-def read(name: str, *, since: int = 0, kinds: tuple[str, ...] | None = None,
-         limit: int = 0) -> list[dict]:
-    path = normalized_path(name)
-    if not os.path.isfile(path):
-        return []
+_LOCAL = threading.local()
+
+
+@contextlib.contextmanager
+def reading():
+    """Within it, on this thread, each agent's stream is parsed once per version of its file (its
+    size and when it was written), however many readers ask: `/api/fleet` and an action's answer read
+    each stream a dozen times or more over (one `send` read its agent's 23 times), and a stream grows
+    to `fleet.log_mb` before it rolls (2026-10-06, page loads). Kept for the request and no longer:
+    held across polls, every agent's history would sit in memory as objects. A reader within it
+    shares the events with the others, which only ever read them."""
+    if getattr(_LOCAL, "memo", None) is not None:
+        yield
+        return
+    _LOCAL.memo = {}
+    try:
+        with textio.memo():
+            yield
+    finally:
+        _LOCAL.memo = None
+
+
+def _parse(path: str) -> list[dict]:
     out = []
     for line in textio.read_text(path).splitlines():
         line = line.strip()
         if not line.startswith("{"):
             continue
         try:
-            ev = json.loads(line)
+            out.append(json.loads(line))
         except ValueError:
             continue
-        if ev.get("seq", 0) <= since:
-            continue
-        if kinds and ev.get("kind") not in kinds:
-            continue
-        out.append(ev)
+    return out
+
+
+def read(name: str, *, since: int = 0, kinds: tuple[str, ...] | None = None,
+         limit: int = 0) -> list[dict]:
+    path = normalized_path(name)
+    memo = getattr(_LOCAL, "memo", None)
+    if memo is None:
+        if not os.path.isfile(path):
+            return []
+        events = _parse(path)
+    else:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return []
+        key = (st.st_mtime_ns, st.st_size)
+        hit = memo.get(path)
+        if hit is not None and hit[0] == key:
+            events = hit[1]
+        else:
+            events = _parse(path)
+            memo[path] = (key, events)
+    out = [ev for ev in events if ev.get("seq", 0) > since and (not kinds or ev.get("kind") in kinds)]
     return out[-limit:] if limit else out
 
 

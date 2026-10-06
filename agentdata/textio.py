@@ -23,6 +23,7 @@ import json
 import locale
 import os
 import re
+import contextlib
 import threading
 import time
 
@@ -156,11 +157,43 @@ def collides_case_insensitively(directory: str, name: str) -> str:
 # -------------------------------------------------------------------------------------- reading
 
 
+_MEMO = threading.local()
+
+
+@contextlib.contextmanager
+def memo():
+    """Within it, on this thread, a file read twice is read once while it stays the same file (its
+    identity, size and when it was written), and a file this thread writes is read again. For one
+    request of the desk's server (`serve.act`, `serve.fleet_snapshot`), which read an agent's lock
+    seven times and its ledger twice; on Windows a file that was just written is scanned again on
+    every open, at a millisecond or more each (2026-10-06, the operator: "aim for 50ms ... from
+    clicking send, or pressing Enter, to the agent running")."""
+    if getattr(_MEMO, "files", None) is not None:
+        yield
+        return
+    _MEMO.files = {}
+    try:
+        yield
+    finally:
+        _MEMO.files = None
+
+
 def read_text(path: str) -> str:
     """The file's text. `decode` drops the file's BOM, and only that one: a U+FEFF after it is the
     text's own, which `write_text` put a BOM in front of so it would survive (#519)."""
+    files = getattr(_MEMO, "files", None)
+    if files is None:
+        with open(longpath(path), "rb") as f:
+            return decode(f.read())
+    st = os.stat(longpath(path))
+    key = (st.st_ino, st.st_mtime_ns, st.st_size)
+    hit = files.get(path)
+    if hit is not None and hit[0] == key:
+        return hit[1]
     with open(longpath(path), "rb") as f:
-        return decode(f.read())
+        text = decode(f.read())
+    files[path] = (key, text)
+    return text
 
 
 def read_json(path: str, what: str = "file"):
@@ -240,6 +273,9 @@ def write_text(path: str, text: str, *, report: dict | None = None) -> str:
     with open(longpath(tmp), "w", encoding="utf-8", newline="\n") as f:
         f.write(bom + text)
     how = _replace_with_retry(tmp, path)
+    files = getattr(_MEMO, "files", None)
+    if files is not None:
+        files.pop(path, None)
     if report is not None:
         report["how"] = how
     return path.replace("\\", "/")

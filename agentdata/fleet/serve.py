@@ -643,8 +643,9 @@ def read_order() -> dict:
 
 
 def row_for(name: str) -> dict:
-    """One tile's row, exactly as `/api/fleet` would send it. What an action answers with."""
-    for row in fleet_snapshot().get("repos", []):
+    """One tile's row, exactly as `/api/fleet` would send it. What an action answers with: only that
+    checkout's row and its siblings' are built (`fleet_snapshot(only=)`), not the whole fleet's."""
+    for row in fleet_snapshot(only=name).get("repos", []):
         if row.get("repo") == name:
             return row
     return {}
@@ -697,8 +698,19 @@ def approval_answer(id: str) -> dict | None:
     return None
 
 
-def fleet_snapshot() -> dict:
+def fleet_snapshot(only: str = "") -> dict:
+    """Everything the page needs to draw itself from cold (`_fleet_snapshot`), each agent's stream
+    parsed once for all of it (`events.reading`)."""
+    with E.reading():
+        return _fleet_snapshot(only)
+
+
+def _fleet_snapshot(only: str = "") -> dict:
     """Everything the page needs to draw itself from cold. Also the reconnect path.
+
+    `only` names one checkout (`row_for`, what an action answers with): its row is built, and the
+    rows of its project's other checkouts, which its switcher strip is made of (`_add_siblings`),
+    and nothing else -- no other agent's events are read and nothing but `repos` is answered.
 
     The row is built field by field rather than merged from `supervisor.status()` wholesale, because
     that dict also carries an `agent` word for the same idea as `state`. Two state words on one row
@@ -766,9 +778,17 @@ def fleet_snapshot() -> dict:
     # the one already held.
     from . import adopt as A
 
+    wanted = None
+    if only and registry is not None:
+        # The named checkout and the others of its project: the rows its switcher strip is made of.
+        try:
+            project = registry.get(only).project or only
+        except RegistryError:
+            project = only
+        wanted = [r.name for r in registry.sorted() if r.name == only or (r.project or r.name) == project]
     try:
-        offers = {c["repo"]: c for c in A.candidates(registry,
-                                                      processes=A.agent_processes(wait=False))}
+        offers = {c["repo"]: c for c in A.candidates(registry, processes=A.agent_processes(wait=False),
+                                                      names=wanted)}
     except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
         offers = {}
 
@@ -785,7 +805,8 @@ def fleet_snapshot() -> dict:
 
     # The same registry the states are read from (#586): a second `Registry()` in `status()` could
     # list a repo registered since, whose `state.json` this snapshot would then never read.
-    for row in supervisor.status(registry):
+    statuses = supervisor.status(registry) if wanted is None else supervisor.status(registry, names=wanted)
+    for row in statuses:
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
         repo_state: dict = {}                # the previous row's repository (and its state) in hand
@@ -949,6 +970,8 @@ def fleet_snapshot() -> dict:
                                            offer=offers.get(name), cfg=cfg)
 
     _add_siblings(rows)
+    if only:
+        return {"repos": rows}
     from .. import config as C
 
     # `fleet.preflight: false` restores #98's immediate start: a drop launches instead of opening
@@ -2535,7 +2558,13 @@ ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "ap
 
 
 def act(what: str, body: dict) -> dict:
-    """One action. The same function the CLI verb calls, so the two cannot drift apart."""
+    """One action. The same function the CLI verb calls, so the two cannot drift apart. Each
+    agent's stream is parsed once for the action and the row it answers with (`events.reading`)."""
+    with E.reading():
+        return _act(what, body)
+
+
+def _act(what: str, body: dict) -> dict:
     repo = str(body.get("repo") or "")
     if what == "start":
         from .. import config as C
@@ -2585,6 +2614,12 @@ def act(what: str, body: dict) -> dict:
         # over-budget agent was simply unreachable from the page and `ad-fleet send --force` in a
         # terminal was the only door.
         lock = supervisor.send(repo, message, cfg=C.load(), force=bool(body.get("force")))
+        if body.get("row") is False:
+            # The page asked to hear as soon as the turn is running (2026-10-06, the operator: "aim
+            # for 50ms ... from clicking send, or pressing Enter, to the agent running"): its process
+            # is up, which is what `running` is, and the page fetches the row itself (`/api/row`).
+            # Building the row is most of an answer's time (a ledger, a stream, a lock or two).
+            return {"repo": repo, "pid": lock["pid"], "state": "running"}
         return {"repo": repo, "pid": lock["pid"], "row": row_for(repo)}
     if what == "scope/resolve":
         # Hashes in, paths out. Nothing is written and nothing is uploaded: the page has sent the
@@ -3656,6 +3691,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()}, gzip_ok=True)
+        if route == "/api/row":
+            # One agent's row, as `/api/fleet` would carry it (`row_for`): what a page fetches after a
+            # `send` that answered as soon as the turn was running (2026-10-06).
+            name = (query.get("repo") or [""])[0]
+            if not name:
+                return self._refuse(400, "which repository?", "pass ?repo=<name>")
+            return self._json({"ok": True, "row": row_for(name)}, gzip_ok=True)
         if route == "/api/attention":
             # The phone's view of the fleet (#559): the bridge's allow-listed rows, never `/api/fleet`'s.
             return self._json(attention_answer())
@@ -4041,7 +4083,9 @@ class Handler(BaseHTTPRequestHandler):
             # The row this action changed, with the answer (#219). One round trip where there
             # were two, and the tile is patched from what the server already had in hand rather
             # than from a second snapshot of the whole fleet.
-            if what in ROW_ACTIONS:
+            # Once: an action that answered with its row already (`send`) is not given a second, and
+            # a page that asked not to wait for it (`row: false`, 2026-10-06) fetches it itself.
+            if what in ROW_ACTIONS and "row" not in out and body.get("row") is not False:
                 changed = str(out.get("repo") or body.get("repo") or "")
                 if changed:
                     row = row_for(changed)

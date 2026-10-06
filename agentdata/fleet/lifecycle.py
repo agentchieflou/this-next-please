@@ -235,13 +235,17 @@ def reap(name: str, *, slept: bool = False) -> list[dict]:
     return fresh
 
 
-def reap_all(*, registry: Registry | None = None, slept: bool = False) -> dict[str, list[dict]]:
+def reap_all(*, registry: Registry | None = None, slept: bool = False,
+             names: list[str] | None = None) -> dict[str, list[dict]]:
+    """Reap every registered agent, or only `names` (one row and its siblings, `serve.row_for`)."""
     out = {}
     try:
-        names = [r.name for r in (registry or Registry()).sorted()]
+        every = [r.name for r in (registry or Registry()).sorted()]
     except RegistryError:
         return out
-    for name in names:
+    for name in every:
+        if names is not None and name not in names:
+            continue
         found = reap(name, slept=slept)
         if found:
             out[name] = found

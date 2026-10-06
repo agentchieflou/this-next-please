@@ -488,6 +488,30 @@ and refuses past it -- correctly, since an agent that has died twice the same wa
 third time -- so the refusal is shown and the button becomes the second, deliberate press that
 spends the extra turn. Two clicks, never a silent `force`.
 
+### `var STARTS_A_TURN`
+
+The verbs that begin a turn: `send`, `say`, `start` and `reset`. The pane says *starting* the moment
+one is pressed (`markStarting`), before the server has answered (2026-10-06, the operator: "aim for
+50ms load times, especially when actually interacting with agents (the time from clicking send, or
+pressing Enter, to the agent 'running')"). The server's answer carries the row, which is drawn over
+it: *running* once the agent's process is up, measured at about 80 ms after Enter on the demo fleet.
+
+### `function markStarting`
+
+The pane's chip and state class as *starting*, or as the state a quick answer named (`send` with
+`row: false` says *running* once the turn's process is up), written the way `drawTile` writes them,
+so the next row drawn replaces them like any other state.
+
+### `function fetchRow`
+
+The one row `/api/row` answers, drawn as `/api/fleet`'s would be: what a `send` asked with `row: false`
+leaves to fetch. The page says *running* from the answer, about 20 ms after Enter, and the row
+follows (or the whole fleet, if it cannot be had).
+
+### `function unmarkStarting`
+
+A refused start puts the pane back as its last row drew it; the refusal is said in its error line.
+
 ### `function action`
 
 Above `if (r.row) { patchRow(r.row); place(); }`:

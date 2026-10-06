@@ -408,7 +408,7 @@ function makeTile(row, index) {
     var forcing = sendBtn.dataset.force === "1";
     if (answeringLi(el)) { answerAll(el, row, forcing); return; }
     action(el, el.dataset.console ? "say" : "send",
-           { repo: row.repo, message: say.value, force: forcing })
+           { repo: row.repo, message: say.value, force: forcing, row: false })
       .then(function (r) {
         if (r && r.ok) { say.value = ""; disarmSend(sendBtn); drawStart(el, rowOf(row)); return; }
         if (r && r.code === "budget_exceeded" && !forcing) {
@@ -472,16 +472,51 @@ function fail(el, message) {
   hide(p, !message);
 }
 
+var STARTS_A_TURN = { send: 1, say: 1, start: 1, reset: 1 };
+
+/** @param {HTMLElement} el @param {string} [state] */
+function markStarting(el, state) {
+  var chip = el.querySelector(".chip");
+  if (!chip) return;
+  var word = state || "starting";
+  setTileState(el, word);
+  setClass(chip, "chip " + word);
+  text(chip.querySelector(".chipword"), word);
+  text(chip.querySelector(".chipage"), "");
+}
+
+/** @param {string} repo */
+function fetchRow(repo) {
+  return fetch(q("/api/row", { repo: repo })).then(function (r) { return r.json(); }).then(function (d) {
+    if (d && d.ok && d.row && d.row.repo) { patchRow(d.row); place(); }
+    else refresh();
+  }, function () { refresh(); });
+}
+
+/** @param {HTMLElement} el @param {string} repo */
+function unmarkStarting(el, repo) {
+  var entry = tiles.get(repo);
+  if (entry && entry.row) drawTile(el, entry.row, lastApprovals);
+}
+
 function action(el, what, body) {
   fail(el, "");
   var mark = gesture("action:" + what);
+  if (STARTS_A_TURN[what]) markStarting(el);
   return post(what, body).then(function (r) {
     if (!r.ok) fail(el, r.error + (r.hint ? " — " + r.hint : ""));
     if (r.row) { patchRow(r.row); place(); }
-    else refresh();
+    else if (r.ok && r.state) { markStarting(el, r.state); fetchRow(body.repo); }
+    else {
+      if (!r.ok && STARTS_A_TURN[what]) unmarkStarting(el, body.repo);
+      refresh();
+    }
     settle(mark);
     return r;
-  }).catch(function (e) { fail(el, String(e)); });
+  }).catch(function (e) {
+    fail(el, String(e));
+    if (STARTS_A_TURN[what]) unmarkStarting(el, body.repo);
+  });
 }
 
 var SAY_PLACEHOLDER = "reply, or a ticket key to start";
