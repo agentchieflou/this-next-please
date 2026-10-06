@@ -764,10 +764,12 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
 #: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
-#: The realistic people, their agents, the grown trees and cars filled it to 79.6 KiB; the operator's
-#: office (2026-10-06: "Let's create an office building with the humans as agents"), the agents at
-#: their desks with their screens, took the world to 82.5 KiB, and the budget moved to 92 KiB under the
-#: rule above: the office costs no frame time a desk GPU measures (see docs/fleet-world.md, The office).
+#: The realistic people, their agents, the grown trees and cars took the world to 79.6 KiB gzipped, and
+#: 81.0 KiB where a checkout has CRLF line endings (Windows), which is what the page is served from
+#: there: the budget moved to 88 KiB under the rule above. The operator's office (2026-10-06: "Let's
+#: create an office building with the humans as agents"), the agents at their desks with their
+#: screens, took the world to 82.7 KiB (83.0 KiB with CRLF), and the budget moved to 92 KiB under the
+#: same rule: the office costs no frame time a desk GPU measures (see docs/fleet-world.md, The office).
 WORLD_BUDGET = 92 * 1024
 
 
