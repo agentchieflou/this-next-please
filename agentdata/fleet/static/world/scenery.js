@@ -134,10 +134,7 @@ var WorldScenery = (function () {
   /** @param {any} T @param {Object<string, Array<{geo: any}>>} kit @param {Object} lib @param {number} cap @returns {Object|null} */
   function desks(T, kit, lib, cap) {
     if (!kit || !kit.workstation) return null;
-    var canvas = document.createElement("canvas");
-    canvas.width = 2048;
-    canvas.height = 1152;
-    var tex = new T.CanvasTexture(canvas);
+    var tex = new T.Texture();
     tex.colorSpace = T.SRGBColorSpace;
     tex.anisotropy = 4;
     var screen = new T.MeshBasicMaterial({ map: tex, color: new T.Color(1.35, 1.35, 1.35) });
@@ -156,7 +153,7 @@ var WorldScenery = (function () {
       mesh.name = "desk-" + i;
       return mesh;
     });
-    return { meshes: meshes, cell: cell, ctx: canvas.getContext("2d"), tex: tex, drawn: {} };
+    return { meshes: meshes, cell: cell, tex: tex, cells: [], drawn: {}, seq: 0 };
   }
 
   /** @param {Object} D @param {any} T @param {Array<{x: number, z: number, yaw: number}>} list */
@@ -171,32 +168,26 @@ var WorldScenery = (function () {
     D.cell.needsUpdate = true;
   }
 
+  /** @param {string} s @returns {string} */
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
+  }
+
+  /** @param {number} x @param {number} y @param {string} fill @param {string} font @param {string} words @param {string} [anchor] @returns {string} */
+  function words(x, y, fill, font, words, anchor) {
+    return '<text x="' + x + '" y="' + y + '" fill="' + esc(fill) + '" style="font:' + font + ' monospace;white-space:pre"'
+      + (anchor ? ' text-anchor="' + anchor + '"' : "") + ">" + esc(words) + "</text>";
+  }
+
   /** @param {Object} D @param {Array<{name: string, state: string, says: string, last: string, needs: boolean, color: string}>} list */
   function screens(D, list) {
-    var g = D.ctx, changed = false;
+    var changed = false;
     list.forEach(function (s, i) {
       var key = [s.name, s.state, s.says, s.last, s.needs, s.color].join("|");
       if (D.drawn[i] === key) return;
       D.drawn[i] = key;
       changed = true;
       var x = (i % 8) * 256, y = Math.floor(i / 8) * 144, lines = [];
-      g.fillStyle = "#0d1117";
-      g.fillRect(x, y, 256, 144);
-      g.fillStyle = "#161b22";
-      g.fillRect(x, y, 256, 24);
-      g.fillStyle = s.color;
-      g.beginPath();
-      g.arc(x + 13, y + 12, 5, 0, 7);
-      g.fill();
-      g.font = "600 13px monospace";
-      g.textAlign = "left";
-      g.fillStyle = "#e6edf3";
-      g.fillText(s.name.slice(0, 20), x + 24, y + 17);
-      g.font = "11px monospace";
-      g.textAlign = "right";
-      g.fillStyle = s.color;
-      g.fillText(s.state, x + 248, y + 16);
-      g.textAlign = "left";
       [[s.says, "#8b949e", "  "], [s.last, "#c9d1d9", "> "]].forEach(function (b) {
         String(b[0] || "").replace(/\s+/g, " ").trim().split(" ").reduce(function (line, word, k, all) {
           var next = line ? line + " " + word : b[2] + word;
@@ -205,14 +196,23 @@ var WorldScenery = (function () {
           return next;
         }, "");
       });
-      lines.slice(0, 8).forEach(function (l, k) { g.fillStyle = l[1]; g.fillText(l[0], x + 8, y + 42 + k * 13); });
-      if (s.needs) {
-        g.strokeStyle = "#f2b33d";
-        g.lineWidth = 4;
-        g.strokeRect(x + 2, y + 2, 252, 140);
-      }
+      D.cells[i] = '<rect x="' + x + '" y="' + y + '" width="256" height="144" fill="#0d1117"/>'
+        + '<rect x="' + x + '" y="' + y + '" width="256" height="24" fill="#161b22"/>'
+        + '<circle cx="' + (x + 13) + '" cy="' + (y + 12) + '" r="5" fill="' + esc(s.color) + '"/>'
+        + words(x + 24, y + 17, "#e6edf3", "600 13px", s.name.slice(0, 20))
+        + words(x + 248, y + 16, s.color, "11px", s.state, "end")
+        + lines.slice(0, 8).map(function (l, k) { return words(x + 8, y + 42 + k * 13, l[1], "11px", l[0]); }).join("")
+        + (s.needs ? '<rect x="' + (x + 2) + '" y="' + (y + 2) + '" width="252" height="140" fill="none" stroke="#f2b33d" stroke-width="4"/>' : "");
     });
-    if (changed) D.tex.needsUpdate = true;
+    if (!changed) return;
+    var seq = ++D.seq, img = new Image(2048, 1152);
+    img.onload = function () {
+      if (seq !== D.seq) return;
+      D.tex.image = img;
+      D.tex.needsUpdate = true;
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1152">'
+      + '<rect width="2048" height="1152" fill="#0d1117"/>' + D.cells.join("") + "</svg>");
   }
 
   /** @param {any} T @param {number} [n] @returns {any} */

@@ -69,7 +69,7 @@ wall: its radius, its doors' half angle, the roof's radius and height (no rain u
 
 The workstations from the office's file (`static/world/office/office.glb`): an instanced mesh for
 each of its parts, the desk's top in the baked wood, the fittings in their colours, and the screen,
-which reads its agent's cell of one canvas (`aCell`, an 8 x 8 atlas of 256 x 144 cells) and glows a
+which reads its agent's cell of one texture (`aCell`, an 8 x 8 atlas of 256 x 144 cells) and glows a
 little. Null without the file: the office stands without desks.
 
 ### `function placeDesks`
@@ -80,8 +80,14 @@ list.
 ### `function screens`
 
 Each agent's screen, a terminal's look: its name and state in its colour on a title bar, what it says
-it is doing and the last thing it said, wrapped, and an amber frame when it needs you. A cell is drawn
+it is doing and the last thing it said, wrapped, and an amber frame when it needs you. A cell is made
 again only when what it shows has changed, and the texture uploaded only then.
+
+The atlas is an SVG image, not a canvas: #257 keeps every file under `static/` off 2D contexts (one
+platform, `tests/test_fleet_trace.py`). Each cell is its SVG (rectangles, a circle, monospace text,
+which wraps by count of characters as a terminal's does), the cells are one SVG drawn as an image
+from a `data:` URL (the page's CSP allows `data:` images), and the image is the texture's. A newer
+redraw that lands first wins: an older image that finishes loading after it is dropped (`seq`).
 
 ### `function glows`
 
