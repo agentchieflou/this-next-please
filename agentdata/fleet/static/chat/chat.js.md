@@ -179,8 +179,9 @@ The row a quick answer left to fetch (`/api/row`); the whole fleet, debounced, w
 Enter sends, Shift+Enter is a new line. Over budget, the server refuses `budget_exceeded` and the
 button becomes *Send anyway*: the next press spends one more turn, as on the desk.
 
-The message goes with `row: false`, as the desk's does: the pane says *starting* at once, *running*
-when the server answers that the turn's process is up, and the row comes from `/api/row`. A server
+A `send` asks with `Prefer: return=minimal` (RFC 7240), as the desk's does (`post`'s third argument):
+the pane says *starting* at once, *running* when the server answers that the turn's process is up, and
+the row comes from `/api/row`. A server
 that answers with the row instead is drawn from it; a refusal draws the pane as it was. It used to
 wait out `cSoon`'s 400 ms and a whole `/api/fleet`, about 0.6 s, before the pane said anything.
 

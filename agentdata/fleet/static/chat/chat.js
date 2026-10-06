@@ -511,9 +511,9 @@ function cOpen(repo, session) {
 }
 
 /** @param {string} what @param {Object} body @returns {Promise<Object>} */
-function cPost(what, body) {
+function cPost(what, body, minimal) {
   text(cSaid, what + "…");
-  return post(what, body).then(function (r) {
+  return post(what, body, minimal).then(function (r) {
     text(cSaid, r && r.ok ? "" : ((r && r.error) || "refused") + (r && r.hint ? " — " + r.hint : ""));
     cSoon();
     return r || {};
@@ -589,7 +589,7 @@ function cSubmit() {
   var forcing = cState.force;
   disable(cSend, true);
   cMarkState("starting");
-  return cPost(verb, { repo: row.repo, message: message, force: forcing, row: false }).then(function (r) {
+  return cPost(verb, { repo: row.repo, message: message, force: forcing }, verb === "send").then(function (r) {
     disable(cSend, false);
     cState.force = !r.ok && r.code === "budget_exceeded" && !forcing;
     if (cState.force) text(cSaid, (r.error || "") + " — press Send anyway to spend one more turn");
