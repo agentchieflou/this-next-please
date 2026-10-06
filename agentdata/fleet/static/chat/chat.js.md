@@ -26,6 +26,15 @@ A classic script after `common.js`, whose `q`, `post`, `pageUrl`, `patchList`, s
 Not in `tsconfig.json`'s program, like `m/m.js`: its globals (`W_NAME`) are `app.js`'s names too,
 and the two are never loaded together.
 
+The operator, 2026-10-06: *"we don't have the 'start fresh' / 'start new session' options in the chat
+section. It could be visually improved quite a bit, one of those being adopting all of the themes in
+a cohesive manner (sticking 1:1 with the desk view)"*. So the conversation is a desk pane: `#chatmain`
+is a `.tile` with the desk's classes inside (`.head`, `.repo`, `.chip`, `.runline`, `.why`, `.approval`,
+`.asks`, `.readonly`, `.row.bottom`), written the way `app.js` writes a pane, and the page loads the
+desk's `ink/ink.js`. A palette, a skin and a skin's marks (the plain fallback, or ink where the probe
+measured hardware) select the same classes on both pages, so nothing here restyles a theme and
+nothing has to be kept in step by hand.
+
 ### `var C_SESSIONS_SHOWN`
 
 Five sessions under each agent before *N more*: the current one first, then the newest. An agent
@@ -37,6 +46,11 @@ off the screen -- the opposite of tracking agents in a sidebar.
 On a phone-width window the sidebar and the conversation are one column, one at a time
 (`body.is-open`), so the page does not pick a conversation for the operator at boot: it opens on
 the list.
+
+### `var C_EXTERNAL`
+
+The desk's words for a pane whose session is the operator's own Copilot chat (`EXTERNAL_TITLE` in
+`app.js`): the fleet does not drive it, so Send, Start, Reset and Stop are off with this as their title.
 
 ### `var cState`
 
@@ -63,6 +77,23 @@ session a fresh start left, and where a session came from when it was not the fl
 ### `function drawSession`
 
 Choosing the current session follows the agent (`session = ""`); choosing any other is that session.
+
+### `function drawAgent`
+
+The agent's row; the open agent's foot carries *start fresh* (the others' is hidden by `chat.css`,
+so a sidebar of agents is not a column of the same button), titled with what it starts and armed
+(*start fresh — it is closed*) after a `second_press` refusal, as the desk's session menu is.
+
+### `function cFreshWords`
+
+What *start fresh* starts, in the desk's words (`startFreshWords` in `app.js`): the ticket and the
+model from the row's `fresh.starts`, and where the session it leaves goes. When the server says a
+fresh start is not for now (`fresh.verdict`), its reason instead.
+
+### `function drawAgents`
+
+The footer's counts are the desk's (`#counts`: *N agents · M need you*), and the window's title
+carries the count of agents that need a person.
 
 ### `function chatLine`
 
@@ -104,9 +135,28 @@ console the fleet opened (typed into that window, #190), `send` otherwise.
 
 ### `function drawCompose`
 
-The composer on the current session; on an earlier one, a line saying so and *Resume here*, which is
-the desk's second deliberate press (`start` with `resume`). A refusal that a press can override
-(`live_agent`, `mid_ticket`) arms it, and the label says what the next press does.
+On the current session, the desk's bottom row: the reply box, Send, *Start fresh*, Reset and Stop,
+each doing what the same button does on a pane (`app.js`'s `makeTile`): *Start fresh* is the `fresh`
+verb while the box is empty and *Start* (`start` on the typed ticket) once it is not; Reset is
+`reset`, armed to *Reset anyway* when the server says another restart needs `--force`; Stop is
+`stop`. An agent with no session has nothing to send to, so Send is hidden and Enter starts it.
+
+On an earlier session, the `.readonly` line saying so and *Resume here*, which is the desk's second
+deliberate press (`start` with `resume`). A refusal that a press can override (`live_agent`,
+`mid_ticket`) arms it, and the label says what the next press does.
+
+### `function cRunline`
+
+The desk's run line for the live session (`drawTile`): which run, when it started, whether it
+resumed, how many events, and whether the fleet is supervising it.
+
+### `function drawMain`
+
+The pane, as `drawTile` writes one: `tile state-<state>`, `needs-human`, `is-done` and `data-repo`
+(the ink layer's lane), the agent's accent on its edge, the chip's word and age, the ticket slot
+holding the session's title, the run line and `why`. An earlier session wears the state it ended in
+and never `needs-human`: nothing on it is waiting. The head's *start fresh* is the desk's offer
+(`.freshtoggle.is-offer`, shown only when the row offers one); the bottom row's is always there.
 
 ### `function cSubmit`
 
@@ -115,8 +165,14 @@ button becomes *Send anyway*: the next press spends one more turn, as on the des
 
 ### `function cFresh`
 
-*+ new session* is the desk's *start fresh*. A session that is still open is refused with
-`second_press`; the next press on the same agent sends `closed: true`.
+*Start fresh* (the bottom row, the head's offer, the open agent's foot, Alt+N) is the desk's: the
+`fresh` verb. A session that is still open is refused with `second_press`; the next press on the
+same agent sends `closed: true`.
+
+### `function cResetIt`
+
+Reset, as the desk's: `reset`, and when the server refuses because the agent has been restarted
+too often (its hint names `--force`), the next press sends `force`.
 
 ### `function cPick`
 
@@ -131,6 +187,10 @@ every frame: `/api/sessions` rebuilds the index from the stream.
 An agent's stream cursor starts at the row's `last_seq`, as the desk's starts at its pane's: the
 conversation on screen came from `/api/transcript`, so the stream has only what happens next to
 send, never every agent's whole history again.
+
+The fleet's answer carries the theme, as the desk applies it: a palette or skin chosen while the
+stream was closed (a hidden tab) is worn on the next refresh. A `theme` frame that arrived while the
+request was out is newer than its answer, and wins.
 
 ### `function cConnect`
 

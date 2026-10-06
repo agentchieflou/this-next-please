@@ -26,6 +26,12 @@ var cMessage = /** @type {HTMLTextAreaElement} */ (document.getElementById("chat
 var cReason = /** @type {HTMLInputElement} */ (document.getElementById("chatreason"));
 var cFind = /** @type {HTMLInputElement} */ (document.getElementById("chatfind"));
 var cTools = /** @type {HTMLInputElement} */ (document.getElementById("chattools"));
+var cMain = document.getElementById("chatmain");
+var cStart = /** @type {HTMLButtonElement} */ (document.getElementById("chatstart"));
+var cReset = /** @type {HTMLButtonElement} */ (document.getElementById("chatreset"));
+var cStop = /** @type {HTMLButtonElement} */ (document.getElementById("chatstop"));
+var cHeadFresh = /** @type {HTMLButtonElement} */ (document.getElementById("chatfresh"));
+var C_EXTERNAL = "type in that window — this session is not the fleet's to drive";
 
 /**
  * @typedef {Object} Shown
@@ -38,17 +44,18 @@ var cTools = /** @type {HTMLInputElement} */ (document.getElementById("chattools
  * @property {string} at
  */
 
-/** @type {{rows: Array<Object>, approvals: Array<Object>, sessions: Object<string, Array<Object>>, loadedFor: Object<string, string>, more: Object<string, boolean>, folded: Object<string, boolean>, repo: string, session: string, shown: Shown, force: boolean, fresh: string, resume: string, source: EventSource, cursors: Object<string, number>, timer: any, live: string, frames: number, ticks: number, refreshes: number, reading: number}} */
+/** @type {{rows: Array<Object>, approvals: Array<Object>, sessions: Object<string, Array<Object>>, loadedFor: Object<string, string>, more: Object<string, boolean>, folded: Object<string, boolean>, repo: string, session: string, shown: Shown, force: boolean, fresh: string, resume: string, reset: string, themes: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, frames: number, ticks: number, refreshes: number, reading: number}} */
 var cState = {
   rows: [], approvals: [], sessions: {}, loadedFor: {}, more: {}, folded: {},
   repo: "", session: "",
   shown: { key: "", seq: 0, cursor: 0, more: false, foreign: false, state: "", at: "" },
-  force: false, fresh: "", resume: "",
+  force: false, fresh: "", resume: "", reset: "", themes: 0,
   source: null, cursors: {}, timer: null, live: "", frames: 0, ticks: 0, refreshes: 0, reading: 0
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
 attr(document.getElementById("tomap"), "href", pageUrl("/map"));
+attr(document.getElementById("toworld"), "href", pageUrl("/world"));
 attr(document.getElementById("tosettings"), "href", pageUrl("/settings"));
 
 /** @param {number} s @returns {string} */
@@ -205,8 +212,18 @@ function drawAgent(li, row) {
   var more = li.querySelector(".ca-more");
   hide(more, all.length <= C_SESSIONS_SHOWN);
   text(more, cState.more[row.repo] ? "fewer" : (all.length - C_SESSIONS_SHOWN) + " more");
-  attr(li.querySelector(".ca-new"), "title", cState.fresh === row.repo ? "press again: its session is closed first"
-    : "leave its current session under earlier and start a clean one");
+  var newBtn = li.querySelector(".ca-new");
+  text(newBtn, cState.fresh === row.repo ? "start fresh — it is closed" : "start fresh");
+  attr(newBtn, "title", cFreshWords(row) + " (Alt+N)");
+}
+
+/** @param {Object} row @returns {string} */
+function cFreshWords(row) {
+  var f = row.fresh || {};
+  var st = f.starts || {};
+  if (f.verdict && f.verdict !== "now" && f.why) return f.why;
+  return "a clean session on " + (st.ticket || "no ticket") + " on " + (st.model_label || "the CLI's own choice") +
+    (cCurrent(row) ? "; this one stays under earlier (" + ((row.sessions_n || 0) + 1) + ")" : "");
 }
 
 function drawAgents() {
@@ -215,7 +232,8 @@ function drawAgents() {
   patchList(cAgents, rows, function (r) { return r.repo; }, cCreateAgent, drawAgent);
   hide(document.getElementById("chatnone"), cState.rows.length > 0);
   var n = cState.rows.filter(function (r) { return r.needs_human; }).length;
-  text(document.getElementById("chatneed"), n ? n + " need you" : "");
+  var all = cState.rows.length;
+  text(document.getElementById("counts"), all ? all + (all === 1 ? " agent" : " agents") + (n ? " · " + n + " need you" : "") : "");
   var title = (n ? "(" + n + ") " : "") + "fleet · chat";
   if (document.title !== title) document.title = title;
 }
@@ -343,7 +361,7 @@ function chatLoad(before) {
 function drawAsks(row) {
   var open = cIsLive(row) ? (row.asked || []).filter(function (x) { return x.blocking !== false; }) : [];
   hide(cAsks, !open.length);
-  text(document.getElementById("chatasksn"), open.length === 1 ? "it asks" : "it asks " + open.length + " things");
+  text(document.getElementById("chatasksn"), "it asked you: " + open.length + (open.length === 1 ? " question" : " questions"));
   hide(document.getElementById("chatanswer"), !open.some(function (x) { return !!x.id; }));
   patchList(document.getElementById("chatasklist"), open, function (x, i) { return x.id || "q" + i + ":" + (x.q || ""); }, function () {
     var tpl = /** @type {HTMLTemplateElement} */ (document.getElementById("chatq"));
@@ -399,12 +417,33 @@ function drawCompose(row) {
     return;
   }
   var verb = cVerb(row);
-  disable(cSend, !!row.external);
-  attr(cSend, "title", row.external ? "type in that window — this session is not the fleet's to drive" : null);
-  text(cSend, verb === "start" ? "Start" : cState.force ? "Send anyway" : "Send");
+  var outside = !!row.external;
+  hide(cSend, verb === "start");
+  [cSend, cStart, cReset, cStop].forEach(function (b) { disable(b, outside); });
+  attr(cSend, "title", outside ? C_EXTERNAL : null);
+  text(cSend, cState.force ? "Send anyway" : "Send");
+  var typed = !!cMessage.value.trim();
+  text(cStart, typed ? "Start" : cState.fresh === row.repo ? "start fresh — it is closed" : "Start fresh");
+  attr(cStart, "title", outside ? C_EXTERNAL : typed ? "start it on that ticket" : cFreshWords(row) + " (Alt+N)");
+  text(cReset, cState.reset === row.repo ? "Reset anyway" : "Reset");
+  attr(cReset, "title", outside ? "your own Copilot chat — close it in its window; start fresh leaves it"
+       : cState.reset === row.repo ? "it has already been restarted this many times — press again to spend one more"
+       : "unblock it: end the stuck process and resume the same session");
   attr(cMessage, "placeholder", verb === "start" ? "a ticket key to start on, or empty for a clean session"
        : verb === "say" ? "type into its console window" : (row.run && row.run.live) ? "it is working; this goes in once the turn ends"
        : "reply");
+}
+
+/** @param {Object} row @returns {string} */
+function cRunline(row) {
+  var run = row.run || {};
+  if (!run.n) return "no run yet";
+  var bits = ["run " + run.n];
+  if (run.started) bits.push("started " + cClock(run.started));
+  if (run.resumed) bits.push("resumed");
+  if (run.events_n) bits.push(run.events_n + " events");
+  bits.push(row.supervised !== false ? "live" : run.since_start ? "ended" : "before this session");
+  return bits.join(" · ");
 }
 
 function drawMain() {
@@ -414,23 +453,35 @@ function drawMain() {
   hide(cScroll, !row);
   hide(document.getElementById("chatstate"), !row);
   if (!row) {
+    setClass(cMain, "tile");
+    setData(cMain, "repo", "");
+    style(cMain, "border-left-color", "");
     text(document.getElementById("chatname"), "pick a session");
-    text(document.getElementById("chatsession"), "");
-    text(document.getElementById("chatsays"), "");
-    [cForm, cEnded, cApproval, cAsks].forEach(function (el) { hide(el, true); });
+    ["chatsession", "chatrun", "chatsays"].forEach(function (id) { text(document.getElementById(id), ""); });
+    [cForm, cEnded, cApproval, cAsks, cHeadFresh].forEach(function (el) { hide(el, true); });
     return;
   }
   var live = cIsLive(row);
   var state = live ? String(row.state || "idle") : (cState.shown.state || "idle");
+  setClass(cMain, "tile state-" + state + (live && row.needs_human ? " needs-human" : "") + (state === "done" ? " is-done" : ""));
+  setData(cMain, "repo", row.repo);
+  style(cMain, "border-left-color", row.accent || "");
   var chip = document.getElementById("chatstate");
-  setClass(chip, "chip " + state);
-  text(chip, (C_GLYPHS[state] || "·") + " " + state.replace(/_/g, " "));
+  var age = live ? cAge(row.last_event_age_s) : "";
+  setClass(chip, "chip " + state + (live && row.last_event_age_s >= 86400 ? " stale" : ""));
+  text(chip.querySelector(".chipword"), state.replace(/_/g, " "));
+  text(chip.querySelector(".chipage"), age ? " · " + age : "");
   text(document.getElementById("chatname"), row.repo);
   var id = cShownId();
   var s = (cState.sessions[row.repo] || []).filter(function (x) { return x.id === id; })[0] || { id: id, ticket: live ? row.ticket : "" };
   text(document.getElementById("chatsession"), cTitle(s) + (live ? (row.run && row.run.live ? " · live" : " · current") : " · earlier"));
   attr(document.getElementById("chatsession"), "title", id ? "session " + id : null);
+  text(document.getElementById("chatrun"), live ? cRunline(row) : "");
   text(document.getElementById("chatsays"), live ? row.why || "" : "");
+  hide(cHeadFresh, !live || !row.fresh);
+  toggle(cHeadFresh, "is-offer", !!(row.fresh && row.fresh.offer));
+  text(cHeadFresh, cState.fresh === row.repo ? "start fresh — it is closed" : "start fresh");
+  attr(cHeadFresh, "title", cFreshWords(row) + " (Alt+N)");
   toggle(cLog, "no-tools", !cTools.checked);
   drawApproval(row);
   drawAsks(row);
@@ -446,6 +497,7 @@ function cOpen(repo, session) {
   if (moved) {
     cState.force = false;
     cState.resume = "";
+    cState.reset = "";
     text(cSaid, "");
   }
   if (otherAgent) cMessage.value = "";
@@ -481,9 +533,19 @@ function cFresh(repo) {
     }
     if (r.second_press) {
       cState.fresh = repo;
-      text(cSaid, [r.error, r.hint].filter(Boolean).join(" — ") + " — press + new session again once it is closed");
+      text(cSaid, [r.error, r.hint].filter(Boolean).join(" — ") + " — press start fresh again once it is closed");
     }
     drawAgents();
+    drawMain();
+  });
+}
+
+/** @param {string} repo */
+function cResetIt(repo) {
+  var forcing = cState.reset === repo;
+  return cPost("reset", { repo: repo, force: forcing }).then(function (r) {
+    cState.reset = !r.ok && !forcing && /--force|worth another turn/.test(r.hint || "") ? repo : "";
+    drawMain();
   });
 }
 
@@ -511,6 +573,21 @@ function cSubmit() {
 cForm.addEventListener("submit", function (e) { e.preventDefault(); cSubmit(); });
 cMessage.addEventListener("keydown", function (e) {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); cSubmit(); }
+});
+cMessage.addEventListener("input", function () { var row = cRow(cState.repo); if (row) drawCompose(row); });
+cStart.addEventListener("click", function () {
+  var ticket = cMessage.value.trim();
+  if (!ticket) return cFresh(cState.repo);
+  cPost("start", { repo: cState.repo, ticket: ticket }).then(function (r) { if (r.ok) { cMessage.value = ""; drawMain(); } });
+});
+cHeadFresh.addEventListener("click", function () { cFresh(cState.repo); });
+cReset.addEventListener("click", function () { cResetIt(cState.repo); });
+cStop.addEventListener("click", function () { cPost("stop", { repo: cState.repo }); });
+document.addEventListener("keydown", function (e) {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "n" || e.key === "N") && cRow(cState.repo)) {
+    e.preventDefault();
+    cFresh(cState.repo);
+  }
 });
 cEarlier.addEventListener("click", function () { if (cState.shown.cursor) chatLoad(cState.shown.cursor); });
 document.getElementById("chatback").addEventListener("click", function () {
@@ -602,8 +679,10 @@ function cRefresh() {
   cState.refreshes++;
   cState.reading++;
   var done = function () { cState.reading--; };
+  var themes = cState.themes;
   return fetch(q("/api/fleet")).then(function (r) { return r.json(); }).then(function (f) {
     if (!f || !f.ok) return;
+    if (f.theme && themes === cState.themes) applyThemeState(f.theme);
     var was = cKey();
     cState.rows = f.repos || [];
     cState.approvals = f.approvals || [];
@@ -663,6 +742,7 @@ function cConnect() {
   source.addEventListener("polls", cSoon);
   source.addEventListener("desk", cSoon);
   source.addEventListener("theme", function (m) {
+    cState.themes++;
     try { applyThemeState(JSON.parse(/** @type {MessageEvent} */ (m).data)); } catch (err) {}
   });
   source.addEventListener("tick", function () { cState.ticks++; cLiveAs("live"); });

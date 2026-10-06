@@ -108,7 +108,8 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `tidy.js`.
 #
 # `/chat` (operator request, 2026-10), the chat view, brings `chat.css` and its one script,
-# `chat/chat.js`. `/world` (#626) brings `world.css`, `world/kit.js` (what the world's scripts share,
+# `chat/chat.js`, and the desk's `ink/ink.js`, so a skin marks its conversation as it marks a pane
+# (2026-10-06). `/world` (#626) brings `world.css`, `world/kit.js` (what the world's scripts share,
 # its lights above all), `world/assets.js` (its CC0 textures, props and skies, from `world/cc0/`, and
 # its people from `world/people/`), `world/people.js` (the people: the player's character as a skinned
 # human and the pedestrians as an instanced, skinned crowd), `world/bake.js` (its materials, baked on the GPU), `world/render.js` (how a
@@ -145,8 +146,11 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 # sidebar, and all of their active sessions sit beneath each agent, where one session's chat is
 # readable at a time"): the traditional layout beside the desk's panes, never instead of them. It
 # reads what the desk reads (`/api/fleet`, `/api/sessions`, `/api/transcript`, the stream) and posts
-# the desk's own verbs, so it adds no route and no rule. Not inked, like the map: it wears `ink-off`,
-# and the palette and the skin reach it through `_page` like every other page.
+# the desk's own verbs, so it adds no route and no rule. The palette and the skin reach it through
+# `_page` like every other page; and since the operator asked for the chat to wear every theme "1:1
+# with the desk view" (2026-10-06) it is inked like the desk: its conversation is a pane (`.tile`, the
+# desk's classes inside), it loads `ink/ink.js`, and it carries the gate's facts (`INKED_PAGES`), so
+# a skin's marks reach it -- drawn where the probe measured hardware, the plain fallback elsewhere.
 #
 # `/world` is the eighth (#626, the operator's verdict on #400): a 3D space walked with a controller or the
 # keyboard: a rainy plaza, day or night by the local clock, one figure per agent, and talking to an
@@ -158,9 +162,13 @@ PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html"
          "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/chat": "chat.html",
          "/world": "world.html"}
 
-#: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
-#: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
-INKED_PAGES = ("index.html", "map.html")
+#: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, the map, whose scene
+#: (#409) is gated by the same probe, and the chat (2026-10-06). The map keeps `ink-off` for its
+#: whole life.
+INKED_PAGES = ("index.html", "map.html", "chat.html")
+#: The inked pages that load `ink/ink.js`, and so preload their skin's module (`ink_preload`): the
+#: desk and the chat. The map draws its own scene and never the ink layer.
+INK_LAYER_PAGES = ("index.html", "chat.html")
 
 
 def ink_facts(query: dict) -> dict:
@@ -3826,16 +3834,16 @@ class Handler(BaseHTTPRequestHandler):
             facts = (f' data-ink-shell="{gate["shell"]}" data-ink-probe="{gate["class"]}" '
                      f'data-ink-skins="{inked}"')
             # The map (#405) is told the facts and never turns ink on: it keeps `ink-off`.
-            gate_on = desk and ink_gate_on(query or {}, gate["class"])
+            gate_on = name in INK_LAYER_PAGES and ink_gate_on(query or {}, gate["class"])
         themed: tuple = ()
         # The chosen theme, in the markup (#345): every page but the probe, which measures a shell
         # and has no business wearing a skin.
         if name != "probe.html":
             ts = theme_state()
             worn = page_theme(ts, self.token, desk=desk, gate_on=gate_on)
-            # The desk alone preloads what its skin will import (#349), ahead of the skin's
-            # stylesheet, which stays the last thing in <head>.
-            preload = ink_preload(ts, self.token, gate_on=gate_on) if desk else ""
+            # The pages that load the ink layer preload what their skin will import (#349), ahead
+            # of the skin's stylesheet, which stays the last thing in <head>.
+            preload = ink_preload(ts, self.token, gate_on=gate_on) if name in INK_LAYER_PAGES else ""
             themed = (worn["html"], worn["link"], worn["body_class"], worn["body"], preload)
             html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + measured + ">", 1)
             html = html.replace("</head>", preload + worn["link"] + "</head>", 1)
