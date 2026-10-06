@@ -102,7 +102,42 @@ A tree's crown as leaf cards: quads scattered through a squashed sphere, each tu
 normals pointing out from the crown's centre rather than off each card, so the crown is lit as one
 soft volume, as foliage is, instead of as many flat cards.
 
+### `var LEAF`
+
+Leaves let light through: a crown seen from below or against the sky glows yellow-green where light
+comes through its leaves from behind. The environment and hemisphere light seen from behind the
+card (`-N`) are added, weighted to what a leaf passes (green, a little red, almost no blue). It is
+the same idea as the people's thin skin (`people.js.md`, `SCATTER`), and like it touches only this
+material.
+
+### `function crown`
+
+A crown's material, whichever leaves it is given: their alpha cut out, both sides drawn, and the crown
+swaying a little in the wind, the phase from where the tree stands (with the instance's place, so a
+street of instanced trees does not sway as one).
+
+Its grazing reflection is capped (`specularF90` 0.3): a crown's normals point out from its centre, so
+its top and rim face the bright, rain-wet sky at a grazing angle, and at full Fresnel every crown read
+as grey-white, a sheet of reflected sky, rather than green. Light comes through it (`LEAF`).
+
+A card seen from behind keeps the crown's normal. three.js turns a double-sided surface's normal (and
+its tangent frame) round when its back faces the eye, which on a card whose normal points out of the
+crown made every leaf seen from behind face into the tree, dark: a crown looked half dead from any
+side. A card seen edge-on fades out (its face against the eye, from the screen-space derivatives of
+the view position), so turning cards are not hard streaks. And the further away, the more its alpha is
+raised with the texture's mip level (`fwidth` of the UV, for a 1024 px atlas): mipmaps average the
+leaves' cut-outs with the gaps between them, and without it a distant crown thinned to specks.
+
 ### `function foliage`
 
-One material for every crown: the baked leaf texture with its alpha cut out, both sides drawn, and
-the crowns swaying a little in the wind.
+The page's own crowns (`canopy`, on the `low` quality and wherever the trees' file did not load): the
+baked leaf texture through `crown`.
+
+### `function grove`
+
+Trees from the trees' file (`static/world/trees/trees.glb`, through `WorldAssets.scans`), where a list
+says (`[x, y, z, yaw, scale, kind]`): an instanced mesh per kind, level of detail and part (bark,
+leaves), so a street of trees costs a few draw calls however long it is. A tree within 42 m of the eye
+is drawn whole (`<kind>_lod0`), further away with fewer and larger twigs (`_lod1`, about a third of
+the triangles); the split is made again only when the eye has moved 4 m, and a mesh with no tree in it
+is hidden rather than drawn empty. Returns the update and how many trees it placed.

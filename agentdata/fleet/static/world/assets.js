@@ -3,6 +3,9 @@
 var WorldAssets = (function () {
   var DIR = "/static/world/cc0/";
   var PEOPLE = "/static/world/people/";
+  var TREES = "/static/world/trees/";
+  var CARS = "/static/world/cars/";
+  var OFFICE = "/static/world/office/";
   var TEX = {
     brick: ["brick_wall_001", 3, 3, 1], stucco: ["painted_plaster_wall", 2, 2, 1], concrete: ["concrete_slab_wall", 2.3, 2.3, 1],
     asphalt: ["asphalt_02", 3, 3, 0.6], sidewalk: ["concrete_pavement", 1.8, 1.8, 0.78]
@@ -74,21 +77,28 @@ var WorldAssets = (function () {
     }).catch(function () { return null; });
   }
 
-  /** @param {string} name @returns {Promise<Array<Object>|null>} */
-  function glb(name) {
-    return gltf(DIR + name).then(function (g) {
+  /** @param {string} url @param {boolean} [named] @returns {Promise<any>} */
+  function glb(url, named) {
+    return gltf(url).then(function (g) {
       if (!g) return null;
-      var parts = [];
+      var parts = [], names = [];
       g.json.meshes.forEach(function (/** @type {Object} */ m) {
         m.primitives.forEach(function (/** @type {Object} */ p) {
-          var mt = g.json.materials[p.material], pbr = mt.pbrMetallicRoughness;
+          var mt = g.json.materials[p.material], pbr = mt.pbrMetallicRoughness, a = p.attributes;
+          names.push(m.name);
           parts.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture), g.pic(pbr.metallicRoughnessTexture)]).then(function (im) {
-            return { pos: g.read(p.attributes.POSITION), nor: g.read(p.attributes.NORMAL), uv: g.read(p.attributes.TEXCOORD_0), idx: g.read(p.indices),
-                     map: im[0], normal: im[1], orm: im[2] };
+            return { pos: g.read(a.POSITION), nor: g.read(a.NORMAL), uv: a.TEXCOORD_0 === undefined ? null : g.read(a.TEXCOORD_0), idx: g.read(p.indices),
+                     col: a.COLOR_0 === undefined ? null : g.read(a.COLOR_0),
+                     mat: mt.name, map: im[0], normal: im[1], orm: im[2] };
           }));
         });
       });
-      return Promise.all(parts);
+      return Promise.all(parts).then(function (got) {
+        if (!named) return got;
+        var out = {};
+        got.forEach(function (/** @type {Object} */ p, /** @type {number} */ i) { (out[names[i]] = out[names[i]] || []).push(p); });
+        return out;
+      });
     }).catch(function () { return null; });
   }
 
@@ -117,8 +127,8 @@ var WorldAssets = (function () {
                        rough: pbr.roughnessFactor === undefined ? 0.7 : pbr.roughnessFactor, alpha: mt.alphaMode === "MASK" ? (mt.alphaCutoff || 0.5) : 0,
                        two: !!mt.doubleSided, pos: g.read(a.POSITION).a, nor: g.read(a.NORMAL).a, uv: g.read(a.TEXCOORD_0).a,
                        joint: g.read(a.JOINTS_0).a, weight: g.read(a.WEIGHTS_0).a, roles: a._ROLE === undefined ? null : Float32Array.from(g.read(a._ROLE).a),
-                       idx: g.read(p.indices).a, morph: morph, map: null, normal: null };
-          jobs.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture)]).then(function (im) { part.map = im[0]; part.normal = im[1]; }));
+                       idx: g.read(p.indices).a, morph: morph, map: null, normal: null, orm: null, ao: !!mt.occlusionTexture, tint: ex.tint !== false, thin: ex.thin === true };
+          jobs.push(Promise.all([g.pic(pbr.baseColorTexture), g.pic(mt.normalTexture), g.pic(pbr.metallicRoughnessTexture)]).then(function (im) { part.map = im[0]; part.normal = im[1]; part.orm = im[2]; }));
           parts.push(part);
         });
       });
@@ -149,16 +159,19 @@ var WorldAssets = (function () {
     }).catch(function () { return out; });
   }
 
-  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, people: Object}>} */
+  /** @returns {Promise<{tex: Object<string, Object>, sky: Object<string, Object>, props: Object<string, Array<Object>>, trees: Object<string, Array<Object>>|null, cars: Object<string, Array<Object>>|null, office: Object<string, Array<Object>>|null, people: Object}>} */
   function load() {
-    var out = { tex: {}, sky: {}, props: {}, people: null }, jobs = [];
+    var out = { tex: {}, sky: {}, props: {}, trees: null, cars: null, office: null, people: null }, jobs = [];
     Object.keys(TEX).forEach(function (k) {
       var id = TEX[k][0];
       jobs.push(Promise.all([image(id + "_diff.webp"), image(id + "_arm.webp"), image(id + "_nor.webp")]).then(function (im) {
         if (im[0] && im[1] && im[2]) out.tex[k] = { map: im[0], orm: im[1], normal: im[2], size: [TEX[k][1], TEX[k][2]], gain: TEX[k][3] };
       }));
     });
-    PROPS.forEach(function (id) { jobs.push(glb(id + ".glb").then(function (parts) { if (parts) out.props[id] = parts; })); });
+    PROPS.forEach(function (id) { jobs.push(glb(DIR + id + ".glb").then(function (parts) { if (parts) out.props[id] = parts; })); });
+    jobs.push(glb(TREES + "trees.glb", true).then(function (t) { out.trees = t; }));
+    jobs.push(glb(CARS + "cars.glb", true).then(function (t) { out.cars = t; }));
+    jobs.push(glb(OFFICE + "office.glb", true).then(function (t) { out.office = t; }));
     Object.keys(SKY).forEach(function (k) {
       jobs.push(rgbe(SKY[k][0] + ".hdr").then(function (s) { if (s) out.sky[k] = Object.assign(s, { k: SKY[k][1] }); }));
     });
@@ -225,27 +238,36 @@ var WorldAssets = (function () {
     return t;
   }
 
-  /** @param {any} T @param {Object<string, Array<Object>>} props @param {number} aniso @returns {Object<string, Array<{geo: any, mat: any}>>} */
-  function scans(T, props, aniso) {
-    var out = {};
-    Object.keys(props).forEach(function (id) {
+  /** @param {any} T @param {Object<string, Array<Object>>|null} props @param {number} aniso @param {boolean} [bare] @returns {Object<string, Array<{geo: any, mat: any}>>} */
+  function scans(T, props, aniso, bare) {
+    var out = {}, mats = {};
+    Object.keys(props || {}).forEach(function (id) {
       out[id] = props[id].map(function (/** @type {Object} */ p) {
         var g = new T.BufferGeometry();
         g.setAttribute("position", new T.BufferAttribute(p.pos.a, 3));
         g.setAttribute("normal", new T.BufferAttribute(p.nor.a, 3));
-        g.setAttribute("uv", new T.BufferAttribute(p.uv.a, 2));
+        if (p.uv) g.setAttribute("uv", new T.BufferAttribute(p.uv.a, 2));
+        if (p.col) g.setAttribute("color", new T.BufferAttribute(p.col.a, 3));
         g.setIndex(new T.BufferAttribute(p.idx.a, 1));
         g.computeBoundingSphere();
-        var orm = bitmap(T, p.orm, false, aniso);
-        var mat = new T.MeshStandardMaterial({
-          map: bitmap(T, p.map, true, aniso), normalMap: bitmap(T, p.normal, false, aniso), roughnessMap: orm, metalnessMap: orm,
-          roughness: 1, metalness: 1
-        });
-        return { geo: g, mat: WorldKit.lit(mat, "scan", { porous: 0.5 }) };
+        if (bare) return { geo: g, mat: null };
+        var key = p.col ? p.mat : "";
+        if (!mats[key]) {
+          var orm = bitmap(T, p.orm, false, aniso);
+          var mat = new T.MeshStandardMaterial({
+            map: bitmap(T, p.map, true, aniso), normalMap: bitmap(T, p.normal, false, aniso), roughnessMap: orm, metalnessMap: p.col ? null : orm,
+            roughness: 1, metalness: p.col ? 0 : 1, vertexColors: !!p.col
+          });
+          if (p.col && key !== "leaves") [mat.map, mat.normalMap, orm].forEach(function (t) { t.wrapS = t.wrapT = T.RepeatWrapping; });
+          mat = key === "leaves" ? WorldKit.crown(T, mat) : WorldKit.lit(mat, "scan", { porous: 0.5 });
+          if (!key) return { geo: g, mat: mat };
+          mats[key] = mat;
+        }
+        return { geo: g, mat: mats[key] };
       });
     });
     return out;
   }
 
-  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
+  return Object.freeze({ DIR: DIR, PEOPLE: PEOPLE, TREES: TREES, CARS: CARS, OFFICE: OFFICE, TEX: TEX, SKY: SKY, PROPS: PROPS, load: load, texture: texture, dome: dome, scans: scans });
 })();

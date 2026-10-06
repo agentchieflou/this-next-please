@@ -728,6 +728,7 @@ var WorldCity = (function () {
     "croad = mix( croad, mix( cmc, vec3( 0.85, 0.62, 0.15 ), cyel ), cmark );",
     "croad = mix( croad, vec3( 0.07, 0.07, 0.075 ) * ( 0.8 + 0.4 * step( 0.5, fract( ( cp.x + cp.y ) * 5.0 ) ) ), chole );",
     "vec3 cbase = croad * cRoad + cs.rgb * cWalk + cpave * cPlaza;",
+    "cbase *= 0.86 + 0.28 * wsF( cp * 0.045 + 3.0 );",
     "float cpn = wsF( cp * 0.21 + 11.0 ); float cpud = smoothstep( 0.56, 0.64, cpn + cgut * 0.22 + cgrout * cPlaza * 0.05 - cmark * 0.1 ) * uWet;",
     "cpud *= 1.0 - chole;",
     "diffuseColor.rgb = cbase * mix( 1.0, 0.45, cpud ) * mix( 1.0, 0.82, uWet );",

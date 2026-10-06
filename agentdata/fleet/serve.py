@@ -260,9 +260,10 @@ def strip_asset(name: str, raw: bytes) -> bytes:
         return raw
 
 
-def static_body(name: str) -> bytes:
-    """The bytes `/static/<name>` answers with, stripped once per version of the file."""
-    path = os.path.join(STATIC, name)
+def static_body(name: str, path: str | None = None) -> bytes:
+    """The bytes `/static/<name>` answers with, stripped once per version of the file. `path` is
+    where the file is when it is not `STATIC/<name>` (the operator's own people, `people_file`)."""
+    path = path or os.path.join(STATIC, name)
     stamp = os.stat(path)
     key = (path, stamp.st_mtime_ns, stamp.st_size)
     with _STRIP_LOCK:
@@ -276,6 +277,39 @@ def static_body(name: str) -> bytes:
             _STRIPPED.clear()                 # are edited all day still stays small
         _STRIPPED[key] = body
     return body
+
+# The world's people from the operator's own folder (docs/fleet-world.md, "Realistic people",
+# decided 2026-10-05): characters that may not be redistributed -- MetaHuman or Fab exports put
+# through `tools/world/people/` -- stay out of git and out of the wheel, in
+# `~/.agentdata/world/people/` beside the config (or `$AGENTDATA_WORLD_PEOPLE_DIR`). When that folder
+# holds a `people.json`, every `/static/world/people/<file>` it also holds is answered from it;
+# anything it lacks, and everything when it has no manifest, comes from the package's CC0 stand-in.
+# The page is unchanged: it reads the same manifest at the same address either way.
+PEOPLE_ROUTE = "world/people/"
+PEOPLE_DIR_ENV = "AGENTDATA_WORLD_PEOPLE_DIR"
+
+
+def people_dir() -> str:
+    """`~/.agentdata/world/people`, or `$AGENTDATA_WORLD_PEOPLE_DIR`. Beside the config, like
+    `fleet_dir()`, so a test that redirects `AGENTDATA_CONFIG` never reads a developer's own people."""
+    from .. import config as C
+    override = os.environ.get(PEOPLE_DIR_ENV)
+    if override:
+        return os.path.abspath(C.expand(override))
+    return os.path.join(os.path.dirname(os.path.abspath(C.path())), "world", "people")
+
+
+def people_file(name: str) -> str | None:
+    """The operator's own file for `/static/world/people/<name>`, or None for the stand-in's.
+
+    Only a folder with a manifest takes over (a half-copied folder without one changes nothing), and
+    only a plain file directly inside it: no subfolders, nothing above it, no `.md`."""
+    root = people_dir()
+    if "/" in name or "\\" in name or name.endswith(UNSERVED) or not os.path.isfile(os.path.join(root, "people.json")):
+        return None
+    path = os.path.normpath(os.path.join(root, name))
+    return path if os.path.dirname(path) == os.path.normpath(root) and os.path.isfile(path) else None
+
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
 # *names*, like the catalogue's: `.agent/out/` also holds trace jsonl, screenshots and the debug log,
@@ -3900,14 +3934,15 @@ class Handler(BaseHTTPRequestHandler):
         which is exactly why this would be found by an attacker rather than by a test.
         """
         root = os.path.join(STATIC, "")      # the directory, with its trailing separator
-        path = os.path.normpath(os.path.join(STATIC, name))
-        if not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED):
+        own = people_file(name[len(PEOPLE_ROUTE):]) if name.startswith(PEOPLE_ROUTE) else None
+        path = own or os.path.normpath(os.path.join(STATIC, name))
+        if not own and (not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED)):
             return self._refuse(404, f"no file {name}")
         stamp = os.stat(path)
         tag = static_etag(stamp)
         if self._unchanged(tag):
             return None
-        body = static_body(os.path.relpath(path, STATIC))
+        body = static_body(name, own) if own else static_body(os.path.relpath(path, STATIC))
         # Decided from the *base* type, before the charset is appended -- and not from what this
         # machine happens to call a `.js` file. `mimetypes` reads the registry on Windows, where
         # `.js` is commonly `application/javascript`; deciding after the append left that failing
@@ -3920,7 +3955,7 @@ class Handler(BaseHTTPRequestHandler):
         if base == "text/css":
             body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
         self._send(200, body, ctype,
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None,
+                   cache_key=(own or name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None,
                    etag=tag)
 
     def _sse(self, query: dict) -> None:

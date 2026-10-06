@@ -211,6 +211,10 @@ Puddles gather by noise and in the gutters. They are near mirrors, and the rain 
 land at random in a grid of cells and each sends out a ring that fades (`GROUND_SIMPLE` leaves the
 rings out on the `low` path).
 
+Everything on it is shaded ±14% by a noise some 20 m across: newer and older asphalt, cleaner and
+dirtier slabs. The photographs repeat every 1.8 to 3 m, and without variation larger than that, the
+repeat showed as a grid down every street.
+
 ### `function ground`
 
 The ground is in layer 1, so the mirror does not draw it into itself, and it reads the mirror

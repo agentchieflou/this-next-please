@@ -764,7 +764,13 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
 #: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
-WORLD_BUDGET = 80 * 1024
+#: The realistic people, their agents, the grown trees and cars took the world to 79.6 KiB gzipped, and
+#: 81.0 KiB where a checkout has CRLF line endings (Windows), which is what the page is served from
+#: there: the budget moved to 88 KiB under the rule above. The operator's office (2026-10-06: "Let's
+#: create an office building with the humans as agents"), the agents at their desks with their
+#: screens, took the world to 82.7 KiB (83.0 KiB with CRLF), and the budget moved to 92 KiB under the
+#: same rule: the office costs no frame time a desk GPU measures (see docs/fleet-world.md, The office).
+WORLD_BUDGET = 92 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -842,6 +848,118 @@ def test_the_worlds_people_are_the_ones_it_loads_credited_and_bounded():
         assert name in licence, name
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in there)
     assert size < PEOPLE_BUDGET, size
+
+
+def test_the_operators_own_people_are_served_before_the_stand_in(running, tmp_path, monkeypatch):
+    """Characters that may not be redistributed (MetaHuman or Fab exports) live in the operator's own
+    folder, never in git or the wheel: with a `people.json` there, `/static/world/people/` answers
+    from it, and what it lacks still comes from the stand-in. Nothing escapes the folder."""
+    base, token, _ = running
+    own = tmp_path / "people"
+    own.mkdir()
+    (own / "people.json").write_text('{"hero": [{"file": "mine.glb"}], "crowd": []}', encoding="utf-8")
+    (own / "mine.glb").write_bytes(b"glTF-mine")
+    (own / "notes.md").write_text("private", encoding="utf-8")
+    (tmp_path / "outside.glb").write_bytes(b"outside")
+    monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(own))
+
+    status, body, _ = get(base, "/static/world/people/people.json", token)
+    assert status == 200 and json.loads(body)["hero"] == [{"file": "mine.glb"}]
+    assert get(base, "/static/world/people/mine.glb", token)[1] == "glTF-mine"
+    with open(os.path.join(STATIC, "world", "people", "standin.glb"), "rb") as f:
+        standin = f.read()
+    with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
+        assert r.read() == standin
+    for name in ("notes.md", "..%2Foutside.glb", "../outside.glb", "missing.glb"):
+        with pytest.raises(urllib.error.HTTPError) as no:
+            get(base, f"/static/world/people/{name}", token)
+        assert no.value.code == 404, name
+
+
+def test_without_the_operators_people_the_stand_in_is_served(running, tmp_path, monkeypatch):
+    """No folder, or a folder without its manifest (a half-finished copy), changes nothing: the page
+    gets the CC0 stand-in the package ships. The default folder sits beside the config."""
+    base, token, _ = running
+    assert S.people_dir() == os.path.join(os.path.dirname(os.path.abspath(os.environ["AGENTDATA_CONFIG"])),
+                                          "world", "people")
+    shipped = json.load(open(os.path.join(STATIC, "world", "people", "people.json"), encoding="utf-8"))
+    assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
+
+    half = tmp_path / "half"
+    half.mkdir()
+    (half / "standin.glb").write_bytes(b"not the stand-in")
+    monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(half))
+    assert S.people_file("standin.glb") is None
+    assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
+    with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
+        assert r.read() != b"not the stand-in"
+
+
+#: What `static/world/trees/` may weigh on the disk, and so in the wheel: about 1.2 MiB today (five
+#: trees at two levels of detail, two barks and one atlas of leafy twigs). `tools/world/trees/` remakes
+#: the file from nothing but its own numbers; raise this with the operator's rule above (`WORLD_BUDGET`).
+TREES_BUDGET = 2 * 1024 * 1024
+
+
+def test_the_worlds_trees_are_the_file_it_loads_made_here_and_bounded():
+    """`static/world/trees/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/trees/`, from no third-party asset, under the repository's own licence;
+    and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "trees")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'TREES = "/static/world/trees/"' in src and 'TREES + "trees.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "trees.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/trees/", "no third-party asset", "MIT", "trees.glb"):
+        assert words in licence, words
+    for tool in ("trees.py", "trees.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "trees", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < TREES_BUDGET, size
+
+
+#: What `static/world/cars/` may weigh: about 0.4 MiB today (four cars, near and far, no textures).
+#: `tools/world/cars/` remakes the file from its own profiles; raise this with the operator's rule above.
+CARS_BUDGET = 1024 * 1024
+
+
+def test_the_worlds_cars_are_the_file_it_loads_made_here_and_bounded():
+    """`static/world/cars/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/cars/`, from no third-party asset and after no maker's design, under the
+    repository's own licence; and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "cars")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'CARS = "/static/world/cars/"' in src and 'CARS + "cars.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "cars.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/cars/", "no third-party asset", "maker's design", "MIT", "cars.glb"):
+        assert words in licence, words
+    for tool in ("cars.py", "cars.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "cars", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < CARS_BUDGET, size
+
+
+#: What `static/world/office/` may weigh: about 0.12 MiB today (the workstation and the planter).
+#: `tools/world/office/` remakes the file; raise this with the operator's rule above (`WORLD_BUDGET`).
+OFFICE_BUDGET = 512 * 1024
+
+
+def test_the_worlds_office_is_the_file_it_loads_made_here_and_bounded():
+    """`static/world/office/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/office/`, from no third-party asset, under the repository's own licence;
+    and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "office")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'OFFICE = "/static/world/office/"' in src and 'OFFICE + "office.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "office.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/office/", "no third-party asset", "MIT", "office.glb"):
+        assert words in licence, words
+    for tool in ("office.py", "office.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "office", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < OFFICE_BUDGET, size
 
 
 def test_the_page_and_its_assets_are_served_compressed():

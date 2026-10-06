@@ -218,6 +218,80 @@ def test_the_full_pipeline_draws_without_a_shader_error(fleet_home, tmp_path, br
         _stop(server)
 
 
+TREES = """() => { const c = {}; vState.scene.traverse(m => { if (/^tree-/.test(m.name)) c[m.name] = m.count; }); return c; }"""
+
+
+@pytest.mark.browser
+def test_the_streets_are_planted_with_trees_drawn_near_and_far(fleet_home, tmp_path, browser):
+    """The trees are a file (`static/world/trees/trees.glb`, grown by `tools/world/trees/`), not shapes
+    the page builds: London planes and lindens along the avenues, young lindens in the planters round the
+    office (eight outside, four inside),
+    an instanced mesh for each tree, level of detail and part (bark, leaves). Near the eye a tree is
+    drawn whole, further away with fewer and larger twigs, and the eye walking moves trees between the
+    two. The `low` quality keeps the page's own trees."""
+    _repo(tmp_path, "alpha")
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=medium", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        assert _inspect(page)["town"]["trees"] >= 12, _inspect(page)["town"]
+        counts = page.evaluate(TREES)
+        assert {"plane_0", "plane_1", "linden_0", "linden_1", "linden_2"} == {n.split("-")[1] for n in counts}, counts
+        assert counts["tree-linden_2-0-1"] == 12, counts
+        near = {k: v for k, v in counts.items() if k.endswith("-0-1") and k != "tree-linden_2-0-1"}
+        far = {k: v for k, v in counts.items() if k.endswith("-1-1") and k != "tree-linden_2-1-1"}
+        assert sum(far.values()) > 0 and sum(near.values()) > 0, counts
+        page.evaluate("() => { vState.player.x = 0; vState.player.z = -100; }")
+        frames = _inspect(page)["frames"]
+        page.wait_for_function(f"() => FleetWorld.inspect().frames > {frames + 3}", timeout=60000)
+        moved = page.evaluate(TREES)
+        assert moved != counts, (counts, moved)
+        assert sum(v for k, v in moved.items() if k.endswith("-1")) == sum(v for k, v in counts.items() if k.endswith("-1")), moved
+        assert errors == [], errors
+        page.close()
+
+        page, errors = _open(browser, port, token, "&hour=13&quality=low", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        assert page.evaluate(TREES) == {} and _inspect(page)["town"]["trees"] == 0
+        names = page.evaluate("() => { const n = []; vState.scene.traverse(m => { if (m.isMesh) n.push(m.name); }); return n; }")
+        assert "street-trees" in names, names
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+CARS = """() => { const c = {}; vState.scene.traverse(m => { if (/^car-/.test(m.name)) c[m.name] = m.count; }); return c; }"""
+
+
+@pytest.mark.browser
+def test_the_traffic_is_cars_from_a_file_drawn_near_and_far(fleet_home, tmp_path, browser):
+    """The cars are a file (`static/world/cars/cars.glb`, lofted by `tools/world/cars/`): a sedan, a
+    hatchback, an SUV and a van, each drawn near with its body, glass, trim and lamps and far as one
+    mesh and its lamps, every car painted its own colour. Every car, driving or parked, is drawn once,
+    near or far. The `low` quality keeps the page's own two."""
+    _repo(tmp_path, "alpha")
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=medium", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        town = _inspect(page)["town"]
+        counts = page.evaluate(CARS)
+        near = {f"car-{p}{t}" for p in ("body", "glass", "trim", "lamp") for t in range(4)}
+        assert set(counts) == near | {f"car-{p}{t}-far" for p in ("body", "lamp") for t in range(4)}, counts
+        bodies = sum(v for k, v in counts.items() if k.startswith("car-body"))
+        assert bodies == town["cars"] + town["parked"] and bodies > 20, (bodies, town)
+        assert sum(counts[f"car-body{t}"] for t in range(4)) == sum(counts[f"car-glass{t}"] for t in range(4)), counts
+        assert errors == [], errors
+        page.close()
+
+        page, errors = _open(browser, port, token, "&hour=13&quality=low", n=1)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        assert set(page.evaluate(CARS)) == {f"car-{p}{t}" for p in ("body", "glass", "trim", "lamp") for t in range(2)}
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
 @pytest.mark.browser
 def test_you_walk_to_an_agent_to_talk_to_it(fleet_home, tmp_path, browser, spawns):
     """From the middle of the plaza nothing is within reach and E opens nothing. W walks 4.5 m a
@@ -338,6 +412,182 @@ def test_you_choose_who_you_are_and_the_world_keeps_it(fleet_home, tmp_path, bro
         again = _inspect(page)
         assert again["who"] is False and again["look"] == look, "kept in this browser"
         assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+def _standin_kept(folder):
+    """The operator's own people folder holding the stand-in with its skin kept in its authored colour
+    (`tint: false`) and given a packed occlusion-roughness map whose blue channel says where light shows
+    through (`thin`), as `tools/world/people` writes for a realistic export. The map is the skin's own
+    normal map's image: what is held is that the page reads it, not what it holds. The crowd file is
+    left out, so it comes from the package."""
+    import json
+    import shutil
+    import struct
+
+    src = os.path.join(STATIC, "world", "people")
+    raw = open(os.path.join(src, "standin.glb"), "rb").read()
+    n = struct.unpack("<I", raw[12:16])[0]
+    doc, rest = json.loads(raw[20:20 + n]), raw[20 + n:]
+    for m in doc["materials"]:
+        if (m.get("extras") or {}).get("role") == "skin":
+            m["extras"]["tint"] = False
+            m["extras"]["thin"] = True
+            tex = (m.get("normalTexture") or m["pbrMetallicRoughness"]["baseColorTexture"])["index"]
+            m["pbrMetallicRoughness"]["metallicRoughnessTexture"] = {"index": tex}
+            m["occlusionTexture"] = {"index": tex}
+    body = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    body += b" " * (-len(body) % 4)
+    folder.mkdir()
+    (folder / "standin.glb").write_bytes(raw[:8] + struct.pack("<II", 20 + len(body) + len(rest), len(body)) + b"JSON"
+                                         + body + rest)
+    shutil.copy(os.path.join(src, "people.json"), folder / "people.json")
+
+
+@pytest.mark.browser
+def test_agents_are_people_where_the_crowd_is_drawn(fleet_home, tmp_path, browser):
+    """Agents become people (docs/fleet-world.md, decided 2026-10-05): where pedestrians are drawn (WebGL 2,
+    every tier but `low`), each agent is one of the crowd's characters standing in the robot's place, its
+    ring at its feet in its state's colour, the one that needs you still under its beacon, and no robot.
+    It faces you once you are within 6 m and presents while you talk to it. The robot stays where no crowd
+    is drawn (`test_agents_stand_in_the_rain_by_day_and_by_night`, the `low` path)."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    count = """() => { const out = { agents: 0, shell: -1 }; vState.scene.traverse(o => {
+      if (/^agent-/.test(o.name)) out.agents += o.count; if (o === vState.parts.shell) out.shell = o.count; }); return out; }"""
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high")
+        page.wait_for_function("() => FleetWorld.inspect().people.agents === 2", timeout=120000)
+        drawn = page.evaluate(count)
+        assert drawn == {"agents": 2, "shell": 0}, drawn
+        assert _inspect(page)["beacons"] == 1
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_agents_go_where_their_state_puts_them(fleet_home, tmp_path, browser):
+    """Where the agents are people, their state places them in the office (docs/fleet-world.md, decided
+    2026-10-05, and the operator's office, 2026-10-06): a working one types at its desk; the one that
+    needs you stands up beside its desk, under its beacon; an idle one sits back at its desk; a done one
+    walks out through the nearest door and is gone, its label with it. `FleetWorld.step` moves the
+    agents as it moves you, so 30 s of the world pass at once."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    busy = make_project(tmp_path / "busy", phase="build", ticket="RDSD-8")
+    Registry().add(busy, name="busy")
+    E.append("busy", [E.event("busy", "started", {"prompt": "Ticket RDSD-8", "session": ""}, ticket="RDSD-8"),
+                      E.event("busy", "turn_started", {"turn": "0"}, ticket="RDSD-8")])
+    gone = make_project(tmp_path / "gone", phase="done")
+    Registry().add(gone, name="gone")
+    server, token, port = _serve()
+    modes = "() => Object.fromEntries(FleetWorld.inspect().agents.map(a => [a.repo, [a.state, a.mode, Math.hypot(a.x, a.z)]]))"
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=high", n=4)
+        page.wait_for_function("() => FleetWorld.inspect().people.agents >= 3", timeout=120000)
+        page.evaluate("() => FleetWorld.step(30)")
+        got = page.evaluate(modes)
+        R = page.evaluate("() => vState.radius")
+        assert got["busy"][1] == "type" and got["alpha"][1] == "sit" and got["gone"][1] == "gone", got
+        assert got["asks"][1] == "stand" and abs(got["asks"][2] - (R - 0.95)) < 0.01, (got, R)
+        assert abs(got["busy"][2] - (R - 0.64)) < 0.01 and abs(got["alpha"][2] - (R - 0.64)) < 0.01, (got, R)
+        assert got["busy"][0] == "running" and got["gone"][0] == "done", got
+        assert got["gone"][2] > page.evaluate("() => vState.wall[0]"), got
+        assert page.evaluate("() => FleetWorld.inspect().people.agents") == 3
+        tags = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.hidden]))")
+        assert tags["gone"] is True, tags
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_the_agents_work_in_an_office_where_you_take_over_their_screen(fleet_home, tmp_path, browser):
+    """The operator, 2026-10-06: "Let's create an office building with the humans as agents and when we
+    walk up to them we have the opportunity to 'take over their screen' which would bring us back to the
+    Desk/Chat screen." The middle of the district is a glass office: a desk a agent, each with a screen
+    showing what its agent is doing, glass all round with a door to each avenue, no rain under the roof.
+    You walk in and out by the doors, never through the glass. Near an agent, T (X on a pad) or the
+    panel's button takes over its screen: the chat, on that agent."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=medium")
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        office = page.evaluate("""() => ({ desks: vState.desks.meshes.map(m => m.count), wall: vState.wall,
+                                           roof: vState.parts.rain.material.uniforms.uRoof.value.toArray(),
+                                           screens: Object.keys(vState.desks.drawn).length })""")
+        assert office["desks"] == [2, 2, 2] and office["screens"] == 2, office
+        G, half = office["wall"][0], office["wall"][1]
+        assert office["roof"][2] > G and office["roof"][3] > 3, office
+        page.evaluate("() => FleetWorld.hold(true)")
+        out = page.evaluate(f"""() => {{ vState.player.x = Math.cos(0.75) * {G - 1}; vState.player.z = Math.sin(0.75) * {G - 1}; vState.player.yaw = Math.atan2(-Math.cos(0.75), -Math.sin(0.75));
+                                       vState.keys = {{ KeyW: true }}; FleetWorld.step(3); vState.keys = {{}}; return Math.hypot(vState.player.x, vState.player.z); }}""")
+        assert out < G, (out, G)
+        door = page.evaluate(f"""() => {{ vState.player.x = {G - 1}; vState.player.z = 0; vState.player.yaw = -Math.PI / 2;
+                                        vState.keys = {{ KeyW: true }}; FleetWorld.step(3); vState.keys = {{}}; return Math.hypot(vState.player.x, vState.player.z); }}""")
+        assert door > G + 1, (door, G)
+        page.evaluate("() => { var a = vState.agents.get('asks'); vState.player.x = 0; vState.player.z = 0; vState.player.yaw = Math.atan2(-a.x, -a.z); }")
+        page.evaluate("() => FleetWorld.hold(false)")
+        page.keyboard.down("KeyW")
+        assert _until_near(page, "asks") == "asks"
+        page.keyboard.up("KeyW")
+        assert "T or X" in page.text_content("#wprompt")
+        page.keyboard.press("KeyE")
+        page.wait_for_function("() => !document.getElementById('wpanel').hidden")
+        assert page.text_content("#wtake").strip() == "take over its screen"
+        with page.expect_navigation():
+            page.click("#wtake")
+        assert "/chat" in page.url and page.url.endswith("#asks"), page.url
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_a_realistic_character_keeps_its_own_colours_and_maps(fleet_home, tmp_path, browser, monkeypatch):
+    """The stand-in is dyed by the look: every skin part takes the chosen tone and reads no maps but its
+    colour and normal. A realistic export's kept parts are not dyed (their colour stays white, so the
+    texture shows as made), read their roughness and occlusion from the packed map, and the skin's
+    scattering shader compiles, with the light through its thin parts; the parts it did not keep are
+    still dyed."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+
+    def drawn():
+        page = browser.new_page(viewport={"width": 640, "height": 360})
+        problems = []
+        page.on("pageerror", lambda e: problems.append(str(e)))
+        page.on("console", lambda m: problems.append(m.text[:300])
+                if m.type == "error" and "Failed to load resource" not in m.text else None)
+        page.goto(f"http://127.0.0.1:{port}/world?t={token}&hour=13&who=0", wait_until="domcontentloaded")
+        page.wait_for_function(READY, arg=2, timeout=60000)
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        frames = _inspect(page)["frames"]
+        page.wait_for_function(f"() => FleetWorld.inspect().frames > {frames + 2}", timeout=60000)
+        parts = _inspect(page)["people"]["parts"]
+        page.close()
+        assert problems == [], problems
+        return parts
+
+    try:
+        shipped = drawn()
+        skin = [p for p in shipped if p["role"] == "skin"]
+        assert skin and all(p["tinted"] and not p["rough"] and not p["ao"] and not p["thin"] and p["colour"] != "ffffff"
+                        for p in skin), shipped
+
+        _standin_kept(tmp_path / "own")
+        monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(tmp_path / "own"))
+        kept = drawn()
+        skin = [p for p in kept if p["role"] == "skin"]
+        assert skin and all(not p["tinted"] and p["rough"] and p["ao"] and p["thin"] and p["colour"] == "ffffff"
+                        for p in skin), kept
+        assert any(p["tinted"] for p in kept if p["role"] in ("top", "bottom")), kept
     finally:
         _stop(server)
 

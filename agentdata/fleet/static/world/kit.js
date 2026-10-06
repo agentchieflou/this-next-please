@@ -223,21 +223,74 @@ var WorldKit = (function () {
   }
 
   var F = { mat: null };
+  var LEAF = [
+    "#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )",
+    "iblIrradiance += vec3( 0.3, 0.38, 0.1 ) * getIBLIrradiance( -geometryNormal );",
+    "#endif",
+    "#if NUM_HEMI_LIGHTS > 0",
+    "for ( int wkh = 0; wkh < NUM_HEMI_LIGHTS; wkh ++ ) irradiance += vec3( 0.3, 0.38, 0.1 ) * getHemisphereLightIrradiance( hemisphereLights[ wkh ], -geometryNormal );",
+    "#endif"
+  ].join("\n");
+
+  /** @param {any} T @param {any} mat @returns {any} */
+  function crown(T, mat) {
+    mat.alphaTest = 0.42;
+    mat.side = T.DoubleSide;
+    return lit(mat, "foliage", { porous: 0.3, extra: function (/** @type {any} */ sh) {
+      sh.uniforms.uTime = u.time;
+      sh.fragmentShader = sh.fragmentShader.replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\nmaterial.specularF90 = 0.3;")
+        .replace("#include <lights_fragment_maps>", "#include <lights_fragment_maps>\n" + LEAF)
+        .replace("#include <normal_fragment_begin>", T.ShaderChunk.normal_fragment_begin.replace(/(normal|tbn\[[01]\]) \*= faceDirection;/g, ""))
+        .replace("#include <alphatest_fragment>", "diffuseColor.a *= smoothstep( 0.08, 0.3, abs( dot( normalize( cross( dFdx( vViewPosition ), dFdy( vViewPosition ) ) ),"
+          + " normalize( vViewPosition ) ) ) ) * ( 1.0 + 0.22 * max( 0.0, log2( max( fwidth( vMapUv.x ), fwidth( vMapUv.y ) ) * 1024.0 ) ) );\n#include <alphatest_fragment>");
+      sh.vertexShader = "uniform float uTime;\n" + sh.vertexShader.replace("#include <begin_vertex>",
+        "#include <begin_vertex>\nvec4 lw = modelMatrix * vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\nlw = modelMatrix * instanceMatrix * vec4( transformed, 1.0 );\n#endif\n"
+        + "float lsw = max( transformed.y - 2.2, 0.0 ) * 0.03;"
+        + " transformed.x += sin( uTime * 1.3 + lw.x * 0.3 + lw.z * 0.2 ) * lsw; transformed.z += cos( uTime * 1.1 + lw.z * 0.3 ) * lsw;");
+    } });
+  }
 
   /** @param {any} T @param {Object} lib @returns {any} */
   function foliage(T, lib) {
-    if (F.mat) return F.mat;
-    var mat = new T.MeshStandardMaterial({ vertexColors: true, map: lib.leaf.map, roughnessMap: lib.leaf.orm, roughness: 1, metalness: 0,
-                                           alphaTest: 0.42, side: T.DoubleSide });
-    F.mat = lit(mat, "foliage", { porous: 0.3, extra: function (/** @type {any} */ sh) {
-      sh.uniforms.uTime = u.time;
-      sh.vertexShader = "uniform float uTime;\n" + sh.vertexShader.replace("#include <begin_vertex>",
-        "#include <begin_vertex>\nvec4 lw = modelMatrix * vec4( transformed, 1.0 ); float lsw = max( transformed.y - 2.2, 0.0 ) * 0.03;"
-        + " transformed.x += sin( uTime * 1.3 + lw.x * 0.3 + lw.z * 0.2 ) * lsw; transformed.z += cos( uTime * 1.1 + lw.z * 0.3 ) * lsw;");
-    } });
-    return F.mat;
+    return F.mat || (F.mat = crown(T, new T.MeshStandardMaterial({ vertexColors: true, map: lib.leaf.map, roughnessMap: lib.leaf.orm, roughness: 1, metalness: 0 })));
   }
 
-  return Object.freeze({ NOISE: NOISE, REFLECT: REFLECT, uniforms: u, smooth: smooth, canopy: canopy, foliage: foliage, rnd: rnd, paint: paint, piece: piece, moved: moved, merge: merge,
-                         light: light, forget: forget, lights: lights, pick: pick, lit: lit, L: L });
+  /** @param {any} T @param {any} group @param {Object<string, Array<{geo: any, mat: any}>>} woods @param {Array<Array<any>>} list @returns {{update: function(any, boolean=): void, placed: number, near: function(): number}} */
+  function grove(T, group, woods, list) {
+    var sets = [], by = {}, mx = new T.Matrix4(), q = new T.Quaternion(), at = new T.Vector3(), s = new T.Vector3(), up = new T.Vector3(0, 1, 0), was = null;
+    list.forEach(function (t) { if (woods[t[5] + "_lod0"]) (by[t[5]] = by[t[5]] || []).push(t); });
+    Object.keys(by).forEach(function (k) {
+      sets.push({ list: by[k], lods: [0, 1].map(function (l) {
+        return (woods[k + "_lod" + l] || []).map(function (part, pi) {
+          var m = new T.InstancedMesh(part.geo, part.mat, by[k].length);
+          m.count = 0;
+          m.frustumCulled = false;
+          m.userData.shared = true;
+          m.name = "tree-" + k + "-" + l + "-" + pi;
+          group.add(m);
+          return m;
+        });
+      }) });
+    });
+    var update = function (/** @type {any} */ eye, /** @type {boolean=} */ force) {
+      if (!force && was && Math.hypot(eye.x - was[0], eye.z - was[1]) < 4) return;
+      was = [eye.x, eye.z];
+      sets.forEach(function (set) {
+        var n = [0, 0];
+        set.list.forEach(function (t) {
+          var l = Math.hypot(t[0] - eye.x, t[2] - eye.z) < 42 || !set.lods[1].length ? 0 : 1;
+          mx.compose(at.set(t[0], t[1], t[2]), q.setFromAxisAngle(up, t[3]), s.setScalar(t[4]));
+          set.lods[l].forEach(function (m) { m.setMatrixAt(n[l], mx); });
+          n[l]++;
+        });
+        set.lods.forEach(function (ms, l) { ms.forEach(function (m) { m.count = n[l]; m.visible = n[l] > 0; m.instanceMatrix.needsUpdate = true; }); });
+      });
+    };
+    update({ x: 0, z: 0 }, true);
+    return { update: update, placed: sets.reduce(function (a, set) { return a + set.list.length; }, 0),
+             near: function () { return sets.reduce(function (a, set) { return a + (set.lods[0][0] ? set.lods[0][0].count : 0); }, 0); } };
+  }
+
+  return Object.freeze({ NOISE: NOISE, REFLECT: REFLECT, uniforms: u, smooth: smooth, canopy: canopy, foliage: foliage, crown: crown, grove: grove, rnd: rnd, paint: paint,
+                         piece: piece, moved: moved, merge: merge, light: light, forget: forget, lights: lights, pick: pick, lit: lit, L: L });
 })();
