@@ -107,10 +107,12 @@ def test_the_browser_tier_runs_once_on_ubuntu_3_14_in_two_shards_plus_once_shuff
         for s in pytest_steps(job):
             if whole_suite(s["run"]) and selects(s["run"], {"browser"}):
                 (shuffled if "--shuffle-seed" in s["run"] else plain).append((job["name"], s))
+    # The shuffled tier is three shards since 2026-10-06 (shard 1 of two overran its 15-minute cap; the
+    # operator's sign-off): serial, so it needs more of them than the `-n 2` plain jobs.
     assert sorted(n for n, _ in plain) == [f"ubuntu · python 3.14 · browser · shard {k}/2" for k in (1, 2)], plain
-    assert sorted(n for n, _ in shuffled) == [f"suite · shuffled · browser · shard {k}/2" for k in (1, 2)], shuffled
-    for runs in (plain, shuffled):
-        assert sorted(shard_of(s["run"]) for _, s in runs) == [(1, 2), (2, 2)]
+    assert sorted(n for n, _ in shuffled) == [f"suite · shuffled · browser · shard {k}/3" for k in (1, 2, 3)], shuffled
+    for runs, total in ((plain, 2), (shuffled, 3)):
+        assert sorted(shard_of(s["run"]) for _, s in runs) == [(k, total) for k in range(1, total + 1)]
         for name, s in runs:
             assert selection(s["run"]) == TIER, name
             assert "-rs" in s["run"].split(), f"{name}: every skip prints its reason"
