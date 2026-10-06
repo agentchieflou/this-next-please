@@ -29,9 +29,11 @@ FIXTURE_DIFFS = [
     (["agentdata/fleet/static/app.js"], {"static-only", "desk"}),
     (["tests/test_fleet_ink.py"], {"desk", "py"}),
 ]
-#: The four Linux browser jobs, the first a filter skips (decision 23's browser path filter).
+#: The five Linux browser jobs, the first a filter skips (decision 23's browser path filter). The shuffled
+#: tier is three shards since 2026-10-06, with the operator's sign-off.
 LINUX_BROWSER_JOBS = ["ubuntu · python 3.14 · browser · shard 1/2", "ubuntu · python 3.14 · browser · shard 2/2",
-                      "suite · shuffled · browser · shard 1/2", "suite · shuffled · browser · shard 2/2"]
+                      "suite · shuffled · browser · shard 1/3", "suite · shuffled · browser · shard 2/3",
+                      "suite · shuffled · browser · shard 3/3"]
 #: The jobs before #593; it adds `changes` and nothing else.
 JOBS_BEFORE = ["pytest", "browser", "windows", "floor-python", "lint-shell-scripts", "floor-lints", "coverage",
                "order-independence", "order-independence-browser", "vscode-extension", "jetbrains-plugin"]
