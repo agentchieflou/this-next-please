@@ -2662,6 +2662,21 @@ def act(what: str, body: dict) -> dict:
             refused = ServeError(e.msg, e.hint, code=e.code)
             refused.second_press = e.second_press
             raise refused from None
+    if what == "command":
+        # The Command Center (docs/plan-command-center.md): `{dry_run: true}` previews, `{plan_id, start:
+        # [{key, repo}]}` starts, each started pane's new row from one snapshot as the fresh day's are.
+        from .. import config as C
+        from . import command as CMD
+
+        try:
+            if body.get("dry_run"):
+                return CMD.plan(cfg=C.load(), force=bool(body.get("refresh")))
+            out = CMD.run(str(body.get("plan_id") or ""), list(body.get("start") or []), cfg=C.load())
+        except CMD.CommandRefused as e:
+            raise ServeError(e.msg, e.hint, code=e.code) from None
+        rows = {r.get("repo"): r for r in fleet_snapshot().get("repos", [])}
+        return {**out, "rows": [{**r, "row": rows.get(r["repo"], {}) if r["done"] == "started" else {}}
+                                for r in out["rows"]]}
     if what == "renew":
         # Stale only, when idle, previewed first (#241). The page asks with `dry_run` and shows the
         # rows before it asks again without; the CLI verb calls the same two functions.

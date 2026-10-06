@@ -5284,7 +5284,7 @@ function countDay() {
   var n = strip ? strip.querySelectorAll(".day-rows li:not(.day-pattern) .day-tick:checked:not(:disabled)").length : 0;
   var go = dayGo();
   disable(go, n === 0);
-  text(go, "start " + n + " fresh — about " + n + " premium turn" + (n === 1 ? "" : "s"));
+  text(go, "start " + n + (dayKind === "command" ? "" : " fresh") + " — about " + n + " premium turn" + (n === 1 ? "" : "s"));
 }
 
 function openDay() {
@@ -5643,13 +5643,107 @@ function acceptSweep(job) {
   drawSweep();
 }
 
+var commandPlan = "";
+
+function openCommand() {
+  var strip = dayStrip();
+  if (!strip) return Promise.resolve();
+  closePopovers();
+  dayHolds("command");
+  dayOpen = true;
+  var sum = strip.querySelector(".day-sum");
+  hide(strip, false);
+  hide(strip.querySelector(".day-offer"), true);
+  hide(strip.querySelector(".day-keyless"), true);
+  hide(sum, false);
+  text(sum, "reading your open tickets…");
+  disable(dayGo(), true);
+  hide(strip.querySelector(".day-rows"), false);
+  hide(strip.querySelector(".day-actions"), false);
+  return post("command", { dry_run: true }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "your tickets could not be read") + (r && r.hint ? " — " + r.hint : ""));
+      return;
+    }
+    if (dayOpen && dayKind === "command") drawCommand(r);
+  }).catch(function () { text(sum, "your tickets could not be read"); });
+}
+
+function drawCommand(p) {
+  var strip = dayStrip();
+  commandPlan = String(p.plan_id || "");
+  patchList(strip.querySelector(".day-rows"), p.rows || [], function (r) { return r.key; },
+    function () {
+      var li = /** @type {HTMLElement} */ (strip.querySelector(".day-pattern.command-row").cloneNode(true));
+      li.classList.remove("day-pattern");
+      li.hidden = false;
+      return li;
+    },
+    function (li, r) {
+      var box = /** @type {HTMLInputElement} */ (li.querySelector(".day-tick"));
+      var tickable = r.verdict === "ready";
+      disable(box, !tickable);
+      if (li.dataset.plan !== commandPlan) { box.checked = tickable && !!r.ticked; setData(li, "plan", commandPlan); }
+      attr(box, "aria-label", "start " + r.key + (r.repo ? " on " + r.repo : ""));
+      setData(li, "repo", r.repo || "");
+      text(li.querySelector(".day-repo"), r.key);
+      text(li.querySelector(".day-verdict"), String(r.verdict).replace(/_/g, " "));
+      text(li.querySelector(".cc-seat"), r.repo ? "→ " + r.repo : "");
+      text(li.querySelector(".cc-count"), (r.criteria_n || 0) + " criteria · " + (r.words || 0) + " words");
+      text(li.querySelector(".cc-summary"), r.summary || "");
+      text(li.querySelector(".day-why"), (r.reasons || []).join("; "));
+      setClass(li, "command-row day-row verdict-" + String(r.verdict).replace(/_/g, "-"));
+    });
+  var c = p.counts || {};
+  text(strip.querySelector(".day-sum"), (p.ticked || 0) + " of " + (p.rows || []).length +
+       " open tickets are ready and seated" + (c.waiting ? "; " + c.waiting + " wait for a desk" : "") +
+       (c.not_ready ? "; " + c.not_ready + " are not ready, and say why" : ""));
+  countDay();
+}
+
+function runCommand() {
+  if (dayKind !== "command") return;
+  var strip = dayStrip();
+  var start = [];
+  strip.querySelectorAll(".day-rows li:not(.day-pattern)").forEach(/** @type {(li: HTMLElement) => void} */ (function (li) {
+    var box = /** @type {HTMLInputElement} */ (li.querySelector(".day-tick"));
+    if (box.checked && !box.disabled) start.push({ key: li.dataset.rowkey, repo: li.dataset.repo });
+  }));
+  if (!start.length) return;
+  disable(dayGo(), true);
+  var sum = strip.querySelector(".day-sum");
+  post("command", { plan_id: commandPlan, start: start }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "the Command Center could not start") + (r && r.hint ? " — " + r.hint : ""));
+      countDay();
+      return;
+    }
+    (r.rows || []).forEach(function (x) {
+      var li = strip.querySelector('.day-rows li[data-rowkey="' + x.key + '"]');
+      if (li) {
+        text(li.querySelector(".day-verdict"), x.done === "started" ? "started" : x.done + ": " + (x.code || ""));
+        if (x.done !== "started") text(li.querySelector(".day-why"), x.why || "");
+        disable(li.querySelector(".day-tick"), true);
+        setClass(li, "command-row day-row done-" + x.done);
+      }
+      if (x.row && x.row.repo) patchRow(x.row);
+    });
+    place();
+    text(sum, (r.started || 0) + " started at once — each gates where it gates");
+    countDay();
+  }).catch(function () { countDay(); });
+}
+
 function previewFromAddress() {
-  if (PARAMS.get("fresh") !== "1") return;
+  var which = PARAMS.get("command") === "1" ? "command" : PARAMS.get("fresh") === "1" ? "fresh" : "";
+  if (!which) return;
   var u = new URLSearchParams(location.search);
   u.delete("fresh");
+  u.delete("command");
   var qs = u.toString();
   history.replaceState(history.state, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
-  openDay();
+  if (which === "command") openCommand();
+  else openDay();
 }
 
 (function bindDay() {
@@ -5667,6 +5761,9 @@ function previewFromAddress() {
     hide(strip, !dayOpen);
   });
   dayGo().addEventListener("click", runDay);
+  dayGo().addEventListener("click", runCommand);
+  var command = document.getElementById("daycommand");
+  if (command) command.addEventListener("click", function () { openCommand(); });
   dayGo().addEventListener("click", function () { if (dayKind === "sweep") writeSweep(); });
   var wrapDay = document.getElementById("daywrapday");
   if (wrapDay) wrapDay.addEventListener("click", function () { sweep.comments = {}; sweep.ticks = {}; previewSweep("day"); });

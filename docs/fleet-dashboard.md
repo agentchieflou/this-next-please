@@ -78,7 +78,8 @@ and `/open?fresh=1` forwards it: the page opens the fresh day's preview (`POST /
 dry_run: true}`), which is the only thing the parameter ever posts, and takes it off the address so a
 reload does not open it again. No parameter confirms anything: only the strip's *start N fresh* posts
 the ticked `repos`, and `/open` needs no token, so an address from anywhere may open a preview and no
-more (DAY-D4).
+more (DAY-D4). `command=1` opens the Command Center's preview the same way (`POST /api/command {dry_run:
+true}`), and no more: only its *start N* posts the ticked pairs.
 
 Every request's `Host` header must also be `127.0.0.1`, `localhost` or `[::1]` with a port, `/open`
 and `/api/ping` included (#551), so a hostile name that re-resolves to the laptop (DNS rebinding) gets
@@ -565,6 +566,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/where` | the catalogue search behind the header's box |
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
 | POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
+| POST | `/api/command` | the Command Center (2026-10-06, [plan-command-center.md](plan-command-center.md)): `{dry_run: true, refresh?}` previews every open ticket on the board's query — `rows` (`key`, `summary`, `verdict`: `ready`, `not_ready`, `waiting`, `held`, `in_progress`, `not_work`, `no_checkout`; `reasons`, `criteria_n`, `words`, the seat `repo` and the free `repos`, `ticked`), `plan_id`, `counts`, `ticked`, `premium_turns`. `{plan_id, start: [{key, repo}]}` starts the pairs back to back: `rows` with `done` (`started`, `skipped`, `refused`) and each started pane's new `row`. Refusals: `preview_first`, `nothing_ticked`, `plan_changed`, `jira_unreachable`, `jira_failed`, and per row `not_ready`, `seat_taken` and every `start` refusal |
 | POST | `/api/fresh` | `{all: true, dry_run: true, keyless?}` — a fresh day's preview (#508): `rows` (each with `ticked`, `keyless`, `began`, and a `needs_you` row's `question`), `plan_id`, `ticked`, `premium_turns`, `skipped` by code. `{all: true, repos: [..]}` starts the ticked repos that are still `now`: `rows` with `done` (`started`, `skipped`, `changed`) and each pane's new `row`; an unknown repo is listed in `unknown_repos`. `{all: true}` alone is 409 `preview_first`; nothing else launches |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |

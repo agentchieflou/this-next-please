@@ -382,6 +382,9 @@
     "tests/test_fleet_column.py": {
       "tests": 27
     },
+    "tests/test_fleet_command.py": {
+      "tests": 9
+    },
     "tests/test_fleet_components.py": {
       "tests": 7
     },

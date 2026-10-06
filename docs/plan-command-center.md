@@ -1,7 +1,8 @@
 # Plan: the Command Center — your open tickets with boundaries, seated at free agents, started at once
 
-_Status: DECIDED (2026-10-06) — the operator answered the four questions (§Decisions); slices A–E are being
-built on this branch._
+_Status: BUILT (2026-10-06) — the operator answered the four questions (§Decisions), and slices A–E are built
+on this branch (§As built); of F, the docs are written, and the demo with a fake Jira and the laptop's measure
+are not._
 
 The operator, 2026-10-06:
 
@@ -150,6 +151,22 @@ does not chase them; the panes are where the operator answers.
 | E — the strip | the day menu item, the third mode, the row, the start | a browser test on the demo fleet: three ready, two not ready, one waiting; *start 3* starts three panes |
 | F — proof | docs (fleet-intake.md §The Command Center, refusals.md), the demo, the laptop's measure | the demo fleet with a fake Jira |
 
+## As built (2026-10-06)
+
+- **The slate is its own, not the board's.** `command.slate` asks the board's query (`fleet.jql`) with
+  `description` and the criteria field, and caches the answer in `command.json` under its own key (the query,
+  the pinned field, `fleet.board_ttl`). The board's row, its fields and its cache are unchanged, so nothing that
+  reads the board pays for two more fields; `test_fleet_board.py` did not grow.
+- **The gate is the Command Center's.** `command.ready` and `command.criteria`; the pre-flight's
+  `criteria_found` is untouched, because the dispatch card's word count is a courtesy and stays one.
+- **The criteria field is found by name** (*Acceptance Criteria*, *Definition of Done*) through `/field`, once a
+  day, when `fleet.command.criteria_field` pins none; a pinned name or id wins.
+- **The plan id** is a hash of every row's ticket, verdict, seat and tick: a slate or a seat that moved between
+  the preview and the press refuses the press (`plan_changed`).
+- **The proof** is `tests/test_fleet_command.py`: the gate's table (eleven tickets that must pass or fail), Cloud's
+  and Data Center's text, the slate's one query and its cache, the seating, the start, the route and the CLI, and
+  the day strip in a browser.
+
 ## Ground rules
 
 - **Never an automatic start.** The operator presses *start*; nothing is slated at boot, on a timer, or when an
@@ -184,4 +201,7 @@ A is in review. D needs all three; E needs D.
   call is not used — it was one subprocess per ticket).
 - **Time:** a preview is the board read plus one pass over the registry; a start is N `supervisor.start`s back to
   back. A `send` launches its process in about 20 ms on the laptop since #654; `start` writes a brief and a prompt
-  first, and slice D measures it — the expectation is ten agents inside a second.
+  first, and slice D measures it — the expectation is ten agents inside a second. Measured on the laptop
+  (2026-10-06, ten checkouts, 27 tickets, a fake Jira and the launch faked): a preview in 8–15 ms, and the press
+  re-plans and starts ten in 0.23 s, 23 ms each before its process; with the launch's ~20 ms each, about half a
+  second for ten.
