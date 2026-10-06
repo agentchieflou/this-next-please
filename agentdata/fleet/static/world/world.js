@@ -21,6 +21,7 @@ var V_TURN = 2.2;
 var V_LOOK = 0.0022;
 var V_DEAD = 0.18;
 var V_BUDGET_MS = 10;
+var V_WARM_MS = 8;
 var V_RAIN = 6000;
 var V_SPLASH = 160;
 var V_LAMPS = 8;
@@ -405,6 +406,7 @@ function vBuild() {
   var ctx = vContext();
   var renderer = new T.WebGLRenderer({ canvas: ctx.canvas, context: ctx.gl, antialias: false, powerPreference: "high-performance" });
   renderer.outputColorSpace = T.SRGBColorSpace;
+  renderer.debug.checkShaderErrors = !!navigator.webdriver || PARAMS.get("shaders") === "check";
   renderer.setPixelRatio(1);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   document.getElementById("world").appendChild(ctx.canvas);
@@ -769,7 +771,8 @@ function vWarm() {
     vState.scene.traverse(function (o) { if ((o.isMesh || o.isLine || o.isPoints) && o.material) list.push(o); });
     w = vState.warm = { list: list, vis: list.map(function (o) { return o.visible; }), i: 0, target: new T.WebGLRenderTarget(1, 1) };
   }
-  if (w.i <= w.list.length) {
+  var until = performance.now() + V_WARM_MS;
+  while (w.i <= w.list.length) {
     w.list.forEach(function (o, k) { o.visible = k === w.i; });
     var one = w.list[w.i], count = one && one.isInstancedMesh ? one.count : -1, screen = vState.tier === "low";
     if (count === 0) one.count = 1;
@@ -782,7 +785,7 @@ function vWarm() {
     r.setRenderTarget(null);
     w.list.forEach(function (o, k) { o.visible = w.vis[k]; });
     w.i += 1;
-    return false;
+    if (performance.now() > until) return false;
   }
   w.target.dispose();
   vState.warm = null;

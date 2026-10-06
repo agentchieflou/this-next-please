@@ -53,6 +53,11 @@ The frame budget, 10 ms: 100 frames a second. The page cannot draw faster than t
 and a 60 Hz one at 60; what the page controls is that a frame never needs more than the budget,
 which `vTune` holds by lowering the render resolution.
 
+### `var V_WARM_MS`
+
+How long a frame may spend warming up (`vWarm`): objects are drawn alone until it is spent, so a
+frame stays short while the first real frame comes as soon as the shaders allow.
+
 ### `var V_RAIN`
 
 6,000 streaks in one draw call. The rain is a box of streaks around the camera, animated entirely in
@@ -239,6 +244,13 @@ draw calls than the files' kinds and levels of detail.
 
 The office's furniture is made once too: its file's shapes (`vState.kit`) and the desks' instanced meshes and screens (`WorldScenery.desks`).
 
+The renderer checks each shader's compile and link logs (`debug.checkShaderErrors`) only under test
+automation (`navigator.webdriver`, which is how a broken shader fails a test: three.js says so in
+the console) or with `?shaders=check`. Reading a log is a round trip to the GPU process that waits for
+everything queued before it, the textures being uploaded too, and the first frames made one for every
+program: the check cost the first real frame about half a second (2026-10-06, page loads). three.js's
+own advice is to switch it off in production.
+
 ### `function vPad`
 
 The first connected gamepad, in the Gamepad API's standard mapping: axes 0 and 1 the left stick,
@@ -343,12 +355,18 @@ frame.
 
 ### `function vWarm`
 
-Before the first real frame, one object a frame is drawn alone (into a 1 by 1 target, or a single
+Before the first real frame, each object is drawn alone (into a 1 by 1 target, or a single
 scissored pixel of the screen on the `low` path, whose shaders are compiled for the screen), and then
 the passes. The world has some forty shaders; compiled all at once in the first frame they froze the
 page for seconds on a software renderer (and noticeably on Windows, where shaders compile slowly),
-long enough that nothing else on the page could run. One a frame, the page answers between them. The
-scene is drawn when the last is compiled.
+long enough that nothing else on the page could run. So the objects are spread over frames: as many
+a frame as fit in `V_WARM_MS` (8 ms), and an object whose shader is slow to compile has a frame to
+itself, so the page answers between them. The scene is drawn when the last is compiled.
+
+It was one object a frame until 2026-10-06 (the operator: "We're aiming for ~200ms loads. Right now
+we're at several seconds"): with the office's 110 objects that held the first real frame back by 110
+frames, about 1.3 s on a 120 Hz display, although `WorldRender.prepare` had compiled nearly all of them
+in the background already and each draw took a fraction of a millisecond.
 
 ### `function vTune`
 
