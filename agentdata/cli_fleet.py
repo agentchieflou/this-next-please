@@ -435,6 +435,65 @@ def _fresh_day(a, names: list[str]) -> int:
     return EXIT_OK
 
 
+COMMAND_COLUMNS = ["key", "verdict", "repo", "priority", "criteria", "words", "summary", "why"]
+
+
+def _command_rows(rows: list[dict]) -> list[list]:
+    return [[r["key"], r["verdict"], r.get("repo") or "-", r.get("priority") or "-", r.get("criteria_n", 0),
+             r.get("words", 0), (r.get("summary") or "-")[:60], "; ".join(r.get("reasons") or []) or "-"]
+            for r in rows]
+
+
+def cmd_command(a) -> int:
+    """The Command Center (docs/plan-command-center.md): every open ticket assigned to you that has
+    acceptance criteria and a real description, seated at a free agent of its project, started at once.
+
+    Without `--confirm` it prints the plan and starts nothing: `--dry-run` exits 0, anything else exits 2
+    naming the plan's id. `--confirm <plan_id>` starts the ticked rows, and only when a plan taken now has
+    the same id; each row then says what happened to it.
+    """
+    from .fleet import command as CMD
+
+    source = "ad-fleet command"
+    try:
+        planned = CMD.plan(cfg=C.load(), force=bool(a.refresh))
+    except CMD.CommandRefused as e:
+        return _refuse(source, e)
+    except (RegistryError, OSError) as e:
+        return _refuse(source, e)
+    meta = {"plan_id": planned["plan_id"], "ticked": planned["ticked"], "premium_turns": planned["premium_turns"],
+            "counts": ", ".join(f"{k} {v}" for k, v in sorted(planned["counts"].items())) or "-",
+            "min_words": planned["min_words"],
+            "criteria_fields": ", ".join(planned["criteria_fields"]) or "none: the description alone"}
+    table = toon.table("command", COMMAND_COLUMNS, _command_rows(planned["rows"]))
+    if not a.confirm:
+        dry = bool(a.dry_run)
+        head = {"ok": dry, "source": source, "dry_run": dry, **meta}
+        if not dry:
+            head.update({"refused": "preview_first", "code": "preview_first",
+                         "error": f"the Command Center starts {planned['ticked']} agents, about "
+                                  f"{planned['premium_turns']} premium turns",
+                         "hint": f"confirm with `--confirm {planned['plan_id']}`"})
+        else:
+            head["next"] = f"ad-fleet command --confirm {planned['plan_id']}"
+        print(toon.encode({"meta": head}))
+        print(table)
+        return EXIT_OK if dry else EXIT_REFUSED
+    ticked = [{"key": r["key"], "repo": r["repo"]} for r in planned["rows"] if r["ticked"]]
+    try:
+        out = CMD.run(a.confirm, ticked, cfg=C.load())
+    except CMD.CommandRefused as e:
+        print(toon.encode({"meta": {"ok": False, "source": source, "error": e.msg, "hint": e.hint,
+                                    "refused": e.code, "code": e.code, **meta}}))
+        print(table)
+        return EXIT_REFUSED
+    print(toon.encode({"meta": {"ok": True, "source": source, "plan_id": a.confirm, "started": out["started"]}}))
+    print(toon.table("command", ["key", "repo", "done", "code", "why"],
+                     [[r["key"], r["repo"] or "-", r["done"], r.get("code") or "-", r.get("why") or "-"]
+                      for r in out["rows"]]))
+    return EXIT_OK
+
+
 def cmd_wrapup(a) -> int:
     """Preview one agent's writes -- push, PR, page, comment, transition -- and write the ticked ones (#503)."""
     from .fleet import wrapup as WRAP
@@ -2393,6 +2452,16 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--closed", action="store_true",
                        help="my own Copilot chat there is closed: the second press over `chat_open`")
     clean.set_defaults(fn=cmd_fresh)
+
+    command = sub.add_parser("command", help="the Command Center: your open tickets with acceptance criteria and a "
+                                             "real description, seated at free agents, started at once")
+    plan_or_run = command.add_mutually_exclusive_group()
+    plan_or_run.add_argument("--dry-run", action="store_true",
+                             help="show the plan: every open ticket, its verdict and its seat; start nothing")
+    plan_or_run.add_argument("--confirm", metavar="PLAN_ID", default="",
+                             help="start the ticked rows of the plan with this id, if the slate still agrees")
+    command.add_argument("--refresh", action="store_true", help="ask Jira again rather than the cached slate")
+    command.set_defaults(fn=cmd_command)
 
     wrap = sub.add_parser("wrapup", help="preview one agent's Jira, Bitbucket and Confluence writes, then write "
                                          "the ticked ones in order (push, PR, page, comment, transition)")

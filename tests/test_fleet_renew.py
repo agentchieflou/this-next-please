@@ -486,8 +486,9 @@ SWEEP_ROWS = """() => [...document.querySelectorAll('#day-strip .day-rows li.swe
 
 
 def test_the_day_menu_holds_the_sweeps_and_only_the_strip_posts_one():
-    """#512: the *day* menu holds three items; the sweep's cells are #510's (`li.wrap-pattern` drawn by
-    `wrapCell`); and app.js posts `wrapup` with `all` only from the strip's preview and its confirm."""
+    """#512: the *day* menu holds the three sweeps, and the Command Center as a fourth item (2026-10-06,
+    the operator's sign-off); the sweep's cells are #510's (`li.wrap-pattern` drawn by `wrapCell`); and
+    app.js posts `wrapup` with `all` only from the strip's preview and its confirm."""
     import re
 
     static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -497,8 +498,8 @@ def test_the_day_menu_holds_the_sweeps_and_only_the_strip_posts_one():
     menu = html[html.index('<div id="daymenu"'):]
     menu = menu[:menu.index("</div>")]
     items = re.findall(r'<button type="button" role="menuitem" id="(\w+)"', menu)
-    assert items == ["dayfresh", "daywrapday", "daywrapproject"], items
-    assert "end of day…" in menu and "end of project…" in menu
+    assert items == ["dayfresh", "daywrapday", "daywrapproject", "daycommand"], items
+    assert "end of day…" in menu and "end of project…" in menu and "command center…" in menu
     strip = html[html.index('<div id="day-strip"'):]
     assert '<li class="day-pattern sweep-row"' in strip[:strip.index("</ul>")]
     sweep = js[js.index("function drawSweepRow("):js.index("function countSweep(")]

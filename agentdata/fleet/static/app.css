@@ -915,6 +915,12 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .wrapsheet .wrap-actions button:disabled { color: var(--muted); cursor: default; }
 
 .day-rows .sweep-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.day-rows .command-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.day-rows .command-row .cc-summary { flex: 1 1 20ch; min-width: 0; overflow-wrap: anywhere; }
+.day-rows .command-row .cc-count, .day-rows .command-row .cc-seat { font: 11px var(--mono); color: var(--muted); }
+.day-rows .command-row .day-why { flex-basis: 100%; padding-left: 3ch; color: var(--muted); overflow-wrap: anywhere; }
+.day-rows .command-row:not(.verdict-ready):not(.done-started) { color: var(--muted); }
+.day-rows .command-row.verdict-ready .day-verdict, .day-rows .command-row.done-started .day-verdict { color: var(--done-text); }
 .day-rows .sweep-row .sweep-state { color: var(--muted); }
 .day-rows .sweep-row.sweep-nothing, .day-rows .sweep-row.sweep-busy { color: var(--muted); }
 .day-rows .sweep-cells { flex-basis: 100%; margin: 0; padding: 0 0 0 2ch; list-style: none;

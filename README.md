@@ -224,6 +224,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/plan-panes.md` | planned: panes — the snap-back and the stale questions fixed first, then one arrangement where every agent is its own full-height column, drawn by its width (rail, compact, full) and resized by dragging the gutter between any two |
 | `docs/plan-ink.md` | planned: ink (epic #246) — three.js draws every skin: a notebook, its dark twin, a legal pad, napkin notes and graph paper drawn live by pencil, pen, highlighter and marker, then glass, farmstead and voxel moved onto it, with one plain fallback where WebGL is missing |
 | `docs/plan-ownership.md` | implemented: ownership (epic #202) — every desk component named and owned, a render that patches and never rebuilds, motion with a budget, the tile as a window, rendering that earns its pixels, an instant feel |
+| `docs/plan-command-center.md` | implemented: the Command Center (`ad-fleet command`, the desk's *day* → *command center…*) — every open ticket assigned to you that has acceptance criteria and a real description, seated at a free agent of its project, all started with one press; the rest shown with why they were not slated |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |
 

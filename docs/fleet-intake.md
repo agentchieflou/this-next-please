@@ -206,6 +206,40 @@ interesting case. A `started` event marked `resumed` is **not** a new dispatch: 
 emits one too, and counting it would double every ticket in the report the moment anyone talked to
 an agent.
 
+## The Command Center
+
+The operator, 2026-10-06: *"take all of the open Jira tickets assigned to a user and where applicable slate
+them to begin work ... only ... tickets that have Acceptance Criteria / Done state's so that an agent can have
+boundaries ... never ... short/generic descriptions or no descriptions at all ... all agents start at the same
+time, but once that happens, they gate wherever they gate."* The design and its four decisions are in
+[plan-command-center.md](plan-command-center.md).
+
+The desk's *day* menu → **command center…** (or `ad-fleet command --dry-run`, or `?command=1` on the desk's
+address) previews every open ticket the board's query returns (`fleet.jql`), each with a verdict:
+
+| Verdict | What it means |
+|---|---|
+| `ready` | it has acceptance criteria and at least `fleet.command.min_words` (40) words of description outside them, and a free checkout of its project: ticked, and seated there |
+| `not_ready` | no criteria, too few words, the summary over again, placeholders (*TBD*, *as discussed*) or a template's headings with nothing under them: never tickable, and the reason is on the row |
+| `waiting` | ready, but every checkout of its project has a ticket: it starts on a later press |
+| `held` | a checkout already has it as its active ticket |
+| `in_progress` | In Progress in Jira: a person may hold it, so it is not slated |
+| `not_work` | an epic, or a status that is not To Do |
+| `no_checkout` | no registered checkout declares its project |
+
+Criteria are read from the instance's *Acceptance Criteria* (or *Definition of Done*) field when it has one —
+`fleet.command.criteria_field` pins a field by id or name — and otherwise from the description: a section
+headed *Acceptance Criteria*, *AC*, *Definition of Done*, *Done when* or *Success criteria*, an inline
+`AC: 1) … 2) …`, or Given/When/Then lines. Cloud's rich text and Data Center's wiki markup are both read.
+
+A free checkout is one `start` would take a new ticket in without `--force`, and not over its budget. Ready
+tickets are seated in priority order, one to a checkout. **start N — about N premium turns** starts every
+ticked pair back to back; a plan that moved since the preview is refused (`plan_changed`), and a ticket or a
+seat that no longer qualifies is refused on its own row while the others start. Then each agent runs as if it
+had been dragged onto its pane: its questions, approvals and friction show there.
+
+The Command Center reads Jira and never writes it, and nothing is slated without the press.
+
 ## Configuration
 
 | Key | Default | What it does |
@@ -214,6 +248,8 @@ an agent.
 | `fleet.jql_fields` | `key,summary,status,priority,issuetype,updated` | what it asks Jira for |
 | `fleet.board_ttl` | `120` | seconds a fetched board is reused — and a pre-flight's issue read with it |
 | `fleet.preflight` | `true` | a drop opens the dispatch card; `false` starts immediately, as it did before #164 |
+| `fleet.command.min_words` | `40` | words of description outside the criteria the Command Center's gate asks for |
+| `fleet.command.criteria_field` | none | the field the criteria are kept in, by id or name (a comma between several); none looks for *Acceptance Criteria* or *Definition of Done*, once a day |
 
 The TTL is not a detail. The board is a *view of a queue*, not a live feed: a ticket that appeared
 thirty seconds ago is not urgent, and a search per tile per tick is how a shared Jira instance

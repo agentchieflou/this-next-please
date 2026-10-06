@@ -3742,12 +3742,41 @@ Above `function writeSweep() {`:
 
 `#daygo` in a sweep: exactly the ticked ids per repo, and the edited comments with them.
 
+`sweep.asked` (2026-10-06): this page asked for the write, so a `planned` answer is a poll the server
+answered before the write began (a stream's `wrapup` event and the confirm cross in flight), and
+`acceptSweep` drops it. Taking it put the strip back to *planned*, so the `done` that followed did not
+come from `writing` and the *sweep: N written* notice was never said (seen in a shuffled CI run of
+`test_fleet_renew.py`). Any answer past `writing` clears it.
+
+### `var commandPlan`
+
+The Command Center's plan id as last drawn: what *start* posts, so a slate that moved since is refused
+(`plan_changed`) rather than started.
+
+### `function openCommand`
+
+The Command Center (docs/plan-command-center.md; the operator, 2026-10-06): the day strip in its third
+mode. It posts the preview only (`{dry_run: true}`); nothing starts until *start* is pressed.
+
+### `function drawCommand`
+
+One row a ticket, keyed by its key: the tick (only a `ready` row has one, ticked), the key, the verdict,
+the checkout it is seated at, its criteria and words, the summary, and every reason a row is not ready,
+waiting, held or in progress. A tick the operator changed is kept until the plan changes.
+
+### `function runCommand`
+
+The ticked `(ticket, checkout)` pairs, posted with the plan id; each row then says *started* or why not,
+and each started pane is drawn from its new row. The agents gate where they gate, on their panes.
+
 ### `function previewFromAddress`
 
 Above `function previewFromAddress() {`:
 
 `?fresh=1` (`ad-fleet serve --open --fresh`, `open --fresh`): the preview, once, and the parameter
 comes off the address so a reload does not open it again. It posts the preview and nothing else.
+
+`?command=1` asks for the Command Center's preview the same way, and only the preview.
 
 ### the closure › `if (nope) nope.addEventListener("click", function () {`
 
