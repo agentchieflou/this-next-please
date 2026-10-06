@@ -68,10 +68,15 @@ walking up, and the person you walk to holds still for you.
 
 An agent's walking pace, in metres a second: a stroll, slower than the street's walkers (1.1 to 1.6).
 
+### `var V_DESK`
+
+The arc a desk takes round the office's ring, in metres: its 1.5 m and a little room. With the four
+doors it sets the ring's size for the fleet (`vLayout`), 7 m across at the least.
+
 ### `var V_SEAT`
 
-How far a sitting agent is lowered onto a plaza bench: the seated pose holds the pelvis at the
-wheelchair's height, a bench's seat is a little lower.
+How far a sitting agent is raised onto its chair: the seated pose holds the pelvis at the
+wheelchair's height, an office chair's seat is a little higher.
 
 ### `var V_SKIN`
 
@@ -128,11 +133,15 @@ would have to include. A streak is lit by the same lights as everything else (th
 lights, `uWkP` and `uWkC`), in their colour, so the rain shows in the lamplight, the neon and the
 headlights, as it does on a street.
 
+No streak falls under the office's roof: a streak inside its radius and below its height is not drawn (`uRoof`, set by `vPlaza`).
+
 ### `function vSplash`
 
 Rings where drops land: one instanced ring drawn 160 times, each growing and fading on its own phase
 and moving to a new spot each cycle, in a 16 m square around the player. Thin and faint, fading as
 the square of its age: a splash is a ripple on a wet street, not a white disc.
+
+None lands under the office's roof (`uRoof`).
 
 ### `function vProps`
 
@@ -148,19 +157,28 @@ lights) in its state's colour, the ring and, for an agent that needs a person, t
 
 ### `function vPlaza`
 
-The plaza's kerb, lamps, benches and trees for the circle's edge, 3.5 m outside the agents, made
-again only when the edge moves by a tenth of a metre or more. The lamps' glass places the halos and
-the plaza's lights; the benches, trees and lamp posts become `vState.solids`, which you walk around
-(`vStep`). The plaza's paving ends 6 m further out, where the ring road begins: when that changes
-(by half a metre or more) the city and the street are built again round it (`WorldCity.build`,
-`WorldStreet.build`), their lights replace the old ones, and the buildings' footprints become
-`vState.boxes`. On the `low` path both are built plainer (`lod` 0). With the street come its crowd and so
-the agents' people (`WorldPeople.agents`), made again with it.
+The office for its edge (`WorldScenery.plaza`), made again only when the edge moves by a tenth of a
+metre or more: its lamps' glass places the halos and the lamps' lights; its planters, trees and lamp
+posts become `vState.solids` with the desks', which you walk around (`vStep`); its wall is
+`vState.wall`, and the rain and the splashes learn its roof (`vRain`). The plaza's paving ends 6 m
+further out, where the ring road begins: when that changes (by half a metre or more) the city and the
+street are built again round it (`WorldCity.build`, `WorldStreet.build`), their lights replace the old
+ones, and the buildings' footprints become `vState.boxes`. On the `low` path both are built plainer
+(`lod` 0). With the street come its crowd and so the agents' people (`WorldPeople.agents`).
 
 ### `function vLayout`
 
-The agents stand on a circle, sorted by name, facing its centre; the circle grows with their number.
-A row that leaves takes its figure and its label with it.
+A desk for every agent round the office's ring, sorted by name and dealt round its four quarters,
+each quarter's desks spread between its doors and kept half a metre clear of them; the ring grows with
+the fleet (`V_DESK`). Each agent's places follow from its desk: its chair (the home, 0.64 m in from the
+desk, facing out) and a spot beside the desk to stand at. A row that leaves takes its figure and its
+label with it.
+
+### `function vPlace`
+
+The agents where their state puts them (`vWalk`), the robots or people (`vBots`), the office round
+them (`vPlaza`), their desks and screens' cells (`WorldScenery.placeDesks`) and footprints, and a light
+over every desk.
 
 ### `function vBots`
 
@@ -172,29 +190,25 @@ neither drawn nor ringed.
 
 ### `function vWalk`
 
-Where each agent's person is, from its state (decided 2026-10-05, "Agents become people"):
-- needing you: at its place on the circle (its home), under its beacon;
-- working (`running`, `starting`): on a plaza bench, the first eight by name, each to the bench at its
-  index, sitting; the rest at home;
-- done: walks straight out of the plaza, past the end of its paving, and is gone (no label, no ring);
-- idle: strolls a loop just inside the kerb, each at its own place round it.
+Where each agent's person is, from its state (decided 2026-10-05, "Agents become people", and the
+office, 2026-10-06):
+- working (`running`, `starting`): at its desk, typing;
+- needing you, or talking to you: standing beside its desk, facing the middle, under its beacon;
+- idle and the rest: at its desk, sitting back;
+- done: walks round inside the ring to the nearest door, out through it, and is gone (no label, no ring).
 
-A person walking stops and faces you once you are within `V_FACE`, and goes on when you leave. It walks
-at `V_STROLL` and takes the pose its goal asks for on arriving. It walks as people cross a plaza, round
-it rather than through its middle: out (or in) to its goal's distance from the centre first, then round
-the circle to it. A straight line from the circle to a bench cut inside the ring of agents, through
-the middle where you stand, and stopped for you when you had not come up to it. Under reduced motion,
-and for an agent seen for the first time, it is placed at its goal at once (an idle one at home,
-standing). The decision names waypoints on the street's sidewalks; this keeps to the plaza's own
-paving, which is where the agents are: the loop for strolling, a line straight out for leaving.
+It walks at `V_STROLL`, straight (a step from the chair to the desk's side, a chord inside the ring to
+the door) and takes the pose its goal asks for on arriving; standing, it faces you within `V_FACE`.
+Under reduced motion, and for an agent seen for the first time, it is placed at its goal at once (a
+done one already gone).
 
 ### `function vPersons`
 
 Each agent as a person: one of the crowd's characters (`WorldPeople.cast`), where `vWalk` put it:
-walking (the crowd's walk, at its pace), sitting (lowered by `V_SEAT`), presenting while you talk to
-it, standing otherwise, and facing you when it stands within `V_FACE`. Its shirt is its own colour, the
-hue its robot was tinted, darker, so a person and the robot it replaces read as the same agent; skin,
-trousers and hair come from the walkers' palettes by a hash of its name.
+walking (the crowd's free-armed walk, at its pace), typing or sitting back on its chair (raised by
+`V_SEAT`), presenting while you talk to it, standing otherwise, facing where `vWalk` turned it. Its
+shirt is its own colour, the hue its robot was tinted, darker, so a person and the robot it replaces
+read as the same agent; skin, trousers and hair come from the walkers' palettes by a hash of its name.
 
 ### `function vWeather`
 
@@ -223,6 +237,8 @@ the same way (`vState.woods`), for the street and the plaza, and the cars' file 
 (`vState.fleet`), except on the `low` path, which keeps the page's own trees and cars: they cost fewer
 draw calls than the files' kinds and levels of detail.
 
+The office's furniture is made once too: its file's shapes (`vState.kit`) and the desks' instanced meshes and screens (`WorldScenery.desks`).
+
 ### `function vPad`
 
 The first connected gamepad, in the Gamepad API's standard mapping: axes 0 and 1 the left stick,
@@ -242,6 +258,8 @@ The distance walked is what the character's legs swing by (`vState.walk`, backwa
 up) and what a wheelchair's wheels turn by (`vState.rolled`); the speed, as a share of a walk, is how
 far they swing.
 
+The office's glass is a wall, but for its doors: you stay 0.35 m off it, on the side you were, wherever you are not in a door's opening (`WorldScenery.opening`).
+
 ### `function vCamera`
 
 Third person by default, as the operator's picture is a character you see: the camera 3.4 m behind
@@ -249,6 +267,8 @@ and 2 m up, looking past the character's shoulder to a point ahead of it, and ti
 In a conversation it swings 1.3 m to the side, so you see your character presenting to the agent and
 the agent beside it. First person (V, or Y) is the eye at 1.6 m, as before. While you choose who you
 are, the camera stands in front of the character and looks at it.
+
+Inside the office the third-person camera is drawn in toward you until it is within the glass, and kept under the ceiling.
 
 ### `function vHeroFrame`
 
@@ -368,16 +388,25 @@ The prompt names the agent within reach; the compass points at the nearest agent
 says how far. The arrow turns in 5° steps, so turning writes the DOM only when it moves a step.
 `F3` (or the backquote) shows fps, frame time, the render scale and the draw calls (`?hud=1` at load).
 
+Near an agent it offers both: talking to it (E, A) and taking over its screen (T, X).
+
 ### `function drawList`
 
 The agents and their states in words, for a screen reader (`#wlist`), and how many need you in the
 header.
+
+And the agents' screens are drawn from their rows (`WorldScenery.screens`), when a row changes.
 
 ### `function vTalk`
 
 A conversation: the panel opens, the keys and pointer lock let go, and the keyboard lands on the
 first choice, else Approve, else the message box, so a controller can answer at once. You turn to face
 the agent, so your character presents to it.
+
+### `function vTakeOver`
+
+Takes over an agent's screen: the chat, on that agent (`/chat#<agent>`), where its conversation and
+its session's controls are. The operator chose the chat as the screen taken over (2026-10-06).
 
 ### `function vPanelPad`
 

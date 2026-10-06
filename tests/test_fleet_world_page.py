@@ -224,7 +224,8 @@ TREES = """() => { const c = {}; vState.scene.traverse(m => { if (/^tree-/.test(
 @pytest.mark.browser
 def test_the_streets_are_planted_with_trees_drawn_near_and_far(fleet_home, tmp_path, browser):
     """The trees are a file (`static/world/trees/trees.glb`, grown by `tools/world/trees/`), not shapes
-    the page builds: London planes and lindens along the avenues, young lindens in the plaza's planters,
+    the page builds: London planes and lindens along the avenues, young lindens in the planters round the
+    office (eight outside, four inside),
     an instanced mesh for each tree, level of detail and part (bark, leaves). Near the eye a tree is
     drawn whole, further away with fewer and larger twigs, and the eye walking moves trees between the
     two. The `low` quality keeps the page's own trees."""
@@ -236,7 +237,7 @@ def test_the_streets_are_planted_with_trees_drawn_near_and_far(fleet_home, tmp_p
         assert _inspect(page)["town"]["trees"] >= 12, _inspect(page)["town"]
         counts = page.evaluate(TREES)
         assert {"plane_0", "plane_1", "linden_0", "linden_1", "linden_2"} == {n.split("-")[1] for n in counts}, counts
-        assert counts["tree-linden_2-0-1"] == 8, counts
+        assert counts["tree-linden_2-0-1"] == 12, counts
         near = {k: v for k, v in counts.items() if k.endswith("-0-1") and k != "tree-linden_2-0-1"}
         far = {k: v for k, v in counts.items() if k.endswith("-1-1") and k != "tree-linden_2-1-1"}
         assert sum(far.values()) > 0 and sum(near.values()) > 0, counts
@@ -469,11 +470,11 @@ def test_agents_are_people_where_the_crowd_is_drawn(fleet_home, tmp_path, browse
 
 @pytest.mark.browser
 def test_agents_go_where_their_state_puts_them(fleet_home, tmp_path, browser):
-    """Where the agents are people, their state places them (docs/fleet-world.md, decided 2026-10-05):
-    the one that needs you stays at its place under its beacon; a working one walks to a plaza bench
-    and sits; a done one walks out of the plaza and is gone, its label with it; an idle one strolls
-    round inside the kerb. You stand in the middle, more than 6 m from all of them, so none stops.
-    `FleetWorld.step` moves the agents as it moves you, so 30 s of the world pass at once."""
+    """Where the agents are people, their state places them in the office (docs/fleet-world.md, decided
+    2026-10-05, and the operator's office, 2026-10-06): a working one types at its desk; the one that
+    needs you stands up beside its desk, under its beacon; an idle one sits back at its desk; a done one
+    walks out through the nearest door and is gone, its label with it. `FleetWorld.step` moves the
+    agents as it moves you, so 30 s of the world pass at once."""
     _repo(tmp_path, "alpha")
     _asks(tmp_path)
     busy = make_project(tmp_path / "busy", phase="build", ticket="RDSD-8")
@@ -489,14 +490,59 @@ def test_agents_go_where_their_state_puts_them(fleet_home, tmp_path, browser):
         page.wait_for_function("() => FleetWorld.inspect().people.agents >= 3", timeout=120000)
         page.evaluate("() => FleetWorld.step(30)")
         got = page.evaluate(modes)
-        assert got["busy"][1] == "sit" and got["gone"][1] == "gone" and got["alpha"][1] == "walk", got
-        assert got["asks"][1] == "stand" and abs(got["asks"][2] - 7) < 0.01, got
+        R = page.evaluate("() => vState.radius")
+        assert got["busy"][1] == "type" and got["alpha"][1] == "sit" and got["gone"][1] == "gone", got
+        assert got["asks"][1] == "stand" and abs(got["asks"][2] - (R - 0.95)) < 0.01, (got, R)
+        assert abs(got["busy"][2] - (R - 0.64)) < 0.01 and abs(got["alpha"][2] - (R - 0.64)) < 0.01, (got, R)
         assert got["busy"][0] == "running" and got["gone"][0] == "done", got
-        edge = page.evaluate("() => vState.edge")
-        assert abs(got["busy"][2] - (edge + 0.95)) < 0.05, (got, edge)
+        assert got["gone"][2] > page.evaluate("() => vState.wall[0]"), got
         assert page.evaluate("() => FleetWorld.inspect().people.agents") == 3
         tags = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#wlabels .wtag')].map(t => [t.querySelector('.wtag-name').textContent, t.hidden]))")
         assert tags["gone"] is True, tags
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_the_agents_work_in_an_office_where_you_take_over_their_screen(fleet_home, tmp_path, browser):
+    """The operator, 2026-10-06: "Let's create an office building with the humans as agents and when we
+    walk up to them we have the opportunity to 'take over their screen' which would bring us back to the
+    Desk/Chat screen." The middle of the district is a glass office: a desk a agent, each with a screen
+    showing what its agent is doing, glass all round with a door to each avenue, no rain under the roof.
+    You walk in and out by the doors, never through the glass. Near an agent, T (X on a pad) or the
+    panel's button takes over its screen: the chat, on that agent."""
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "&hour=13&quality=medium")
+        page.wait_for_function("() => FleetWorld.inspect().calls > 0", timeout=90000)
+        office = page.evaluate("""() => ({ desks: vState.desks.meshes.map(m => m.count), wall: vState.wall,
+                                           roof: vState.parts.rain.material.uniforms.uRoof.value.toArray(),
+                                           screens: Object.keys(vState.desks.drawn).length })""")
+        assert office["desks"] == [2, 2, 2] and office["screens"] == 2, office
+        G, half = office["wall"][0], office["wall"][1]
+        assert office["roof"][2] > G and office["roof"][3] > 3, office
+        page.evaluate("() => FleetWorld.hold(true)")
+        out = page.evaluate(f"""() => {{ vState.player.x = Math.cos(0.75) * {G - 1}; vState.player.z = Math.sin(0.75) * {G - 1}; vState.player.yaw = Math.atan2(-Math.cos(0.75), -Math.sin(0.75));
+                                       vState.keys = {{ KeyW: true }}; FleetWorld.step(3); vState.keys = {{}}; return Math.hypot(vState.player.x, vState.player.z); }}""")
+        assert out < G, (out, G)
+        door = page.evaluate(f"""() => {{ vState.player.x = {G - 1}; vState.player.z = 0; vState.player.yaw = -Math.PI / 2;
+                                        vState.keys = {{ KeyW: true }}; FleetWorld.step(3); vState.keys = {{}}; return Math.hypot(vState.player.x, vState.player.z); }}""")
+        assert door > G + 1, (door, G)
+        page.evaluate("() => { var a = vState.agents.get('asks'); vState.player.x = 0; vState.player.z = 0; vState.player.yaw = Math.atan2(-a.x, -a.z); }")
+        page.evaluate("() => FleetWorld.hold(false)")
+        page.keyboard.down("KeyW")
+        assert _until_near(page, "asks") == "asks"
+        page.keyboard.up("KeyW")
+        assert "T or X" in page.text_content("#wprompt")
+        page.keyboard.press("KeyE")
+        page.wait_for_function("() => !document.getElementById('wpanel').hidden")
+        assert page.text_content("#wtake").strip() == "take over its screen"
+        with page.expect_navigation():
+            page.click("#wtake")
+        assert "/chat" in page.url and page.url.endswith("#asks"), page.url
         assert errors == [], errors
     finally:
         _stop(server)

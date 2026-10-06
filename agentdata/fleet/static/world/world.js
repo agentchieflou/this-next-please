@@ -27,7 +27,8 @@ var V_LAMPS = 8;
 var V_CAP = 64;
 var V_FACE = 6;
 var V_STROLL = 1.2;
-var V_SEAT = 0.07;
+var V_DESK = 1.75;
+var V_SEAT = 0.04;
 var V_SKIN = ["#3b2219", "#5c3a26", "#7b4a2d", "#9c6643", "#b98058", "#d39d74", "#e8bd98", "#f5d9c2"];
 var V_LEGS = ["#1f2124", "#2e3450", "#3a3f46", "#4a3b2c", "#22303f", "#6b7078", "#2b2d33"];
 var V_HAIR = ["#1c1a22", "#2b1d16", "#3b2a20", "#6b4528", "#a5512b", "#c9c6c2", "#d7b26a"];
@@ -51,7 +52,7 @@ var V_STRIDE = 3.4;
  * @property {number} s
  */
 
-/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, calmFrom: number, rose: boolean, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, persons: number, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object, trees: Object, cars: Object}, dome: any, scans: Object, woods: Object, fleet: Object}} */
+/** @type {{T: any, renderer: any, scene: any, camera: any, parts: Object<string, any>, mats: Object<string, any>, lights: Object<string, any>, agents: Map<string, Agent>, rows: Array<Object>, approvals: Array<Object>, player: {x: number, z: number, yaw: number, pitch: number}, keys: Object<string, boolean>, look: {dx: number, dy: number}, pad: Array<boolean>, padWas: Array<boolean>, padAxes: Array<number>, near: string, open: string, hour: number|null, daylight: number, held: boolean, time: number, last: number, frames: number, intervals: Array<number>, work: Array<number>, scale: number, maxScale: number, refresh: number, lastTune: number, calmFrom: number, rose: boolean, ready: boolean, why: string, record: Object, pmrem: any, hero: Object, avatar: Object, view: string, who: boolean, walk: number, speed: number, talk: number, rolled: number, turn: number, source: EventSource, cursors: Object<string, number>, timer: any, live: string, refreshes: number, reading: number, radius: number, repeat: number, edge: number, solids: Array<Array<number>>, tier: string, topTier: string, lib: Object, lamp: number, exposure: number, cityP: number, boxes: Array<Array<number>>, streetSolids: Array<Array<number>>, drawn: number, town: Object, persons: number, compiling: boolean, warming: boolean, warm: Object, assets: {tex: Object, sky: Object, props: Object, trees: Object, cars: Object, office: Object}, dome: any, scans: Object, woods: Object, fleet: Object, kit: Object, desks: Object, wall: Array<number>, inner: Array<Array<number>>, deskSolids: Array<Array<number>>}} */
 var vState = {
   T: null, renderer: null, scene: null, camera: null, parts: {}, mats: {}, lights: {},
   agents: new Map(), rows: [], approvals: [],
@@ -62,7 +63,7 @@ var vState = {
   hero: null, avatar: null, view: "third", who: false, walk: 0, speed: 0, talk: 0, rolled: 0, turn: 0,
   source: null, cursors: {}, timer: null, live: "", refreshes: 0, reading: 0, radius: 8, repeat: 0, edge: 0, solids: [],
   tier: "low", topTier: "low", lib: null, lamp: 0, exposure: 1, cityP: -1, boxes: [], streetSolids: [], drawn: 0, town: null, persons: 0, compiling: true, warming: false, warm: null,
-  assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}, woods: {}, fleet: {}
+  assets: { tex: {}, sky: {}, props: {} }, dome: null, scans: {}, woods: {}, fleet: {}, kit: {}, desks: null, wall: null, inner: [], deskSolids: []
 };
 
 attr(document.getElementById("todesk"), "href", pageUrl("/"));
@@ -131,17 +132,17 @@ function vRain(T) {
   g.setAttribute("position", new T.BufferAttribute(pos, 3));
   g.setAttribute("aDrop", new T.BufferAttribute(drop, 4));
   var mat = new T.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() },
+    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uRoof: { value: new T.Vector4() },
                 uAlpha: { value: 0.35 }, uSpeed: { value: 14 }, uNight: { value: 0 },
                 uWkP: { value: WorldKit.L.pos }, uWkC: { value: WorldKit.L.col } },
     defines: { WK_N: WorldKit.L.n },
-    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; uniform vec4 uWkP[WK_N]; uniform vec3 uWkC[WK_N];"
+    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform float uSpeed; uniform vec4 uWkP[WK_N]; uniform vec3 uWkC[WK_N]; uniform vec4 uRoof;"
       + " uniform float uNight; attribute vec4 aDrop; varying float vA; varying vec3 vLit;"
       + " void main() { float box = 44.0; float high = 22.0;"
       + " vec2 xz = uCam.xz + (fract(aDrop.xz - uCam.xz / box) - 0.5) * box;"
       + " float y = uCam.y - 6.0 + fract(aDrop.y - uTime * uSpeed / high) * high;"
       + " vec3 p = vec3(xz.x + aDrop.w * 0.08, y - aDrop.w * 0.55, xz.y + aDrop.w * 0.03);"
-      + " vec4 mv = modelViewMatrix * vec4(p, 1.0); vA = (1.0 - smoothstep(6.0, 22.0, -mv.z)) * (0.4 + 0.6 * aDrop.w);"
+      + " vec4 mv = modelViewMatrix * vec4(p, 1.0); vA = (1.0 - smoothstep(6.0, 22.0, -mv.z)) * (0.4 + 0.6 * aDrop.w) * max(step(uRoof.z, length(p.xz - uRoof.xy)), step(uRoof.w, p.y));"
       + " vLit = vec3(0.0); for (int i = 0; i < WK_N; i++) { float r = uWkP[i].w * 0.42; float w = 1.0 - smoothstep(0.0, r, distance(p, uWkP[i].xyz));"
       + " vLit += uWkC[i] * w * w * 0.028; } gl_Position = projectionMatrix * mv; }",
     fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA; varying vec3 vLit;"
@@ -164,12 +165,12 @@ function vSplash(T) {
   }
   g.setAttribute("aSeed", new T.InstancedBufferAttribute(seed, 3));
   var mat = new T.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uAlpha: { value: 0.32 } },
-    vertexShader: "uniform float uTime; uniform vec3 uCam; attribute vec3 aSeed; varying float vA;"
+    uniforms: { uTime: { value: 0 }, uCam: { value: new T.Vector3() }, uColor: { value: new T.Color() }, uAlpha: { value: 0.32 }, uRoof: { value: new T.Vector4() } },
+    vertexShader: "uniform float uTime; uniform vec3 uCam; uniform vec4 uRoof; attribute vec3 aSeed; varying float vA;"
       + " void main() { float box = 16.0; float t = fract(uTime * 1.6 + aSeed.z); float cycle = floor(uTime * 1.6 + aSeed.z);"
       + " vec2 jitter = fract(aSeed.xy + cycle * vec2(0.618, 0.414));"
       + " vec2 xz = uCam.xz + (fract(jitter - uCam.xz / box) - 0.5) * box;"
-      + " vec3 p = position * (0.25 + 1.5 * t) + vec3(xz.x, 0.03, xz.y); vA = (1.0 - t) * (1.0 - t);"
+      + " vec3 p = position * (0.25 + 1.5 * t) + vec3(xz.x, 0.03, xz.y); vA = (1.0 - t) * (1.0 - t) * step(uRoof.z, length(xz - uRoof.xy));"
       + " gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }",
     fragmentShader: "uniform vec3 uColor; uniform float uAlpha; varying float vA;"
       + " void main() { gl_FragColor = vec4(uColor, uAlpha * vA); }",
@@ -203,18 +204,23 @@ function vPlaza(edge) {
   var T = vState.T, p = vState.parts;
   if (vState.edge === edge) return;
   vState.edge = edge;
-  [p.props, p.glass, p.leaves].forEach(function (m) {
+  [p.props, p.glass, p.leaves, p.panes, p.floor].forEach(function (m) {
     if (!m) return;
     vState.scene.remove(m);
     if (m.isMesh) m.geometry.dispose();
     if (m !== p.leaves) m.material.dispose();
   });
-  var made = WorldScenery.plaza(T, edge, vState.lib, vState.woods);
+  var made = WorldScenery.plaza(T, edge, vState.lib, vState.woods, vState.kit);
   p.props = made.props;
   p.glass = made.glass;
   p.leaves = made.leaves;
-  vState.scene.add(made.props, made.glass, made.leaves);
+  p.panes = made.panes;
+  p.floor = made.floor;
+  vState.scene.add(made.props, made.glass, made.leaves, made.panes, made.floor);
   vState.solids = made.solids;
+  vState.wall = made.wall;
+  vState.inner = made.inner;
+  [p.rain, p.splash].forEach(function (m) { if (m) m.material.uniforms.uRoof.value.set(0, 0, made.wall[2], made.wall[3]); });
   WorldScenery.placeGlows(p.glows, T, made.lamps);
   WorldKit.forget("plaza");
   made.lamps.forEach(function (l) { WorldKit.light([l[0], l[1] - 0.25, l[2]], [16, 11.5, 6.8], 17, "plaza"); });
@@ -237,30 +243,32 @@ function vPlaza(edge) {
     p.agents = WorldPeople.agents(T, V_CAP);
     (p.agents || []).forEach(function (m) { vState.scene.add(m); });
   }
-  vState.solids = vState.solids.concat(vState.streetSolids || []);
+  vState.solids = vState.solids.concat(vState.streetSolids || [], vState.deskSolids || []);
   vWeather();
 }
 
 function vLayout() {
   var names = vState.rows.map(function (r) { return String(r.repo); }).sort();
-  var n = names.length;
-  var radius = Math.max(7, n * 1.5);
-  vState.radius = radius;
+  var n = names.length, door = WorldScenery.DOOR;
+  var R = Math.max(7, (V_DESK * n + 4 * door) / (Math.PI * 2));
+  var half = (door / 2 + 0.5) / R, arc = Math.PI / 2 - 2 * half;
+  vState.radius = R;
   var seen = {};
   names.forEach(function (repo, i) {
     seen[repo] = true;
     var row = vRow(repo);
-    var state = vStateOf(row);
-    var needs = !!(row && row.needs_human);
-    var a = n === 1 ? -Math.PI / 2 : i / n * Math.PI * 2 - Math.PI / 2;
-    var x = Math.cos(a) * radius, z = Math.sin(a) * radius;
+    var q = i % 4, per = Math.ceil((n - q) / 4);
+    var a = q * Math.PI / 2 + half + (Math.floor(i / 4) + 0.5) / per * arc, cx = Math.cos(a), cz = Math.sin(a);
+    var yaw = Math.atan2(-cx, -cz), b = a + 1.05 / R;
     var ag = vState.agents.get(repo);
     if (!ag) {
-      ag = { repo: repo, i: i, x: x, z: z, yaw: Math.atan2(-x, -z), state: state, needs: needs, hx: x, hz: z, mode: "stand", my: 0, s: -1 };
+      ag = { repo: repo, i: i, x: cx * (R - 0.64), z: cz * (R - 0.64), yaw: yaw, state: "", needs: false, hx: 0, hz: 0, sx: 0, sz: 0, mode: "stand", my: yaw, s: -1, desk: null };
       vState.agents.set(repo, ag);
     }
-    ag.i = i; ag.hx = x; ag.hz = z; ag.yaw = Math.atan2(-x, -z); ag.state = state; ag.needs = needs;
-    if (!vState.parts.agents) { ag.x = x; ag.z = z; }
+    ag.i = i; ag.yaw = yaw; ag.state = vStateOf(row); ag.needs = !!(row && row.needs_human);
+    ag.hx = cx * (R - 0.64); ag.hz = cz * (R - 0.64);
+    ag.sx = Math.cos(b) * (R - 0.95); ag.sz = Math.sin(b) * (R - 0.95);
+    ag.desk = { x: cx * R, z: cz * R, yaw: yaw, tx: -cz, tz: cx };
   });
   vState.agents.forEach(function (ag, repo) {
     if (!seen[repo]) vState.agents.delete(repo);
@@ -273,7 +281,19 @@ function vLayout() {
 function vPlace() {
   vWalk(0);
   vBots(vState.time);
-  vPlaza(Math.round((vState.radius + 3.5) * 10) / 10);
+  vPlaza(Math.round((vState.radius + 2.6) * 10) / 10);
+  var list = Array.from(vState.agents.values()).slice(0, V_CAP);
+  vState.deskSolids = [];
+  list.forEach(function (ag) {
+    var d = ag.desk;
+    [-0.4, 0.4].forEach(function (k) { vState.deskSolids.push([d.x + d.tx * k, d.z + d.tz * k, 0.42]); });
+  });
+  if (vState.desks) WorldScenery.placeDesks(vState.desks, vState.T, list.map(function (ag) { return ag.desk; }));
+  WorldKit.forget("office");
+  if (vState.wall) {
+    var lit = vState.inner.concat(list.map(function (ag) { return [ag.desk.x * 0.93, WorldScenery.HIGH - 0.45, ag.desk.z * 0.93]; }));
+    lit.forEach(function (l) { WorldKit.light(l, [9, 8.4, 7.2], 6.5, "office"); });
+  }
 }
 
 /** @param {number} t */
@@ -287,44 +307,32 @@ function vBots(t) {
 /** @param {number} dt */
 function vWalk(dt) {
   if (!vState.parts.agents) return;
-  var P = vState.player, edge = vState.edge || 10, still = vReduced() || dt === 0;
-  var busy = Array.from(vState.agents.values()).filter(function (ag) { return !ag.needs && (ag.state === "running" || ag.state === "starting"); })
-    .sort(function (a, b) { return a.repo < b.repo ? -1 : 1; });
+  var P = vState.player, still = vReduced() || dt === 0, G = vState.wall ? vState.wall[0] : 10;
   vState.agents.forEach(function (ag) {
-    var k = busy.indexOf(ag), goal = [ag.hx, ag.hz], then = "stand", my = Math.atan2(ag.hx, ag.hz);
-    if (k >= 0 && k < 8) {
-      var b = k / 8 * Math.PI * 2;
-      goal = [Math.cos(b) * (edge + 0.95), Math.sin(b) * (edge + 0.95)];
-      then = "sit";
-      my = Math.atan2(Math.cos(b), Math.sin(b));
-    } else if (!ag.needs && ag.state === "done") {
-      var len = Math.hypot(ag.hx, ag.hz) || 1;
-      goal = [ag.hx / len * (edge + 5), ag.hz / len * (edge + 5)];
-      then = "gone";
-    } else if (!ag.needs && k < 0 && !still) {
-      var R = Math.max(3, edge - 1.4), a = Math.atan2(ag.z, ag.x) + 0.35;
-      goal = [Math.cos(a) * R, Math.sin(a) * R];
-      then = "walk";
+    var work = ag.state === "running" || ag.state === "starting", goal = [ag.hx, ag.hz], then = work ? "type" : "sit", my = ag.yaw;
+    if (ag.needs || vState.open === ag.repo) {
+      goal = [ag.sx, ag.sz]; then = "stand"; my = ag.yaw + Math.PI;
+    } else if (ag.state === "done") {
+      var da = Math.round(Math.atan2(ag.hz, ag.hx) / (Math.PI / 2)) * Math.PI / 2, th = Math.atan2(ag.z, ag.x) - da;
+      var lined = Math.abs(Math.atan2(Math.sin(th), Math.cos(th))) < 0.05 && Math.hypot(ag.x, ag.z) > vState.radius - 1.6;
+      goal = lined ? [Math.cos(da) * (G + 3), Math.sin(da) * (G + 3)] : [Math.cos(da) * (vState.radius - 1.5), Math.sin(da) * (vState.radius - 1.5)];
+      then = lined || still ? "gone" : "walk";
+      if (still) goal = [Math.cos(da) * (G + 3), Math.sin(da) * (G + 3)];
     }
     if (still) {
-      if (vReduced() || ag.s < 0) { ag.x = goal[0]; ag.z = goal[1]; ag.mode = then === "walk" ? "stand" : then; ag.my = my; ag.s = 0; }
+      if (vReduced() || ag.s < 0) { ag.x = goal[0]; ag.z = goal[1]; ag.mode = then; ag.my = my; ag.s = 0; }
       return;
     }
-    var d = Math.hypot(goal[0] - ag.x, goal[1] - ag.z);
     if (ag.mode === "gone" && then === "gone") return;
-    if (Math.hypot(P.x - ag.x, P.z - ag.z) < V_FACE && ag.mode !== "sit") {
-      ag.mode = "stand";
-    } else if (d > 0.05) {
-      var r = Math.hypot(ag.x, ag.z), th = Math.atan2(ag.z, ag.x), gr = Math.hypot(goal[0], goal[1]);
-      var dth = ((Math.atan2(goal[1], goal[0]) - th) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-      var step = V_STROLL * dt, x0 = ag.x, z0 = ag.z;
-      if (Math.abs(gr - r) > 0.02) r += Math.sign(gr - r) * Math.min(Math.abs(gr - r), step);
-      else th += Math.sign(dth) * Math.min(Math.abs(dth), step / Math.max(r, 1));
-      ag.x = Math.cos(th) * r; ag.z = Math.sin(th) * r;
-      ag.mode = "walk"; ag.my = Math.atan2(-(ag.x - x0), -(ag.z - z0));
+    var dx = goal[0] - ag.x, dz = goal[1] - ag.z, d = Math.hypot(dx, dz);
+    if (d > 0.05) {
+      var step = Math.min(d, V_STROLL * dt);
+      ag.x += dx / d * step; ag.z += dz / d * step;
+      ag.mode = "walk"; ag.my = Math.atan2(-dx, -dz);
     } else {
-      ag.mode = then; ag.my = my;
+      ag.mode = then === "walk" ? "stand" : then; ag.my = my;
     }
+    if (ag.mode === "stand" && Math.hypot(P.x - ag.x, P.z - ag.z) < V_FACE) ag.my = Math.atan2(-(P.x - ag.x), -(P.z - ag.z));
   });
 }
 
@@ -334,13 +342,12 @@ function vPersons(list) {
   return list.map(function (ag) {
     var h = 0;
     for (var i = 0; i < ag.repo.length; i++) h = (h * 31 + ag.repo.charCodeAt(i)) >>> 0;
-    var dx = P.x - ag.x, dz = P.z - ag.z, near = dx * dx + dz * dz < V_FACE * V_FACE;
-    var yaw = near && ag.mode === "stand" ? Math.atan2(-dx, -dz) : ag.my;
-    var m = new T.Matrix4().compose(new T.Vector3(ag.x, ag.mode === "sit" ? -V_SEAT : 0, ag.z), new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), yaw), new T.Vector3(1, 1, 1));
+    var seated = ag.mode === "sit" || ag.mode === "type";
+    var m = new T.Matrix4().compose(new T.Vector3(ag.x, seated ? V_SEAT : 0, ag.z), new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), ag.my), new T.Vector3(1, 1, 1));
     var tints = [V_SKIN[h % V_SKIN.length], null, V_LEGS[(h >>> 4) % V_LEGS.length], V_HAIR[(h >>> 8) % V_HAIR.length]].map(function (c) {
       return c ? new T.Color(c).multiplyScalar(2) : new T.Color().setHSL((h % 360) / 360, 0.42, 0.42).multiplyScalar(2);
     });
-    var motion = ag.mode === "walk" ? 4 : ag.mode === "sit" ? 3 : vState.open === ag.repo ? 2 : 1;
+    var motion = ag.mode === "walk" ? 4 : ag.mode === "type" ? 5 : ag.mode === "sit" ? 3 : vState.open === ag.repo ? 2 : 1;
     return { key: ag.repo, m: m, motion: motion, phase: (h % 997) / 997, rate: V_STROLL / 1.5, tints: tints };
   });
 }
@@ -422,6 +429,9 @@ function vBuild() {
   vState.scans = WorldAssets.scans(T, vState.assets.props, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
   vState.woods = vState.tier === "low" ? {} : WorldAssets.scans(T, vState.assets.trees, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
   vState.fleet = vState.tier === "low" ? {} : WorldAssets.scans(T, vState.assets.cars, 1, true);
+  vState.kit = WorldAssets.scans(T, vState.assets.office, 1, true);
+  vState.desks = WorldScenery.desks(T, vState.kit, vState.lib, V_CAP);
+  if (vState.desks) vState.desks.meshes.forEach(function (m) { scene.add(m); });
   vState.lights.hemi = new T.HemisphereLight(0xc4ccd4, 0x20262b, 1);
   vState.lights.sun = new T.DirectionalLight(0xdfe6ec, 0.5);
   vState.lights.sun.position.set(-30, 60, 20);
@@ -521,14 +531,19 @@ function vStep(dt) {
     var dl = P.x - x0, dr = x1 - P.x, dn = P.z - z0, df = z1 - P.z, m = Math.min(dl, dr, dn, df);
     if (m === dl) P.x = x0; else if (m === dr) P.x = x1; else if (m === dn) P.z = z0; else P.z = z1;
   });
-  var lim = WorldCity.LIMIT, r = Math.hypot(P.x, P.z);
-  if (r > lim) { P.x *= lim / r; P.z *= lim / r; }
+  var lim = WorldCity.LIMIT, r = Math.hypot(P.x, P.z), W = vState.wall;
+  if (r > lim) { P.x *= lim / r; P.z *= lim / r; r = lim; }
+  if (W && !WorldScenery.opening(Math.atan2(P.z, P.x), W[1] - 0.45 / W[0]) && Math.abs(r - W[0]) < 0.35 && r > 0) {
+    var to = Math.hypot(x0, z0) < W[0] ? W[0] - 0.35 : W[0] + 0.35;
+    P.x *= to / r; P.z *= to / r;
+  }
   var went = Math.hypot(P.x - x0, P.z - z0);
   vState.walk += went * V_STRIDE * (fwd < 0 ? -1 : 1);
   vState.rolled += went * (fwd < 0 ? -1 : 1);
   vState.speed = dt > 0 ? went / dt / V_WALK : 0;
   vNearest();
   if (vPressed(0) && vState.near) vTalk(vState.near);
+  if (vPressed(2) && vState.near) vTakeOver(vState.near);
 }
 
 /** @param {{x: number, z: number, yaw: number, pitch: number}} P @param {any} cam */
@@ -540,6 +555,11 @@ function vCamera(P, cam) {
   } else if (vState.view === "third" && vState.hero) {
     var up = Math.sin(P.pitch), d = 3.4, side = 1.3 * vState.talk;
     cam.position.set(P.x - fx * d - fz * side, Math.max(0.45, 2.0 - up * d), P.z - fz * d + fx * side);
+    var W = vState.wall;
+    if (W && Math.hypot(P.x, P.z) < W[0]) {
+      for (var k = 0; k < 8 && Math.hypot(cam.position.x, cam.position.z) > W[0] - 0.4; k++) cam.position.lerp(new vState.T.Vector3(P.x, cam.position.y, P.z), 0.25);
+      cam.position.y = Math.min(cam.position.y, W[3] - 0.35);
+    }
     cam.lookAt(P.x + fx * 2.6, 1.35 + up * 2.6, P.z + fz * 2.6);
   } else {
     cam.position.set(P.x, V_EYE, P.z);
@@ -839,7 +859,7 @@ function drawHud() {
   var near = vState.near && vState.agents.get(vState.near);
   var prompt = document.getElementById("wprompt");
   hide(prompt, !near || !!vState.open || vState.who);
-  if (near) text(prompt, "E or A — talk to " + near.repo + (near.needs ? " (it needs you)" : ""));
+  if (near) text(prompt, "E or A — talk to " + near.repo + (near.needs ? " (it needs you)" : "") + " · T or X — take over its screen");
   var target = null, dist = Infinity;
   vState.agents.forEach(function (ag) {
     if (!ag.needs || ag.repo === vState.near) return;
@@ -871,6 +891,11 @@ function drawList() {
   });
   var n = vState.rows.filter(function (r) { return r.needs_human; }).length;
   text(document.getElementById("wneed"), n ? n + " need you — walk to the beacon" : "");
+  if (vState.desks) WorldScenery.screens(vState.desks, Array.from(vState.agents.values()).slice(0, V_CAP).map(function (ag) {
+    var row = vRow(ag.repo) || {};
+    return { name: ag.repo, state: (ag.needs ? "needs you" : ag.state).replace(/_/g, " "), says: row.why || "", last: row.last_said || "", needs: ag.needs,
+             color: "#" + (V_STATE[ag.needs ? "needs_human" : ag.state] || 0x8c99a6).toString(16).padStart(6, "0") };
+  }));
 }
 
 /** @param {string} repo */
@@ -886,6 +911,11 @@ function vTalk(repo) {
   var first = items.filter(function (el) { return el.classList.contains("ask-choice"); })[0]
     || items.filter(function (el) { return el.id === "wapprove" || el.id === "wmessage"; })[0];
   if (first) first.focus();
+}
+
+/** @param {string} repo */
+function vTakeOver(repo) {
+  if (repo) location.href = pageUrl("/chat") + "#" + encodeURIComponent(repo);
 }
 
 function vStepBack() {
@@ -953,6 +983,7 @@ function vFocusables() {
 /** @param {number} dt */
 function vPanelPad(dt) {
   if (vPressed(1)) { vStepBack(); return; }
+  if (vPressed(2)) { vTakeOver(vState.open); return; }
   var stick = vDead(vState.padAxes[1] || 0);
   var dir = vPressed(13) || vPressed(15) ? 1 : vPressed(12) || vPressed(14) ? -1 : 0;
   vState.repeat = Math.max(0, vState.repeat - dt);
@@ -982,6 +1013,7 @@ function vPost(what, body) {
 }
 
 document.getElementById("wclose").addEventListener("click", vStepBack);
+document.getElementById("wtake").addEventListener("click", function () { vTakeOver(vState.open); });
 document.getElementById("wwhobtn").addEventListener("click", function () { vWho(true); });
 document.getElementById("wwhodone").addEventListener("click", function () { vWho(false); });
 document.getElementById("wapprove").addEventListener("click", function () {
@@ -1024,6 +1056,7 @@ document.addEventListener("keydown", function (e) {
   if (e.code === "KeyC") { vWho(true); e.preventDefault(); return; }
   if (e.code === "KeyV") { vView(vState.view === "third" ? "first" : "third"); return; }
   if ((e.code === "KeyE" || e.key === "Enter") && vState.near) { vTalk(vState.near); e.preventDefault(); return; }
+  if (e.code === "KeyT" && !typing && (vState.open || vState.near)) { vTakeOver(vState.open || vState.near); e.preventDefault(); return; }
   vState.keys[e.code] = true;
   if (/^Arrow/.test(e.code) || e.code === "Space") e.preventDefault();
 });
