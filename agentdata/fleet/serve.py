@@ -202,8 +202,24 @@ def ink_skins() -> list[str]:
 # says: the number that matters is what goes over the wire, not what sits on the disk.
 GZIP_FROM = 1024
 JSON_GZIP_FROM = 8 * 1024
+#: How many compressed (and, below, stripped) bodies are remembered before the memory is cleared and
+#: refilled. The world alone serves about fifty text files, and at 32 the cache was emptied on every
+#: world load, so three.js and every script were compressed again each time a page opened (2026-10-06,
+#: the operator: "We're aiming for ~200ms loads"). A few megabytes at most.
+GZIP_ENTRIES = 512
 _GZIPPED: dict[tuple, bytes] = {}
 _GZIP_LOCK = threading.Lock()
+
+
+def static_etag(stamp: os.stat_result) -> str:
+    """A static file's version, as its validator: when it was written and how long it is. The token
+    is in every asset's URL and is new on every run, so a cached copy never outlives the server that
+    served it; within a run the browser keeps each file and asks whether it changed (`_unchanged`),
+    which is a 304 of a few hundred bytes instead of the file -- the world alone is ten megabytes of
+    textures, models and scripts -- and lets the browser keep its compiled code for a script
+    (2026-10-06, the operator: "We're aiming for ~200ms loads"). Weak, because the bytes on the wire
+    are gzipped for one client and not for another."""
+    return f'W/"{stamp.st_mtime_ns:x}-{stamp.st_size:x}"'
 
 
 def gzip_for(body: bytes, key: tuple) -> bytes:
@@ -215,7 +231,7 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
     # mtime=0: the same bytes in, the same bytes out, so a test can compare two runs.
     packed = gzip.compress(body, 6, mtime=0)
     with _GZIP_LOCK:
-        if len(_GZIPPED) > 32:                # one entry per asset per token; a long-lived server
+        if len(_GZIPPED) > GZIP_ENTRIES:      # one entry per asset per token; a long-lived server
             _GZIPPED.clear()                  # that has been restyled all day still stays small
         _GZIPPED[key] = packed
     return packed
@@ -256,7 +272,7 @@ def static_body(name: str) -> bytes:
     with open(path, "rb") as f:
         body = strip_asset(name, f.read())
     with _STRIP_LOCK:
-        if len(_STRIPPED) > 64:               # one entry per file version; a server whose files
+        if len(_STRIPPED) > GZIP_ENTRIES:     # one entry per file version; a server whose files
             _STRIPPED.clear()                 # are edited all day still stays small
         _STRIPPED[key] = body
     return body
@@ -3476,7 +3492,9 @@ class Handler(BaseHTTPRequestHandler):
         return bool(self.token) and hmac.compare_digest(given, self.token)
 
     def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None,
-              cache_key: tuple | None = None) -> None:
+              cache_key: tuple | None = None, etag: str = "") -> None:
+        """One answer. Everything is `no-store` but a static file, which carries `etag` and is kept
+        by the browser and asked about again on every use (`no-cache`, `_static`)."""
         extra = dict(extra or {})
         if cache_key is not None and len(body) >= GZIP_FROM and \
                 "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
@@ -3491,11 +3509,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "no-cache" if etag else "no-store")
+        if etag:
+            self.send_header("ETag", etag)
         for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _unchanged(self, etag: str) -> bool:
+        """Answer 304 when the browser already holds this version of a static file (its
+        `If-None-Match` names `etag`), and say whether it did."""
+        asked = self.headers.get("If-None-Match") or ""
+        if not etag or not (asked.strip() == "*" or etag in [t.strip() for t in asked.split(",")]):
+            return False
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Vary", "Accept-Encoding")
+        self.end_headers()
+        return True
 
     def _json(self, payload: dict, code: int = 200, *, gzip_ok: bool = False) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -3871,6 +3904,9 @@ class Handler(BaseHTTPRequestHandler):
         if not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED):
             return self._refuse(404, f"no file {name}")
         stamp = os.stat(path)
+        tag = static_etag(stamp)
+        if self._unchanged(tag):
+            return None
         body = static_body(os.path.relpath(path, STATIC))
         # Decided from the *base* type, before the charset is appended -- and not from what this
         # machine happens to call a `.js` file. `mimetypes` reads the registry on Windows, where
@@ -3884,7 +3920,8 @@ class Handler(BaseHTTPRequestHandler):
         if base == "text/css":
             body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
         self._send(200, body, ctype,
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None)
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None,
+                   etag=tag)
 
     def _sse(self, query: dict) -> None:
         self.send_response(200)

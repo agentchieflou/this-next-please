@@ -1189,3 +1189,59 @@ def test_a_snapshot_reads_the_registry_once(fleet_home, tmp_path, monkeypatch): 
     assert rows == [] or rows[0]["fresh"]["starts"]["ticket"] == "RDSD-1", rows[0]["fresh"]
     again = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
     assert again and again[0]["fresh"]["starts"]["ticket"] == "RDSD-1", again
+
+
+def test_a_static_file_is_kept_and_asked_about_again_while_pages_and_answers_are_never_kept(fleet_home, tmp_path):
+    """The operator, 2026-10-06: "We're aiming for ~200ms loads. Right now we're at several seconds."
+    Every answer was `no-store`, so each page load fetched every file again -- the world alone ten
+    megabytes -- and the browser could keep no compiled script. A static file now carries its
+    version (`ETag`) and `no-cache`: the browser keeps it and asks on each use, and an unchanged file
+    is a 304 with no body. A validator for another version gets the file. Pages and the API stay
+    `no-store`: they change from one call to the next."""
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+
+    def get(route, **headers):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", f"{route}?t={token}", headers=headers)
+        answer = conn.getresponse()
+        body = answer.read()
+        conn.close()
+        return answer.status, answer.headers, body
+
+    try:
+        for route in ("/static/common.js", "/static/app.css", "/static/vendor/three/three.module.min.js"):
+            status, headers, body = get(route, **{"Accept-Encoding": "gzip"})
+            tag = headers.get("ETag") or ""
+            assert status == 200 and body and re.fullmatch(r'W/"[0-9a-f]+-[0-9a-f]+"', tag), (route, tag)
+            assert headers.get("Cache-Control") == "no-cache", route
+            status, headers, body = get(route, **{"Accept-Encoding": "gzip", "If-None-Match": tag})
+            assert (status, body, headers.get("ETag")) == (304, b"", tag), route
+            status, _, body = get(route, **{"If-None-Match": 'W/"0-0"'})
+            assert status == 200 and body, route
+        for route in ("/", "/chat", "/api/fleet"):
+            status, headers, _ = get(route)
+            assert status == 200 and headers.get("Cache-Control") == "no-store" and not headers.get("ETag"), route
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+    f = tmp_path / "a.js"
+    f.write_text("var a = 1;\n", encoding="utf-8")
+    before = S.static_etag(os.stat(f))
+    f.write_text("var a = 22;\n", encoding="utf-8")
+    st = os.stat(f)
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+    assert S.static_etag(os.stat(f)) != before, "a file that changed is a new version"
+
+
+def test_the_compressed_files_outlast_a_world_load():
+    """The world serves about fifty text files; at 32 the memory of compressed bodies was emptied on
+    every world load and three.js was compressed again each time a page opened."""
+    from agentdata.fleet import serve as S2
+
+    texts = [n for n in S2.ASSETS if n.endswith((".js", ".css"))] + ["vendor/three/three.module.min.js"]
+    assert S2.GZIP_ENTRIES >= 4 * len(texts), (S2.GZIP_ENTRIES, len(texts))

@@ -604,10 +604,14 @@ def append(name: str, events: list[dict]) -> int:
         return _append(name, events)
 
 
-def _append(name: str, events: list[dict]) -> int:
-    """The write itself. Callers hold the lock; `refresh` holds it across its whole cycle."""
-    cursor = read_cursor(name)
+def _append(name: str, events: list[dict], cursor: dict | None = None) -> int:
+    """The write itself. Callers hold the lock; `refresh` holds it across its whole cycle, and hands
+    over the cursor it has just written, which is the one on disk. Nothing to append writes nothing:
+    every page's poll refreshes every agent, and most polls find nothing new."""
+    cursor = read_cursor(name) if cursor is None else cursor
     seq = int(cursor.get("seq", 0))
+    if not events:
+        return seq
     os.makedirs(agent_dir(name), exist_ok=True)
     with open(normalized_path(name), "a", encoding="utf-8", newline="\n") as f:
         for ev in events:
@@ -687,6 +691,7 @@ def console_path(name: str) -> str:
 def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str,
              console: str = "") -> list[dict]:
     cursor = read_cursor(name)
+    was = json.dumps(cursor, sort_keys=True)
     fresh: list[dict] = []
     ticket = (repo_state or {}).get("active_ticket", "") or ""
 
@@ -736,6 +741,9 @@ def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str,
                 seen.add(path)
         cursor["friction"] = sorted(seen)
 
-    write_cursor(name, cursor)
-    _append(name, fresh)          # `_append`, not `append`: the lock is already held above
+    # Written only when it moved: a poll that found nothing new leaves the file as it was, rather
+    # than replacing it with the same bytes once per agent per page per poll.
+    if json.dumps(cursor, sort_keys=True) != was:
+        write_cursor(name, cursor)
+    _append(name, fresh, cursor)  # `_append`, not `append`: the lock is already held above
     return fresh
