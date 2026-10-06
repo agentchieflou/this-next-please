@@ -19,6 +19,16 @@ before they were committed (see that file). They come from the machine the page 
 `q()` with the token like every other file. Nothing is fetched from the internet. Poly Haven has no
 people, so the characters are still the page's own.
 
+The cars are made here the same way: `static/world/cars/cars.glb`, lofted by `tools/world/cars/` from
+the profiles in it, after no maker's design. The street trees are a file too, but made here: `static/world/trees/trees.glb`, grown by
+`tools/world/trees/` (Blender, then Node) from nothing but its own numbers, every leaf, twig, bark and
+branch, so it is the repository's own and under its licence (that folder's `LICENSE`). The operator
+asked for the environment's assets to be built with Unreal Engine and Twinmotion (2026-10-05);
+Twinmotion's library (its plants, people, cars, props and the Megascans inside it) may be used only
+to visualise inside Unreal Engine and Twinmotion (Twinmotion EULA, section 1.2), and so may Unreal
+Engine's own content, so none of it can be drawn by this page, even from the operator's own disk. The
+trees are grown instead.
+
 A classic script after `world/kit.js` (its `lit`). It defines one global, `WorldAssets`.
 
 ### `var TEX`
@@ -58,8 +68,10 @@ normalised integers made floats, as `KHR_mesh_quantization` writes them), and im
 
 ### `function glb`
 
-A model: binary glTF as written for this page (one mesh, a material with colour, normal and
-ambient-occlusion/roughness/metalness textures, WebP images inside the file). Attributes are read as
+A model: binary glTF as written for this page (a material with colour, normal and
+ambient-occlusion/roughness/metalness textures, WebP images inside the file). A prop's primitives come
+back as one list; the trees' file (`named`) by the mesh each belongs to, `<kind>_lod<n>`, each with its
+material's name and its vertex colours (the trees' occlusion, baked). Attributes are read as
 they lie, or copied out when a buffer interleaves them. The images are decoded with
 `createImageBitmap`, which does not go through a URL (the CSP allows no `blob:` image), unflipped as
 glTF lays them out, and without colour conversion: a normal map is data, not a picture.
@@ -80,8 +92,8 @@ is no set: the world keeps its procedural people rather than half a crowd.
 ### `function load`
 
 Everything at once, in parallel; whatever fails is left out, and the world uses its own procedural
-version of that thing (`WorldBake`'s materials, the sky shader, the street's hydrants and bins). The
-promise never rejects.
+version of that thing (`WorldBake`'s materials, the sky shader, the street's hydrants and bins, its
+trees). The promise never rejects.
 
 ### `function texture`
 
@@ -108,3 +120,9 @@ Each prop's geometry and material, made once. The material is `MeshStandardMater
 colour, normal and roughness/metalness maps, through the kit's lights and rain (`WorldKit.lit`), so a
 hydrant under a sodium lamp turns orange and darkens in the rain. The scans' red channel is not used
 as occlusion: several assets leave it empty, which would black out all indirect light.
+
+The cars go through it `bare`: geometry only (no UVs, no maps), for `world/street.js` to paint with
+its own materials. The trees go through it too. Theirs have vertex colours (occlusion baked from the crown, darker inside
+and under it) and no metal, and their materials are shared by name across every tree: one bark a
+species, tiled (its texture repeats round and up the trunk), and one material for all the leaves,
+`WorldKit.crown`'s.

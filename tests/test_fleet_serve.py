@@ -764,7 +764,10 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
 #: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
-WORLD_BUDGET = 80 * 1024
+#: The realistic people, their agents, the grown trees and cars took the world to 79.6 KiB gzipped, and
+#: 81.0 KiB where a checkout has CRLF line endings (Windows), which is what the page is served from
+#: there: the budget moved to 88 KiB under the rule above.
+WORLD_BUDGET = 88 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -887,6 +890,51 @@ def test_without_the_operators_people_the_stand_in_is_served(running, tmp_path, 
     assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
     with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
         assert r.read() != b"not the stand-in"
+
+
+#: What `static/world/trees/` may weigh on the disk, and so in the wheel: about 1.2 MiB today (five
+#: trees at two levels of detail, two barks and one atlas of leafy twigs). `tools/world/trees/` remakes
+#: the file from nothing but its own numbers; raise this with the operator's rule above (`WORLD_BUDGET`).
+TREES_BUDGET = 2 * 1024 * 1024
+
+
+def test_the_worlds_trees_are_the_file_it_loads_made_here_and_bounded():
+    """`static/world/trees/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/trees/`, from no third-party asset, under the repository's own licence;
+    and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "trees")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'TREES = "/static/world/trees/"' in src and 'TREES + "trees.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "trees.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/trees/", "no third-party asset", "MIT", "trees.glb"):
+        assert words in licence, words
+    for tool in ("trees.py", "trees.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "trees", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < TREES_BUDGET, size
+
+
+#: What `static/world/cars/` may weigh: about 0.4 MiB today (four cars, near and far, no textures).
+#: `tools/world/cars/` remakes the file from its own profiles; raise this with the operator's rule above.
+CARS_BUDGET = 1024 * 1024
+
+
+def test_the_worlds_cars_are_the_file_it_loads_made_here_and_bounded():
+    """`static/world/cars/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/cars/`, from no third-party asset and after no maker's design, under the
+    repository's own licence; and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "cars")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'CARS = "/static/world/cars/"' in src and 'CARS + "cars.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "cars.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/cars/", "no third-party asset", "maker's design", "MIT", "cars.glb"):
+        assert words in licence, words
+    for tool in ("cars.py", "cars.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "cars", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < CARS_BUDGET, size
 
 
 def test_the_page_and_its_assets_are_served_compressed():

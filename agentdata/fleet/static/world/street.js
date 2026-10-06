@@ -11,6 +11,9 @@ var WorldStreet = (function () {
   var LEGS = ["#1f2124", "#2e3450", "#3a3f46", "#4a3b2c", "#22303f", "#6b7078", "#2b2d33"];
   var HAIRS = ["#1c1a22", "#2b1d16", "#3b2a20", "#6b4528", "#a5512b", "#c9c6c2", "#d7b26a"];
   var GRIP = [0.18, 1.42, 0.18];
+  var BARK = "float wkb = wsN( vec2( vUv.x * 18.0, vUv.y * 2.5 ) ) * 0.6 + wsN( vec2( vUv.x * 43.0, vUv.y * 7.0 ) ) * 0.4; diffuseColor.rgb *= 0.58 + 0.62 * wkb;";
+  var SODIUM = [[1.0, 0.72, 0.42], [1.0, 0.578, 0.255]];
+  var LED = [[0.78, 0.88, 1.0], [0.62, 0.74, 1.0]];
   var REACH = 200;
   var M = { T: null, mats: null, group: null, cars: null, people: null, loops: [], walkers: [], signals: null, P: -1, light: [], scans: {}, pr: {}, reach: 110 };
 
@@ -142,18 +145,24 @@ var WorldStreet = (function () {
     };
     var furn = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 });
     var shelter = new T.MeshStandardMaterial({ color: 0x9fb3c0, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.25, depthWrite: false });
+    var bark = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+    bark.defines.USE_UV = "";
     var cone = new T.ShaderMaterial({
       uniforms: { uNight: u.night },
-      vertexShader: "varying float vH; varying float vF; void main() { vH = uv.y; vec4 wp = modelMatrix * instanceMatrix * vec4( position, 1.0 );"
+      vertexShader: "varying float vH; varying float vF; varying vec3 vC; void main() { vH = uv.y; vec4 wp = modelMatrix * instanceMatrix * vec4( position, 1.0 );"
         + " vec3 n = normalize( mat3( modelMatrix * instanceMatrix ) * normal ); vF = abs( dot( n, normalize( cameraPosition - wp.xyz ) ) );"
+        + " vC = vec3( 1.0, 0.72, 0.42 );\n#ifdef USE_INSTANCING_COLOR\nvC = instanceColor;\n#endif\n"
         + " gl_Position = projectionMatrix * viewMatrix * wp; }",
-      fragmentShader: "uniform float uNight; varying float vH; varying float vF;"
-        + " void main() { float a = pow( clamp( vH, 0.0, 1.0 ), 1.6 ) * pow( clamp( vF, 0.0, 1.0 ), 1.5 ) * uNight * 0.05; gl_FragColor = vec4( vec3( 1.0, 0.72, 0.42 ) * a, 1.0 ); }",
+      fragmentShader: "uniform float uNight; varying float vH; varying float vF; varying vec3 vC;"
+        + " void main() { float a = pow( clamp( vH, 0.0, 1.0 ), 1.6 ) * pow( clamp( vF, 0.0, 1.0 ), 1.5 ) * uNight * 0.05; gl_FragColor = vec4( vC * a, 1.0 ); }",
       transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide, fog: false
     });
     return {
       paint: WorldKit.lit(paint, "paint", { porous: 0 }), people: WorldKit.lit(people, "people", { porous: 1 }),
       brolly: WorldKit.lit(brolly, "brolly", { porous: 0 }), leaves: WorldKit.foliage(T, lib),
+      bark: WorldKit.lit(bark, "bark", { porous: 0.6, extra: function (/** @type {any} */ sh) {
+        sh.fragmentShader = WorldKit.NOISE + sh.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n" + BARK);
+      } }),
       furn: WorldKit.lit(furn, "furn", { porous: 0.5 }), glass: WorldKit.lit(new T.MeshStandardMaterial({ color: 0x0a0d10, roughness: 0.04, metalness: 0.2 }), "carglass", { porous: 0 }),
       trim: WorldKit.lit(new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.4 }), "cartrim", { porous: 0.2 }),
       lamps: lamps, sig: sig, shelter: shelter, cone: cone
@@ -203,22 +212,23 @@ var WorldStreet = (function () {
     f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.06, 1.9, 6), iron, [0, 7.1, 0.85], null, [Math.PI / 2 - 0.12, 0, 0], yaw), p[0], p[1]));
     f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(0.42, 0.16, 0.85), "#3a3f45", [0, 7.18, 1.9], null, null, yaw), p[0], p[1]));
     var hx = p[0] + dir[0] * 1.9, hz = p[1] + dir[1] * 1.9;
-    glowAt.push([hx, 7.02, hz]);
     var sodium = rnd(sg.k * 7 + a) > 0.45;
+    glowAt.push([hx, 7.02, hz, sodium ? SODIUM : LED]);
     lights.push({ p: [hx, 6.8, hz], c: sodium ? [44, 25, 10] : [28, 31, 36], r: 20, f: rnd(a * 3.3 + sg.k) > 0.97 ? 1 : 0 });
     solids.push([p[0], p[1], 0.25]);
   }
 
-  /** @param {any} T @param {Array<any>} f @param {Array<any>} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
-  function tree(T, f, leaf, solids, x, z, seed) {
+  /** @param {any} T @param {Array<any>} bark @param {Array<any>|null} leaf @param {Array<Array<number>>} solids @param {number} x @param {number} z @param {number} seed */
+  function tree(T, bark, leaf, solids, x, z, seed) {
     var P = WorldKit.piece;
-    f.push(WorldKit.moved(T, P(T, new T.BoxGeometry(1.3, 0.06, 1.3), "#2b2520", [0, 0.03, 0]), x, z));
-    f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.11, 0.17, 3.2, 7), "#3c2c22", [0, 1.6, 0], null, [0.03 * (seed - 0.5), 0, 0.04]), x, z));
-    f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.4, 5), "#3c2c22", [0.35, 3.1, 0], null, [0, 0, -0.7]), x, z));
-    f.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.3, 5), "#3c2c22", [-0.3, 3.2, 0.1], null, [0.2, 0, 0.75]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.BoxGeometry(1.3, 0.06, 1.3), "#2b2520", [0, 0.03, 0]), x, z));
+    solids.push([x, z, 0.35]);
+    if (!leaf) return;
+    bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.11, 0.17, 3.2, 7), "#56473a", [0, 1.6, 0], null, [0.03 * (seed - 0.5), 0, 0.04]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.4, 5), "#56473a", [0.35, 3.1, 0], null, [0, 0, -0.7]), x, z));
+    bark.push(WorldKit.moved(T, P(T, new T.CylinderGeometry(0.05, 0.08, 1.3, 5), "#56473a", [-0.3, 3.2, 0.1], null, [0.2, 0, 0.75]), x, z));
     WorldKit.canopy(T, leaf, x, 4.9, z, 2.0, seed * 17 + 3, 52);
     WorldKit.canopy(T, leaf, x + 0.6, 4.1, z - 0.3, 1.2, seed * 23 + 5, 18);
-    solids.push([x, z, 0.35]);
   }
 
   /** @param {string} id @param {number} x @param {number} z @param {number} yaw @returns {boolean} */
@@ -378,8 +388,8 @@ var WorldStreet = (function () {
     return out;
   }
 
-  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number}} */
-  function build(T, lib, scene, P, lod, scans) {
+  /** @param {any} T @param {Object} lib @param {any} scene @param {number} P @param {number} lod @param {Object<string, Array<{geo: any, mat: any}>>} [scans] @param {Object<string, Array<{geo: any, mat: any}>>} [woods] @param {Object<string, Array<{geo: any}>>} [fleet] @returns {{solids: Array<Array<number>>, lights: Array<Object>, cars: number, parked: number, people: number, scans: number, crowd: number, trees: number}} */
+  function build(T, lib, scene, P, lod, scans, woods, fleet) {
     M.T = T;
     M.scans = scans || {};
     M.pr = {};
@@ -391,7 +401,8 @@ var WorldStreet = (function () {
       M.group.traverse(function (m) { if (m.geometry && !m.userData.shared) m.geometry.dispose(); });
     }
     M.P = P;
-    var group = new T.Group(), f = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [];
+    var group = new T.Group(), f = [], bark = [], leaf = [], emit = [], glassy = [], glowAt = [], lights = [], solids = [], wood = [];
+    var grown = woods && woods.plane_0_lod0 && woods.linden_0_lod0;
     var segs = segments(P), parked = [];
     var near = function (/** @type {Array<number>} */ q, /** @type {number} */ r) { return Math.hypot(q[0], q[1]) < r; };
     segs.forEach(function (sg, i) {
@@ -400,7 +411,10 @@ var WorldStreet = (function () {
       if (sg.k === 0) {
         for (var b = sg.a0 + 14; b < sg.a1 - 4; b += 16) {
           var tp = spot(sg, b, sg.road + 1.4);
-          if (near(tp, 160 * far)) tree(T, f, leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          if (!near(tp, 160 * far)) continue;
+          if (grown && !(Math.round(b - sg.a0 - 6) % 24)) continue;
+          tree(T, bark, grown ? null : leaf, solids, tp[0], tp[1], rnd(b * 1.3 + i));
+          wood.push([tp[0], 0, tp[1], rnd(b * 2.1 + i) * 6.28, 0.9 + rnd(b * 1.7 + i) * 0.22, (rnd(i * 5.7 + 2) > 0.5 ? "plane_" : "linden_") + (rnd(b * 3.3 + i) > 0.5 ? 1 : 0)]);
         }
       }
       if (!near(mid, 150 * far)) return;
@@ -432,13 +446,15 @@ var WorldStreet = (function () {
       return mesh;
     };
     add(f, M.mats.furn, "furniture");
+    add(bark, M.mats.bark, "bark");
     add(leaf, M.mats.leaves, "trees");
     add(glassy, M.mats.shelter, "shelters");
     add(emit, M.mats.sig, "emit", ["aSig"]);
     var cone = new T.CylinderGeometry(0.2, 2.9, 6.6, 18, 1, true);
     cone.translate(0, -3.3, 0);
     var cones = new T.InstancedMesh(cone, M.mats.cone, glowAt.length), mtx = new T.Matrix4();
-    glowAt.forEach(function (g, i) { cones.setMatrixAt(i, mtx.makeTranslation(g[0], g[1] + 0.05, g[2])); });
+    var tint = new T.Color();
+    glowAt.forEach(function (g, i) { cones.setMatrixAt(i, mtx.makeTranslation(g[0], g[1] + 0.05, g[2])); cones.setColorAt(i, tint.fromArray(g[3][0])); });
     cones.frustumCulled = false;
     cones.renderOrder = 3;
     cones.name = "street-cones";
@@ -461,24 +477,31 @@ var WorldStreet = (function () {
         group.add(mesh);
       });
     });
-    traffic(T, group, P, parked);
+    var grove = new T.Group();
+    grove.name = "street-trees";
+    group.add(grove);
+    M.grove = grown ? WorldKit.grove(T, grove, /** @type {Object} */ (woods), wood) : null;
+    traffic(T, group, P, parked, fleet);
     walkers(T, group, segs, lod ? 46 : 0);
     scene.add(group);
     M.group = group;
     var moving = 0;
     M.cars.forEach(function (set) { moving += set.moving.length; });
     return { solids: solids, lights: lights, cars: moving, parked: parked.length, people: M.walkers.length, scans: placed,
-             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0 };
+             crowd: M.people && M.people.crowd ? M.people.crowd.count : 0, trees: M.grove ? M.grove.placed : 0 };
   }
 
-  /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked */
-  function traffic(T, group, P, parked) {
-    var types = [car(T, false), car(T, true)], loops = [], moving = [[], []];
+  /** @param {any} T @param {any} group @param {number} P @param {Array<Array<number>>} parked @param {Object<string, Array<{geo: any}>>} [fleet] */
+  function traffic(T, group, P, parked, fleet) {
+    var kinds = ["sedan", "hatch", "suv", "van"].filter(function (k) { return fleet && fleet[k + "_lod0"] && fleet[k + "_lod1"]; });
+    var made = function (/** @type {Array<{geo: any}>} */ p) { return p.length > 2 ? { body: p[0].geo, glass: p[1].geo, trim: p[2].geo, lamp: p[3].geo } : { body: p[0].geo, lamp: p[1].geo }; };
+    var types = kinds.length ? kinds.map(function (k) { return [made(fleet[k + "_lod0"]), made(fleet[k + "_lod1"])]; }) : [[car(T, false)], [car(T, true)]];
+    var loops = [], moving = types.map(function () { return []; });
     [2, 5.8].forEach(function (lane, li) {
       var path = measure(loopPath(P, lane));
       var n = Math.round(path.len / 75);
       for (var i = 0; i < n; i++) {
-        var type = rnd(i * 7 + li) > 0.7 ? 1 : 0;
+        var type = Math.floor(rnd(i * 7 + li) * types.length);
         moving[type].push({ loop: li, s: path.len * i / n + rnd(i) * 20, v: 9 + rnd(i * 3 + li) * 3, max: 10 + rnd(i * 5 + li) * 4, k: moving[type].length });
       }
       loops.push(path);
@@ -491,30 +514,27 @@ var WorldStreet = (function () {
     loops.push(ring);
     for (var r = 0; r < Math.max(3, Math.round(ring.len / 40)); r++) moving[0].push({ loop: 2, s: ring.len * r / Math.round(ring.len / 40), v: 8, max: 9, k: moving[0].length });
     M.loops = loops;
-    M.cars = types.map(function (geo, ti) {
-      var still = parked.filter(function (p) { return (p[3] > 0.75 ? 1 : 0) === ti; });
-      var cap = still.length + moving[ti].length;
-      var mk = function (/** @type {any} */ g, /** @type {any} */ mat, /** @type {string} */ name) {
-        var m = new T.InstancedMesh(g, mat, Math.max(1, cap));
-        m.frustumCulled = false;
-        m.name = "car-" + name + ti;
-        group.add(m);
-        return m;
-      };
-      var set = { body: mk(geo.body, M.mats.paint, "body"), glass: mk(geo.glass, M.mats.glass, "glass"), trim: mk(geo.trim, M.mats.trim, "trim"),
-                  lamp: mk(geo.lamp, M.mats.lamps, "lamp"), still: still.length, moving: moving[ti] };
-      var mtx = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1), c = new T.Color();
-      still.forEach(function (p, i) {
-        mtx.compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, p[2] - Math.PI / 2, 0)), one);
-        [set.body, set.glass, set.trim, set.lamp].forEach(function (m) { m.setMatrixAt(i, mtx); });
-        set.body.setColorAt(i, c.set(PAINT[Math.floor(rnd(p[0] * 0.37 + p[1] * 0.11) * PAINT.length)]));
-        set.lamp.setColorAt(i, c.setRGB(0.04, 0.04, 0.04));
+    M.cars = types.map(function (geos, ti) {
+      var still = parked.filter(function (p) { return Math.min(types.length - 1, Math.floor(p[3] * types.length)) === ti; });
+      var cap = Math.max(1, still.length + moving[ti].length), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
+      var lods = geos.map(function (geo, l) {
+        var mk = function (/** @type {any} */ g, /** @type {any} */ mat, /** @type {string} */ name) {
+          if (!g) return null;
+          var m = new T.InstancedMesh(g, mat, cap);
+          m.frustumCulled = false;
+          m.name = "car-" + name + ti + (l ? "-far" : "");
+          if (name === "body" || name === "lamp") m.setColorAt(0, new T.Color(1, 1, 1));
+          group.add(m);
+          return m;
+        };
+        return { body: mk(geo.body, M.mats.paint, "body"), glass: mk(geo.glass, M.mats.glass, "glass"), trim: mk(geo.trim, M.mats.trim, "trim"),
+                 lamp: mk(geo.lamp, M.mats.lamps, "lamp") };
       });
-      moving[ti].forEach(function (mv, j) {
-        set.body.setColorAt(still.length + j, c.set(PAINT[Math.floor(rnd(j * 13.1 + ti * 3) * PAINT.length)]));
-        set.lamp.setColorAt(still.length + j, c.setRGB(1, 1, 1));
-      });
-      return set;
+      moving[ti].forEach(function (mv, j) { mv.paint = new T.Color(PAINT[Math.floor(rnd(j * 13.1 + ti * 3) * PAINT.length)]); });
+      return { lods: lods, moving: moving[ti], parked: still.map(function (p) {
+        return { m: new T.Matrix4().compose(at.set(p[0], 0, p[1]), q.setFromEuler(e.set(0, p[2] - Math.PI / 2, 0)), one),
+                 paint: new T.Color(PAINT[Math.floor(rnd(p[0] * 0.37 + p[1] * 0.11) * PAINT.length)]) };
+      }) };
     });
   }
 
@@ -564,6 +584,7 @@ var WorldStreet = (function () {
   function frame(t, dt, night, still, eye) {
     var T = M.T;
     if (!T || !M.cars) return;
+    if (M.grove) M.grove.update(eye);
     var mtx = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(), at = new T.Vector3(), one = new T.Vector3(1, 1, 1);
     var moving = [];
     M.cars.forEach(function (set) { set.moving.forEach(function (mv) { moving.push(mv); }); });
@@ -592,27 +613,37 @@ var WorldStreet = (function () {
         }
       });
     });
-    var light = [];
+    var light = [], off = new T.Color(0.04, 0.04, 0.04), on = new T.Color(1, 1, 1);
     M.cars.forEach(function (set) {
-      set.moving.forEach(function (mv, j) {
+      var n = [0, 0];
+      var put = function (/** @type {any} */ m, /** @type {any} */ paint, /** @type {any} */ lit) {
+        var l = set.lods[1] && eye && Math.hypot(m.elements[12] - eye.x, m.elements[14] - eye.z) > 36 ? 1 : 0, s = set.lods[l], k = n[l]++;
+        [s.body, s.glass, s.trim, s.lamp].forEach(function (x) { if (x) x.setMatrixAt(k, m); });
+        s.body.setColorAt(k, paint);
+        s.lamp.setColorAt(k, lit);
+      };
+      set.parked.forEach(function (c) { put(c.m, c.paint, off); });
+      set.moving.forEach(function (mv) {
         along(M.loops[mv.loop], mv.s, tmp);
         along(M.loops[mv.loop], mv.s + 2.5, ahead);
         var yaw = Math.atan2(ahead[0] - tmp[0], ahead[1] - tmp[1]);
-        mtx.compose(at.set(tmp[0], 0, tmp[1]), q.setFromEuler(e.set(0, yaw - Math.PI / 2, 0)), one);
-        var k = set.still + j;
-        [set.body, set.glass, set.trim, set.lamp].forEach(function (m) { m.setMatrixAt(k, mtx); });
+        put(mtx.compose(at.set(tmp[0], 0, tmp[1]), q.setFromEuler(e.set(0, yaw - Math.PI / 2, 0)), one), mv.paint, on);
         var fx = Math.sin(yaw), fz = Math.cos(yaw);
         if (night > 0.05) {
           light.push({ p: [tmp[0] + fx * 7, 0.9, tmp[1] + fz * 7], c: [14, 13, 11], r: 13, d: 0, f: 0, day: false });
           light.push({ p: [tmp[0] - fx * 2.8, 0.7, tmp[1] - fz * 2.8], c: [5, 0.25, 0.1], r: 5, d: 0, f: 0, day: false });
         }
       });
-      [set.body, set.glass, set.trim, set.lamp].forEach(function (m) {
-        m.count = set.still + set.moving.length;
-        m.instanceMatrix.needsUpdate = true;
-        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      set.lods.forEach(function (s, l) {
+        [s.body, s.glass, s.trim, s.lamp].forEach(function (m) {
+          if (!m) return;
+          m.count = n[l];
+          m.visible = n[l] > 0;
+          m.instanceMatrix.needsUpdate = true;
+          if (m.instanceColor) m.instanceColor.needsUpdate = true;
+        });
       });
-      set.lamp.material.color.setScalar(1.2 + 6 * night);
+      set.lods[0].lamp.material.color.setScalar(1.2 + 6 * night);
     });
     WorldKit.L.moving = light;
     var P = M.people;

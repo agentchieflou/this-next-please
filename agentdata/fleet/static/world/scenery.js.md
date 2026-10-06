@@ -20,7 +20,9 @@ The kit's noise (`WorldKit.NOISE`), for the sky's clouds.
 
 A sphere drawn from inside, before everything, without depth: the gradient from horizon to zenith,
 two layers of fbm cloud (bright by day, dark by night), and by night a warm glow at the horizon, a
-city's light on low cloud. The wet ground's environment map is rendered from it (`vReflect`).
+city's light on low cloud. The clouds drift with the kit's clock, the upper layer a little faster than
+the lower, so the sky is weather rather than a painted ceiling. The environment map comes from the
+Poly Haven skies when they load (`WorldAssets.dome`, `vReflect`), else from this sphere.
 
 ### `function lamp`
 
@@ -35,7 +37,7 @@ Three seat slats and two back slats in wood, on two iron frames.
 ### `function tree`
 
 A stone planter with soil, a trunk and a branch; the crown is leaf cards (`WorldKit.canopy`), as on
-the streets.
+the streets. With the trees' file only the planter: its tree is a young linden from the file.
 
 ### `function plaza`
 
@@ -43,7 +45,8 @@ The plaza's furniture, built for its edge: a low kerb round the agents' circle, 
 outside it facing in, a bench between each pair, and a tree behind each bench. It is made again only
 when the edge moves (the circle grows with the fleet), never per frame. It returns where the lamps'
 glass is (the halos and the lights use it) and each object's footprint, `[x, z, radius]`, so you
-walk around a bench or a tree rather than through it.
+walk around a bench or a tree rather than through it. With the trees' file (`woods`) the crowns
+are a group of its instanced young lindens, standing in the planters' soil, always the whole tree.
 
 ### `function glows`
 
@@ -53,4 +56,5 @@ it. Hidden by day.
 
 ### `function placeGlows`
 
-The halos where the lamps are.
+The halos where the lamps are, each in its lamp's colour when the lamp gives one (a street lamp's
+sodium or LED), else the plaza lamps' warm white.

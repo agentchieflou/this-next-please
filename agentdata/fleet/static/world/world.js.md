@@ -218,7 +218,10 @@ only when the weather is (once a minute without `?hour=`), never per frame.
 
 The materials take Poly Haven's photo textures where they loaded (`vState.assets.tex`, handed to
 `WorldBake.make`), the environment its skies, and the street its scanned props (`WorldAssets.scans`,
-uploaded once and handed to every `WorldStreet.build`).
+uploaded once and handed to every `WorldStreet.build`). The trees' file is made into the trees' kinds
+the same way (`vState.woods`), for the street and the plaza, and the cars' file into the cars' shapes
+(`vState.fleet`), except on the `low` path, which keeps the page's own trees and cars: they cost fewer
+draw calls than the files' kinds and levels of detail.
 
 ### `function vPad`
 
@@ -336,6 +339,12 @@ resolution drops. A median frame 15% over the target lowers the render scale by 
 resolution; one under it raises it again, up to the device's pixel ratio or the tier's cap. When
 half resolution is still too slow, the quality steps down a tier (`WorldRender.step`). Says whether it
 resized, so `vFrame` draws straight after.
+
+Not in the first 15 s after the warm-up (`calmFrom`): the shaders compiled late (the people, the
+crowd, whatever the first views bring in) make the first frames long, and on a laptop with an RTX 3050 Ti
+that alone dropped a page asked for `medium` to `low` (2026-10-05), where it stayed: nothing ever
+stepped a tier back up. Now, once per page (`rose`), a tier below the one the page started at steps
+back up when, settled, the median frame is under half the target at full resolution.
 
 ### `function vMaxScale`
 
