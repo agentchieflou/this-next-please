@@ -7,15 +7,18 @@
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/chat.css">
 </head>
-<body class="chat-page ink-off">
+<body class="ink-off">
 <header class="toolbar">
   <h1>fleet</h1>
   <span id="chatlive" class="dot">connecting</span>
-  <p id="chatneed" class="chat-need"></p>
   <span class="spacer"></span>
-  <a id="todesk" class="linkbtn" title="the desk: every agent side by side">desk</a>
-  <a id="tomap" class="linkbtn" title="the map: projects, worktrees, branches and agents">map</a>
-  <a id="tosettings" class="linkbtn" title="settings: the palette, the model each agent runs, and how Copilot is launched">settings</a>
+  <div class="toolbar-group group-view">
+    <span class="glabel">see</span>
+    <a id="todesk" class="linkbtn" title="the desk: every agent side by side">desk</a>
+    <a id="tomap" class="linkbtn" title="the map: projects, worktrees, branches and agents">map</a>
+    <a id="toworld" class="linkbtn" title="the world: walk to your agents' desks, with a controller or the keyboard">world</a>
+    <a id="tosettings" class="linkbtn" title="settings: the palette, the model each agent runs, and how Copilot is launched">settings</a>
+  </div>
 </header>
 
 <div id="chat">
@@ -26,59 +29,67 @@
     <p id="chatnone" hidden>No agents yet: <code>ad-fleet repo add &lt;path&gt;</code> registers one.</p>
   </nav>
 
-  <main id="chatmain" aria-labelledby="chatname">
-    <header class="cm-head">
+  <main id="chatmain" class="tile" aria-labelledby="chatname">
+    <div class="head">
       <button type="button" id="chatback" class="linkbtn" title="the agents and their sessions">&larr; agents</button>
-      <h2 id="chatname">pick a session</h2>
-      <span id="chatstate" class="chip" hidden></span>
-      <span id="chatsession" class="cm-session"></span>
+      <h2 id="chatname" class="repo">pick a session</h2>
+      <span id="chatstate" class="chip" hidden><span class="chipword"></span><span class="chipage"></span></span>
+      <span id="chatsession" class="ticket"></span>
       <span class="spacer"></span>
+      <button type="button" id="chatfresh" class="freshtoggle wordbtn" hidden>start fresh</button>
       <label class="cm-tools"><input type="checkbox" id="chattools" checked> tool calls</label>
-    </header>
-    <p id="chatsays" class="cm-says"></p>
+    </div>
+    <p id="chatrun" class="runline"></p>
+    <p id="chatsays" class="why"></p>
     <p id="chatempty" class="cm-empty">Pick an agent or one of its sessions on the left: its conversation opens here.</p>
     <div id="chatscroll" class="cm-scroll">
       <button type="button" id="chatearlier" class="linkbtn cm-earlier" hidden>earlier messages</button>
       <ol id="chatlog" role="log" aria-live="polite" aria-label="the conversation"></ol>
     </div>
 
-    <section id="chatapproval" class="card cm-card" aria-label="waiting for your approval" hidden>
-      <p class="cm-card-head">waiting for you</p>
-      <p id="chatapprovalwhat"></p>
-      <div class="cm-decide">
-        <input id="chatreason" type="text" autocomplete="off" placeholder="reason (a deny needs one)" aria-label="reason">
+    <section id="chatapproval" class="approval" aria-label="waiting for your approval" hidden>
+      <div class="approval-head">waiting for you</div>
+      <div id="chatapprovalwhat" class="summary"></div>
+      <div class="row">
         <button type="button" id="chatapprove">Approve</button>
+        <input id="chatreason" type="text" autocomplete="off" placeholder="reason (a deny needs one)" aria-label="reason">
         <button type="button" id="chatdeny">Deny</button>
       </div>
     </section>
 
-    <section id="chatasks" class="card cm-card" aria-label="its questions" hidden>
-      <p class="cm-card-head" id="chatasksn"></p>
-      <ol id="chatasklist"></ol>
-      <div class="cm-decide"><button type="button" id="chatanswer">Answer</button></div>
+    <section id="chatasks" class="asks" aria-label="its questions" hidden>
+      <div class="asks-head" id="chatasksn"></div>
+      <ol id="chatasklist" class="asks-list"></ol>
+      <div class="row"><button type="button" id="chatanswer">Answer</button></div>
     </section>
 
-    <div id="chatended" class="cm-ended" hidden>
-      <p id="chatendedwhat"></p>
-      <button type="button" id="chatresume" title="make this session the agent's live one again">Resume here</button>
-      <button type="button" id="chatcurrent" class="linkbtn">its current session</button>
-    </div>
+    <p id="chatended" class="readonly" hidden>
+      <span id="chatendedwhat" class="ro-what"></span>
+      <button type="button" id="chatresume" class="ro-resume" title="make this session the agent's live one again">Resume here</button>
+      <button type="button" id="chatcurrent" class="ro-back">back to the live session</button>
+    </p>
 
-    <form id="chatform" class="cm-compose" autocomplete="off">
+    <form id="chatform" class="row bottom" autocomplete="off">
       <label for="chatmessage" class="sr">message</label>
-      <textarea id="chatmessage" rows="2" placeholder="reply"></textarea>
-      <button type="submit" id="chatsend">Send</button>
+      <textarea id="chatmessage" class="say" rows="1" placeholder="reply"></textarea>
+      <button type="submit" id="chatsend" class="send">Send</button>
+      <button type="button" id="chatstart" class="start">Start fresh</button>
+      <button type="button" id="chatreset" class="reset">Reset</button>
+      <button type="button" id="chatstop" class="stop" title="end its turn">Stop</button>
     </form>
     <p id="chatsaid" class="cm-said" role="status" aria-live="polite"></p>
   </main>
 </div>
 
-<template id="chatagent"><li class="ca"><div class="ca-row"><button type="button" class="ca-fold" aria-expanded="true" title="show or hide its sessions"><span class="ca-caret" aria-hidden="true"></span></button><button type="button" class="ca-head"><span class="ca-glyph" aria-hidden="true"></span><span class="ca-name"></span><span class="ca-badge" hidden></span><span class="ca-age"></span></button></div><ol class="ca-sessions"></ol><div class="ca-foot"><button type="button" class="ca-more linkbtn" hidden></button><button type="button" class="ca-new linkbtn" title="leave its current session under earlier and start a clean one">+ new session</button></div></li></template>
+<footer><span id="counts"></span></footer>
+
+<template id="chatagent"><li class="ca"><div class="ca-row"><button type="button" class="ca-fold" aria-expanded="true" title="show or hide its sessions"><span class="ca-caret" aria-hidden="true"></span></button><button type="button" class="ca-head"><span class="ca-glyph" aria-hidden="true"></span><span class="ca-name"></span><span class="ca-badge" hidden></span><span class="ca-age"></span></button></div><ol class="ca-sessions"></ol><div class="ca-foot"><button type="button" class="ca-more linkbtn" hidden></button><button type="button" class="ca-new linkbtn">start fresh</button></div></li></template>
 <template id="chatsess"><li class="cs"><button type="button" class="cs-open"><span class="cs-title"></span><span class="cs-sub"><span class="cs-chip"></span><span class="cs-when"></span></span></button></li></template>
 <template id="chatline"><li class="cl"><span class="cl-who"></span><p class="cl-text"></p><span class="cl-when"></span></li></template>
-<template id="chatq"><li class="cq"><p class="cq-q"></p><div class="cq-choices"></div><input class="cq-answer" type="text" autocomplete="off" aria-label="your answer"></li></template>
+<template id="chatq"><li class="cq ask"><p class="cq-q ask-q"></p><div class="cq-choices ask-choices"></div><input class="cq-answer" type="text" autocomplete="off" aria-label="your answer"></li></template>
 
 <script src="/static/common.js"></script>
 <script src="/static/chat/chat.js"></script>
+<script type="module" src="/static/ink/ink.js"></script>
 </body>
 </html>
