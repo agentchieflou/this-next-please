@@ -3742,6 +3742,12 @@ Above `function writeSweep() {`:
 
 `#daygo` in a sweep: exactly the ticked ids per repo, and the edited comments with them.
 
+`sweep.asked` (2026-10-06): this page asked for the write, so a `planned` answer is a poll the server
+answered before the write began (a stream's `wrapup` event and the confirm cross in flight), and
+`acceptSweep` drops it. Taking it put the strip back to *planned*, so the `done` that followed did not
+come from `writing` and the *sweep: N written* notice was never said (seen in a shuffled CI run of
+`test_fleet_renew.py`). Any answer past `writing` clears it.
+
 ### `var commandPlan`
 
 The Command Center's plan id as last drawn: what *start* posts, so a slate that moved since is refused

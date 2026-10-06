@@ -5454,7 +5454,7 @@ function runDay() {
 
 var dayKind = "fresh";
 var sweep = { mode: "day", job: "", state: "", repos: [], results: {}, ticks: {}, comments: {}, editing: {},
-              reading: [] };
+              reading: [], asked: false };
 var SWEEP_KINDS = [["push", "push", "pushes"], ["pr", "PR", "PRs"], ["page", "page", "pages"],
                    ["comment", "comment", "comments"], ["transition", "transition", "transitions"]];
 
@@ -5629,11 +5629,13 @@ function writeSweep() {
   var steps = sweepSteps();
   if (!sweep.job || sweep.state !== "planned" || !Object.keys(steps).length) return Promise.resolve(null);
   sweep.state = "writing";
+  sweep.asked = true;
   drawSweep();
   return post("wrapup", { all: true, job: sweep.job, mode: sweep.mode, steps: steps,
                           comments: Object.keys(sweep.comments).length ? sweep.comments : undefined })
     .then(function (r) {
       if (!r || r.ok === false) {
+        sweep.asked = false;
         sweep.state = "planned";
         sweep.status = ((r && r.error) || "the sweep was refused") + (r && r.hint ? " — " + r.hint : "");
         drawSweep();
@@ -5651,6 +5653,8 @@ function loadSweep() {
 }
 
 function acceptSweep(job) {
+  if (sweep.asked && job.state === "planned") return;
+  if (job.state !== "writing") sweep.asked = false;
   var before = sweep.state;
   sweep.state = job.state || "";
   sweep.repos = job.repos || [];
