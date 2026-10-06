@@ -642,6 +642,11 @@ def read_order() -> dict:
         return dict(_read_order)
 
 
+def prefers_minimal(prefer: str | None) -> bool:
+    """`Prefer: return=minimal` (RFC 7240) among a request's preferences: answer without the row."""
+    return any(p.split(";")[0].strip().lower() == "return=minimal" for p in (prefer or "").split(","))
+
+
 def row_for(name: str) -> dict:
     """One tile's row, exactly as `/api/fleet` would send it. What an action answers with: only that
     checkout's row and its siblings' are built (`fleet_snapshot(only=)`), not the whole fleet's."""
@@ -4079,6 +4084,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(400, "body is not JSON")
         if not isinstance(body, dict):
             return self._refuse(400, "body must be a JSON object")
+        # A page that will not wait for the row says so in a header, `Prefer: return=minimal` (RFC 7240,
+        # 2026-10-06), so an action's body stays the action; `act` reads the wish as `row: False`.
+        body.pop("row", None)
+        if prefers_minimal(self.headers.get("Prefer")):
+            body["row"] = False
         what = route[len("/api/"):]
         try:
             out = act(what, body)
@@ -4086,7 +4096,7 @@ class Handler(BaseHTTPRequestHandler):
             # were two, and the tile is patched from what the server already had in hand rather
             # than from a second snapshot of the whole fleet.
             # Once: an action that answered with its row already (`send`) is not given a second, and
-            # a page that asked not to wait for it (`row: false`, 2026-10-06) fetches it itself.
+            # a page that asked not to wait for it (`Prefer: return=minimal`, 2026-10-06) fetches it itself.
             if what in ROW_ACTIONS and "row" not in out and body.get("row") is not False:
                 changed = str(out.get("repo") or body.get("repo") or "")
                 if changed:

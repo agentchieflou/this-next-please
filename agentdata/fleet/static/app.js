@@ -408,7 +408,7 @@ function makeTile(row, index) {
     var forcing = sendBtn.dataset.force === "1";
     if (answeringLi(el)) { answerAll(el, row, forcing); return; }
     action(el, el.dataset.console ? "say" : "send",
-           { repo: row.repo, message: say.value, force: forcing, row: false })
+           { repo: row.repo, message: say.value, force: forcing })
       .then(function (r) {
         if (r && r.ok) { say.value = ""; disarmSend(sendBtn); drawStart(el, rowOf(row)); return; }
         if (r && r.code === "budget_exceeded" && !forcing) {
@@ -473,6 +473,7 @@ function fail(el, message) {
 }
 
 var STARTS_A_TURN = { send: 1, say: 1, start: 1, reset: 1, answer: 1 };
+var MINIMAL = { send: 1, answer: 1 };
 
 /** @param {HTMLElement} el @param {string} [state] */
 function markStarting(el, state) {
@@ -503,14 +504,12 @@ function action(el, what, body) {
   fail(el, "");
   var mark = gesture("action:" + what);
   if (STARTS_A_TURN[what]) markStarting(el);
-  return post(what, body).then(function (r) {
+  return post(what, body, !!MINIMAL[what]).then(function (r) {
     if (!r.ok) fail(el, r.error + (r.hint ? " — " + r.hint : ""));
     if (r.row) { patchRow(r.row); place(); }
     else if (r.ok && r.state) { markStarting(el, r.state); fetchRow(body.repo); }
-    else {
-      if (!r.ok && STARTS_A_TURN[what]) unmarkStarting(el, body.repo);
-      refresh();
-    }
+    else if (!r.ok && STARTS_A_TURN[what]) { unmarkStarting(el, body.repo); refresh(); }
+    else refresh();
     settle(mark);
     return r;
   }).catch(function (e) {
@@ -593,7 +592,7 @@ function answerAll(el, row, forcing) {
     fail(el, "pick a choice or type an answer first: this box answers " + (target ? target.dataset.qid : "the question"));
     return;
   }
-  action(el, "answer", { repo: row.repo, answers: answers, force: forcing, row: false }).then(function (r) {
+  action(el, "answer", { repo: row.repo, answers: answers, force: forcing }).then(function (r) {
     if (r && r.ok) {
       var done = r.answered || [];
       asked.forEach(function (li) { if (done.indexOf(li.dataset.qid) >= 0) toggle(li, "is-answered", true); });

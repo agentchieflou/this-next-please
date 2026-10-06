@@ -65,6 +65,12 @@ run token is per run. What to do about it differs per page, so the page says: th
 through `/open` to collect a fresh one, and only once its stream has already died. A page that
 sets nothing simply gets the error, which is the safe direction to be wrong in.
 
+### `function post`
+
+`minimal` sends the header `Prefer: return=minimal` (RFC 7240, 2026-10-06): the server answers a
+`send` or an `answer` as soon as the turn's process is up, without the row, and the page fetches the
+row itself. A header rather than a key in the body, so the body is the action and nothing else.
+
 ## the render contract (#215)
 
 Created once, patched forever. `place()` runs about two and a half times a second while an agent

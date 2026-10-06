@@ -567,7 +567,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
 | POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
 | POST | `/api/fresh` | `{all: true, dry_run: true, keyless?}` — a fresh day's preview (#508): `rows` (each with `ticked`, `keyless`, `began`, and a `needs_you` row's `question`), `plan_id`, `ticked`, `premium_turns`, `skipped` by code. `{all: true, repos: [..]}` starts the ticked repos that are still `now`: `rows` with `done` (`started`, `skipped`, `changed`) and each pane's new `row`; an unknown repo is listed in `unknown_repos`. `{all: true}` alone is 409 `preview_first`; nothing else launches |
-| POST | `/api/send` | `{repo, message}`; answers with the agent's row. With `row: false` it answers as soon as the turn's process is up, `{pid, state: "running"}`, and the page fetches the row from `/api/row`: the desk says *running* about 20 ms after Enter (2026-10-06) |
+| POST | `/api/send` | `{repo, message}`; answers with the agent's row. Asked with the header `Prefer: return=minimal` (RFC 7240) it answers as soon as the turn's process is up, `{pid, state: "running"}`, and the page fetches the row from `/api/row`: the desk says *running* about 20 ms after Enter (2026-10-06) |
 | POST | `/api/stop` | `{repo}` |
 | POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |
 | POST | `/api/adopt` | `{repo, pid?}` — take on a session the fleet did not start |
@@ -577,7 +577,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/select` | `{repo}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
 | POST | `/api/arrange` | `{order?, size?, pinned?, hidden?}` — the desk's one arrangement, shared by every window (#173, #232). `size` is read and kept for desk files an older build wrote, and no page sends it since the widths (#234) |
 | POST | `/api/attach` | `{id, repo}` — copies one Downloads file into `<repo>/.agent/in/<KEY>/` |
-| POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165) |
+| POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165); with `Prefer: return=minimal`, `state: "running"` and no row, as `send`'s (2026-10-06) |
 | POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
 | POST | `/api/scope` | `{repo, paths, why, how}` — append them to `.agent/in/<KEY>/scope.toon` |
 | POST | `/api/attach-bytes` | `{repo, name, bytes}` — the one route that carries bytes, on a click |

@@ -65,9 +65,10 @@ def test_the_desk_prerenders_the_world_on_a_hover_but_never_under_automation(fle
         _stop(server)
 
 
-def _post(port, token, verb, body):
+def _post(port, token, verb, body, minimal=False):
+    headers = {"Content-Type": "application/json", **({"Prefer": "return=minimal"} if minimal else {})}
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api/{verb}?t={token}", data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
+                                 headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=10) as answer:
         return json.loads(answer.read())
 
@@ -109,18 +110,20 @@ def test_an_actions_row_is_built_for_its_checkout_and_its_siblings_only(fleet_ho
 
 
 def test_a_send_can_answer_as_soon_as_the_turn_runs_and_the_row_follows(fleet_home, tmp_path, spawns, monkeypatch):
-    """The desk's Send asks with `row: false`: the answer comes once the turn's process is up, saying
-    `running`, and the page fetches the row from `/api/row`. A send that does not ask (the CLI, the
-    phone, an older page) still gets its row with the answer, and it is built once, not twice."""
+    """The desk's Send asks with `Prefer: return=minimal`: the answer comes once the turn's process is
+    up, saying `running`, and the page fetches the row from `/api/row`. A send that does not ask (the
+    CLI, the phone, an older page) still gets its row with the answer, and it is built once, not twice.
+    The wish is a header so the action's body stays the action: `row` in a body is not read."""
     _repo(tmp_path, "alpha")
     built = []
     real = S.row_for
     monkeypatch.setattr(S, "row_for", lambda name: built.append(name) or real(name))
     server, token, port = _serve()
     try:
-        quick = _post(port, token, "send", {"repo": "alpha", "message": "carry on", "row": False})
+        quick = _post(port, token, "send", {"repo": "alpha", "message": "carry on"}, minimal=True)
         assert quick["ok"] and quick["state"] == "running" and "row" not in quick, quick
         assert built == [], built
+        assert S.prefers_minimal("respond-async, return=minimal; foo=bar") and not S.prefers_minimal("return=representation")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/row?repo=alpha&t={token}", timeout=10) as answer:
             got = json.loads(answer.read())
         assert got["ok"] and got["row"]["repo"] == "alpha" and got["row"]["state"] == "running", got
@@ -189,7 +192,7 @@ def test_a_request_reads_a_file_once_and_again_after_writing_it(fleet_home, tmp_
 @pytest.mark.browser
 def test_the_desk_says_starting_at_once_and_running_from_the_sends_answer(fleet_home, tmp_path, browser, spawns):
     """Enter in a pane's reply box: the chip says *starting* before the server has answered, *running*
-    from the answer (`send` asked with `row: false`), and the row follows from `/api/row`."""
+    from the answer (`send` asked with `Prefer: return=minimal`), and the row follows from `/api/row`."""
     _repo(tmp_path, "alpha")
     server, token, port = _serve()
     try:
@@ -201,7 +204,8 @@ def test_the_desk_says_starting_at_once_and_running_from_the_sends_answer(fleet_
         with page.expect_request(lambda r: r.url.split("?")[0].endswith("/api/send")) as sent:
             with page.expect_request(lambda r: r.url.split("?")[0].endswith("/api/row")):
                 page.press(f"{tile} .say", "Enter")
-        assert sent.value.post_data_json["row"] is False, sent.value.post_data_json
+        assert sent.value.headers.get("prefer") == "return=minimal", sent.value.headers
+        assert "row" not in sent.value.post_data_json, sent.value.post_data_json
         page.wait_for_function(f"() => /\\brunning\\b/.test(document.querySelector('{tile} .chip').className)", timeout=10000)
         page.close()
     finally:

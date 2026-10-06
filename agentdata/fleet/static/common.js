@@ -31,10 +31,13 @@ function prerender(selector) {
 
 var onAuthLost = null;
 
-function post(action, body) {
+function post(action, body, minimal) {
+  /** @type {Record<string, string>} */
+  var headers = { "Content-Type": "application/json" };
+  if (minimal) headers["Prefer"] = "return=minimal";
   return fetch(q("/api/" + action), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: headers,
     body: JSON.stringify(body || {})
   }).then(function (r) {
     if (r.status === 403 && typeof onAuthLost === "function") onAuthLost();

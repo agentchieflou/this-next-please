@@ -496,16 +496,23 @@ one is pressed (`markStarting`), before the server has answered (2026-10-06, the
 pressing Enter, to the agent 'running')"). The server's answer carries the row, which is drawn over
 it: *running* once the agent's process is up, measured at about 80 ms after Enter on the demo fleet.
 
+### `var MINIMAL`
+
+The verbs whose server can answer as soon as the turn's process is up (`send`, `answer`): `action` asks
+for that with the header `Prefer: return=minimal` (RFC 7240), says *running* from the answer and fetches
+the row (`fetchRow`). A header, so the action's body stays the action: tests pin what the page posts.
+`say` types into a console and has no such answer.
+
 ### `function markStarting`
 
 The pane's chip and state class as *starting*, or as the state a quick answer named (`send` with
-`row: false` says *running* once the turn's process is up), written the way `drawTile` writes them,
+`Prefer: return=minimal` says *running* once the turn's process is up), written the way `drawTile` writes them,
 so the next row drawn replaces them like any other state.
 
 ### `function fetchRow`
 
-The one row `/api/row` answers, drawn as `/api/fleet`'s would be: what a `send` asked with `row: false`
-leaves to fetch. The page says *running* from the answer, about 20 ms after Enter, and the row
+The one row `/api/row` answers, drawn as `/api/fleet`'s would be: what a `send` asked with
+`Prefer: return=minimal` leaves to fetch. The page says *running* from the answer, about 20 ms after Enter, and the row
 follows (or the whole fleet, if it cannot be had).
 
 ### `function unmarkStarting`
