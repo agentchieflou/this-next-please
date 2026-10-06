@@ -37,6 +37,8 @@ import json
 import os
 import re
 
+from .. import textio
+
 # A cost event that arrived before any session announced itself. It still happened and it was still
 # spent, so it is kept under a name rather than dropped -- a number that quietly excludes some of
 # the bill is worse than one that says it does not know whose it was.
@@ -231,8 +233,7 @@ def read_ledger(name: str) -> dict:
     """What has been folded so far, or an empty ledger. Never raises: a ledger that cannot be read
     is a number that has to be rebuilt, not a dashboard that will not draw."""
     try:
-        with open(ledger_path(name), encoding="utf-8") as handle:
-            raw = json.load(handle)
+        raw = json.loads(textio.read_text(ledger_path(name)))
     except (OSError, ValueError):
         return blank()
     if not isinstance(raw, dict) or int(raw.get("schema") or 0) != SCHEMA:

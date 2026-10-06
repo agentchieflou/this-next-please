@@ -22,6 +22,7 @@ import contextlib
 import json
 import os
 import re
+import threading
 import time
 
 from .. import textio
@@ -604,10 +605,14 @@ def append(name: str, events: list[dict]) -> int:
         return _append(name, events)
 
 
-def _append(name: str, events: list[dict]) -> int:
-    """The write itself. Callers hold the lock; `refresh` holds it across its whole cycle."""
-    cursor = read_cursor(name)
+def _append(name: str, events: list[dict], cursor: dict | None = None) -> int:
+    """The write itself. Callers hold the lock; `refresh` holds it across its whole cycle, and hands
+    over the cursor it has just written, which is the one on disk. Nothing to append writes nothing:
+    every page's poll refreshes every agent, and most polls find nothing new."""
+    cursor = read_cursor(name) if cursor is None else cursor
     seq = int(cursor.get("seq", 0))
+    if not events:
+        return seq
     os.makedirs(agent_dir(name), exist_ok=True)
     with open(normalized_path(name), "a", encoding="utf-8", newline="\n") as f:
         for ev in events:
@@ -619,25 +624,62 @@ def _append(name: str, events: list[dict]) -> int:
     return seq
 
 
-def read(name: str, *, since: int = 0, kinds: tuple[str, ...] | None = None,
-         limit: int = 0) -> list[dict]:
-    path = normalized_path(name)
-    if not os.path.isfile(path):
-        return []
+_LOCAL = threading.local()
+
+
+@contextlib.contextmanager
+def reading():
+    """Within it, on this thread, each agent's stream is parsed once per version of its file (its
+    size and when it was written), however many readers ask: `/api/fleet` and an action's answer read
+    each stream a dozen times or more over (one `send` read its agent's 23 times), and a stream grows
+    to `fleet.log_mb` before it rolls (2026-10-06, page loads). Kept for the request and no longer:
+    held across polls, every agent's history would sit in memory as objects. A reader within it
+    shares the events with the others, which only ever read them."""
+    if getattr(_LOCAL, "memo", None) is not None:
+        yield
+        return
+    _LOCAL.memo = {}
+    try:
+        with textio.memo():
+            yield
+    finally:
+        _LOCAL.memo = None
+
+
+def _parse(path: str) -> list[dict]:
     out = []
     for line in textio.read_text(path).splitlines():
         line = line.strip()
         if not line.startswith("{"):
             continue
         try:
-            ev = json.loads(line)
+            out.append(json.loads(line))
         except ValueError:
             continue
-        if ev.get("seq", 0) <= since:
-            continue
-        if kinds and ev.get("kind") not in kinds:
-            continue
-        out.append(ev)
+    return out
+
+
+def read(name: str, *, since: int = 0, kinds: tuple[str, ...] | None = None,
+         limit: int = 0) -> list[dict]:
+    path = normalized_path(name)
+    memo = getattr(_LOCAL, "memo", None)
+    if memo is None:
+        if not os.path.isfile(path):
+            return []
+        events = _parse(path)
+    else:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return []
+        key = (st.st_mtime_ns, st.st_size)
+        hit = memo.get(path)
+        if hit is not None and hit[0] == key:
+            events = hit[1]
+        else:
+            events = _parse(path)
+            memo[path] = (key, events)
+    out = [ev for ev in events if ev.get("seq", 0) > since and (not kinds or ev.get("kind") in kinds)]
     return out[-limit:] if limit else out
 
 
@@ -687,6 +729,7 @@ def console_path(name: str) -> str:
 def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str,
              console: str = "") -> list[dict]:
     cursor = read_cursor(name)
+    was = json.dumps(cursor, sort_keys=True)
     fresh: list[dict] = []
     ticket = (repo_state or {}).get("active_ticket", "") or ""
 
@@ -736,6 +779,9 @@ def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str,
                 seen.add(path)
         cursor["friction"] = sorted(seen)
 
-    write_cursor(name, cursor)
-    _append(name, fresh)          # `_append`, not `append`: the lock is already held above
+    # Written only when it moved: a poll that found nothing new leaves the file as it was, rather
+    # than replacing it with the same bytes once per agent per page per poll.
+    if json.dumps(cursor, sort_keys=True) != was:
+        write_cursor(name, cursor)
+    _append(name, fresh, cursor)  # `_append`, not `append`: the lock is already held above
     return fresh

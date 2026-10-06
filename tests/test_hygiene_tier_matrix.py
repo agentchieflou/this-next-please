@@ -54,6 +54,7 @@ def test_every_tier_runs_on_both_oses():
     names = {r.job for r in runs}
     for shard in ("1/2", "2/2"):  # #312's jobs, read from the workflow rather than written here
         assert f"ubuntu · python 3.14 · browser · shard {shard}" in names
+    for shard in ("1/3", "2/3", "3/3"):  # three since 2026-10-06, with the operator's sign-off
         assert f"suite · shuffled · browser · shard {shard}" in names
     assert {"suite · shuffled · seed 1", "suite · shuffled · seed 20260904"} <= names
     assert {f"windows · python 3.14 · shard {k}/4" for k in (1, 2, 3, 4)} <= names

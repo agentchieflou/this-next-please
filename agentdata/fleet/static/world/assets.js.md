@@ -19,7 +19,9 @@ before they were committed (see that file). They come from the machine the page 
 `q()` with the token like every other file. Nothing is fetched from the internet. Poly Haven has no
 people, so the characters are still the page's own.
 
-The cars are made here the same way: `static/world/cars/cars.glb`, lofted by `tools/world/cars/` from
+The office's furniture is made here too: `static/world/office/office.glb`, built by
+`tools/world/office/`, loaded like the cars, its shapes bare (`scans`), its materials the page's. The cars
+are made here the same way: `static/world/cars/cars.glb`, lofted by `tools/world/cars/` from
 the profiles in it, after no maker's design. The street trees are a file too, but made here: `static/world/trees/trees.glb`, grown by
 `tools/world/trees/` (Blender, then Node) from nothing but its own numbers, every leaf, twig, bark and
 branch, so it is the repository's own and under its licence (that folder's `LICENSE`). The operator

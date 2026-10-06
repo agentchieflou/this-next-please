@@ -96,3 +96,20 @@ rims. `preview` renders one car (`CAR=sedan_lod0`) from four sides into `<dir>/v
 `cars.mjs` packs it: a mesh a car and level of detail (`<kind>_lod<0|1>`), near with body, glass, trim
 and lamp primitives in that order, far with body and lamp; glTF's Y up, normals and colours as
 normalised bytes, no textures.
+
+## Office (`office/`)
+
+What `agentdata/fleet/static/world/office/` holds: `office.glb`, the office's furniture, built from
+nothing but the numbers in `office/office.py`. Needs Blender 5.2 (headless) and Node 22 with the pinned
+tools above. From the repository's root:
+
+    blender --background --factory-startup --python tools/world/office/office.py -- /tmp/office
+    cd tools/world && node office/office.mjs /tmp/office/raw ../../agentdata/fleet/static/world/office
+
+`office.py` builds the workstation (a bench desk with its frame, a 27-inch monitor on its stand with the
+display as a part of its own, keyboard, mouse, mug, and an office chair with its five-star base) and a
+planter from bevelled boxes, cones and tubes, welds them, and writes them raw with their colours, UVs in
+metres on the desk's top and 0..1 on the display. `preview` renders them into `<dir>/view0..1.png`.
+`office.mjs` packs it: a mesh a piece, a primitive a material (`wood`, `fittings`, `screen`), glTF's
+Y up, normals and colours as normalised bytes, no textures (the page lays the baked wood and the
+agents' screens).

@@ -256,7 +256,11 @@ var WorldRender = (function () {
       m.frustumCulled = false;
       passes.add(m);
     });
-    return Promise.all([r.compileAsync(R.scene, R.camera), r.compileAsync(passes, R.fs.cam)]);
+    var was = r.getRenderTarget();
+    r.setRenderTarget(R.tier === "low" ? null : R.hdr);
+    var scene = r.compileAsync(R.scene, R.camera);
+    r.setRenderTarget(was);
+    return Promise.all([scene, r.compileAsync(passes, R.fs.cam)]);
   }
 
   /** @param {number} t @param {number} night @param {number} exposure */

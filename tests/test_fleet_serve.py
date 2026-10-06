@@ -766,8 +766,11 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
 #: The realistic people, their agents, the grown trees and cars took the world to 79.6 KiB gzipped, and
 #: 81.0 KiB where a checkout has CRLF line endings (Windows), which is what the page is served from
-#: there: the budget moved to 88 KiB under the rule above.
-WORLD_BUDGET = 88 * 1024
+#: there: the budget moved to 88 KiB under the rule above. The operator's office (2026-10-06: "Let's
+#: create an office building with the humans as agents"), the agents at their desks with their
+#: screens, took the world to 82.7 KiB (83.0 KiB with CRLF), and the budget moved to 92 KiB under the
+#: same rule: the office costs no frame time a desk GPU measures (see docs/fleet-world.md, The office).
+WORLD_BUDGET = 92 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
@@ -935,6 +938,28 @@ def test_the_worlds_cars_are_the_file_it_loads_made_here_and_bounded():
         assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "cars", tool)), tool
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
     assert size < CARS_BUDGET, size
+
+
+#: What `static/world/office/` may weigh: about 0.12 MiB today (the workstation and the planter).
+#: `tools/world/office/` remakes the file; raise this with the operator's rule above (`WORLD_BUDGET`).
+OFFICE_BUDGET = 512 * 1024
+
+
+def test_the_worlds_office_is_the_file_it_loads_made_here_and_bounded():
+    """`static/world/office/` holds the one file `world/assets.js` loads and the LICENSE that says it was
+    made here, by `tools/world/office/`, from no third-party asset, under the repository's own licence;
+    and the folder stays small."""
+    folder = os.path.join(STATIC, "world", "office")
+    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
+    assert 'OFFICE = "/static/world/office/"' in src and 'OFFICE + "office.glb"' in src
+    assert sorted(os.listdir(folder)) == ["LICENSE", "office.glb"]
+    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
+    for words in ("tools/world/office/", "no third-party asset", "MIT", "office.glb"):
+        assert words in licence, words
+    for tool in ("office.py", "office.mjs"):
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "office", tool)), tool
+    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
+    assert size < OFFICE_BUDGET, size
 
 
 def test_the_page_and_its_assets_are_served_compressed():
@@ -1282,3 +1307,71 @@ def test_a_snapshot_reads_the_registry_once(fleet_home, tmp_path, monkeypatch): 
     assert rows == [] or rows[0]["fresh"]["starts"]["ticket"] == "RDSD-1", rows[0]["fresh"]
     again = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
     assert again and again[0]["fresh"]["starts"]["ticket"] == "RDSD-1", again
+
+
+def test_a_static_file_is_kept_and_asked_about_again_while_pages_and_answers_are_never_kept(fleet_home, tmp_path):
+    """The operator, 2026-10-06: "We're aiming for ~200ms loads. Right now we're at several seconds."
+    Every answer was `no-store`, so each page load fetched every file again -- the world alone ten
+    megabytes -- and the browser could keep no compiled script. A static file now carries its
+    version (`ETag`) and `no-cache`: the browser keeps it and asks on each use, and an unchanged file
+    is a 304 with no body. A validator for another version gets the file. Pages and the API stay
+    `no-store`: they change from one call to the next."""
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+
+    def get(route, **headers):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", f"{route}?t={token}", headers=headers)
+        answer = conn.getresponse()
+        body = answer.read()
+        conn.close()
+        return answer.status, answer.headers, body
+
+    try:
+        for route in ("/static/common.js", "/static/app.css", "/static/vendor/three/three.module.min.js"):
+            status, headers, body = get(route, **{"Accept-Encoding": "gzip"})
+            tag = headers.get("ETag") or ""
+            assert status == 200 and body and re.fullmatch(r'W/"[0-9a-f]+-[0-9a-f]+"', tag), (route, tag)
+            assert headers.get("Cache-Control") == "no-cache", route
+            status, headers, body = get(route, **{"Accept-Encoding": "gzip", "If-None-Match": tag})
+            assert (status, body, headers.get("ETag")) == (304, b"", tag), route
+            status, _, body = get(route, **{"If-None-Match": 'W/"0-0"'})
+            assert status == 200 and body, route
+        for route in ("/", "/chat", "/api/fleet"):
+            status, headers, _ = get(route)
+            assert status == 200 and headers.get("Cache-Control") == "no-store" and not headers.get("ETag"), route
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+    f = tmp_path / "a.js"
+    f.write_text("var a = 1;\n", encoding="utf-8")
+    before = S.static_etag(os.stat(f))
+    f.write_text("var a = 22;\n", encoding="utf-8")
+    st = os.stat(f)
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+    assert S.static_etag(os.stat(f)) != before, "a file that changed is a new version"
+
+
+def test_the_compressed_files_outlast_a_world_load():
+    """The world serves about fifty text files; at 32 the memory of compressed bodies was emptied on
+    every world load and three.js was compressed again each time a page opened."""
+    from agentdata.fleet import serve as S2
+
+    texts = [n for n in S2.ASSETS if n.endswith((".js", ".css"))] + ["vendor/three/three.module.min.js"]
+    assert S2.GZIP_ENTRIES >= 4 * len(texts), (S2.GZIP_ENTRIES, len(texts))
+
+
+def test_the_one_inline_script_a_page_may_carry_is_a_speculation_rule(running):
+    """`common.js`'s `prerender` writes the speculation rule that loads the world while the pointer
+    rests on its link (2026-10-06, page loads). The policy allows that and nothing else inline: no
+    `'unsafe-inline'` for scripts, and `default-src 'self'` as it was."""
+    base, token, _ = running
+    _, _, headers = get(base, "/", token)
+    csp = headers["Content-Security-Policy"]
+    script = re.search(r"script-src ([^;]*)", csp).group(1).split()
+    assert script == ["'self'", "'inline-speculation-rules'"], csp
+    assert "default-src 'self'" in csp and "'unsafe-inline'" not in script

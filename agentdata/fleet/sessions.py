@@ -9,6 +9,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import threading
 import time
 from typing import Any
 
@@ -45,6 +46,12 @@ def session_state_path(session_id: str) -> str:
     return os.path.join(session_state_dir(), sid, "events.jsonl")
 
 
+#: The working directory each session's `workspace.yaml` named, by session directory: a session does
+#: not move, so a directory is read once rather than once per agent per poll (2026-10-06, page loads).
+#: A session whose file did not say yet is read again next time.
+_CWDS: dict[str, str] = {}
+
+
 def _workspace_cwd(session_dir: str) -> str:
     """The working directory a session's `workspace.yaml` names, or "". One line of YAML is read as
     text -- no YAML library, and nothing else in the file is trusted: `cwd:` or `working_directory:`,
@@ -78,9 +85,13 @@ def session_files(repo_path: str) -> list[dict]:
         names = []
     for sid in names:
         d = os.path.join(root, sid)
-        if not os.path.isdir(d):
-            continue
-        cwd = _workspace_cwd(d)
+        cwd = _CWDS.get(d, "")
+        if not cwd:
+            if not os.path.isdir(d):
+                continue
+            cwd = _workspace_cwd(d)
+            if cwd:
+                _CWDS[d] = cwd
         if cwd and textio.norm_path(cwd).lower().rstrip("/") == want:
             found[sid] = {"id": sid, "how": "workspace"}
     for row in read_store_sessions(repo_path):
@@ -152,6 +163,70 @@ def _connect_ro(path: str) -> sqlite3.Connection:
             raise
 
 
+#: The store's rows as last read, and what its files looked like then (`_store_key`). Every agent's
+#: row asks for its sessions on every poll of every page; the store is read again when its files
+#: change, and at least every `STORE_FRESH_S` whatever their stamps say (2026-10-06, page loads).
+STORE_FRESH_S = 10.0
+_STORE: dict[str, Any] = {"key": None, "at": 0.0, "rows": []}
+_STORE_LOCK = threading.Lock()
+
+
+def _store_key(path: str) -> tuple:
+    """The store and its write-ahead log, each by modification time and size: what changes when
+    Copilot writes a session."""
+    key: list = [path]
+    for p in (path, path + "-wal"):
+        try:
+            st = os.stat(p)
+            key += [st.st_mtime_ns, st.st_size]
+        except OSError:
+            key += [0, 0]
+    return tuple(key)
+
+
+def _read_store_rows(path: str) -> list[dict]:
+    """Every row of the store's `sessions` table, newest first, with the columns this schema has
+    of `id`, `summary`, `created_at`, `updated_at`, `cwd` and `repository`. Read-only."""
+    try:
+        conn = _connect_ro(path)
+    except Exception:
+        return []
+    rows: list[dict] = []
+    try:
+        cur = conn.cursor()
+        # Verify schema carries required columns
+        cols = [col[1] for col in cur.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "id" not in cols:
+            return []
+        select_cols = ["id", "summary", "created_at", "updated_at"]
+        if "cwd" in cols:
+            select_cols.append("cwd")
+        if "repository" in cols:
+            select_cols.append("repository")
+        cur.execute(f"SELECT {', '.join(select_cols)} FROM sessions ORDER BY updated_at DESC")
+        rows = [dict(zip(select_cols, row)) for row in cur.fetchall()]
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return rows
+
+
+def _store_rows(path: str) -> list[dict]:
+    """`_read_store_rows`, remembered while the store's files stay as they were (`_store_key`)."""
+    key, now = _store_key(path), time.monotonic()
+    with _STORE_LOCK:
+        if _STORE["key"] == key and now - _STORE["at"] < STORE_FRESH_S:
+            return _STORE["rows"]
+    rows = _read_store_rows(path)
+    with _STORE_LOCK:
+        _STORE.update(key=key, at=now, rows=rows)
+    return rows
+
+
 def read_store_sessions(repo_path: str = "", *, repo_name: str = "",
                         jira_project: str = "") -> list[dict]:
     """Read sessions belonging to a repository from Copilot's store.
@@ -161,36 +236,15 @@ def read_store_sessions(repo_path: str = "", *, repo_name: str = "",
     path = store_path()
     if not os.path.isfile(path):
         return []
-    try:
-        conn = _connect_ro(path)
-    except Exception:
-        return []
-
     out = []
     norm_repo = textio.norm_path(os.path.abspath(repo_path)).rstrip("/\\").lower() if repo_path else ""
     try:
-        cur = conn.cursor()
-        # Verify schema carries required columns
-        cols = [col[1] for col in cur.execute("PRAGMA table_info(sessions)").fetchall()]
-        if "id" not in cols:
-            return []
-        select_cols = ["id", "summary", "created_at", "updated_at"]
-        has_cwd = "cwd" in cols
-        has_repo = "repository" in cols
-        if has_cwd:
-            select_cols.append("cwd")
-        if has_repo:
-            select_cols.append("repository")
-
-        query = f"SELECT {', '.join(select_cols)} FROM sessions ORDER BY updated_at DESC"
-        cur.execute(query)
-        for row in cur.fetchall():
-            rec = dict(zip(select_cols, row))
+        for rec in _store_rows(path):
             sid = rec.get("id") or ""
             if not sid:
                 continue
-            cwd = textio.norm_path(rec.get("cwd") or "").rstrip("/\\").lower() if has_cwd else ""
-            repository = str(rec.get("repository") or "") if has_repo else ""
+            cwd = textio.norm_path(rec.get("cwd") or "").rstrip("/\\").lower() if "cwd" in rec else ""
+            repository = str(rec.get("repository") or "") if "repository" in rec else ""
 
             matched = False
             if norm_repo and cwd and cwd == norm_repo:
@@ -213,11 +267,6 @@ def read_store_sessions(repo_path: str = "", *, repo_name: str = "",
                 })
     except Exception:
         pass
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
     return out
 
 

@@ -253,3 +253,37 @@ def test_wall_clock_jump_with_dead_pid_produces_one_exited_with_why_sleep(fleet_
 
     exited_ev = [e for e in events if e["kind"] == "exited"][-1]
     assert "slept" in exited_ev["data"].get("why", "").lower() or "slept" in exited_ev["data"].get("reason", "").lower()
+
+
+def test_the_store_is_read_once_until_it_changes(fleet_home, tmp_path, monkeypatch):
+    """Every agent's row asks for its sessions on every poll of every page (2026-10-06, page loads),
+    and each ask opened Copilot's store and read every row of it. The rows are kept until the
+    store's files change (or `STORE_FRESH_S` passes), and every agent's sessions come from them."""
+    db = tmp_path / "session-store.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, repository TEXT, summary TEXT, "
+                 "created_at TEXT, updated_at TEXT)")
+    a, b = make_project(tmp_path / "repo-a"), make_project(tmp_path / "repo-b")
+    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)",
+                 ("s-a", a, "repo-a", "on a", "2026-10-06T00:00:00", "2026-10-06T00:01:00"))
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("COPILOT_SESSION_STORE", str(db))
+    reads = []
+    real = S._read_store_rows
+    monkeypatch.setattr(S, "_read_store_rows", lambda path: reads.append(path) or real(path))
+
+    assert [r["id"] for r in S.read_store_sessions(a, repo_name="repo-a")] == ["s-a"]
+    assert S.read_store_sessions(b, repo_name="repo-b") == []
+    assert S.read_store_sessions(a, repo_name="repo-a")[0]["title"] == "on a"
+    assert len(reads) == 1, reads
+
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)",
+                 ("s-b", b, "repo-b", "on b", "2026-10-06T00:02:00", "2026-10-06T00:03:00"))
+    conn.commit()
+    conn.close()
+    st = os.stat(db)
+    os.utime(db, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+    assert [r["id"] for r in S.read_store_sessions(b, repo_name="repo-b")] == ["s-b"]
+    assert len(reads) == 2, reads

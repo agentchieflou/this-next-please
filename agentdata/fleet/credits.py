@@ -146,8 +146,54 @@ def status(cfg: dict | None = None, *, names: list | None = None, today: str = "
 
 
 def tier_for(cfg: dict | None, *, today: str = "", registry=None) -> str:
-    """The auto tier the next launch should carry: the configured one, or the reserve's."""
-    return str(status(cfg, today=today, registry=registry)["tier"])
+    """The auto tier the next launch should carry: the configured one, or the reserve's.
+
+    With no allowance recorded (or an invalid one) there is no reserve, and `posture` hands back the
+    configured tier whatever was spent: so the month is not summed, which read every agent's ledger
+    on every `send` and was most of its time (2026-10-06, the operator: "aim for 50ms ... from
+    clicking send, or pressing Enter, to the agent running")."""
+    from . import launch as LAUNCH
+
+    cfg = C.load() if cfg is None else cfg
+    conf = settings(cfg)
+    try:
+        configured = LAUNCH.auto_tier(cfg)
+    except LAUNCH.LaunchError:
+        configured = ""
+    if conf["invalid"] or conf["allowance"] <= 0:
+        return str(configured or "")
+    today = today or _today()
+    spent = _month_spent(_names(registry), month_of(today))
+    return str(posture(cfg, spent=spent, configured_tier=configured)["tier"])
+
+
+#: The month's fleet spend `tier_for` last summed, and what every agent's ledger and stream looked
+#: like then: summed again only when one of them has changed. Summing reads every agent's ledger and
+#: folds what is new in its stream, on every `send` (2026-10-06, page loads); the stamps are a stat
+#: of two files an agent.
+_MONTH: dict = {"key": None, "spent": 0.0}
+
+
+def _month_spent(names: list, month: str) -> float:
+    import os
+
+    from . import events as E
+    from . import spend as SPEND
+
+    def stamp(path: str) -> tuple:
+        try:
+            st = os.stat(path)
+            return (st.st_ino, st.st_mtime_ns, st.st_size)
+        except OSError:
+            return ()
+
+    key = (month, tuple((n, stamp(SPEND.ledger_path(n)), stamp(E.normalized_path(n))) for n in names))
+    if _MONTH["key"] != key:
+        spent = fleet_month(names, month)
+        # Summing folds what was new into the ledgers, which writes them: stamped after, not before.
+        key = (month, tuple((n, stamp(SPEND.ledger_path(n)), stamp(E.normalized_path(n))) for n in names))
+        _MONTH.update(key=key, spent=spent)
+    return _MONTH["spent"]
 
 
 def _today() -> str:

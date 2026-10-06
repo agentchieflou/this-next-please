@@ -107,7 +107,8 @@ sitting poses are baked over exactly one, so their loop has no seam.
 ### `var MOTIONS`
 
 How many motions the crowd's bone texture holds: walking with an umbrella (the street's), standing,
-presenting, sitting and walking with free arms (the agents', who stroll the plaza without umbrellas).
+presenting, sitting, walking with free arms (the agents', who stroll without umbrellas) and typing (an
+agent at its desk).
 
 ### `function use`
 
@@ -216,7 +217,9 @@ A frame of the character: the gait advanced by the distance walked, its amplitud
 The crowd's walk, holding an umbrella, posed `FRAMES` times and written as bone matrices; the right
 hand's path is kept for the umbrella. With `motion` 1 it bakes standing instead, with 2 presenting
 (the hero's talking pose) and with 3 sitting (the seated pose, hands in the lap): no stride, one breath
-(`BREATH`), and no slow sway, which would not loop. With 4 it bakes the walk again, its arms free.
+(`BREATH`), and no slow sway, which would not loop. With 4 it bakes the walk again, its arms free; with
+5 typing: seated, upright, forearms out to the keyboard, the hands tapping six times a breath so the
+loop has no seam.
 
 ### `function crowd`
 
