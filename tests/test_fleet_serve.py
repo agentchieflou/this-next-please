@@ -764,7 +764,10 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
 #: The operator on raising this and the asset budgets (2026-10-03): "All size increases are acceptable
 #: when the tradeoff for performance is not critically affected". The frame budget (10 ms) and the
 #: `low` path's bounds in `tests/test_fleet_world_page.py` are what hold performance; these hold size.
-WORLD_BUDGET = 80 * 1024
+#: The realistic people, their agents, the grown trees and cars took the world to 79.6 KiB gzipped, and
+#: 81.0 KiB where a checkout has CRLF line endings (Windows), which is what the page is served from
+#: there: the budget moved to 88 KiB under the rule above.
+WORLD_BUDGET = 88 * 1024
 
 
 def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
