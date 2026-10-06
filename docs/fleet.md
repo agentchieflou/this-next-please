@@ -169,10 +169,13 @@ The desk shows every agent side by side. Some days you want the other shape, the
 has: **`/chat`** (the toolbar's *chat*, or `c` on a pane) puts the agents in a left sidebar, each
 one's sessions beneath it, and one session's conversation in the rest of the window. Choose an
 agent to follow its current session, or choose any session under it to read that one. An earlier
-session is read-only, and *Resume here* makes it the live one again. *+ new session* is the desk's
-*start fresh*. Messages, answers and approvals go through the same verbs the desk uses, so nothing
-here is a second set of rules, and the palette and skin you chose apply here too. It is an addition
-beside the desk, never a replacement for it; bookmark `/open?page=chat` to land there.
+session is read-only, and *Resume here* makes it the live one again. The conversation is a desk
+pane, with the pane's own bottom row: *Start fresh* (Alt+N, or *start fresh* under the open agent)
+leaves the session under earlier for a clean one, and *Reset* and *Stop* do what they do on the desk.
+Messages, answers and approvals go through the same verbs the desk uses, so nothing here is a second
+set of rules, and the palette and skin you chose look here exactly as they look on the desk, their
+marks included. It is an addition beside the desk, never a replacement for it; bookmark
+`/open?page=chat` to land there.
 
 ### The world: walk to your agents
 

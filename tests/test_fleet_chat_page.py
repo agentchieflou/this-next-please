@@ -8,6 +8,7 @@ session's conversation is that session's and nobody else's, that an earlier one 
 driven, that the stream reaches the open conversation, and that a message goes out as `send`.
 """
 from __future__ import annotations
+import json
 import os
 import re
 import threading
@@ -86,7 +87,7 @@ def test_the_chat_view_is_a_page_of_its_own_and_the_desk_opens_it(fleet_home):
     try:
         html = urllib.request.urlopen(f"http://127.0.0.1:{port}/chat?t={token}", timeout=5).read().decode()
         assert f'"/static/chat/chat.js?t={token}"' in html and f'"/static/chat.css?t={token}"' in html
-        assert "ink-off" in html, "the chat view is not inked, like the map"
+        assert "ink-off" in html, "the chat view is served ink-off, as the desk is, until ink draws"
 
         class Stay(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *a, **k):
@@ -215,6 +216,132 @@ def test_on_a_phone_width_the_list_and_the_conversation_take_turns(fleet_home, t
         assert width <= 390, f"the page is {width}px wide on a 390px screen"
         page.click("#chatback")
         assert page.is_visible("#chatside") and page.is_hidden("#chatmain")
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+# ------------------------------------------------------------------------------- the desk's pane (2026-10-06)
+
+
+def test_the_chat_is_a_desk_pane_and_carries_the_desks_ink_gate(fleet_home, tmp_path, monkeypatch):
+    """The operator, 2026-10-06: the chat should wear every theme "1:1 with the desk view". Its
+    conversation is a desk pane (the desk's classes), it loads the desk's `ink/ink.js`, its `<body>`
+    carries the gate's facts as the desk's does, and a skin's module is preloaded as on the desk."""
+    page = open(os.path.join(STATIC, "chat.html"), encoding="utf-8").read()
+    assert re.search(r'<main id="chatmain" class="tile"', page)
+    for cls in ('class="head"', 'class="repo"', 'class="chip"', 'class="chipword"', 'class="chipage"',
+                'class="ticket"', 'class="runline"', 'class="why"', 'class="approval"', 'class="summary"',
+                'class="asks"', 'class="asks-list"', 'class="readonly"', 'class="row bottom"',
+                'class="start"', 'class="reset"', 'class="stop"', 'class="freshtoggle wordbtn"',
+                'class="cq ask"', 'class="cq-q ask-q"'):
+        assert cls in page, cls
+    assert '<script type="module" src="/static/ink/ink.js"></script>' in page
+    assert "chat.html" in S.INKED_PAGES and "chat.html" in S.INK_LAYER_PAGES
+
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    (tmp_path / "cfg.json").write_text('{"theme": {"skin": "notebook"}}', encoding="utf-8")
+    server, token, port = _serve()
+    try:
+        html = urllib.request.urlopen(f"http://127.0.0.1:{port}/chat?t={token}", timeout=5).read().decode()
+        body = re.search(r"<body[^>]*>", html).group(0)
+        assert re.fullmatch(r'<body class="ink-off" data-skin="notebook"(?: data-skin-variant="[a-z]+")? data-ink-shell="[a-z]+" '
+                            r'data-ink-probe="[a-z]+" data-ink-skins="[a-z ]+">', body), body
+        assert f'<script type="module" src="/static/ink/ink.js?t={token}"></script>' in html
+        assert f'<link rel="modulepreload" href="/static/ink/skins/notebook.js?t={token}">' in html
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+def test_the_bottom_row_is_the_desks_start_fresh_reset_and_stop(fleet_home, tmp_path, browser, spawns):
+    """The operator, 2026-10-06: "we don't have the 'start fresh' / 'start new session' options in the
+    chat section". The conversation has the desk pane's bottom row: *Start fresh* posts `fresh` (and
+    the second press after a `second_press` refusal sends `closed`), *Start* on a typed ticket posts
+    `start`, Reset and Stop post theirs, and Alt+N is *start fresh* as on the desk."""
+    _repo(tmp_path, "alpha")
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "#alpha")
+        _settled(page, "() => document.querySelectorAll('#chatlog .cl').length > 0")
+        posted = []
+        answers = {"fresh": [{"ok": False, "second_press": True, "code": "chat_open",
+                              "error": "its chat is open", "hint": "close it first"}]}
+
+        def answer(route, request):
+            verb = request.url.split("?")[0].rsplit("/", 1)[-1]
+            posted.append((verb, request.post_data_json))
+            queue = answers.get(verb) or []
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(queue.pop(0) if queue else {"ok": True}))
+
+        page.route(re.compile(r"/api/(fresh|start|reset|stop)\b"), answer)
+        assert page.is_visible("#chatstart") and page.text_content("#chatstart") == "Start fresh"
+        assert page.is_visible("#chatreset") and page.is_visible("#chatstop")
+
+        page.click("#chatstart")
+        page.wait_for_function("() => document.getElementById('chatstart').textContent"
+                               " === 'start fresh \u2014 it is closed'", timeout=10000)
+        page.click("#chatstart")
+        page.wait_for_function("() => document.getElementById('chatstart').textContent === 'Start fresh'",
+                               timeout=10000)
+        assert posted[:2] == [("fresh", {"repo": "alpha"}), ("fresh", {"repo": "alpha", "closed": True})], posted
+
+        page.fill("#chatmessage", "RDSD-9")
+        assert page.text_content("#chatstart") == "Start"
+        page.click("#chatstart")
+        page.wait_for_function("() => document.getElementById('chatmessage').value === ''", timeout=10000)
+        for verb, press in (("reset", lambda: page.click("#chatreset")), ("stop", lambda: page.click("#chatstop")),
+                            ("fresh", lambda: page.keyboard.press("Alt+n"))):
+            with page.expect_response(lambda r, v=verb: r.url.split("?")[0].endswith("/api/" + v)):
+                press()
+        assert posted[2:] == [("start", {"repo": "alpha", "ticket": "RDSD-9"}),
+                              ("reset", {"repo": "alpha", "force": False}),
+                              ("stop", {"repo": "alpha"}),
+                              ("fresh", {"repo": "alpha"})], posted
+        assert errors == [], errors
+    finally:
+        _stop(server)
+
+
+LOOK = """() => {
+    const of = (sel, props) => { const el = document.querySelector(sel); if (!el) return null;
+        const cs = getComputedStyle(el); return props.map(p => cs.getPropertyValue(p)); };
+    return { repo: of(%s, ['font-family', 'font-size', 'background-color']),
+             asks: of(%s, ['outline-style', 'outline-width', 'outline-color']),
+             q: of(%s, ['background-color']) };
+}"""
+
+
+@pytest.mark.browser
+def test_a_skin_marks_the_chat_exactly_as_it_marks_the_desk(fleet_home, tmp_path, browser, monkeypatch):
+    """1:1 with the desk view: under the notebook skin the agent that needs you has the same
+    lettering, the same highlighter on its name and its question and the same loop round its
+    questions on the chat as on its desk pane -- the same rules and marks, not a copy of them."""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    (tmp_path / "cfg.json").write_text('{"theme": {"skin": "notebook"}}', encoding="utf-8")
+    _repo(tmp_path, "alpha")
+    _asks(tmp_path)
+    S.arrange(order=["alpha", "asks"])
+    S.update_window("main", open="asks", widths={"alpha": 1, "asks": 1})
+    server, token, port = _serve()
+    try:
+        page, errors = _open(browser, port, token, "#asks")
+        _settled(page, "() => FleetChat.open.repo === 'asks' && !document.getElementById('chatasks').hidden"
+                       " && !!document.querySelector('#chatasklist .ask-q') && !!window.Ink && Ink.inspect().plain")
+        chat = page.evaluate(LOOK % ("'#chatname'", "'#chatasks'", "'#chatasklist .ask-q'"))
+        desk_page = browser.new_page(viewport={"width": 1280, "height": 860})
+        desk_page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        desk_page.wait_for_function("""() => { const t = document.querySelector('.tile[data-repo="asks"]');
+            const q = t && t.querySelector('.ask:not([hidden]) .ask-q');
+            return !!q && !!q.textContent && t.classList.contains('needs-human') && !!window.Ink && Ink.inspect().plain; }""",
+                                    timeout=15000)
+        desk = desk_page.evaluate(LOOK % ("'.tile[data-repo=\"asks\"] .head .repo'", "'.tile[data-repo=\"asks\"] .asks'",
+                                          "'.tile[data-repo=\"asks\"] .ask:not([hidden]) .ask-q'"))
+        assert "Caveat" in chat["repo"][0], chat
+        assert chat["repo"][2] not in ("rgba(0, 0, 0, 0)", "transparent"), chat
+        assert chat["asks"][:2] == ["solid", "2px"], chat
+        assert chat == desk, (chat, desk)
         assert errors == [], errors
     finally:
         _stop(server)
