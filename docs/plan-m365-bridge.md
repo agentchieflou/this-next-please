@@ -145,6 +145,10 @@ configured source, the ledger says which of them get used and where, and a skill
 | **M-E** The loop out | `done`/`blocked`/`needs-you` → `publish` to the originating thread or row; a Copilot Studio agent, if licensed, reading the Lists | medium | M-D |
 | **M-F** The rest of the routing plan's shelf | `confluence-read`, `pbi-usage`, `fabric-items` as the tenant permits | cheap–medium | their verbs |
 
+OneNote rides these slices rather than adding one: the research is in [spike-onenote.md](spike-onenote.md)
+(context from a named section, a fleet log page appended behind the gate, an Agent inbox section as intake, and
+Copilot Notebooks as the reasoning surface we write for but do not build).
+
 Each slice follows the mobile lane's method: the contract page first (`docs/fleet-m365.md`, a sibling of
 [fleet-mobile.md](fleet-mobile.md), read by a test for every record kind, setting, verb, event and refusal code),
 then the laptop side with its tests, then the tenant side as a sitting that records what it saw.
