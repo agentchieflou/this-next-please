@@ -1,5 +1,19 @@
 # The world
 
+> **Parked, 2026-10-08.** The operator semi-scrapped the world as a direction for the fleet desk and
+> moved what it produced to the game it was always closer to: `agentchieflou/play-sports`
+> (`RawAssets/world/`, `tools/assets/world/`, `Specs/Browser_World_Lessons.md`,
+> `Specs/Character_Customization_Spec.md`, `Specs/Input_Architecture.md`,
+> `Specs/Weather_DayNight_Spec.md`, and Track R of its roadmap). What left this repository: the CC0
+> photo textures, skies and scanned props (`static/world/cc0/`), the MakeHuman people
+> (`static/world/people/`), the grown trees and lofted cars, and the offline asset pipeline
+> (`tools/world/`). What stays: the page itself, at the fidelity its own fallbacks give it (baked
+> materials, the sky shader, the built hydrants, the cartoon character and robots, the page's own
+> trees and cars), the office and its desks (`static/world/office/`, 0.12 MiB), the walk, the reach
+> rule, the conversation, the take-over, and the operator's-own-people folder
+> (`~/.agentdata/world/people/`), which a MetaHuman set still drops into. The rest of this document
+> describes the page as it was built; where it names a removed file, that file is now in play-sports.
+
 `/world` (#626) is the fleet as a place: a wet plaza in the rain, one robot per agent, and you, a
 character you choose, walked with a controller or the keyboard. The operator chose it as the next thing to explore
 when asked which parked concepts came next (#400, 2026-10-02):

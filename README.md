@@ -79,8 +79,9 @@ pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.g
 #    with the extras you actually use:
 #    pip install "agentdata[teradata,impala,oracle,pbi,uat,test] @ git+https://github.com/agentchieflou/this-next-please.git"
 
-pncli config init      # if not done (pncli keeps the Jira token; we only borrow it by key name)
-ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
+ad-setup               # guided: Jira (URL, email, a token kept in the keyring), data sources, Power BI tools/workspaces
+#    pncli is optional: `ad-setup --only pncli` imports its token instead, and Confluence pages and
+#    Bitbucket PRs still go through it (docs/pncli-parts.md) -- Jira itself no longer needs it
 #    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)
 #    ad-setup --export-defaults team.json / ad-setup --import team.json  # share non-secret team defaults
 ad-theme gallery       # preview terminal themes (greens, dark, eye-relief, matrix, ...)
@@ -98,7 +99,7 @@ or name the skills you want: `gh skill install agentchieflou/this-next-please ro
 
 **Project repos install nothing.** `rdsd-pbi-reporting` and friends hold PBIP folders, TMDL and SQL — not Python.
 Running `pip install -e ".[dev]"` there fails with *"neither 'setup.py' nor 'pyproject.toml' found"*, and that is
-correct: the CLI is laptop-wide, like `git` or `pncli`. Per project you only run `ad-setup --project .`.
+correct: the CLI is laptop-wide, like `git`. Per project you only run `ad-setup --project .`.
 
 **If `ad-setup` is "not recognized as the name of a cmdlet"**, pip printed *Defaulting to user installation* and put the
 console scripts in a folder Windows does not have on PATH. Either add it —
@@ -184,8 +185,8 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `agentdata/update.py` | `ad-update`: reinstall the CLI + skills, and report the exact commit installed |
 | `CHANGELOG.md` | what each version changed, and whether picking it up needs more than the two update commands |
 | `agentdata/state.py` | `ad-state`: the only writer of `.agent/state.json` (validated keys and phases, clean encoding) |
-| `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, sources, powerbi, content_understanding, project) |
-| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), content_understanding (Azure AI / Microsoft Foundry document field extraction, `ad-foundry`), keyring wrapper, probes |
+| `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: jira, pncli (optional), sources, powerbi, content_understanding, project) |
+| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), jira_api (Jira REST: the token from the environment, the keyring, or pncli's config), pncli (the optional backend for Confluence and Bitbucket), content_understanding (Azure AI / Microsoft Foundry document field extraction, `ad-foundry`), keyring wrapper, probes |
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
 | `agentdata/fleet/` | `ad-fleet`: several headless agents, one per repository, watched from one page — supervisor, normalized event stream, approval gate, notifications, Jira intake, dashboard ([docs/fleet.md](docs/fleet.md)) |
@@ -202,6 +203,8 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `agentdata/sorting/` | `ad-sort`: organizing a folder of files into a structure — a plan an agent writes and a person applies, by name only, copying and never moving ([docs/sorting.md](docs/sorting.md)) |
 | `agentdata/dpm/extract.py` | field extraction over DPM-routed text: the field list is an input, and the engine is a seam (`simple` label matching, or an Azure Content Understanding analyzer) that downstream output does not see |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
+| `docs/pncli-parts.md` | pncli, the inspiration: what this repo learned from it, what it re-implemented over REST, what still goes through it |
+| `docs/fleet-skills.md` | the skills marketplace on `/settings`: every installed skill, how often it ran, in which repositories, and the source it syncs from |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
 | `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
@@ -228,9 +231,20 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |
 
+## Acknowledgements
+
+**pncli** (`@kolatts/pncli`) is the fundamental inspiration for this repository: one CLI an agent could
+run over Jira, Confluence and Bitbucket, every argument a named option, a token borrowed by key name
+rather than copied. `ad-*` grew out of using it, and its shape is all through this code: the named-option
+rule, the read/write verb split behind an approval gate, the npm shim handling, the inline Confluence
+body. Most of its Jira surface is re-implemented here over REST so it is no longer required, but it is
+still the backend for Confluence pages and Bitbucket PRs. `docs/pncli-parts.md` keeps the full account.
+pbi-tools (AGPL) taught the PBIP side (`docs/pbi-tools-parts.md`), and Poly Haven's and MakeHuman's CC0
+assets dressed the world before it moved to play-sports.
+
 ## Long Jira pulls (`ad-jira changelog`, `ad-jira sprint-replay`)
 
-A changelog pull spends the token pncli holds — the human's — so every run has a ceiling of its own rather than a
+A changelog pull spends the human's Jira token — so every run has a ceiling of its own rather than a
 rate limit to discover. `--max-requests` (2000) and `--max-seconds` (900) stop it; `--bulk-issues` (200) and
 `--bulk-page` (500) size the bulkfetch calls; `--stats` prints what the run cost, in the TOON meta and one line on
 stderr; `--quiet` silences the progress lines. Cloud's rate-limit headers are read on every response, so the last
