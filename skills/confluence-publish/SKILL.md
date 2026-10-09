@@ -4,28 +4,20 @@ description: "Use to write findings, runbooks, or work documentation to Confluen
 ---
 # Confluence publish
 
-Requires the optional pncli backend (`ad-doctor` row `pncli / pncli launcher`); there is no REST path for this yet.
-Confluence does not render Markdown. `ad-confluence` converts it; you never write the page body yourself.
+`ad-confluence publish` builds the page from Markdown and runs pncli's page verb behind the approval gate; `ad-doctor`
+row `pncli / pncli launcher` must not be `fail`. Confluence does not render Markdown: you never write the page body yourself.
 
 1. Source of truth is a Markdown file under `.agent/out/` (e.g. `<KEY>-uat-findings.md`). No file → go back to the skill that produced the data. Do not compose from memory.
 2. Space + parent come from `AGENTS.md` (`confluence_space`, `confluence_parent`). Missing → `friction-log` type `missing-info`. STOP.
-3. Missing sections (`Context`, `Method`, `Findings`, `Recommendation`, `Artifacts` with the `path`s) → add them **to the Markdown file**, ≤ 60 lines total. Never hand-write HTML: `ad-confluence` refuses a body it cannot parse, and `ad-pncli` refuses to post one that is still Markdown.
-4. Build the body:
+3. Write the page source to `.agent/out/<KEY>-confluence.md` (the wrap-up republishes from that file). Missing sections (`Context`, `Method`, `Findings`, `Recommendation`, `Artifacts` with the `path`s) → add them **to that Markdown file**, ≤ 60 lines total. Never hand-write HTML: `ad-confluence publish` refuses a source that is not Markdown.
+4. Dry run:
 
 ```
-ad-confluence html .agent/out/<KEY>-uat-findings.md --out .agent/out/<KEY>-confluence.html
+ad-confluence publish .agent/out/<KEY>-confluence.md --dry-run
 ```
 
-   Read `meta`. `title` is the file's first `#` heading, lifted out so the page does not repeat it — use that string in step 5, or pass `--title "<KEY> — <summary>"` to set it. `blocks` counts what was recognised: `paragraph` alone on a file with headings and bullets means the Markdown is malformed, so fix the source file. `ok: false` → print `hint`, fix the source, retry once, then `friction-log` type `tool-error`. STOP.
-5. Dry run:
-
-```
-ad-pncli raw --body-file .agent/out/<KEY>-confluence.html confluence create-page --space <space> --parent <id> --title "<title>" --dry-run
-```
-
-   `--body-file` hands the file to pncli as one `--body <html>` argument. Never put the body on the command line yourself: quotes, newlines, `<`, `>` and `&` do not survive a shell, and a page is longer than a command line allows.
-6. Read `"ok"`. `false` → print `meta.hint`, fix, retry once. Second failure → `friction-log` type `tool-error`. STOP.
-7. `--space`, `--parent` and `--title` are not confirmed against this pncli build (only `create-page --body` is). An `unknown option` error → run `ad-pncli help confluence create-page` ONCE, use the names it lists, and report the working command so it can be pinned here. Never guess a second time.
-8. Re-run without `--dry-run`. Capture the URL from the result. `refused: approval_timeout` or `approval_denied` → `friction-log` type `missing-info` quoting the `approval` id and the `hint`. Do not retry.
-9. Comment on Jira: `ad-jira comment <KEY> --body "Documented: <URL>" --dry-run`, read `"ok"`, then run the same without `--dry-run`. `refused: approval_timeout` or `approval_denied` → as step 8.
-10. `state-update`: `confluence_url`, `phase=documenting`. Hand off → `bitbucket-pr` if code changed, else `router`.
+   The title is the file's first `#` heading (`--title "<KEY> — <summary>"` overrides it); the page this ticket already has (`state.confluence_url`) → add `--overwrite <page id>`. The body goes to pncli as one argument; never put it on a command line yourself.
+5. Read `"ok"`, then `action`, `title`, `space`, `parent`, `warnings`. `refused: not_pinned` → the operator has not pinned pncli's page verb yet: print `hint` verbatim, `friction-log` type `missing-info`, STOP. Any other `false` → print `meta.hint`, fix the source, retry once. Second failure → `friction-log` type `tool-error`. STOP.
+6. Re-run without `--dry-run`. Capture `url` from the result. `refused: approval_timeout` or `approval_denied` → `friction-log` type `missing-info` quoting the `approval` id and the `hint`. Do not retry.
+7. Comment on Jira: `ad-jira comment <KEY> --body "Documented: <URL>" --dry-run`, read `"ok"`, then run the same without `--dry-run`. `refused: approval_timeout` or `approval_denied` → as step 6.
+8. `state-update`: `confluence_url`, `phase=documenting`. Hand off → `bitbucket-pr` if code changed, else `router`.

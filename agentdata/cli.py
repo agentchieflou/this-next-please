@@ -70,194 +70,81 @@ def main_hive(): _sql_main("hive", "ad-hive")
 def main_impala(): _sql_main("impala", "ad-impala")
 
 
-def main_pncli() -> None:
-    utf8_stdout()
-    ap = argparse.ArgumentParser(prog="ad-pncli",
-        description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | "
-                    "ad-pncli jira comments <KEY> | "
-                    "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli help [<product> [<verb>]] | "
-                    "ad-pncli where | "
-                    "ad-pncli capture-help [--out FILE] (the operator's: every `pncli --help` the PR and "
-                    "page commands need, redacted, in one file to attach)")
-    version.add_version(ap)
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    j = sub.add_parser("jira", help="search issues by JQL, or read one issue (pncli's named options are built here)")
-    j.add_argument("verb", choices=["search", "get", "comments"]); j.add_argument("target", nargs="?", help="issue key for `get` / `comments`, JQL for `search`")
-    j.add_argument("--jql", default=None); j.add_argument("--key", default=None, help="issue key for `get` / `comments`")
-    j.add_argument("--fields", default=None); j.add_argument("--max-results", type=int, default=500)
-    j.add_argument("--raw", action="store_true")
-    r = sub.add_parser("raw", help="any pncli command; result list normalized by policy")
-    r.add_argument("--body-file", help="read this file and append it as one argument (default `--body <contents>`): "
-                                       "pncli takes an inline body, and a page of HTML cannot survive shell quoting")
-    r.add_argument("--body-arg", default="--body", help="the option the body belongs to (default --body)")
-    r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
-    h = sub.add_parser("help", help="pncli's own usage for a product or verb (`pncli <product> [<verb>] --help`), "
-                       "with the verbs it lists; the agent's way to read it, since bare `pncli` is denied in a fleet")
-    h.add_argument("names", nargs="*", help="up to two command names, e.g. `bitbucket` or `confluence create-page`")
-    sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
-    ch = sub.add_parser("capture-help", help="the operator's, in their own terminal: run `pncli --help` for bitbucket, "
-                        "confluence and jira and every verb they list, and write the answers, hosts and home redacted, "
-                        "into one file to read and attach (WRAP-D6). Nothing but --help and --version is run")
-    ch.add_argument("--out", default=None, help="the file to write (default: pncli-help-<version>-<yyyymmdd>.txt "
-                                                "beside the config file)")
-    ch.add_argument("--max", type=int, default=40, help="at most this many verb --help calls (default 40)")
-    completion.autocomplete(ap)
-    a = ap.parse_args()
-    from . import confluence, proc     # deferred: only ad-pncli needs them
-    from .connectors import pncli as P
-    try:
-        if a.cmd == "where":
-            info = P.where()
-            meta = {"ok": bool(info["found"]) and info.get("rc", 0) == 0, "source": "ad-pncli where", **{k: v for k, v in info.items() if k != "tried"}}
-            if not meta["ok"]:
-                meta["hint"] = P.install_hint()
-            print(toon.encode({"meta": meta, "tried": info["tried"]}))
-            sys.exit(0 if meta["ok"] else 1)
-        if a.cmd == "capture-help":
-            sys.exit(_capture_help(a, P))
-        if a.cmd == "help":
-            sys.exit(_help(list(a.names), P))
-        if a.cmd == "jira" and a.verb == "get":
-            key = a.key or a.target
-            if not key:
-                print(error("no issue key", "ad-pncli jira get <KEY> (pncli's own option is --key; ad-pncli passes it for you)", "pncli")); sys.exit(2)
-            print(render(P.get_issue(key, a.fields.split(",") if a.fields else None), raw=a.raw))
-        elif a.cmd == "jira" and a.verb == "comments":
-            key = a.key or a.target
-            if not key:
-                print(error("no issue key", "ad-pncli jira comments <KEY> (pncli's own option is --key; ad-pncli passes it for you)", "pncli")); sys.exit(2)
-            print(render(P.get_comments(key), raw=a.raw))
-        elif a.cmd == "jira":
-            jql = a.jql or a.target
-            if not jql:
-                print(error("no JQL", 'ad-pncli jira search --jql "key = <KEY>"', "pncli")); sys.exit(2)
-            t = P.jira_search(jql, a.fields.split(",") if a.fields else None, a.max_results)
-            print(render(t, raw=a.raw))
-        else:
-            note = None
-            pargs = [x for x in a.pargs if x != "--raw"]  # REMAINDER swallows a trailing --raw
-            raw_out = a.raw_out or len(pargs) != len(a.pargs)
-            if P.asks_for_help(pargs) and not a.body_file:
-                # Help is text, never the JSON `run` insists on: answer it the way `ad-pncli help` does.
-                sys.exit(_help(list(P.verb(pargs)), P))
-            shown = list(pargs)
-            if a.body_file:
-                # the body goes across as ONE argv element: no shell, so quotes, newlines and < > in the HTML are safe
-                body = read_text(a.body_file)
-                why = confluence.looks_like_markdown(body) if "confluence" in pargs else ""
-                if why:
-                    print(error(f"{a.body_file} is Markdown, not Confluence storage format ({why})",
-                                f"Confluence renders it literally; build the body first: ad-confluence html {a.body_file}", "pncli"))
-                    sys.exit(2)
-                pargs = [*pargs, a.body_arg, body]
-                shown = [*shown, a.body_arg, f"<{len(body)} chars from {a.body_file}>"]
-            if P.is_write(pargs):
-                # Unattended, a write to a system of record waits for one operator click. In
-                # PyCharm this returns before it touches the disk. What is shown for approval is
-                # `shown`, never `pargs`: a Confluence body is thousands of characters and the
-                # operator is deciding about the command, not reading the HTML.
-                from .fleet import approval
-
-                d = approval.require("pncli-write", "pncli " + " ".join(shown),
-                                     {"command": " ".join(shown), "verb": " ".join(P.verb(pargs))})
-                if not d.ok:
-                    print(toon.encode({"meta": approval.refusal(d, "ad-pncli raw")}))
-                    sys.exit(2)
-                if d.reason:
-                    note = {"approval_note": d.reason}      # the approve comment, for the agent to quote (#543)
-            payload, el = P.run(pargs)
-            source = "pncli " + " ".join(shown)
-            if raw_out:
-                print(render(AgentTable(name="pncli", columns=[], rows=[], source=source, raw=payload), raw=True))
-            else:
-                print(render_nested(P.extract_records(payload), name="pncli", source=source, raw_payload=payload,
-                                    extra=note))
-    except proc.ProcError as e:
-        meta = {"ok": False, "source": "ad-pncli", "error": e.msg, "hint": e.hint, "refused": e.code, **e.detail}
-        print(toon.encode({"meta": meta})); sys.exit(1)
-    except Exception as e:  # noqa: BLE001
-        print(error(str(e)[:300], "run the same pncli command with --dry-run --pretty; `ad-pncli where` checks the launcher", "pncli")); sys.exit(1)
-
-
-def _help(names: list[str], P) -> int:
-    """`ad-pncli help [<product> [<verb>]]`: pncli's usage text as rows, and the verbs it lists."""
-    got = P.help_for(names)
-    shown = " ".join(["pncli", *names, "--help"])
-    meta = {"ok": got["rc"] == 0, "source": shown, "verbs": ",".join(got["verbs"]), "elapsed_ms": got["ms"]}
-    if got["rc"] != 0:
-        meta.update(error=f"`{shown}` exited {got['rc']}",
-                    hint="`ad-pncli help` with one name fewer lists what exists; `ad-pncli where` checks the launcher")
-    lines = [{"line": line.rstrip()} for line in got["text"].splitlines() if line.strip()]
-    print(toon.encode({"meta": meta, "help": lines}))
-    return 0 if meta["ok"] else 1
-
-
-def _capture_help(a, P) -> int:
-    """`ad-pncli capture-help` (#498): the laptop's pncli help, redacted, in one file the operator attaches."""
-    import time
-    from . import config as C, textio
-    from .fleet import approval
-    if approval.in_fleet():
-        print(toon.encode({"meta": {"ok": False, "source": "ad-pncli capture-help", "refused": "operator_only",
-                                    "error": "capture-help is the operator's: it writes a file for the operator to read and attach",
-                                    "hint": "run `ad-pncli capture-help` in your own terminal, not from a fleet agent"}}))
-        return 2
-    cfg = load_config()
-    got = P.capture_help(max_verbs=max(0, a.max), cfg=cfg)
-    if not got["started"]:
-        first = got["calls"][0]
-        print(error(f"pncli did not start: {first['out']}", got["hint"], "ad-pncli capture-help"))
-        return 1
-    hosts, home = P.redaction_hosts(cfg), os.path.expanduser("~")
-    counts: dict[str, int] = {}
-    blocks = []
-    for c in got["calls"]:
-        text, n = P.redact(c["out"], hosts, home)
-        for k, v in n.items():
-            counts[k] = counts.get(k, 0) + v
-        blocks.append(f"==== {' '.join(c['argv'])} | exit {c['rc']} | {c['ms']} ms\n{text.rstrip()}\n")
-    captured = sum(1 for c in got["calls"] if c["rc"] == 0)
-    failed = len(got["calls"]) - captured
-    redacted = ", ".join(f"{k} x{v}" for k, v in sorted(counts.items())) or "nothing matched"
-    day = time.strftime("%Y%m%d")
-    out = a.out or os.path.join(os.path.dirname(C.path()), f"pncli-help-{got['version']}-{day}.txt")
-    head = [f"# pncli help capture: pncli {got['version']}, {time.strftime('%Y-%m-%d %H:%M')} (ad-pncli capture-help, #498)",
-            "# redacted: the configured Jira, Confluence and Bitbucket hosts as <jira-host>, <confluence-host> and "
-            "<bitbucket-host>; any other http(s) host as <host>; the home directory as <home>",
-            f"# redacted here: {redacted}",
-            f"# calls: {len(got['calls'])}, exit 0: {captured}, failed: {failed}"
-            + (f", verbs left out by --max: {got['left_out']}" if got.get("left_out") else ""),
-            "# read it before you attach it: this repository is public", ""]
-    textio.write_text(out, "\n".join(head) + "\n" + "\n".join(blocks))
-    meta = {"ok": True, "source": "ad-pncli capture-help", "file": C.display_path(out), "captured": captured,
-            "failed": failed, "redacted": redacted, "left_out": got.get("left_out", 0),
-            "next": "read it, then attach it to the issue for `ad-pncli bitbucket pr` (#506)"}
-    print(toon.encode({"meta": meta}))
-    return 0
-
-
 def main_view() -> None:
-    """Re-render a TSV (or a CSV export) on disk through the policy (e.g., after a script wrote it)."""
+    """Render a file on disk through the format policy: a TSV, a CSV export, or a JSON answer (pncli's)."""
     utf8_stdout()
-    ap = argparse.ArgumentParser(prog="ad-view"); ap.add_argument("path"); ap.add_argument("--name", default="result")
+    ap = argparse.ArgumentParser(prog="ad-view", description="ad-view <file.tsv|file.csv|file.json>: a TSV or CSV a "
+                                 "script wrote, or the JSON a direct `pncli` read saved under .agent/out/, as TOON "
+                                 "(full rows stay in the file on disk)")
+    ap.add_argument("path"); ap.add_argument("--name", default=None)
+    ap.add_argument("--fields", default=None, help="JSON only: comma-separated columns to keep (a Jira search or "
+                                                   "issue: short names like status, assignee, description)")
     version.add_version(ap)
     ap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     completion.autocomplete(ap)
     a = ap.parse_args()
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
-    if a.path.lower().endswith(".csv"):
+    lower = a.path.lower()
+    if lower.endswith(".json"):
+        rc = _view_json(a.path, a.name, [f.strip() for f in a.fields.split(",") if f.strip()] if a.fields else None)
+        if rc:
+            sys.exit(rc)
+        return
+    if lower.endswith(".csv"):
         # A dscmd export (dax-studio-export): the same reading as `python -m agentdata.csv2toon`,
         # which a fleet agent may not run -- `ad-view` it may.
         from .pbip.dax import read_csv
 
-        table = read_csv(a.path, a.name)
+        table = read_csv(a.path, a.name or "result")
         if table is None:
             print(error(f"empty csv: {a.path}", "the export wrote no header; run the query again", "ad-view"))
             sys.exit(1)
         print(render(table))
         return
-    print(render(AgentTable.read_tsv(a.path, a.name)))
+    print(render(AgentTable.read_tsv(a.path, a.name or "result")))
+
+
+def _view_json(path: str, name: str | None, fields: list[str] | None) -> int:
+    """`ad-view <file.json>`: pncli's answer, saved by `pncli ... > .agent/out/<name>.json`, through the policy.
+
+    A Jira search or a single issue gets the columns the in-process reads give (`pncli.jira_search_from_payload`,
+    `pncli.get_issue_from_payload`); anything else is pncli's result list, normalized (`render_nested`)."""
+    import json
+    from .connectors import pncli as P
+    source = f"ad-view {path}"
+    try:
+        text = read_text(path)
+    except OSError as e:
+        print(error(f"cannot read {path}: {e.strerror or e}", "save pncli's answer first: "
+                    "pncli <product> <verb> --<option> <value> > .agent/out/<name>.json", "ad-view"))
+        return 2
+    try:
+        payload = json.loads(text) if text.strip() else None
+    except json.JSONDecodeError as e:
+        print(error(f"{path} is not JSON ({e.msg}, line {e.lineno})", "pncli prints JSON on stdout; a usage error goes "
+                    "to stderr and leaves this file empty or partial: run the pncli command again and read its message",
+                    "ad-view"))
+        return 1
+    if payload is None:
+        print(error(f"{path} is empty", "the pncli command printed nothing: run it again and read its message", "ad-view"))
+        return 1
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        print(error(str(payload.get("error") or payload.get("message") or "pncli error")[:300],
+                    "pncli refused the command: fix its options (named, never positional) and run it again", "ad-view"))
+        return 1
+    kind = P.payload_kind(payload)
+    if kind == "search":
+        t = P.jira_search_from_payload(payload, fields, source=source)
+    elif kind == "issue":
+        t = P.get_issue_from_payload(payload, fields, source=source)
+    else:
+        print(render_nested(P.extract_records(payload), name=name or "pncli", source=source, raw_payload=payload))
+        return 0
+    if name:
+        t.name = name
+    print(render(t))
+    return 0
 
 
 def main_diff() -> None:
@@ -289,4 +176,4 @@ def main_diff() -> None:
 
 
 if __name__ == "__main__":
-    main_pncli()
+    main_view()

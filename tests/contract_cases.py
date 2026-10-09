@@ -52,7 +52,6 @@ CASES: dict[str, dict] = {
     "dpm":        {"args": ["--help"], "toon": False},
     "confluence": {"args": ["--help"], "toon": False},
     "foundry":    {"args": ["--help"], "toon": False},
-    "pncli":      {"args": ["--help"], "toon": False},
     "td":         {"args": ["--help"], "toon": False},
     "ora":        {"args": ["--help"], "toon": False},
     "hive":       {"args": ["--help"], "toon": False},

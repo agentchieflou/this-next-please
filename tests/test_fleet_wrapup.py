@@ -2,8 +2,8 @@
 
 Most cases replace `wrapup.RUN` with an in-process recorder. It answers `git push` through `cli_git.push` itself
 against a real tmp repository and a bare `origin`, `jira comment` through `cli_jira` against the fake Jira, and
-`pncli bitbucket pr` / `confluence publish` through their real parsers -- which do not have those verbs yet, so
-they answer argparse's *invalid choice* and the rows read `not_pinned`, as they will until #506 and #507 land.
+`git pr` / `confluence publish` through the real `ad-git pr` and `ad-confluence publish` -- which answer
+`refused: not_pinned` until the operator sets `pncli.verbs.*`, so the rows read `not_pinned` unless a test cans them.
 Transitions are canned per test: the fake Jira's workflow has only *Done*.
 """
 from __future__ import annotations
@@ -65,7 +65,7 @@ class Recorder:
 
     def _answer(self, args, cwd):
         dry = "--dry-run" in args
-        step = {"git": "push", "pncli": "pr", "confluence": "page"}.get(args[0]) or \
+        step = {"git": "pr" if args[1] == "pr" else "push", "confluence": "page"}.get(args[0]) or \
             ("comment" if args[1] == "comment" else "transition")
         if step in self.canned:
             meta = self.canned[step]["dry" if dry else "real"]
@@ -74,18 +74,19 @@ class Recorder:
             rc, meta = cli_git.push(cwd, dry_run=dry)
             return {"code": rc, "meta": meta, "tables": {}, "stderr": ""}
         if step in ("pr", "page"):
-            from agentdata import cli, cli_confluence
+            from agentdata import cli_confluence
 
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-                saved, sys.argv = sys.argv, [f"ad-{args[0]}", *args[1:]]   # ad-pncli reads sys.argv itself
+            out, err, here = io.StringIO(), io.StringIO(), os.getcwd()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                os.chdir(cwd)                                  # both adapters read the checkout they run in
                 try:
-                    rc = cli.main_pncli() if step == "pr" else cli_confluence.main(args[1:])
+                    rc = cli_git.main(args[1:]) if step == "pr" else cli_confluence.main(args[1:])
                 except SystemExit as e:
                     rc = e.code
                 finally:
-                    sys.argv = saved
-            return {"code": rc, "meta": {}, "tables": {}, "stderr": err.getvalue()}
+                    os.chdir(here)
+            blocks = WRAP.read_toon(out.getvalue())
+            return {"code": rc, "meta": blocks.pop("meta", {}), "tables": blocks, "stderr": err.getvalue()}
         if step == "comment":
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -183,7 +184,8 @@ def test_end_of_day_on_a_ticketed_branch_with_three_unpushed_commits(luna):
     push = rows["push"]
     assert push["ok"] and push["ticked"] and push["payload"]["ahead"] == 3
     assert rows["pr"]["code"] == "not_pinned" and not rows["pr"]["ticked"]
-    assert "ad-pncli capture-help" in rows["pr"]["hint"] and "WRAP-D6" in rows["pr"]["hint"]
+    assert "pncli bitbucket --help" in rows["pr"]["hint"] and "pncli.verbs.pr_create" in rows["pr"]["hint"]
+    assert "WRAP-D6" in rows["pr"]["hint"]
     assert rows["page"]["code"] == "no_source" and "RDSD-1-confluence.md" in rows["page"]["hint"]
     comment = rows["comment"]
     assert comment["ok"] and comment["ticked"]
@@ -276,8 +278,8 @@ def test_run_writes_push_pr_page_comment_transition_in_that_order(luna):
     rec.calls.clear()
     done = WRAP.run("luna", "day", ticked)
     assert [r["done"] for r in done["results"]] == ["written"] * 5, done["results"]
-    order = [a[3] + (" " + a[4] if a[3] == "jira" else "") for a in rec.writes]
-    assert order == ["git", "pncli", "confluence", "jira comment", "jira transition"]
+    order = [a[3] + (" " + a[4] if a[3] in ("jira", "git") else "") for a in rec.writes]
+    assert order == ["git push", "git pr", "confluence", "jira comment", "jira transition"]
     assert "refs/heads/feature/RDSD-1-thing" in _refs(luna["bare"])
     assert len(luna["fake"].comments) == 1
 
@@ -548,15 +550,16 @@ def test_plan_all_writes_nothing_outside_the_fleet_dir_and_its_totals_match_its_
     assert WRAP.plan_all("day")["plan_id"] == swept["plan_id"], "an unchanged fleet previews alike"
 
 
-def test_the_day_sweep_before_506_and_507_land(fleet4):
-    """The recorder answers as `main` does before #506 and #507: the pr and page adapters are unknown."""
+def test_the_day_sweep_before_the_verbs_are_pinned(fleet4):
+    """The recorder runs the real `ad-git pr` and `ad-confluence publish`: with no `pncli.verbs.*` pinned,
+    both answer `not_pinned`, and the sweep says how to pin them."""
     os.makedirs(os.path.join(fleet4["path"], ".agent", "out"), exist_ok=True)
     open(os.path.join(fleet4["path"], ".agent", "out", "RDSD-1-confluence.md"), "w").close()
     repos = _repos(WRAP.plan_all("day"))
     luna = _slots(repos["luna"])
     assert luna["push"]["ok"] and luna["push"]["ticked"] and luna["comment"]["ticked"]
     for step in ("pr", "page"):
-        assert luna[step]["code"] == "not_pinned" and "ad-pncli capture-help" in luna[step]["hint"], luna[step]
+        assert luna[step]["code"] == "not_pinned" and "pncli.verbs." in luna[step]["hint"], luna[step]
     sol = repos["sol"]
     assert [s["step"] for s in sol["steps"]] == ["push", "pr"] and _slots(sol)["push"]["ticked"]
     assert _slots(sol)["pr"]["code"] == "not_pinned"

@@ -107,7 +107,7 @@ def only_jira(poller: P.Poller) -> P.Poller:
 
 
 def test_four_tiles_cost_one_jira_search_per_interval(fleet_home, tmp_path):
-    """The whole reason this is not four `ad-jira get` calls: one shared token, four tiles."""
+    """The whole reason this is not four `pncli jira get-issue` calls: one shared token, four tiles."""
     reg = fleet_of(tmp_path, 4)
     fake = FJ.FakeJira(issues=6, flavor="cloud")
     poller = only_jira(wire(P.Poller(reg, cfg={}, now=lambda: T0), fake))

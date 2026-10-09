@@ -1,4 +1,5 @@
 """ad-git push: the one push -- the current branch, to its own name, on a configured remote, gated (#502).
+ad-git pr: the Bitbucket pull request for that branch, through pncli's pinned PR verb, gated (`bitbucket-pr`).
 
 `shell(git push)` stays on the fleet's deny floor (launch.py). A deny is a prefix, so no allow entry can offer a
 push without also offering `git push -u origin HEAD --force`; and a push without an explicit refspec follows
@@ -167,6 +168,129 @@ def push(cwd: str, remote: str | None = None, *, dry_run: bool = False, source: 
     return 0, {**meta, "pushed": True, "upstream": f"{remote}/{branch}"}
 
 
+PR_PIN_HINT = {
+    "pr_create": ('pin it: run `pncli bitbucket --help` for the PR verb and set the template: ad-setup --only pncli '
+                  '--non-interactive --set pncli.verbs.pr_create="bitbucket <verb> --title {title} --source {source} '
+                  '--target {target} --description {description}"'),
+    "pr_update": ('pin it: run `pncli bitbucket --help` for the PR update verb and set the template: ad-setup --only '
+                  'pncli --non-interactive --set pncli.verbs.pr_update="bitbucket <verb> --id {pr_id} --title {title} '
+                  '--description {description}"'),
+}
+DESCRIPTION_SUBJECTS = 20
+
+
+def _default_target(cwd: str, remote: str) -> str:
+    code, head_ref, _ = _git(cwd, "symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD")
+    if code == 0 and head_ref:
+        return head_ref.rsplit(f"refs/remotes/{remote}/", 1)[-1]
+    return next((b for b in ("main", "master") if _ref(cwd, f"refs/remotes/{remote}/{b}")), "")
+
+
+def pr_plan(cwd: str, *, title: str | None = None, target: str | None = None, draft: bool = True,
+            overwrite: str | None = None, remote: str | None = None, cfg: dict | None = None) -> dict:
+    """Everything `ad-git pr` would send, from local refs and config only. Raises `Refused`."""
+    from .connectors import pncli as P
+    cfg = C.load() if cfg is None else cfg
+    p = plan(cwd, remote)                     # detached head, protected branch, unknown remote, diverged
+    action = "update" if overwrite else "create"
+    verb = "pr_update" if overwrite else "pr_create"
+    template = P.verb_template(verb, cfg)
+    if not template:
+        raise Refused("not_pinned", f"pncli's PR {action} verb is not pinned (pncli.verbs.{verb} is unset)",
+                      PR_PIN_HINT[verb], p)
+    target = (target or _default_target(cwd, p["remote"])).strip()
+    if not target:
+        raise Refused("no_target", f"{p['remote']} names no default branch to open the PR against",
+                      "pass --target <branch>", p)
+    if target == p["branch"]:
+        raise Refused("default_branch", f"the PR would merge {target!r} into itself",
+                      "the work goes on a branch — AGENTS.md rule 16: `git checkout -b <type>/<KEY>-<slug>`", p)
+    ticket = _active_ticket(cwd)
+    if not title:
+        _, subject, _ = _git(cwd, "log", "-1", "--format=%s")
+        title = subject or p["branch"]
+        if ticket and ticket.lower() not in title.lower():
+            title = f"{ticket}: {title}"
+    base = f"refs/remotes/{p['remote']}/{target}"
+    span = f"{base}..HEAD" if _ref(cwd, base) else "HEAD"
+    _, logged, _ = _git(cwd, "log", f"--max-count={DESCRIPTION_SUBJECTS}", "--format=%s", span)
+    lines = ([f"Ticket: {ticket}", ""] if ticket else []) + ["Commits:"] + \
+        [f"- {s}" for s in logged.splitlines() if s.strip()]
+    description = "\n".join(lines)
+    values = {"title": title, "source": p["branch"], "target": target, "description": description,
+              "draft": "true" if draft else "false", "pr_id": overwrite or ""}
+    try:
+        argv = P.template_argv(template, {k: values[k] for k in P.VERBS[verb]})
+    except ValueError as e:
+        raise Refused("bad_template", f"pncli.verbs.{verb}: {e}", PR_PIN_HINT[verb], p) from None
+    if P.verb(argv)[:1] != ("bitbucket",):
+        raise Refused("bad_template", f"pncli.verbs.{verb} must be a bitbucket verb: {template}", PR_PIN_HINT[verb], p)
+    out = {"action": action, "pr_id": overwrite or "", "title": title, "draft": bool(draft), "source": p["branch"],
+           "target": target, "remote": p["remote"], "description": "replaced" if overwrite else "written",
+           "live_hash": "", "head": p["head"], "argv": argv,
+           "command": P.shown_argv(argv, {"description": description})}
+    if not p.get("upstream_now") or p.get("ahead"):
+        out["note"] = f"{p['branch']} has commits {p['remote']} has not seen: run `ad-git push` first"
+    return out
+
+
+def _pr(a) -> int:
+    """`ad-git pr`: open (or update) the Bitbucket PR for the current branch through pncli, gated."""
+    from .connectors import pncli as P
+    src = "ad-git pr"
+    if a.pretty:
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
+    cwd = os.getcwd()
+    cfg = C.load()
+    try:
+        p = pr_plan(cwd, title=a.title, target=a.target, draft=not a.ready, overwrite=a.overwrite, cfg=cfg)
+    except Refused as r:
+        meta = {"ok": False, "source": src, **{k: v for k, v in r.plan.items() if k in ("branch", "remote")},
+                "refused": r.code, "error": r.error, "hint": r.hint}
+        print(toon.encode({"meta": meta}))
+        return r.exit_code
+    keep = ("action", "pr_id", "title", "draft", "source", "target", "remote", "description", "live_hash", "head",
+            "command", "note")
+    # `source` is the PR's source branch here, the name the wrap-up's stable fields read (`fleet/wrapup.STABLE`);
+    # a refusal's `source` is the command, as everywhere else.
+    meta = {"ok": True, **{k: p[k] for k in keep if k in p}}
+    if a.dry_run:
+        meta["dry_run"] = True
+        meta["next"] = "read the plan, then run the same command without --dry-run (in a fleet it waits on the operator)"
+        _print_meta(meta, src)
+        return 0
+    from .fleet import approval
+
+    payload = {k: p[k] for k in keep if k in p and k != "note"}
+    decision = approval.require("bitbucket-pr", f"{p['action']} {'draft ' if p['draft'] else ''}PR "
+                                f"{p['source']} → {p['target']}: {p['title']}", payload,
+                                ticket=_active_ticket(cwd), cfg=cfg)
+    if not decision.ok:
+        print(toon.encode({"meta": approval.refusal(decision, src)}))
+        return 2
+    if decision.reason:
+        meta["approval_note"] = decision.reason
+    try:
+        answer, elapsed = P.run(p["argv"], timeout=DEFAULT_TIMEOUT_S, cfg=cfg)
+    except proc.ProcError as e:
+        print(toon.encode({"meta": {"ok": False, "source": src, "refused": e.code, "error": e.msg,
+                                    "hint": e.hint or "read pncli's message; nothing is retried"}}))
+        return 1
+    meta.update(pr_id=p["pr_id"] or P.find(answer, "id", "prId", "pr_id"), url=P.url_of(answer),
+                elapsed_ms=int(elapsed * 1000))
+    _print_meta(meta, src)
+    return 0
+
+
+def _print_meta(meta: dict, src: str) -> None:
+    meta = {k: v for k, v in meta.items() if v is not None}
+    if policy.pretty():
+        ui.facts([(k, ", ".join(v) if isinstance(v, list) else v) for k, v in meta.items()], title=src)
+    else:
+        print(toon.encode({"meta": meta}))
+
+
 def _tidy(a) -> int:
     """`ad-git tidy`: the cleanup guide's decisions for the checkout this runs in (`fleet/tidy.py`).
 
@@ -229,8 +353,8 @@ FORCE_WORDS = ("--force", "-f", "--force-with-lease", "--force-if-includes", "--
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-git", allow_abbrev=False,
-                                 description="The git writes an agent may make, gated: push the current branch, and tidy a dirty tree "
-                                             "without losing anything.")
+                                 description="The git writes an agent may make, gated: push the current branch, open its "
+                                             "Bitbucket PR, and tidy a dirty tree without losing anything.")
     from . import version
     version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -240,6 +364,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--remote", help="a remote `git remote` lists (default: origin); never a URL")
     p.add_argument("--dry-run", action="store_true", help="print the plan from local refs; contact no remote")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    r = sub.add_parser("pr", allow_abbrev=False,
+                       help="open or update the Bitbucket PR for the current branch through pncli's pinned PR verb "
+                            "(never from a protected branch; --dry-run first; gated in a fleet)")
+    r.add_argument("--title", help="the PR title (default: the active ticket and the last commit's subject)")
+    r.add_argument("--target", metavar="BRANCH", help="the branch to merge into (default: the remote's HEAD)")
+    mode = r.add_mutually_exclusive_group()
+    mode.add_argument("--draft", action="store_true", help="open it as a draft (the default)")
+    mode.add_argument("--ready", action="store_true", help="open it ready for review")
+    r.add_argument("--overwrite", metavar="PR_ID", help="update this PR instead of opening one")
+    r.add_argument("--dry-run", action="store_true", help="print the plan from local refs and config; send nothing")
+    r.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
     t = sub.add_parser("tidy", allow_abbrev=False,
                        help="a dirty working tree, made clean without losing anything: survey it and recommend "
                             "one option (--dry-run), then --apply commit | branch | stash | skip --plan <id>")
@@ -255,6 +390,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "tidy":
         a = ap.parse_args(argv)
         return _tidy(a)
+    if a.cmd == "pr":
+        a = ap.parse_args(argv)
+        return _pr(a)
     src = "ad-git push"
     if extra:
         word = extra[0].split("=", 1)[0]

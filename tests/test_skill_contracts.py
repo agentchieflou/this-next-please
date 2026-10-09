@@ -90,7 +90,7 @@ def test_every_pncli_recipe_names_its_arguments():
     passes a bare value after the verb is the `--key` mismatch waiting to happen again."""
     problems = []
     for where, text in spans(("pncli ",)):
-        tokens = [t for t in words(text) if t not in ("…", "...")]
+        tokens = _command(text)
         if "--help" in tokens or len(tokens) < 3 or not re.fullmatch(r"[a-z][a-z-]*", tokens[1]):
             continue                                  # a help line, or prose such as `pncli / jira auth`
         rest, expecting_value = tokens[3:], False
@@ -106,18 +106,45 @@ def test_every_pncli_recipe_names_its_arguments():
     assert not problems, "\n  " + "\n  ".join(problems)
 
 
-def test_no_skill_tells_an_agent_to_run_bare_pncli():
-    """Operator report 2026-10-02: the routing reached for pncli first. Bare `pncli` is on the fleet's
-    deny floor and skips the approval gate, so a skill line that prints it is a refusal inside the
-    fleet and an ungated write outside it. pncli is reached through `ad-pncli` (`help`, `raw`)."""
-    problems = []
+def test_every_pncli_recipe_in_a_skill_is_a_read():
+    """pncli is used directly for what it reads (docs/pncli-parts.md). A write is never a skill's recipe: in a
+    fleet the shim refuses it (`fleet/pncli_gate.py`), and outside one it would skip the approval gate. Writes go
+    through the gated extensions -- `ad-confluence publish`, `ad-git pr`, `ad-jira comment|transition|create`."""
+    from agentdata.connectors import pncli as P
+
+    problems, reads = [], 0
     for path in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")) + \
             glob.glob(os.path.join(ROOT, "skills", "*", "references", "*.md")):
         for span in SPAN.findall(open(path, encoding="utf-8").read()):
-            tokens = words(span.strip())
-            if len(tokens) >= 2 and tokens[0] == "pncli" and re.fullmatch(r"[a-z][a-z-]*|--help|-h", tokens[1]):
-                problems.append(f"{os.path.relpath(path, ROOT)}: `{span}` -- use `ad-pncli help` / `ad-pncli raw`")
+            tokens = _command(span.strip())
+            if len(tokens) < 2 or tokens[0] != "pncli" or not re.fullmatch(r"[a-z][a-z-]*", tokens[1]):
+                continue
+            if P.is_write(tokens[1:]):
+                problems.append(f"{os.path.relpath(path, ROOT)}: `{span}` -- {' '.join(P.verb(tokens[1:]))} is not "
+                                "in pncli.READ_VERBS; a write goes through its gated `ad-*` extension")
+            else:
+                reads += 1
+    assert reads >= 5, "the recipes moved; this test reads them from the skills"
     assert not problems, "\n  " + "\n  ".join(problems)
+
+
+def test_no_skill_or_doc_names_the_retired_pncli_wrapper():
+    """0.20.0 retired the wrapper: pncli is used directly, and an `ad-*` command exists only where it extends it."""
+    retired = "ad-" + "pncli"
+    found = [os.path.relpath(path, ROOT) for path in documents() + [os.path.join(ROOT, "AGENTS.md")]
+             if retired in open(path, encoding="utf-8").read()]
+    assert not found, f"{retired} is gone: " + ", ".join(found)
+
+
+def _command(text: str) -> list[str]:
+    """A recipe's words up to a shell redirect or pipe: `pncli jira search --jql "<JQL>" > .agent/out/x.json`."""
+    out = []
+    for token in words(text):
+        if token in (">", ">>", "|", "2>&1") or token.startswith((">", "|")):
+            break
+        if token not in ("…", "..."):
+            out.append(token)
+    return out
 
 
 def test_an_answers_file_in_any_encoding_powershell_writes_is_read(tmp_path):

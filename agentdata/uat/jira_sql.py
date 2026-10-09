@@ -26,7 +26,7 @@ import re
 DIALECTS = ("teradata", "hive", "impala", "oracle")
 
 # The columns this grain needs, and the names they are given on the way out. `key` matches what
-# `ad-pncli jira search` returns on the live side, so `ad-diff --key key` needs no renaming step.
+# `pncli jira search` returns on the live side (through `ad-view`), so `ad-diff --key key` needs no renaming step.
 DEFAULT_COLUMNS = ("status", "assignee")
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*)*$")

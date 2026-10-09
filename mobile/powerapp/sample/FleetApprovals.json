@@ -48,12 +48,12 @@
     "SourceFile": "luna-jira-create-20260926T081204-7e1b.json"
   },
   {
-    "Title": "rdsd-uat-pncli-write-20260925T161540-c30d",
+    "Title": "rdsd-uat-confluence-publish-20260925T161540-c30d",
     "Repo": "rdsd-uat",
     "Ticket": "RDSD-121",
-    "ApprovalKind": "pncli-write",
-    "Summary": "confluence publish-page: UAT sign-off for RDSD-121",
-    "PayloadPreview": "{\n  \"ok\": true,\n  \"product\": \"confluence\",\n  \"verb\": \"publish-page\",\n  \"space\": \"RDSD\",\n  \"title\": \"UAT sign-off for RDSD-121\",\n  \"parent\": \"UAT sign-offs\",\n  \"dry_run\": true\n}",
+    "ApprovalKind": "confluence-publish",
+    "Summary": "create page \"UAT sign-off for RDSD-121\" in RDSD (2140 chars)",
+    "PayloadPreview": "{\n  \"action\": \"create\",\n  \"title\": \"UAT sign-off for RDSD-121\",\n  \"space\": \"RDSD\",\n  \"parent\": \"UAT sign-offs\",\n  \"chars\": 2140\n}",
     "PayloadTruncated": "false",
     "PayloadBytes": "188",
     "Digest": "e8b1d4a7f2c9e6b3d0a5f8c1e4b7d2a9f6c3e0b5d8a1f4c7e2b9d6a3f0c5e8b1",
@@ -69,7 +69,7 @@
     "Nonce": "b3Nq8KzR1tVy6WcM0pXe4LaJ9sHd2FgU",
     "ResultCode": "",
     "ResultText": "denied: the agent quoted the reason into its friction log",
-    "SourceFile": "rdsd-uat-pncli-write-20260925T161540-c30d.json"
+    "SourceFile": "rdsd-uat-confluence-publish-20260925T161540-c30d.json"
   },
   {
     "Title": "dpm-sorting-jira-transition-20260925T101122-9f4e",

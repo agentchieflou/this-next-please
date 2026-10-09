@@ -5668,7 +5668,7 @@ function acceptSweep(job) {
     var t = job.totals || {};
     sweep.status = label + " · " + sweep.repos.length + " agent" + (sweep.repos.length === 1 ? "" : "s") + ", " +
                    (job.writes || 0) + " write" + (job.writes === 1 ? "" : "s") + " previewed, nothing written yet" +
-                   (t.not_pinned ? " · " + t.not_pinned + " not pinned: run `ad-pncli capture-help` (WRAP-D6)" : "");
+                   (t.not_pinned ? " · " + t.not_pinned + " not pinned: read `pncli <product> --help`, then ad-setup --only pncli --non-interactive --set pncli.verbs.<verb>=\"...\" (WRAP-D6)" : "");
   } else if (sweep.state === "done") {
     var counts = { written: 0, failed: 0, changed: 0, skipped: 0 };
     Object.keys(sweep.results).forEach(function (repo) {

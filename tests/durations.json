@@ -796,9 +796,6 @@
    "default": 2.8,
    "measured": 10.8
   },
-  "tests/test_pncli_capture.py": {
-   "default": 0.7
-  },
   "tests/test_proc.py": {
    "default": 5.7
   },
@@ -1743,9 +1740,6 @@
   "tests/test_perf_loop.py": {
    "default": 4.6,
    "measured": 16.3
-  },
-  "tests/test_pncli_capture.py": {
-   "default": 0.9
   },
   "tests/test_proc.py": {
    "default": 5.6

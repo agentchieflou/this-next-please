@@ -142,7 +142,7 @@ def test_cli_writes_the_body_and_names_the_publish_command(tmp_path, capsys):
     assert CLI.main(["html", str(src), "--out", str(out)]) == 0
     printed = capsys.readouterr().out
     parse(out.read_text(encoding="utf-8"))
-    assert "ok: true" in printed and "--body-file" in printed and "create-page" in printed
+    assert "ok: true" in printed and "next: ad-confluence publish " in printed and "RDSD-1-uat-findings.md --dry-run" in printed
     assert "title: RDSD-22399 UAT findings" in printed and "table: 1" in printed
     assert CLI.main(["check", str(out)]) == 0 and "well_formed: true" in capsys.readouterr().out
 

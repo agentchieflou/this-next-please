@@ -129,7 +129,7 @@ def test_the_panel_answers_from_the_catalogue_once_the_repo_is_indexed(desk, tmp
 
 PHOTO = (("20260903T1216-confluence-publish.md", "Provide the installed pncli confluence create-page syntax."),
          ("20260903T1226-jira-transition.md", "Name the transition that moves the ticket to review."),
-         ("20260903T1304-final-verification.md", "Repair or reinstall the ad-state/ad-pncli launchers."))
+         ("20260903T1304-final-verification.md", "Repair or reinstall the ad-state/ad-view launchers."))
 
 
 def friction(repo_path, name, unblock, *, severity="blocker", ticket="RDSD-7"):
@@ -371,7 +371,7 @@ def test_every_desk_route_filters_the_facts_and_not_just_the_one_panel(running, 
             "C:\\Program Files\\TabularEditor 3\\TabularEditor.exe")
     E.append("velocity", [E.event("velocity", "assistant_text", {"text": said})])
     monkeypatch.setenv(registry.AGENT_ENV, "velocity")
-    id = approval.require("pncli-write", said, {"sql_user": "svc_rdsd_ro", "note": said}, timeout=0).id
+    id = approval.require("confluence-publish", said, {"sql_user": "svc_rdsd_ro", "note": said}, timeout=0).id
     monkeypatch.delenv(registry.AGENT_ENV)
     for path in ("/api/attention", f"/api/approval?id={id}"):
         answer = get(base, path, token)

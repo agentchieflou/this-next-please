@@ -203,7 +203,7 @@ def test_the_fake_answers_a_comment_post_in_jiras_shape():
 
 def test_confluence_publish_comments_through_ad_jira_comment_dry_run_first():
     text = open(os.path.join(ROOT, "skills", "confluence-publish", "SKILL.md"), encoding="utf-8").read()
-    step = next(line for line in text.splitlines() if line.startswith("9. "))
+    step = next(line for line in text.splitlines() if line.startswith("7. "))
     assert "ad-jira comment <KEY>" in step and "--dry-run" in step and "<comment verb>" not in step
     gated = open(os.path.join(ROOT, "docs", "fleet-approvals.md"), encoding="utf-8").read()
     assert "`ad-jira comment <KEY>" in gated

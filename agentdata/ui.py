@@ -5,7 +5,7 @@ pretty rendering is only ever used when a HUMAN is at the console: `color.enable
 stdout is piped or captured, and `on()` is false with it. When in doubt the plain text wins.
 
 The operator commands (`ad-setup`, `ad-doctor`, `ad-update`) render through here; the data commands
-(`ad-td`, `ad-jira`, `ad-pbip`, `ad-uat`, `ad-dpm`, `ad-pncli`, ...) keep printing TOON in every context, because
+(`ad-td`, `ad-jira`, `ad-pbip`, `ad-uat`, `ad-dpm`, `ad-view`, ...) keep printing TOON in every context, because
 their output IS the data. `AGENTDATA_UI=plain` forces TOON everywhere -- use it to paste a report into a ticket.
 
 Rendering is `rich` when it is installed, and the module works without it: every helper falls back to the ANSI

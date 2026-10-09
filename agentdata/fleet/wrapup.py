@@ -8,7 +8,7 @@ sweep (#505) runs it per agent.
 template (WRAP-D2), shown in full and editable.
 
 **Every write is an adapter, previewed.** `plan` runs each step's own `ad-*` adapter with `--dry-run` -- `git push`
-(#502), `pncli bitbucket pr` (#506), `confluence publish` (#507), `jira comment` (#501) and `jira transition` --
+(#502), `git pr` (#506), `confluence publish` (#507), `jira comment` (#501) and `jira transition` --
 as `[sys.executable, "-m", "agentdata", ...]`, never a raw `git` or `pncli`, so each adapter's own refusals always
 run. The child's environment drops both fleet markers, so the adapter's `approval.require` is the outside-a-fleet
 pass-through: the operator's confirm is the approval (WRAP-D4), and `run` records it, `by: operator`,
@@ -52,8 +52,10 @@ NOT_ON_A_BRANCH = ("default_branch", "detached_head")
 KIND = {"push": "git-push", "pr": "bitbucket-pr", "page": "confluence-publish", "comment": "jira-comment",
         "transition": "jira-transition"}
 NOT_PINNED_HINT = {
-    "pr": "the PR verb is not pinned yet (HANDOFF.md:16) — run `ad-pncli capture-help` on the laptop (WRAP-D6)",
-    "page": "the page verbs are not pinned yet (HANDOFF.md:16) — run `ad-pncli capture-help` on the laptop (WRAP-D6)",
+    "pr": ("the PR verb is not pinned yet (HANDOFF.md) — read `pncli bitbucket --help`, then "
+           "`ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create=\"...\"` (WRAP-D6)"),
+    "page": ("the page verbs are not pinned yet (HANDOFF.md) — read `pncli confluence --help`, then "
+             "`ad-setup --only pncli --non-interactive --set pncli.verbs.page_create=\"...\"` (WRAP-D6)"),
 }
 # The payload fields that say *what* a step would write. Ages, timestamps and counters are left out, so two
 # previews of an unchanged checkout hash alike and the confirm can prove it is writing what was previewed.
@@ -420,7 +422,7 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
                          code=code, hint="the work is not on a branch (AGENTS.md rule 16)"))
     else:
         title = f"{ticket}: {st.get('summary') or seen['branch']}" if ticket else str(st.get("summary") or seen["branch"])
-        argv = ["pncli", "bitbucket", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
+        argv = ["git", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
         if overwrite.get("pr"):
             argv += ["--overwrite", str(overwrite["pr"])]
         res = RUN(adapter(*argv, "--dry-run"), cwd, env=env)
@@ -557,7 +559,7 @@ def _real_argv(row: dict, name: str, mode: str, st: dict, overwrite: dict) -> li
         return adapter("git", "push")
     if row["step"] == "pr":
         title = str(p.get("title") or "")
-        argv = ["pncli", "bitbucket", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
+        argv = ["git", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
         if overwrite.get("pr"):
             argv += ["--overwrite", str(overwrite["pr"])]
         return adapter(*argv)

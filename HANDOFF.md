@@ -6,7 +6,9 @@
 > the coming Power Automate workspace as a second relay (the mobile lane's shape, generalised), SharePoint and OneDrive
 > as on-demand context into `.agent/in/<KEY>/context/`, results out behind the approval gate, and the loop between
 > triggered Microsoft agents and the fleet's Copilot agents. Slice M-0, the tenant sitting (§2 of the plan), comes first;
-> nothing else starts without it.
+> nothing else starts without it. The same day 0.20.0 settled pncli (the operator's decision): pncli is required again
+> and used directly, the wrapper and the duplicate REST reads are retired, and an `ad-*` command exists only where it
+> extends pncli -- `ad-jira`, `ad-confluence publish`, `ad-git pr`, and the fleet's shim that refuses a pncli write.
 >
 > **2026-09-02 checkpoint:** the approved design for the next phase (Power BI PBIP/TMDL pipeline, `ad-setup` wizard, SQL dialect guardrails, Jira changelog + sprint replay, visual-level UAT) lives in `docs/plan-luna-pipeline.md`. Implement it in the slice order given there; slice 1 (`agentdata/config.py` + `ad-setup`/`ad-doctor`) comes first. All six slices are built (setup wizard, SQL guardrails, Jira changelog + sprint replay, PBIP projection/validator/editor, Desktop + DAX runner, UAT engine). Next: run `docs/windows-verification.md` on the laptop; each pasted failure becomes a fix PR with a reproducing test. Domain workflow skills started with `dpm-consumer-integration` (`agentdata/dpm/`, `ad-dpm`): the DPM → data_remediation_foundry_DPM_fork handoff contract; its builtin binding encodes assumptions listed in `skills/dpm-consumer-integration/references/dpm-contract.md` that must be confirmed against the real hand-back document.
 
@@ -20,8 +22,8 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 - [x] Skills: router, session-bootstrap, state-update, friction-log, data-adapter, jira-triage,
       teradata-query, hive-query, oracle-query, uat-jira-vs-source, bitbucket-pr, confluence-publish,
       pbi-deploy-te2, pbi-refresh-xmla (+refresh.csx), dax-studio-export, slurm-submit
-- [x] `ad-setup` / `ad-doctor` (agentdata/setup/): Jira credentials (REST, token in keyring), optional pncli import, data sources with SELECT 1 + capability probes, Power BI tools/workspaces, project stub
-- [ ] Discover the exact pncli verb + options for bitbucket pr create (`pncli bitbucket --help`) and wrap it. On the laptop, `ad-pncli capture-help` (#498) writes every `pncli --help` the PR and page commands need into one file, hosts and home redacted; read it and attach it to #506. Jira reads no longer need pncli: `ad-jira search|get|comments` go over REST (`docs/pncli-parts.md` credits what pncli taught us). Confirmed on the laptop: `pncli jira search --jql "<JQL>"`, `pncli jira get-issue --key <KEY>` (wrapped as `ad-pncli jira get <KEY>`), and `pncli confluence create-page --body <html>` — the body is INLINE, so `ad-pncli raw --body-file <file>` sends it as one argv element (shell quoting cannot carry a page of HTML). Its `--space` / `--parent` / `--title` names are still unconfirmed. The page BODY is no longer written by the model: `ad-confluence html <file.md>` builds storage format and `ad-pncli raw --body-file` refuses to post Markdown to a `confluence` command. Jira transitions no longer need a pncli verb at all — `ad-jira transition` goes through REST, and asks Jira which transitions this issue type's workflow offers. pncli is commander.js: **every argument is a named option, never positional** — wrap each confirmed verb in a command instead of writing the recipe into a skill.
+- [x] `ad-setup` / `ad-doctor` (agentdata/setup/): pncli (required) and its config by key name, Jira's keyring fallback, data sources with SELECT 1 + capability probes, Power BI tools/workspaces, project stub
+- [ ] Pin pncli's two write verbs on the laptop: read `pncli bitbucket --help` and `pncli confluence create-page --help`, then `ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create="..."` (and `page_create`; `pr_update` / `page_update` for an update), and attach both help texts to #506. Until then `ad-git pr` and `ad-confluence publish` answer `not_pinned`, and the wrap-up says so. pncli is used directly for everything it does and an `ad-*` command exists only where it extends it (`docs/pncli-parts.md`, 0.20.0): `pncli jira search --jql "<JQL>"` and `pncli jira get-issue --key <KEY>` (confirmed on the laptop) are saved under `.agent/out/` and read with `ad-view`. `pncli confluence create-page --body <html>` is confirmed — the body is INLINE, so `ad-confluence publish` builds it from Markdown and hands it across as one argv element; `--space` / `--parent` / `--title` are still unconfirmed, which is why the template is the operator's. Jira transitions, comments and creates never need a pncli verb: `ad-jira` posts them over REST, gated. pncli is commander.js: **every argument is a named option, never positional**.
 - [ ] Run `gh skill publish --dry-run` (pytest is green per slice)
 - [ ] Confirm on the laptop, with `ad-pbi auth --probe`: Tabular Editor 2 accepts the token-carrying connection string
       (`Provider=MSOLAP;Data Source=powerbi://…;User ID=;Password=<token>`) as the server argument for both the load
@@ -56,6 +58,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 ```bash
 pip install -e ".[dev]"
 pytest -q -n auto -m "not browser and not measured and not scale and not slow"   # the inner loop
-ad-setup --only jira                                                              # Jira over REST: URL, email, token to the keyring
-pncli --help; pncli confluence --help; pncli bitbucket --help                     # only with the optional pncli backend installed
+pncli config init                                                                 # pncli's own config, once (npm install -g @kolatts/pncli first)
+ad-setup --only pncli                                                             # its launcher, and the key names ad-jira borrows the token by
+pncli --help; pncli confluence --help; pncli bitbucket --help                     # the verbs to pin for ad-confluence publish and ad-git pr
 ```

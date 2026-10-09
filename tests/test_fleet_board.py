@@ -208,7 +208,7 @@ def test_the_summary_reaches_the_prompt_and_the_started_event(fleet_home, tmp_pa
 
 
 def test_the_prompt_carries_the_key_and_one_line_and_nothing_else():
-    """`jira-triage` does the reading through `ad-pncli`, as its SKILL.md says. A fleet that pasted
+    """`jira-triage` does the reading through `pncli jira get-issue`, as its SKILL.md says. A fleet that pasted
     acceptance criteria into the prompt would hand the agent a second, staler copy of the ticket."""
     text = launch.prompt_for("RDSD-101", None, {}, summary="Six measures are unused")
     assert text == "Ticket RDSD-101: Six measures are unused. Invoke skill session-bootstrap, then router."

@@ -27,9 +27,11 @@ goes to **disk**. Agents never choose; the adapter does.
 `stats` block = per column: `nulls`, `distinct`, and `min`/`max` for numeric/date columns.
 
 ## Connector notes
-- **pncli** always emits JSON. `ad-pncli` runs the pncli command, extracts the result array
-  (`issues`, `results`, `values`, or root list), flattens Jira `fields.*` one level, then applies rules 4–8.
-  Default Jira projection: `key,status,assignee,priority,updated,summary`. Pass `--fields` to change.
+- **pncli** always emits JSON, and is run directly: its answer goes to a file under `.agent/out/`
+  (`pncli jira search --jql "<JQL>" > .agent/out/<name>.json`), and `ad-view <file.json>` renders it. `ad-view`
+  extracts the result array (`issues`, `results`, `values`, or root list), flattens Jira `fields.*` one level, then
+  applies rules 4–8; the full rows stay in the file. A Jira search or a single issue gets the Jira columns:
+  default projection `key,status,assignee,priority,updated,summary`. Pass `--fields` to change.
 - **Teradata / Oracle / Hive** already return tabular. Rows are capped server-side at `--max-rows`
   (default 5000) with a statement timeout (default 120 s). Rules 4–6 apply.
 - **pandas** in-process: `agentdata.from_df(df)` → same policy. Use in scripts so script output is TOON too.

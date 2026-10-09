@@ -1,0 +1,23 @@
+{
+  "source": "synthesized",
+  "note": "what a pinned page verb answers, in the shape Confluence's REST API gives a new page (`id`, `_links`); the pncli verb is not pinned yet (HANDOFF.md)",
+  "match": [
+    "confluence",
+    "create-page"
+  ],
+  "argv": [
+    "pncli",
+    "confluence",
+    "create-page",
+    "--space",
+    "RDSD",
+    "--title",
+    "Findings",
+    "--body",
+    "<h2>Findings</h2>"
+  ],
+  "returncode": 0,
+  "stdout": "{\"id\": \"98765\", \"title\": \"Findings\", \"_links\": {\"base\": \"https://confluence.example.test\", \"webui\": \"/spaces/RDSD/pages/98765\"}}",
+  "stderr": "",
+  "captured": "2026-10-09"
+}

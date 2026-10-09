@@ -115,7 +115,7 @@ def test_a_denial_carries_the_reason_the_agent_will_quote(as_agent):
 
     def agent():
         nonlocal d
-        d = approval.require("pncli-write", "confluence create-page", {}, timeout=20, poll=0.02)
+        d = approval.require("confluence-publish", "create page \"Findings\" in RDSD", {}, timeout=20, poll=0.02)
 
     t = threading.Thread(target=agent)
     t.start()
@@ -123,7 +123,7 @@ def test_a_denial_carries_the_reason_the_agent_will_quote(as_agent):
     t.join(timeout=10)
 
     assert d.state == approval.DENIED
-    meta = approval.refusal(d, "ad-pncli raw")
+    meta = approval.refusal(d, "ad-confluence publish")
     assert meta["refused"] == "approval_denied"
     assert meta["hint"] == "wrong space, this belongs in DATAENG"
     assert meta["approval"] == d.id
@@ -335,13 +335,14 @@ def test_deny_needs_a_reason_at_the_command_line(as_agent, capsys):
 # ------------------------------------------------------------------ the other layer, and the doc
 
 
-@pytest.mark.parametrize("pattern", ["shell(pncli)", "shell(curl)", "shell(Invoke-RestMethod)",
+@pytest.mark.parametrize("pattern", ["shell(curl)", "shell(Invoke-RestMethod)",
                                      "shell(wget)", "shell(Invoke-WebRequest)"])
 def test_the_launch_line_denies_every_way_round_the_gate(pattern):
     """Layer 1, for an agent set to `fleet.permissions: strict`. None of these is on the allow-list
     either -- this is the second line, because the boundary otherwise is a model's own classifier,
     which the spike measured being talked around. (The default since 2026-10-02 is a Copilot window's
-    tools, where layer 2 -- the gate inside every `ad-*` write -- is the boundary.)"""
+    tools, where layer 2 -- the gate inside every `ad-*` write -- is the boundary.) pncli is not here:
+    it is allowed, and the fleet's shim refuses its writes (tests/test_fleet_pncli_gate.py)."""
     strict = {"fleet": {"permissions": "strict"}}
     deny = launch.deny_tools(strict)
     assert pattern in deny
@@ -354,7 +355,8 @@ def test_the_contract_lists_every_refusal_code_and_every_gated_verb():
         assert f"`{code}`" in text, f"{code} is not documented"
     for product, verb in sorted(P.READ_VERBS):
         assert f"{product} {verb}" in text, f"the read verb {product} {verb} is not documented"
-    assert "ad-jira transition" in text and "ad-pncli raw" in text
+    assert "ad-jira transition" in text and "ad-confluence publish" in text and "ad-git pr" in text
+    assert "`pncli_write_in_fleet`" in text and "fleet's pncli shim" in text
 
 
 def test_every_skill_that_writes_tells_the_agent_what_a_refusal_means():
@@ -373,116 +375,64 @@ def _pncli_env(monkeypatch, tmp_path, case="search_ok"):
     return test_fakes._pncli_env(monkeypatch, tmp_path, case)
 
 
-def test_ad_pncli_gates_a_write_and_leaves_a_read_alone(as_agent, monkeypatch, tmp_path, capsys):
-    """The `raw` path is where a Confluence page or a Bitbucket PR is actually created, so it is the
-    one that has to stop -- and `jira search` through the same binary must not."""
-    from agentdata import cli
+def _gate(argv, capsys):
+    from agentdata.fleet import pncli_gate
+
+    code = pncli_gate.main(list(argv))
+    return code, capsys.readouterr().out
+
+
+def test_the_fleet_shim_gates_a_write_and_leaves_a_read_alone(as_agent, monkeypatch, tmp_path, capfd):
+    """pncli is run directly, so the shim first on a fleet agent's PATH is where a Confluence page or a
+    Bitbucket PR would be created -- it refuses, and names the extension. `jira search` through the
+    same shim must reach the real pncli untouched, and neither asks the operator anything."""
+    from agentdata.fleet import pncli_gate
 
     _pncli_env(monkeypatch, tmp_path)
-    monkeypatch.setattr("sys.argv", ["ad-pncli", "jira", "search", "--jql", "key = RDSD-1"])
-    cli.main_pncli()
-    assert "key: RDSD-1" in capsys.readouterr().out
-    assert approval.pending() == [], "a read asked for approval"
-
-    result = {}
-
-    def agent():
-        monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "confluence", "create-page",
-                                         "--space", "RDSD", "--title", "Findings"])
-        try:
-            cli.main_pncli()
-            result["code"] = 0
-        except SystemExit as exit:
-            result["code"] = exit.code
-
-    t = threading.Thread(target=agent)
-    t.start()
-    id = _wait_for_request()
-    assert "confluence create-page" in approval.read_request(id)["summary"]
-    _answer(id, approval.DENIED, reason="publish to DATAENG, not RDSD")
-    t.join(timeout=15)
-
-    assert result["code"] == 2
-    out = capsys.readouterr().out
-    assert "refused: approval_denied" in out and "publish to DATAENG" in out
+    assert pncli_gate.main(["jira", "search", "--jql", "key = RDSD-1"]) == 0
+    assert '"key": "RDSD-1"' in capfd.readouterr().out
+    assert pncli_gate.main(["confluence", "create-page", "--space", "RDSD", "--title", "Findings"]) == 2
+    out = capfd.readouterr().out
+    assert "refused: pncli_write_in_fleet" in out and "ad-confluence publish" in out
+    assert approval.pending() == [], "the shim refuses; the extension is what asks"
 
 
-def test_a_help_token_in_a_value_position_waits_for_the_click(as_agent, monkeypatch, capsys):
-    """#524: `--title -h` is the PR's title, not a help request, so `ad-pncli raw` writes an approval
-    request and runs nothing until the operator answers."""
-    from agentdata import cli
+def test_a_help_token_in_a_value_position_is_a_write_to_the_shim(as_agent, monkeypatch, capsys):
+    """#524: `--title -h` is the PR's title, not a help request, so the shim refuses it as the write it
+    is and runs nothing."""
+    from agentdata.fleet import pncli_gate
 
     ran = []
-    monkeypatch.setattr(P, "run", lambda args, *a, **k: ran.append(list(args)) or ({}, 0.0))
-    result = {}
-
-    def agent():
-        monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "bitbucket", "create-pr", "--title", "-h"])
-        try:
-            cli.main_pncli()
-            result["code"] = 0
-        except SystemExit as exit:
-            result["code"] = exit.code
-
-    t = threading.Thread(target=agent)
-    t.start()
-    id = _wait_for_request()
-    assert "bitbucket create-pr --title -h" in approval.read_request(id)["summary"]
-    assert ran == [], "pncli ran before the operator answered"
-    _answer(id, approval.DENIED, reason="not this title")
-    t.join(timeout=15)
-
-    assert result["code"] == 2 and ran == []
-    assert "refused: approval_denied" in capsys.readouterr().out
+    monkeypatch.setattr(pncli_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
+    code, out = _gate(["bitbucket", "create-pr", "--title", "-h"], capsys)
+    assert code == 2 and ran == [] and "refused: pncli_write_in_fleet" in out and "ad-git pr" in out
 
 
-def test_a_dry_run_token_in_a_value_position_waits_for_the_click(as_agent, monkeypatch, capsys):
-    """#525: `--title --dry-run` is the PR's title, and pncli would send the real write, so `ad-pncli
-    raw` writes an approval request and runs nothing until the operator answers."""
-    from agentdata import cli
+def test_a_dry_run_token_in_a_value_position_is_a_write_to_the_shim(as_agent, monkeypatch, capsys):
+    """#525: `--title --dry-run` is the PR's title, and pncli would send the real write, so the shim
+    refuses it and runs nothing."""
+    from agentdata.fleet import pncli_gate
 
     ran = []
-    monkeypatch.setattr(P, "run", lambda args, *a, **k: ran.append(list(args)) or ({}, 0.0))
-    result = {}
-
-    def agent():
-        monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "bitbucket", "create-pr", "--title", "--dry-run"])
-        try:
-            cli.main_pncli()
-            result["code"] = 0
-        except SystemExit as exit:
-            result["code"] = exit.code
-
-    t = threading.Thread(target=agent)
-    t.start()
-    id = _wait_for_request()
-    assert "bitbucket create-pr --title --dry-run" in approval.read_request(id)["summary"]
-    assert ran == [], "pncli ran before the operator answered"
-    _answer(id, approval.DENIED, reason="not this title")
-    t.join(timeout=15)
-
-    assert result["code"] == 2 and ran == []
-    assert "refused: approval_denied" in capsys.readouterr().out
+    monkeypatch.setattr(pncli_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
+    code, out = _gate(["bitbucket", "create-pr", "--title", "--dry-run"], capsys)
+    assert code == 2 and ran == [] and "refused: pncli_write_in_fleet" in out
 
 
 def test_a_real_dry_run_flag_runs_without_asking(as_agent, monkeypatch, capsys):
-    """#525: the flag of its own is still a dry run: pncli runs at once and nothing waits."""
-    from agentdata import cli
+    """#525: the flag of its own is still a dry run: the shim runs pncli at once and nothing waits."""
+    from agentdata.fleet import pncli_gate
 
     ran = []
-    monkeypatch.setattr(P, "run", lambda args, *a, **k: ran.append(list(args)) or ({}, 0.0))
-    monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "bitbucket", "create-pr", "--dry-run", "--title", "x"])
-    try:
-        cli.main_pncli()
-    except SystemExit as exit:
-        assert not exit.code, capsys.readouterr().out
-    assert ran == [["bitbucket", "create-pr", "--dry-run", "--title", "x"]]
+    monkeypatch.setattr(pncli_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
+    code, _out = _gate(["bitbucket", "create-pr", "--dry-run", "--title", "x"], capsys)
+    assert code == 0 and ran == [["bitbucket", "create-pr", "--dry-run", "--title", "x"]]
     assert approval.pending() == []
 
 
 def test_the_gate_is_wired_into_exactly_the_commands_the_doc_names():
     """A doc that names a gated command the code does not gate is worse than no doc."""
-    for module in ("cli_jira.py", "cli.py"):
+    for module in ("cli_jira.py", "cli_confluence.py", "cli_git.py"):
         source = open(os.path.join(ROOT, "agentdata", module), encoding="utf-8").read()
         assert "approval.require(" in source, f"{module} names no gate"
 
@@ -629,7 +579,7 @@ def test_a_decision_without_a_digest_is_still_accepted_so_the_desk_and_the_cli_a
 
 
 def test_an_approve_comment_reaches_the_gated_commands_meta(as_agent, monkeypatch, capsys, tmp_path):
-    from agentdata import cli, cli_fleet
+    from agentdata import cli_fleet
 
     # ad-jira transition, released by `ad-fleet approve --comment` from another shell.
     result = {}
@@ -657,9 +607,13 @@ def test_an_approve_comment_reaches_the_gated_commands_meta(as_agent, monkeypatc
     rc, out, _ = _create(monkeypatch, capsys, ["create", "--project", "RDSD", "--summary", "Fix the margin measure"])
     assert rc == 0 and "approval_note: ship it before noon" in out
 
-    # ad-pncli raw: on the rendered meta.
-    _pncli_env(monkeypatch, tmp_path)
-    monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "confluence", "create-page", "--space", "RDSD",
-                                     "--title", "Findings"])
-    cli.main_pncli()
+    # ad-confluence publish: on the printed meta.
+    from agentdata import cli_confluence
+
+    _pncli_env(monkeypatch, tmp_path, "page_created")
+    (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {
+        "page_create": "confluence create-page --space {space} --title {title} --body {body}"}}}), encoding="utf-8")
+    page = tmp_path / "findings.md"
+    page.write_text("# Findings\n\nTwo rows differ.\n", encoding="utf-8")
+    assert cli_confluence.main(["publish", str(page), "--space", "RDSD"]) == 0
     assert "approval_note: ship it before noon" in capsys.readouterr().out

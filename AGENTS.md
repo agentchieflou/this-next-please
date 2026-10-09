@@ -8,8 +8,8 @@ Scope: every project that installs these skills. Do not restate these in project
 3. Never read a second project's `.agent/` directory.
 
 ## Data
-4. Never call Teradata/Oracle/Hive/Spark, Jira, Confluence or Bitbucket directly for data. Use `ad-*` commands (skill `data-adapter`).
-5. Data arrives as TOON. Full rows live on disk under `.agent/out/`. Do not open files > 500 rows; script over them.
+4. Never call Teradata/Oracle/Hive/Spark directly for data: use `ad-*` commands. Jira, Confluence and Bitbucket: pncli for what it does, the `ad-jira` / `ad-confluence` / `ad-git` extensions for the rest; every write through an extension (skill `data-adapter`).
+5. Data arrives as TOON. Full rows live on disk under `.agent/out/`; pncli's JSON goes there too, read with `ad-view`. Do not open files > 500 rows; script over them.
 6. Never compare datasets in your head. Use `ad-diff`.
 7. Read-only SQL only. The adapter rejects DML/DDL; do not work around it.
 

@@ -58,7 +58,6 @@
         "agentdata/connectors/jira_api.py",
         "agentdata/connectors/jira_columns.py",
         "agentdata/connectors/jira_http.py",
-        "agentdata/connectors/jira_reads.py",
         "agentdata/connectors/odbc.py",
         "agentdata/connectors/oracle.py",
         "agentdata/connectors/pncli.py",

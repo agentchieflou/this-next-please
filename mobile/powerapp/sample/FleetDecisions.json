@@ -22,7 +22,7 @@
   {
     "Title": "b3Nq8KzR1tVy6WcM0pXe4LaJ9sHd2FgU",
     "Kind": "decision",
-    "ApprovalId": "rdsd-uat-pncli-write-20260925T161540-c30d",
+    "ApprovalId": "rdsd-uat-confluence-publish-20260925T161540-c30d",
     "Repo": "rdsd-uat",
     "Decision": "denied",
     "Reason": "wrong parent page, this belongs under RDSD-121 not under the sign-offs index",

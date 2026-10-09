@@ -171,9 +171,9 @@ def test_nested_payloads_are_recorded_too(collecting):
     picked, which is the honest answer: rule 8 never fired."""
     ragged = [{f"only_in_{i}": i, f"also_{i}": [i]} for i in range(6)]
     assert not AgentTable.flatten_ok(ragged)
-    policy.render_nested(ragged, name="n", source="ad-pncli jira get", raw_payload=None)
+    policy.render_nested(ragged, name="n", source="ad-view .agent/out/RDSD-1.json", raw_payload=None)
     record = metrics.read(str(collecting))[0]
-    assert record["rule"] == 8 and record["command"] == "ad-pncli"
+    assert record["rule"] == 8 and record["command"] == "ad-view"
     assert record["shape"] == "nested" and record["rows"] == 6
 
 

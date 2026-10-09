@@ -173,21 +173,46 @@ def test_a_missing_pncli_names_the_npm_package(monkeypatch, tmp_path):
     assert "npm install -g @kolatts/pncli" in e.value.hint
 
 
-def test_ad_pncli_jira_comments_verb_and_options(monkeypatch):
-    from agentdata.model import AgentTable
+def test_ad_view_gives_a_saved_get_issue_answer_the_issue_columns(monkeypatch, tmp_path, capsys):
+    """The recipe the skills teach: `pncli jira get-issue --key <KEY> > .agent/out/<KEY>.json`, then
+    `ad-view` it. The file is what the fake really printed, BOM and all, as PowerShell 5.1 writes it."""
     from agentdata import cli
 
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "jira", "comments"])
-    with pytest.raises(SystemExit) as exc:
-        cli.main_pncli()
-    assert exc.value.code == 2
+    _pncli_env(monkeypatch, tmp_path, "get_issue_ok")
+    rc, out, _err, _el = proc.run(["pncli", "jira", "get-issue", "--key", "RDSD-22399"], exe=P.exe(), timeout=60)
+    assert rc == 0
+    saved = tmp_path / "RDSD-22399.json"
+    saved.write_bytes(b"\xef\xbb\xbf" + out.encode("utf-8"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["ad-view", str(saved)])
+    cli.main_view()
+    shown = capsys.readouterr().out
+    assert "RDSD-22399" in shown and "In Progress" in shown and "status" in shown
+    assert "fields.status.name" not in shown, "the issue columns, not pncli's flattened paths"
 
-    called = []
-    dummy = AgentTable(name="comments", columns=["author", "body"], rows=[{"author": "alice", "body": "looks good"}])
-    monkeypatch.setattr("agentdata.connectors.pncli.get_comments", lambda key: (called.append(key), dummy)[1])
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "jira", "comments", "RDSD-101"])
-    cli.main_pncli()
-    assert called == ["RDSD-101"]
+
+def test_ad_view_gives_a_saved_search_the_search_columns_in_the_encoding_powershell_wrote(monkeypatch, tmp_path,
+                                                                                          capsys):
+    """`pncli jira search ... > .agent/out/x.json` from Windows PowerShell 5.1 writes UTF-16 with a BOM; the
+    answer still reads as the search it is, and an empty file (pncli printed its usage error to stderr) says so."""
+    from agentdata import cli
+
+    _pncli_env(monkeypatch, tmp_path, "search_ok")
+    _rc, out, _err, _el = proc.run(["pncli", "jira", "search", "--jql", "key = RDSD-1"], exe=P.exe(), timeout=60)
+    saved = tmp_path / "search.json"
+    saved.write_bytes(out.encode("utf-16"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["ad-view", str(saved)])
+    cli.main_view()
+    shown = capsys.readouterr().out
+    assert "key: RDSD-1" in shown and "source: ad-view" in shown, shown
+    assert "status:" in shown and "summary:" in shown, "the search columns, even for an issue with no fields"
+    empty = tmp_path / "empty.json"
+    empty.write_text("", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["ad-view", str(empty)])
+    with pytest.raises(SystemExit) as e:
+        cli.main_view()
+    assert e.value.code == 1 and "is empty" in capsys.readouterr().out
 
 
 def test_where_reports_the_resolved_launcher(monkeypatch, tmp_path):
@@ -252,24 +277,23 @@ def test_the_gh_already_installed_transcript_replays(monkeypatch, tmp_path):
 
 @pytest.mark.skipif(not WINDOWS, reason="the cmd.exe quoting limit is a Windows concept")
 def test_a_multiline_body_is_refused_through_a_cmd_shim(monkeypatch, tmp_path, capsys):
-    """The Windows half of `ad-pncli raw --body-file`, which used to be skipped on Windows.
+    """The Windows half of `ad-confluence publish`, which sends the page body as one argument.
 
     A page of HTML cannot survive cmd.exe's parsing, so when the only launcher is a `.cmd` shim and
     Node is absent, the command refuses with a hint naming the way out rather than sending a mangled
     body to Confluence. That refusal *is* the Windows behaviour, and it is worth asserting.
     """
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    body = tmp_path / "page.html"
-    body.write_text("<h2>Findings</h2>\n<p>two lines</p>\n", encoding="utf-8")
+    (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {
+        "page_create": "confluence create-page --space {space} --title {title} --body {body}"}}}), encoding="utf-8")
+    page = tmp_path / "page.md"
+    page.write_text("# Findings\n\ntwo lines\n\nand a second paragraph\n", encoding="utf-8")
     fakes.apply(monkeypatch, tmp_path, ["pncli"], case="search_ok")
     monkeypatch.setenv("PNCLI_EXE", os.path.join(str(tmp_path), "fakebin", "pncli.cmd"))
 
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(body),
-                                      "confluence", "create-page", "--space", "S", "--title", "T", "--dry-run"])
-    from agentdata import cli
+    from agentdata import cli_confluence
 
-    with pytest.raises(SystemExit):
-        cli.main_pncli()
+    assert cli_confluence.main(["publish", str(page), "--space", "S"]) == 1
     out = capsys.readouterr().out
     assert "ok: false" in out
     assert "cmd.exe" in out, "the refusal must say why"

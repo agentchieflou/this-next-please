@@ -299,7 +299,7 @@ def scripts_on_path() -> bool:
         os.path.normcase(os.path.abspath(scripts_dir()))
 
 
-LAUNCHERS = ("ad-state", "ad-pncli", "ad-jira", "ad-confluence")
+LAUNCHERS = ("ad-state", "ad-view", "ad-jira", "ad-confluence")
 LAUNCH_TIMEOUT = 20
 _VERSION = re.compile(r"agentdata\s+(\S+)")
 

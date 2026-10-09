@@ -86,7 +86,7 @@ and reads only what the fleet already holds or can fetch once:
 | --- | --- | --- |
 | ticket, repo | `board.suggest`, `supervisor.check_ticket` | the existing guard rails, with their `code` |
 | model | `launch.model_for` and the cached model list (`models.json`, never the CLI) | `opus-5 · fleet.models.luna`, `the CLI chooses · cli-auto`; `thin` when the installed CLI's list no longer offers it (#368) |
-| description | one `ad-pncli jira get <KEY>`, cached for `fleet.board_ttl` | `412 words` / `4 words` / `empty` |
+| description | one `pncli jira get-issue --key <KEY>` (the pncli library, in-process), cached for `fleet.board_ttl` | `412 words` / `4 words` / `empty` |
 | criteria | a heuristic over the description — numbered, checkbox, an *Acceptance Criteria* heading, or *Given/When/Then* | `3 found` / `none found` |
 | comments, attachments | counts from the same read | where a human has often already answered |
 | mentions | the names it mentions, through the catalogue | `Velocity — luna declares it`, and when the match is in **another** repo, that |
@@ -183,7 +183,7 @@ Ticket RDSD-101: Six measures are unused. Invoke skill session-bootstrap, then r
 ```
 
 The key and one line, and deliberately nothing more. `jira-triage` does the reading through
-`ad-pncli`, as its SKILL.md says; a fleet that pasted acceptance criteria into the prompt would hand
+pncli (`pncli jira get-issue`, then `ad-view`), as its SKILL.md says; a fleet that pasted acceptance criteria into the prompt would hand
 the agent a second, staler copy of the ticket to trust. The summary is fetched once, at dispatch,
 and written into the `started` event so a tile can show it without another Jira call.
 

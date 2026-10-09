@@ -4,6 +4,57 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.20.0
+
+**On update:**
+- **The two standard commands, then start a new Copilot chat.** Skills changed (`data-adapter`, `jira-triage`,
+  `session-bootstrap`, `research-spike`, `uat-report-visual`, `jira-changelog`, `jira-router`, `router`,
+  `confluence-publish`, `bitbucket-pr`), and a running chat keeps the old ones. There is no new dependency.
+- **pncli is required again.** If you skipped it on 0.19.0: `npm install -g @kolatts/pncli`, `pncli config init`,
+  then `ad-setup --only pncli`. `ad-doctor` fails without it, and its `pncli launcher` row names `ad-setup --patch`
+  for a launcher that is not on PATH. A token you stored with `ad-setup --only jira` keeps working as the fallback.
+- **The pncli wrapper command is gone** (the operator, 2026-10-09: *"we don't need an `ad-` wrapper of pncli. We
+  should just use pncli directly when possible, and only build on top of it when necessary"*). What replaces each use:
+
+  | Was | Now |
+  |---|---|
+  | the wrapper's `jira search --jql …` · `ad-jira search` | `pncli jira search --jql "<JQL>" > .agent/out/<name>.json`, then `ad-view .agent/out/<name>.json` |
+  | the wrapper's `jira get <KEY>` · `ad-jira get <KEY>` | `pncli jira get-issue --key <KEY> > .agent/out/<KEY>.json`, then `ad-view` it |
+  | the wrapper's `jira comments <KEY>` · `ad-jira comments <KEY>` | `pncli jira comments --key <KEY> > .agent/out/<KEY>-comments.json`, then `ad-view` it |
+  | the wrapper's `raw <any read>` | that pncli read directly, saved under `.agent/out/`, then `ad-view` |
+  | the wrapper's `raw --body-file … confluence create-page` | `ad-confluence publish <file.md>` (below) |
+  | the wrapper's `raw bitbucket <pr verb>` | `ad-git pr` (below) |
+  | the wrapper's `help` / `where` / `capture-help` | `pncli <product> --help` / `ad-doctor --only pncli` / read the help and pin the verb |
+
+**The rule: an `ad-*` command exists only where it extends pncli** (`docs/pncli-parts.md`, rewritten as the credit).
+`ad-jira` keeps its extensions (changelog, sprint replay, cache, match, transition by intent, comment, create,
+whoami, fields, statuses, sprints); its duplicate REST reads of 0.19.0 are retired. **`ad-view <file.json>`** is the
+data format rule without a wrapper: it renders pncli's saved JSON as TOON, with the Jira columns for a search or an
+issue (`--fields` narrows them), and reads the UTF-16 Windows PowerShell 5.1's `>` writes.
+
+**The two gated write extensions**, the ones the wrap-up already expected:
+- **`ad-confluence publish <file.md> [--space S] [--title T] [--parent P] [--overwrite PAGE_ID] [--dry-run]`** builds
+  storage format from the Markdown (refusing a source that is not Markdown or is empty), takes space and parent
+  from `AGENTS.md` and the title from the first `#` heading, and runs pncli's page verb with the body as one
+  argument, gated (`confluence-publish`).
+- **`ad-git pr [--title T] [--target BRANCH] [--draft|--ready] [--overwrite PR_ID] [--dry-run]`** opens or updates
+  the current branch's PR, never from a protected branch or a detached head, gated (`bitbucket-pr`).
+- Both run the verb the operator pinned from pncli's own help, never a guessed one: `ad-setup --only pncli
+  --non-interactive --set pncli.verbs.page_create="confluence create-page --space {space} --title {title} --body
+  {body}"` (and `page_update`, `pr_create`, `pr_update`). Unpinned, each answers `not_pinned` with the help to read,
+  and so does the wrap-up. The approval kind `pncli-write` is no longer produced.
+
+**The fleet's pncli shim.** `shell(pncli)` moves from the deny floor to the allow-list: a deny is a prefix, so a list
+of write verbs misses every write nobody listed. Each agent's PATH now starts with `<fleet_dir>/bin/`, where a
+`pncli` (and `pncli.cmd`) shim runs a read, a `--dry-run`, `--help` or `--version` through the real pncli untouched,
+and refuses anything else with `pncli_write_in_fleet` and the extension to use. `shell(ad-git pr)` joins
+`shell(ad-git push)` on the strict list.
+
+**Credentials, in order:** the environment (`JIRA_URL` / `JIRA_EMAIL` / `JIRA_TOKEN`, alias `AGENTDATA_JIRA_TOKEN`),
+then pncli's config by key name (the default), then the keyring entry `ad-setup --only jira` writes (the fallback
+for a machine without pncli). The `jira` step runs after `pncli`, owns the `jira auth` row, and shows its url,
+email and token rows as `info` (*from pncli's config*, hidden by `ad-doctor --quiet`) when pncli supplies them.
+
 ## 0.19.0
 
 **On update:**
@@ -35,7 +86,7 @@ be banned. With 2.157's schemas vendored it can be checked instead:
 
 **pncli, optional and credited.** `@kolatts/pncli` is the fundamental inspiration for the `ad-*` CLI
 (`docs/pncli-parts.md`, and README's Acknowledgements). It is no longer required:
-- `ad-jira search --jql`, `ad-jira get <KEY>` and `ad-jira comments <KEY>` replace the three `ad-pncli jira`
+- `ad-jira search --jql`, `ad-jira get <KEY>` and `ad-jira comments <KEY>` replace the pncli wrapper's three `jira`
   reads, over REST, with the same columns; the fleet's preflight, the UAT live side and the UAT plan use them.
 - Credentials come from the environment (`JIRA_*`, alias `AGENTDATA_JIRA_TOKEN`), then the keyring, then
   pncli's config. Confluence pages and Bitbucket PRs still go through pncli, and say so.
@@ -402,7 +453,7 @@ a phone through a OneDrive folder (P-1, MOB-D14). The bridge is off by default (
   approval gate (#501).
 - `ad-git push [--remote R] [--dry-run]` is the one push: gated, never forced, and never to a protected branch
   or the remote's HEAD (#502).
-- `ad-pncli capture-help` writes every `pncli --help` into one redacted file, for pinning the PR and page verbs
+- The pncli wrapper's `capture-help` writes every `pncli --help` into one redacted file, for pinning the PR and page verbs
   (#498).
 
 **Models, chosen without typing** (decision 15):
@@ -1586,7 +1637,7 @@ Every command still works without it -- the rendering falls back to the plain te
   and glyph both carry the status, so a screenshot in black and white still reads.
 - **Nothing an agent parses changed.** The pretty rendering is used only when a person is at the console:
   `color.enabled()` is already false whenever stdout is piped or captured, and `ui.on()` is false with it. Query
-  results (`ad-td`, `ad-jira`, `ad-pbip`, `ad-uat`, `ad-dpm`, `ad-pncli`, ...) stay TOON even on a terminal,
+  results (`ad-td`, `ad-jira`, `ad-pbip`, `ad-uat`, `ad-dpm`, the pncli wrapper, ...) stay TOON even on a terminal,
   because `auto` cannot tell Luna's shell from a person's.
 - Ask for a drawn result when you want to read one: `--pretty` on the query commands and `ad-view`, or
   `AGENTDATA_UI=rich` for everything. Numbers right-align, status words are coloured, and the sample size and
@@ -1604,7 +1655,7 @@ Every command still works without it -- the rendering falls back to the plain te
   turning named HTML entities into characters, because storage format allows only the five XML ones. Every body
   is parsed as XML before it is returned, so a page is refused here with the text that broke it rather than by
   Confluence with a 400. `ad-confluence check <file>` validates a body that already exists.
-- `ad-pncli raw --body-file` **refuses to post Markdown to Confluence**: a body with no markup at all but a
+- The pncli wrapper's `raw --body-file` **refuses to post Markdown to Confluence**: a body with no markup at all but a
   `# heading`, a `- bullet` or a ``` fence is rejected, naming the construct and pointing at `ad-confluence html`.
   Only `confluence` commands are checked — a Jira comment may be plain text.
 - **Jira transitions know that a Task is not a Story.** `bitbucket-pr` moved a ticket with a hard-coded
@@ -1627,7 +1678,7 @@ Every command still works without it -- the rendering falls back to the plain te
 - **confluence-publish now matches pncli.** The verb is `confluence create-page` and the body is passed **inline**
   (`--body <html>`), not `--body-file`; the skill still carried a `TODO(pin the verb)` placeholder and a markdown
   body. It now builds Confluence storage-format HTML and publishes with one pinned command.
-- `ad-pncli raw --body-file <path>` reads a file and appends it as a single `--body <contents>` argument
+- The pncli wrapper's `raw --body-file <path>` reads a file and appends it as a single `--body <contents>` argument
   (`--body-arg` renames the option for a verb that calls it something else). No shell is involved, so quotes,
   newlines, `<`, `>` and `&` in a page survive intact, and a page longer than a command line still works. The echoed
   command summarises it as `<N chars from <file>>` instead of dumping the page into the agent's context.
@@ -1684,7 +1735,7 @@ Review pass over everything merged in 0.4.0. No new dependencies; the standard u
   `ad-dpm` or `ad-state` looked like success to any script gating on `$LASTEXITCODE` — on the very form the README
   recommends when the Scripts folder is off PATH.
 - `ad-doctor` no longer reports a *working* pinned launcher as broken: it probes the path it resolved, not the bare
-  name (a pinned launcher is usually not on PATH). It also honours `PNCLI_EXE`, which `ad-pncli` already did.
+  name (a pinned launcher is usually not on PATH). It also honours `PNCLI_EXE`, which the pncli wrapper already did.
 - `ad-setup --patch` can now repair a launcher that is found but will not start, not only a missing one.
 - `ad-update` reports the mtime of the *newest* skill, not the alphabetically first — the evidence that
   `gh skill install` landed.
@@ -1700,8 +1751,8 @@ Review pass over everything merged in 0.4.0. No new dependencies; the standard u
 ## 0.4.0 — 2026-09-02
 
 New commands: `ad-update` (reinstall the CLI + skills, report the installed commit), `ad-state` (the only writer of
-`.agent/state.json`), `ad-dpm` (DPM → consumer handoff contract), `ad-setup --patch`, `ad-pncli where`,
-`ad-pncli jira get <KEY>`.
+`.agent/state.json`), `ad-dpm` (DPM → consumer handoff contract), `ad-setup --patch`, and the pncli wrapper's
+`where` and `jira get <KEY>`.
 
 - **Update after installing this one.** The skills changed too (`session-bootstrap`, `state-update`, `friction-log`,
   `data-adapter`, `jira-triage`, new `dpm-consumer-integration`): run both halves, then start a new Copilot chat.

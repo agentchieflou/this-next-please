@@ -1,0 +1,25 @@
+{
+  "source": "synthesized",
+  "note": "what a pinned PR verb answers, in the shape Bitbucket's REST API gives a new pull request (`id`, `links.self[].href`); the pncli verb is not pinned yet (HANDOFF.md)",
+  "match": [
+    "bitbucket",
+    "create-pr"
+  ],
+  "argv": [
+    "pncli",
+    "bitbucket",
+    "create-pr",
+    "--title",
+    "RDSD-1: add thing",
+    "--source",
+    "feat/RDSD-1-x",
+    "--target",
+    "main",
+    "--description",
+    "Commits:"
+  ],
+  "returncode": 0,
+  "stdout": "{\"id\": 42, \"title\": \"RDSD-1: add thing\", \"links\": {\"self\": [{\"href\": \"https://bitbucket.example.test/projects/RDSD/repos/x/pull-requests/42\"}]}}",
+  "stderr": "",
+  "captured": "2026-10-09"
+}

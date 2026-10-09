@@ -18,7 +18,7 @@ today:
 | A ticket dropped on a tile starts an agent whose first move is usually a full stop | the prompt is one line (`launch.DEFAULT_PROMPT`); `jira-triage` step 10 sends any untestable criterion to `friction-log`, which sets `phase=blocked --question` and STOPs; the operator's reply respawns the CLI with `--resume`, but `open_questions` persist until `--clear-questions` (`state.py`), which no skill runs on resume — so `session-bootstrap` step 11 and `router` step 8 stop again on the same block | §Pick-up, §The ask |
 | The agent's question is one sentence in the tile's why-line, and the answer is a text box | a question is a free-text string in `open_questions`, or an `assistant_text` that happens to end in `?` (`agentstate._ASK_ENDINGS`); it has no id, no choices, no "I need a file", and no way to tie a reply to the question it answers; three questions in a bulleted list read as `idle` for twenty minutes | §The ask |
 | A file dropped on a tile lights the tile up, and nothing happens | `dragover` sets `dropEffect = "copy"` and the dashed outline for anything that is not a tile drag; `drop` reads `text/plain` only; `static/` contains no `dataTransfer.files`, the server has no upload route, and `MAX_BODY` is 64 kB of JSON | §The scope |
-| The context the operator already gave is never read | the inbox copies into `<repo>/.agent/in/<KEY>/` and asks `ad-state set --input`; no skill reads `inputs`; the agent cannot read Jira comments (`ad-pncli jira` accepts `search` and `get` only) or attachments; acceptance criteria are whatever happens to be inside `description` | §The scope, slice F |
+| The context the operator already gave is never read | the inbox copies into `<repo>/.agent/in/<KEY>/` and asks `ad-state set --input`; no skill reads `inputs`; the agent cannot read Jira comments (the pncli wrapper of the day, retired in 0.20.0, accepted `jira search` and `jira get` only) or attachments; acceptance criteria are whatever happens to be inside `description` | §The scope, slice F |
 
 A fifth finding is structural. Real file paths never reach the page in any embedder, by design: the browser withholds
 them, the shells have no channel to the page (no `postMessage`, no `JBCefJSQuery`; the VS Code page is an iframe
@@ -86,7 +86,7 @@ the server, spends no premium request, and reads only what the fleet already hol
 | Row | Source | Says |
 |---|---|---|
 | key, repo match, Done | `board.suggest`, `supervisor.check_ticket` (unchanged) | the existing refusals, with a structured `code` |
-| description | one `ad-pncli jira get <KEY>` per drop, cached for `fleet.board_ttl` | `412 words` / `two lines` / `empty` |
+| description | one `pncli jira get-issue --key <KEY>` per drop, cached for `fleet.board_ttl` | `412 words` / `two lines` / `empty` |
 | acceptance criteria | a heuristic over the description alone — a heading, a checkbox or numbered list, or *Given/When/Then* (`preflight.criteria_found`). A count, never the text: a card that pasted the criteria would be showing the operator a second, staler copy of the ticket | `4 found` / `none found` |
 | comments, attachments | counts from the same fetch, when pncli returns them (open question) | `3 comments, the last by you yesterday` — the place a human has often already answered |
 | names it mentions | capitalised and quoted names in summary and description, looked up with the catalogue's `where` | `mentions Velocity — luna's MODEL.md declares it`; and when the match is in a *different* repo than the tile, that is said |
@@ -114,7 +114,7 @@ Ticket RDSD-118: UAT refresh is slow. The operator left a brief and 3 files unde
 before the ticket. Invoke skill session-bootstrap, then router.
 ```
 
-`jira-triage` still does the reading through `ad-pncli`. `fleet.preflight: false` restores #98's immediate start
+`jira-triage` still does the reading through pncli (`pncli jira get-issue`). `fleet.preflight: false` restores #98's immediate start
 for anyone who preferred it. Keyboard: the drop opens the card, `Enter` starts, `Esc` cancels; *pick one* (several
 repos declare the project) is the same card with a repo segment at the top.
 
@@ -163,7 +163,7 @@ is still no `needs_human` event and no rule in the shells.
 
 **The skills.** `jira-triage` step 10 becomes a clarify step — an untestable criterion with two readings is a
 blocking `ask` with the readings as choices, a missing detail with a safe default is `--assume`, and `friction-log`
-follows only the blocking case. `jira-triage` step 8 reads the comments (`ad-pncli jira comments`, already a read
+follows only the blocking case. `jira-triage` step 8 reads the comments (`pncli jira comments`, already a read
 verb, gains its `choices` entry in `cli.py`) because that is where a human has usually already answered.
 `session-bootstrap` step 11 reads the records: with answers in the resume prompt it records them and continues; with
 none it prints them and STOPs. `router` step 8 routes to `friction-log` only on a *blocking unanswered* question.
@@ -287,7 +287,7 @@ in neither `state.PHASES`; `optimizing` is in `state.PHASES` and missing from `s
    `{handoff}` placeholder.
 5. Fix the attach response; one `TERMINAL_PHASES` in `agentstate`, imported by the supervisor, with `closed` and
    `merged` either added to `state.PHASES` or removed from both; `optimizing` in the skill's list.
-6. `ad-pncli jira comments <KEY>` — the verb is already in `READ_VERBS`; it gains its `choices` entry.
+6. `pncli jira comments --key <KEY>` — the verb is already in `READ_VERBS` (then through the pncli wrapper, retired in 0.20.0).
 7. Playwright helpers that build a `DataTransfer` with files in page context and dispatch `drop` on a tile, so D
    and E have a harness on day one.
 
@@ -471,7 +471,7 @@ person).
 1. **The page is a view.** Every card is state from the server; every button calls the function the `ad-fleet`
    verb calls; every refusal is the CLI's words and a `code`.
 2. **The prompt is one line and never carries ticket text.** `{handoff}` names a directory and counts; the agent
-   reads the ticket through `ad-pncli` as it does today.
+   reads the ticket through pncli as it does today.
 3. **The fleet writes in a repository under `.agent/in/<KEY>/` and nowhere else**, only on a click or a start, and
    every such write is an event. `ad-state` remains the only writer of `state.json`; the fleet asks.
 4. **Nothing leaves the browser but a hash until the operator clicks.** A file's bytes travel only through

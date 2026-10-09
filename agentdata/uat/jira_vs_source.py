@@ -97,9 +97,9 @@ def write_sql(*, ticket: str, source: str, end: str, fields: list[str], facts: d
 def live_side(jql: str, fields: list[str], max_results: int = 2000, client=None) -> AgentTable:
     """What Jira says now. The truth the warehouse is being checked against."""
     if client is None:
-        from ..connectors import jira_reads
+        from ..connectors import pncli
 
-        client = jira_reads.backend()        # REST when credentials exist, pncli only when they do not
+        client = pncli
     return client.jira_search(jql, ["key", *fields], max_results)
 
 
