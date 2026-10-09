@@ -89,6 +89,11 @@ EDITABLE: dict[str, dict] = {
         "agent": True,
         "label": "branch warning at", "type": "int", "default": 6, "scope": NOW,
         "why": "how many local branches before a checkout is flagged as cluttered"},
+    "fleet.skills.source": {
+        "label": "skills marketplace", "type": "str", "default": "agentchieflou/this-next-please",
+        "scope": NOW,
+        "why": "the marketplace the skills are synced from: a GitHub `owner/repo`, a git URL, or a "
+               "local folder holding `skills/*/SKILL.md`"},
     "fleet.attach.max_mb": {
         "label": "attachment cap (MB)", "type": "int", "default": 10, "scope": NOW,
         "why": "the largest file the tray will copy into a checkout"},
@@ -420,6 +425,9 @@ def describe_lists(cfg: dict) -> list[dict]:
     return [{"key": key, **spec, "rows": list_rows(cfg, key)} for key, spec in LISTS.items()]
 
 
+SKILLS_SOURCE_KEY = "fleet.skills.source"
+
+
 def check(cfg: dict, keys) -> None:
     """The rules that hold between keys, run once a batch has been applied and before it is saved,
     so two values that only go together can be written together. Today that is the tiers."""
@@ -427,6 +435,16 @@ def check(cfg: dict, keys) -> None:
         _values, msg, hint = _tier_values(cfg)
         if msg:
             raise SettingsError(msg, hint, code="bad_tiers")
+    if SKILLS_SOURCE_KEY in keys:
+        # The marketplace (docs/fleet-skills.md §The marketplace source): one of three shapes, or
+        # a refusal that names them, so a typo is never stored as a source nothing can sync from.
+        from . import skills as SKILLS
+
+        value = str(C.get(cfg, SKILLS_SOURCE_KEY) or "")
+        if value and not SKILLS.source_kind(value):
+            raise SettingsError(f"{SKILLS_SOURCE_KEY} is not a marketplace: {value!r}",
+                                "a GitHub owner/repo (optionally @ref), a git URL, or a folder that exists",
+                                code="bad_source")
 
 
 # ------------------------------------------------------------------------------ the tiers (#235)

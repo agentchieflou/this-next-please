@@ -288,7 +288,22 @@ def test_the_approval_route_answers_one_mirror_with_its_digest_and_never_the_pay
     assert data["expires"] == time.strftime("%Y-%m-%dT%H:%M:%SZ",
                                             time.gmtime(created + approval.timeout_seconds()))
     assert data["payload_preview"] == {"key": "RDSD-1", "transition": "31 In Review"}
-    assert "payload" not in data and "pid" not in data and str(request["pid"]) not in body
+    assert "payload" not in data and "pid" not in data
+
+    # The pid never appears as a value anywhere in the mirror. Checked structurally, not as a substring of
+    # the body: a 64-hex digest contains any given four digits about one time in sixty, and on 2026-10-09
+    # the Windows leg drew pid 5128 against a digest holding "...51286..." (#657).
+    def values(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                yield from values(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from values(v)
+        else:
+            yield node
+    pid = request["pid"]
+    assert all(v != pid and v != str(pid) for v in values(data)), body
 
     for missing in (decided, "luna-jira-transition-20260101T000000-dead"):
         with pytest.raises(urllib.error.HTTPError) as e:
@@ -608,9 +623,8 @@ VENDORED_NOT_FETCHED = {
 }
 
 
-#: The binary files under `static/`: the world's CC0 photo textures (`.webp`), scanned props
-#: (`.glb`) and skies (`.hdr`), all in `static/world/cc0/`, and its people (`.glb`) in
-#: `static/world/people/`.
+#: The binary files under `static/`: the world's office furniture (`.glb`); the photo textures
+#: (`.webp`), skies (`.hdr`) and people that were here moved to play-sports on 2026-10-08.
 BINARY_ASSETS = (".webp", ".glb", ".hdr")
 
 
@@ -620,9 +634,8 @@ def test_the_page_fetches_nothing_from_the_internet():
     for root, _, files in os.walk(STATIC):
         for name in sorted(files):
             if name.endswith(BINARY_ASSETS):
-                # The world's CC0 textures, models and skies (`static/world/cc0/`) are bytes, not
-                # text, and are read as bytes: a model's JSON chunk names its images by index, never
-                # by address, and that is what this holds.
+                # A model (`static/world/office/office.glb`) is bytes, not text, and is read as bytes:
+                # its JSON chunk names its images by index, never by address, and that is what this holds.
                 raw = open(os.path.join(root, name), "rb").read()
                 for bad in (b"http://", b"https://", b"//cdn", b"//unpkg"):
                     assert bad not in raw, f"{name} reaches outside for {bad!r}"
@@ -740,6 +753,30 @@ def test_the_chat_page_fits_inside_the_desk_budget_and_its_script_inside_its_own
     assert sent < CHAT_BUDGET, (sent, scripts_)
 
 
+#: The skills marketplace's own scripts (operator request, 2026-10): `static/skills/**/*.js`, gzipped
+#: as served. Outside the desk's 200 KiB like `CHAT_BUDGET`: a desk never fetches them.
+#: `skills/skills.js` measured about 2.5 KiB when it arrived: one list, a filter, three sorts, a fold.
+SKILLS_BUDGET = 6 * 1024
+
+
+def test_the_skills_page_fits_inside_the_desk_budget_and_its_script_inside_its_own():
+    """`skills.html` and `skills.css` sit in `static/` beside the desk's files, so the 200 KiB above
+    counts them; they are held to 4 KiB of it together, like the chat's. The marketplace's script has
+    a budget of its own."""
+    import gzip as gz
+
+    def wire(rel):
+        return len(gz.compress(S.static_body(rel), 6, mtime=0))
+
+    page = wire("skills.html") + wire("skills.css")
+    assert page < 4 * 1024, page
+    scripts_ = skills_scripts()
+    assert scripts_ == ["skills/skills.js"], scripts_
+    sent = sum(wire(n) for n in scripts_)
+    print(f"\n  skills page {page} bytes gzipped; skills scripts {sent} bytes gzipped {scripts_}")
+    assert sent < SKILLS_BUDGET, (sent, scripts_)
+
+
 #: The world's own scripts (#626): `static/world/**/*.js`, gzipped as served. Outside the desk's
 #: 200 KiB like `M_BUDGET`: a desk never fetches them. They measured about 17 KiB when they arrived:
 #: `world/world.js` 12.4 KiB (the scene, the rain, the walk, the pad, a conversation, the character
@@ -791,69 +828,29 @@ def test_the_world_page_fits_inside_the_desk_budget_and_its_script_inside_its_ow
     assert sent < WORLD_BUDGET, (sent, scripts_)
 
 
-#: What `static/world/cc0/` may weigh on the disk, and so in the wheel: about 4 MiB today (sixteen
-#: textures, two skies, nine models). A page fetches them from the machine it runs on, never across
-#: a network, so the bound is the package's size, not a page load's. `tools/world/cc0/` remakes every
-#: file; raise this with the operator's rule above (`WORLD_BUDGET`) in mind.
-CC0_BUDGET = 6 * 1024 * 1024
-
-
-def test_the_worlds_cc0_assets_are_the_ones_it_loads_credited_and_bounded():
-    """Every file in `static/world/cc0/` is one `world/assets.js` names, or the LICENSE that credits
-    them; every file it names is there; the LICENSE names each, says CC0, and the folder stays small."""
-    folder = os.path.join(STATIC, "world", "cc0")
+#: The world's photo assets (`static/world/cc0/`), people (`static/world/people/`), trees and cars left
+#: this package on 2026-10-08 for agentchieflou/play-sports (`RawAssets/world/`), with the pipeline that
+#: made them (docs/fleet-world.md, the parked note). The page draws its own fallbacks for each: what is
+#: held here is that it asks for nothing else and that the operator's own people folder still works.
+def test_the_worlds_moved_assets_are_gone_and_the_page_falls_back(running):
+    """The folders that moved to play-sports are not in the package, and the server answers 404 for
+    what they held -- which `world/assets.js` treats as "use the page's own": a baked material, the sky
+    shader, the built hydrant, the cartoon character and robots, the page's own trees and cars."""
+    base, token, _ = running
+    for folder in ("cc0", "people", "trees", "cars"):
+        assert not os.path.exists(os.path.join(STATIC, "world", folder)), folder
     src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
-    tex = re.findall(r'\w+: \["(\w+)", [\d.]+, [\d.]+, [\d.]+\]', src)
-    sky = re.findall(r'\w+: \["(\w+)", [\d.]+\]', src)
-    props = re.findall(r'"(\w+)"', re.search(r"var PROPS = \[(.*?)\];", src, re.S).group(1))
-    assert len(tex) == 5 and len(sky) == 2 and len(props) == 9, (tex, sky, props)
-    wanted = {f"{t}_{k}.webp" for t in tex for k in ("diff", "nor", "arm")}
-    wanted |= {f"{s_}.hdr" for s_ in sky} | {f"{p}.glb" for p in props}
-    there = set(os.listdir(folder))
-    assert there == wanted | {"LICENSE"}, (sorted(there - wanted), sorted(wanted - there))
-    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
-    assert "CC0 1.0 Universal" in licence
-    for name in sorted(wanted):
-        assert name.split(".")[0] in licence or name.rsplit("_", 1)[0] in licence, name
-    size = sum(os.path.getsize(os.path.join(folder, n)) for n in there)
-    assert size < CC0_BUDGET, size
+    for name in ("cc0/brick_wall_001_diff.webp", "people/people.json", "people/standin.glb", "trees/trees.glb", "cars/cars.glb"):
+        with pytest.raises(urllib.error.HTTPError) as no:
+            get(base, f"/static/world/{name}", token)
+        assert no.value.code == 404, name
+    assert 'PEOPLE = "/static/world/people/"' in src and 'OFFICE = "/static/world/office/"' in src
 
 
-#: What `static/world/people/` may weigh on the disk, and so in the wheel: about 4.3 MiB today (the
-#: stand-in character with its six hair styles, beards, glasses and five body morphs, and five crowd
-#: characters at two levels of detail in one atlas). MetaHuman exports dropped in later are held to the
-#: same bound, so a hero at a sensible LOD and a crowd at a low one fit, and a raw LOD0 export does not.
-#: `tools/world/people/` remakes both files; raise this with the operator's rule above (`WORLD_BUDGET`).
-PEOPLE_BUDGET = 5 * 1024 * 1024
-
-
-def test_the_worlds_people_are_the_ones_it_loads_credited_and_bounded():
-    """Every file in `static/world/people/` is the manifest `world/assets.js` reads (`people.json`), a
-    file the manifest names, or the LICENSE that credits them; every file it names is there and is
-    credited; and the folder stays small. Swapping the stand-in for other characters (MetaHumans the
-    operator exports) is a change to the manifest and the files, never to the code."""
-    import json
-
-    folder = os.path.join(STATIC, "world", "people")
-    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
-    assert 'PEOPLE = "/static/world/people/"' in src and 'PEOPLE + "people.json"' in src
-    manifest = json.load(open(os.path.join(folder, "people.json"), encoding="utf-8"))
-    wanted = {e["file"] for key in ("hero", "crowd") for e in manifest.get(key, [])}
-    assert wanted and manifest["hero"], manifest
-    there = set(os.listdir(folder))
-    assert there == wanted | {"people.json", "LICENSE"}, (sorted(there - wanted), sorted(wanted - there))
-    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
-    assert "CC0 1.0 Universal" in licence
-    for name in sorted(wanted):
-        assert name in licence, name
-    size = sum(os.path.getsize(os.path.join(folder, n)) for n in there)
-    assert size < PEOPLE_BUDGET, size
-
-
-def test_the_operators_own_people_are_served_before_the_stand_in(running, tmp_path, monkeypatch):
+def test_the_operators_own_people_are_served_from_their_folder(running, tmp_path, monkeypatch):
     """Characters that may not be redistributed (MetaHuman or Fab exports) live in the operator's own
     folder, never in git or the wheel: with a `people.json` there, `/static/world/people/` answers
-    from it, and what it lacks still comes from the stand-in. Nothing escapes the folder."""
+    from it. Nothing escapes the folder, and what it lacks is a 404 the page treats as "no people"."""
     base, token, _ = running
     own = tmp_path / "people"
     own.mkdir()
@@ -866,89 +863,38 @@ def test_the_operators_own_people_are_served_before_the_stand_in(running, tmp_pa
     status, body, _ = get(base, "/static/world/people/people.json", token)
     assert status == 200 and json.loads(body)["hero"] == [{"file": "mine.glb"}]
     assert get(base, "/static/world/people/mine.glb", token)[1] == "glTF-mine"
-    with open(os.path.join(STATIC, "world", "people", "standin.glb"), "rb") as f:
-        standin = f.read()
-    with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
-        assert r.read() == standin
-    for name in ("notes.md", "..%2Foutside.glb", "../outside.glb", "missing.glb"):
+    for name in ("notes.md", "..%2Foutside.glb", "../outside.glb", "missing.glb", "standin.glb"):
         with pytest.raises(urllib.error.HTTPError) as no:
             get(base, f"/static/world/people/{name}", token)
         assert no.value.code == 404, name
 
 
-def test_without_the_operators_people_the_stand_in_is_served(running, tmp_path, monkeypatch):
-    """No folder, or a folder without its manifest (a half-finished copy), changes nothing: the page
-    gets the CC0 stand-in the package ships. The default folder sits beside the config."""
+def test_without_the_operators_people_nothing_is_served_from_elsewhere(running, tmp_path, monkeypatch):
+    """No folder, or a folder without its manifest (a half-finished copy), serves nothing: the page
+    gets a 404 for the manifest and draws its own people. The default folder sits beside the config."""
     base, token, _ = running
     assert S.people_dir() == os.path.join(os.path.dirname(os.path.abspath(os.environ["AGENTDATA_CONFIG"])),
                                           "world", "people")
-    shipped = json.load(open(os.path.join(STATIC, "world", "people", "people.json"), encoding="utf-8"))
-    assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
-
     half = tmp_path / "half"
     half.mkdir()
     (half / "standin.glb").write_bytes(b"not the stand-in")
     monkeypatch.setenv(S.PEOPLE_DIR_ENV, str(half))
     assert S.people_file("standin.glb") is None
-    assert json.loads(get(base, "/static/world/people/people.json", token)[1]) == shipped
-    with urllib.request.urlopen(f"{base}/static/world/people/standin.glb?t={token}", timeout=10) as r:
-        assert r.read() != b"not the stand-in"
-
-
-#: What `static/world/trees/` may weigh on the disk, and so in the wheel: about 1.2 MiB today (five
-#: trees at two levels of detail, two barks and one atlas of leafy twigs). `tools/world/trees/` remakes
-#: the file from nothing but its own numbers; raise this with the operator's rule above (`WORLD_BUDGET`).
-TREES_BUDGET = 2 * 1024 * 1024
-
-
-def test_the_worlds_trees_are_the_file_it_loads_made_here_and_bounded():
-    """`static/world/trees/` holds the one file `world/assets.js` loads and the LICENSE that says it was
-    made here, by `tools/world/trees/`, from no third-party asset, under the repository's own licence;
-    and the folder stays small."""
-    folder = os.path.join(STATIC, "world", "trees")
-    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
-    assert 'TREES = "/static/world/trees/"' in src and 'TREES + "trees.glb"' in src
-    assert sorted(os.listdir(folder)) == ["LICENSE", "trees.glb"]
-    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
-    for words in ("tools/world/trees/", "no third-party asset", "MIT", "trees.glb"):
-        assert words in licence, words
-    for tool in ("trees.py", "trees.mjs"):
-        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "trees", tool)), tool
-    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
-    assert size < TREES_BUDGET, size
-
-
-#: What `static/world/cars/` may weigh: about 0.4 MiB today (four cars, near and far, no textures).
-#: `tools/world/cars/` remakes the file from its own profiles; raise this with the operator's rule above.
-CARS_BUDGET = 1024 * 1024
-
-
-def test_the_worlds_cars_are_the_file_it_loads_made_here_and_bounded():
-    """`static/world/cars/` holds the one file `world/assets.js` loads and the LICENSE that says it was
-    made here, by `tools/world/cars/`, from no third-party asset and after no maker's design, under the
-    repository's own licence; and the folder stays small."""
-    folder = os.path.join(STATIC, "world", "cars")
-    src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
-    assert 'CARS = "/static/world/cars/"' in src and 'CARS + "cars.glb"' in src
-    assert sorted(os.listdir(folder)) == ["LICENSE", "cars.glb"]
-    licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
-    for words in ("tools/world/cars/", "no third-party asset", "maker's design", "MIT", "cars.glb"):
-        assert words in licence, words
-    for tool in ("cars.py", "cars.mjs"):
-        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "cars", tool)), tool
-    size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
-    assert size < CARS_BUDGET, size
+    for name in ("people.json", "standin.glb"):
+        with pytest.raises(urllib.error.HTTPError) as no:
+            get(base, f"/static/world/people/{name}", token)
+        assert no.value.code == 404, name
 
 
 #: What `static/world/office/` may weigh: about 0.12 MiB today (the workstation and the planter).
-#: `tools/world/office/` remakes the file; raise this with the operator's rule above (`WORLD_BUDGET`).
+#: play-sports' `tools/assets/world/office/` remakes the file; raise this with the operator's rule above.
 OFFICE_BUDGET = 512 * 1024
 
 
 def test_the_worlds_office_is_the_file_it_loads_made_here_and_bounded():
     """`static/world/office/` holds the one file `world/assets.js` loads and the LICENSE that says it was
-    made here, by `tools/world/office/`, from no third-party asset, under the repository's own licence;
-    and the folder stays small."""
+    made by `tools/world/office/` (now play-sports' `tools/assets/world/office/`), from no third-party
+    asset, under the repository's own licence; and the folder stays small."""
     folder = os.path.join(STATIC, "world", "office")
     src = open(os.path.join(STATIC, "world", "assets.js"), encoding="utf-8").read()
     assert 'OFFICE = "/static/world/office/"' in src and 'OFFICE + "office.glb"' in src
@@ -956,8 +902,6 @@ def test_the_worlds_office_is_the_file_it_loads_made_here_and_bounded():
     licence = open(os.path.join(folder, "LICENSE"), encoding="utf-8").read()
     for words in ("tools/world/office/", "no third-party asset", "MIT", "office.glb"):
         assert words in licence, words
-    for tool in ("office.py", "office.mjs"):
-        assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", "tools", "world", "office", tool)), tool
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
     assert size < OFFICE_BUDGET, size
 
@@ -1035,6 +979,11 @@ def chat_scripts() -> list[str]:
 def world_scripts() -> list[str]:
     """Every `.js` under `static/world/` (#626), as a path under `static/`."""
     return map_scripts("world")
+
+
+def skills_scripts() -> list[str]:
+    """Every `.js` under `static/skills/` (the marketplace), as a path under `static/`."""
+    return map_scripts("skills")
 
 
 def map_scripts(folder="map") -> list[str]:
@@ -1205,7 +1154,7 @@ def test_the_page_can_actually_fetch_its_own_css_and_js(running):
     the URLs out of the served HTML and fetches exactly those.
     """
     base, token, _ = running
-    for page in ("/", "/settings", "/m", "/chat", "/world"):
+    for page in ("/", "/settings", "/m", "/chat", "/world", "/skills"):
         html = urllib.request.urlopen(f"{base}{page}?t={token}", timeout=5).read().decode()
 
         refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)

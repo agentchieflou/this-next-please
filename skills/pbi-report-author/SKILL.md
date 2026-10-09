@@ -22,6 +22,8 @@ Author Power BI reports mechanically via `ad-pbip` verbs without handwriting vis
    - Filters: `ad-pbip filter set <pbip> --scope report|page|visual [--page <p>] [--visual <id>] --field <ref> --values a,b`
    - Bookmarks: `ad-pbip bookmark add <pbip> --name "<name>" --page <p> [--visuals <id1,id2>]`
    - Themes: `ad-pbip theme set <pbip> --file <theme.json>`
+   - Any other property: `ad-pbip pbir patch <pbip> (--file <definition/...> | --page <p> [--visual <id>]) --set <json-pointer>=<json-value> [--unset <pointer>] [--dry-run]`
+     (RFC 6901 pointers: `/position/x=300`, `/visual/visualContainerObjects/title/-={...}` appends; a missing object is created)
 3. **Validate**: Run pre-flight lint:
    - `ad-pbip check <pbip>`: Must pass with 0 errors. Checks schema rules, field references, and anti-patterns.
 4. **Reload & Verify**:
@@ -38,16 +40,22 @@ Author Power BI reports mechanically via `ad-pbip` verbs without handwriting vis
 - **Slicers**: `slicer` (classic: dropdown, list, between, date picker are its `data.mode`, which only Desktop sets
   today), `listSlicer` (a list; several fields make a hierarchy; then tooltip measures), `advancedSlicerVisual`
   (the button slicer: one column, then an optional measure on each tile), `textSlicer` (one text column searched by
-  typing). A date picker or a mode other than Desktop's default is a missing verb: friction-log `type: contract`.
+  typing). A date picker or a mode other than Desktop's default: `pbir patch` the `data.mode` Desktop saves, copying
+  the shape from a slicer Desktop saved; friction-log `type: contract` only when the schema refuses it.
 - **Desktop only**: `textbox`, `image`, `shape`, `actionButton` and `shapeMap` are in the catalog, but `visual add`
-  refuses them: their content (text, source, shape, action, role names) is no `visual set` property yet. Add them in
-  Desktop, or friction-log `type: contract`.
+  refuses them: their content (text, source, shape, action, role names) is nothing `visual add` can fill. Add them in
+  Desktop. Once present, their text, source, shape and action are `pbir patch` edits: `--dry-run` first, with the
+  property path read off the file Desktop saved.
 - **Bookmarks** land where Desktop reads them: `bookmarks/<name>.bookmark.json`, listed in `bookmarks/bookmarks.json`.
 
-## Cardinal Rule: Never Hand-Write Visual JSON
-- **Never** manually create or edit `visual.json` files from memory.
-- If an authoring verb is missing or cannot express the requested layout/property:
-  Invoke `friction-log` with `type: contract` naming the missing verb or schema property, then stop.
+## Cardinal Rule: Verbs first, `pbir patch` second, never raw
+- **Never** create or edit `visual.json` (or any PBIR file) by hand or from memory.
+- A property no verb covers is set with `ad-pbip pbir patch`. It validates the result against the file's own
+  `$schema` (Desktop 2.157's, vendored) and refuses what would not open: `fail: schema_invalid` names the property
+  and its JSON path, and the file is untouched. It also refuses the `$schema` and `name` pointers, `.platform`,
+  `definition.pbir`, `version.json`, `localSettings.json` and anything outside `definition/`.
+- Only a patch the schema refuses is a missing verb: invoke `friction-log` with `type: contract` naming the property
+  and the `errors` line. A property the schema accepts is a `pbir patch`, never a friction log.
 - Never use legacy or deprecated visual types; `visual add` refuses them and `ad-pbip check` warns on each one
   already there: `card`/`multiRowCard` → `cardVisual`, `table` → `tableEx`, `matrix` → `pivotTable`,
   `map`/`filledMap` (Bing Maps, being retired) → `azureMap` (or `shapeMap` for custom regions), `qnaVisual` (Q&A,

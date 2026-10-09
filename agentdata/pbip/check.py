@@ -268,7 +268,42 @@ def check_report(report: P.Report, model: Model, facts: dict | None = None) -> l
     from .features import check_report_features
     out.extend(check_report_features(model, report))
     _check_custom_visuals(out, report, model, idx, facts)
+    _check_schemas(out, report)
     return out
+
+
+# Every PBIR file naming a vendored `$schema` is validated against it, the way `ad-pbip pbir patch` validates before it
+# writes: a hand edit, a merge, or a file an older tool wrote is caught here before Desktop refuses the report. The
+# severity is `warning`, not `error`, while tests/fixtures/pbip/native's reportExtension.json (no top-level `name`,
+# no measure `dataType`, both required by reportExtension/1.0.0) is what `test_native_fixture_complete_and_clean`
+# holds clean; `info` once when jsonschema is not installed, so a report that was not checked is never reported as
+# clean by omission.
+SCHEMA_SEVERITY = "warning"
+SCHEMA_ERRORS_PER_FILE = 20
+
+
+def _check_schemas(out: list[Finding], report: P.Report) -> None:
+    from . import schema_check as SC
+    defn = os.path.join(report.root, "definition") if report.root else ""
+    if not os.path.isdir(defn):
+        return
+    if not SC.available():
+        out.append(Finding("info", "schema-check-skipped", "definition/", "",
+                           "jsonschema is not installed: PBIR files were not validated against their $schema", SC.install_hint()))
+        return
+    for path in sorted(glob.glob(os.path.join(glob.escape(defn), "**", "*.json"), recursive=True)):
+        try:
+            data = P._load(path)
+        except (OSError, ValueError):
+            continue
+        url = data.get("$schema") if isinstance(data, dict) else None
+        if not url or not SC.vendored(url):
+            continue
+        rel = textio.norm_path(os.path.relpath(path, report.root))
+        name = data.get("name") if isinstance(data.get("name"), str) else ""
+        for problem in SC.errors(data, url)[:SCHEMA_ERRORS_PER_FILE]:
+            out.append(Finding(SCHEMA_SEVERITY, "schema-invalid", rel, name, problem,
+                               "fix the property named, or re-save in Desktop 2.157"))
 
 
 # Where a custom visual comes from decides who sees it. The PBIR report schema

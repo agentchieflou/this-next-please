@@ -177,6 +177,16 @@ set of rules, and the palette and skin you chose look here exactly as they look 
 marks included. It is an addition beside the desk, never a replacement for it; bookmark
 `/open?page=chat` to land there.
 
+## Skills marketplace
+
+**`/skills`** (the *Skills* block on `/settings`, or `/open?page=skills`) is every skill the operator has,
+with how often each has actually been used: by which agents, in which repositories, when last, and
+whether the call worked. The numbers are folded from the agents' own streams and from your own Copilot
+sessions into `<fleet dir>/skills.json`, so they survive the logs rolling; a skill used that is no
+longer installed is listed as *missing*, one never used as *unused*, and a second copy the CLI does not
+read as *shadowed*. [fleet-skills.md](fleet-skills.md) says where each number comes from and what it does
+not count yet.
+
 ### The world: walk to your agents
 
 **`/world`** (the toolbar's *world*) is the fleet as a place to walk: a plaza in the rain, by day or by
@@ -185,7 +195,10 @@ keyboard, and an agent that needs you raises a beacon and shows on the compass. 
 approve its write or send it a message, you walk up to it: nothing in the world acts from a
 distance. It is built to draw each frame within 10 ms (100 frames a second, or your display's rate
 if that is lower). [fleet-world.md](fleet-world.md) has the controls and how the frame budget is
-kept.
+kept. **Parked since 2026-10-08:** the world's photo assets, people, trees, cars and asset pipeline
+are maintained in `agentchieflou/play-sports` (its `RawAssets/world/` and Track R) from now on,
+where the 3D work goes on; no new work on the world lands here, and the copies are gone from this
+package (the page draws its own fallbacks). The page, the office, the walk and the take-over stay.
 
 ### The catalogue
 

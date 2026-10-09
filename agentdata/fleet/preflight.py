@@ -134,12 +134,11 @@ def fetch_issue(key: str, *, cfg: dict | None = None, client=None,
     issue: dict[str, Any] = {"description": "", "issuetype": "", "comments": 0,
                              "attachments": 0, "error": "", "cached": False}
     try:
-        if client is not None:
-            table = client.get_issue(key)
-        else:
-            from ..connectors import pncli
+        if client is None:
+            from ..connectors import jira_reads
 
-            table = pncli.get_issue(key)
+            client = jira_reads.backend(cfg)     # REST when credentials exist, pncli only when they do not
+        table = client.get_issue(key)
         rows = getattr(table, "rows", None) or []
         cols = list(getattr(table, "columns", None) or [])
         if rows:

@@ -344,9 +344,10 @@ def rotate_all(name: str, *, cfg: dict | None = None) -> list[str]:
     # Before anything is moved aside. `events.read` opens only the live file, so a rotation used to
     # take the agent's whole spend with it: `spent()` dropped to zero, the budget re-opened, and
     # `ad-fleet history` forgot the morning (#210).
-    from . import spend as SPEND
+    from . import skills as SKILLS, spend as SPEND
 
     SPEND.update(name)
+    SKILLS.update(name)                       # the skills ledger, for the same reason
     for filename in ("events.jsonl", "stderr.log", E.NORMALIZED):
         path = os.path.join(directory, filename)
         if rotate(path, mb=s["log_mb"], keep=s["log_keep"]):

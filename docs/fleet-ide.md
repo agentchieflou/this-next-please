@@ -48,6 +48,8 @@ a tool window 400-600 px wide reads well; Enter on a checkout there opens it on 
 `/open?page=m&w=phone&ink=off` lands on the phone page (#581, [fleet-dashboard.md](fleet-dashboard.md)
 §Endpoints): the agents that need you, one at a time, with approve, deny, answer and reply, for a tablet on this
 machine's localhost. Its window is `phone` when the query names none.
+`/open?page=skills` lands on the skills marketplace ([fleet-skills.md](fleet-skills.md)): every skill installed,
+how often each was used, where and when last, the page `/settings`'s *Skills* block opens.
 
 ## VS Code
 

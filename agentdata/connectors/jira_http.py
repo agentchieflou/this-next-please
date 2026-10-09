@@ -31,7 +31,7 @@ USER_AGENT = "agentdata/0.1"
 # client has already waited -- it retried with jittered backoff and honoured every Retry-After it was given --
 # so repeating the same command changes nothing. What is left is asking for less, or being allowed to take longer.
 HINTS = {
-    401: "token rejected; re-run ad-setup --only pncli, or set JIRA_TOKEN / JIRA_EMAIL",
+    401: "token rejected; re-run ad-setup --only jira (or ad-setup --only pncli), or set JIRA_TOKEN / JIRA_EMAIL",
     403: "no permission on this project or issue",
     404: "not found (issue key, endpoint, or wrong Jira flavor); try ad-jira whoami --redetect",
     429: "still rate limited after the client's own retries and Retry-After waits; narrow the JQL to fewer "

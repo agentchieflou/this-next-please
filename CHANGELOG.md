@@ -4,6 +4,60 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.19.0
+
+**On update:**
+- **The two standard commands, then start a new Copilot chat.** Skills changed (`pbi-report-author`,
+  `pbi-validate`, `pbip-projection`'s layout reference, `data-adapter`, `jira-triage`, `session-bootstrap`,
+  `research-spike`, `uat-report-visual`, `jira-changelog`, `jira-router`, `confluence-publish`,
+  `bitbucket-pr`), and a running chat keeps the old ones.
+- **One new optional dependency:** `jsonschema` joins the `pbi` extra. `ad-pbip pbir patch` and the
+  `schema-invalid` rule of `ad-pbip check` need it; without it the patch is refused and the check says
+  `schema-check-skipped`. `python -m pip install --force-reinstall "agentdata[pbi] @ git+https://github.com/agentchieflou/this-next-please.git"`.
+- **Run `ad-setup --only jira` once.** Jira no longer needs pncli: the step asks for the URL, the email and a
+  token it keeps in the keyring. An install that still has pncli keeps working unchanged (its config stays the
+  last fallback), and `ad-doctor` no longer fails on a machine without pncli; it says the backend is optional.
+  `ad-setup --patch` re-asks only the jira rows.
+
+**PBIR, loosened for Power BI Desktop 2.157.** The rules were written when hand-edited report JSON could only
+be banned. With 2.157's schemas vendored it can be checked instead:
+- **`ad-pbip pbir patch <pbip> (--file | --page [--visual]) --set <pointer>=<json> [--unset <pointer>]
+  [--dry-run]`** sets any property of a PBIR file and writes only when the result validates against the file's
+  own `$schema`. It refuses `$schema` and `name`, `.platform`, `definition.pbir`, `version.json`,
+  `localSettings.json`, a schema that is not vendored, and an install without the checker.
+- **`ad-pbip check`** validates every PBIR file against its vendored schema (`schema-invalid`, a warning while
+  the native fixture's `reportExtension.json` predates the schema it names).
+- **Skills:** `pbi-report-author`'s cardinal rule is now *verbs first, `pbir patch` second, never raw*: a
+  property no verb covers is a patch, and only a patch the schema refuses is a `friction-log`. `pbi-validate`
+  allows renames and validated patches. The layout reference says the Desktop Bridge reloads a report in place
+  (2.155+, verified on 2.157) instead of "close and reopen". The brief gate is documented as it runs (with
+  `--brief`).
+
+**pncli, optional and credited.** `@kolatts/pncli` is the fundamental inspiration for the `ad-*` CLI
+(`docs/pncli-parts.md`, and README's Acknowledgements). It is no longer required:
+- `ad-jira search --jql`, `ad-jira get <KEY>` and `ad-jira comments <KEY>` replace the three `ad-pncli jira`
+  reads, over REST, with the same columns; the fleet's preflight, the UAT live side and the UAT plan use them.
+- Credentials come from the environment (`JIRA_*`, alias `AGENTDATA_JIRA_TOKEN`), then the keyring, then
+  pncli's config. Confluence pages and Bitbucket PRs still go through pncli, and say so.
+
+**The skills marketplace** (`/settings` → *skills marketplace*, `/skills`): every skill in every skills
+directory the CLI knows, with its description, version, how often it ran and how many of those succeeded, in
+which repositories and on which tickets, first and last use, and pills for unused, missing and shadowed. The
+numbers are folded from every `skill` tool call on the agents' event streams and from Copilot's own sessions
+outside the fleet, into `<fleet_dir>/skills.json`, which survives log rotation (`docs/fleet-skills.md`).
+**The marketplace source** is a setting, `fleet.skills.source`: a GitHub `owner/repo` (the default is this
+repository), any git URL, or a local folder; *sync* installs or updates the skills it offers from the fleet
+window, *refresh* lists what it offers against what is installed.
+
+**Planned, not built:** `docs/plan-m365-bridge.md`, the Microsoft 365 lane: Power Automate as the second relay,
+SharePoint and OneDrive as on-demand context into the ticket's folder, results out behind the approval gate, and the
+loop between triggered Microsoft agents and the fleet's Copilot agents. Its first slice is a sitting on the tenant.
+
+**The world, parked.** Its assets, people, trees, cars and asset pipeline are maintained in
+`agentchieflou/play-sports` from now on (its `RawAssets/world/`, four specs and Track R); no new work on the
+world lands here. The page, the office, the walk and the take-over stay; the copies are gone from the wheel
+(about 11 MB less), and the page draws its own fallbacks in their place (`docs/fleet-world.md`).
+
 ## 0.18.0
 
 **On update:**

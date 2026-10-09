@@ -85,7 +85,7 @@ def build(pbip_dir: str, visual: str, ticket: str, page: str | None = None, expe
     if sprintish:
         steps.append({"tier": "1 jira", "cmd": f'ad-jira sprint-replay --sprint <id> --board {facts.get("jira_board_id", "<jira_board_id>")} --jql "project = {project} AND updated >= \'{start}\'"', "gives": "<jira.tsv>: committed/completed per issue (truth for points)"})
     else:
-        steps.append({"tier": "1 jira", "cmd": f'ad-pncli jira search --jql "project = {project} AND updated >= \'{start}\' AND updated <= \'{end}\'" --fields key,status,assignee,updated --max-results 2000', "gives": "<jira.tsv>: live values (truth)"})
+        steps.append({"tier": "1 jira", "cmd": f'ad-jira search --jql "project = {project} AND updated >= \'{start}\' AND updated <= \'{end}\'" --fields key,status,assignee,updated --max-results 2000', "gives": "<jira.tsv>: live values (truth)"})
     steps.append({"tier": "reconcile", "cmd": f"ad-uat reconcile --expected <expected.tsv> --jira <jira.tsv> --hist <hist.tsv> --pbi <pbi.tsv> --key {key_guess} --cols {','.join(metrics) or '<metric>'} --window {start},{end} --hist-coverage <cov.tsv> --ticket {ticket}",
                   "gives": ".agent/out/<ticket>-uat-findings.md with a class per (key, metric)"})
     return {"visual": vis.id, "title": vis.title, "type": vis.type, "page": pg.name, "group_by": group_cols, "measures": measures,

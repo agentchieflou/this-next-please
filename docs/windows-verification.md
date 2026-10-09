@@ -94,16 +94,18 @@ ad-doctor
 ```
 Pass: exit 1 with `fail`/`warn` rows that each carry a hint naming `ad-setup --only <step>`; no traceback. Paste: the output.
 
-## 2. pncli import and Jira flavor
+## 2. Jira credentials and flavor (pncli optional)
 ```powershell
-ad-setup --only pncli            # accept the proposed keys if they point at url / email / token; note if the proposal is wrong
+ad-setup --only jira             # base URL, email, API token -> keyring; `token_source: keyring` from then on
 ad-jira whoami
 ad-jira whoami --redetect        # only if the first call failed
-ad-pncli where                   # resolved launcher: path, kind (npm shim), node entry, version
-ad-pncli jira search --jql "key = <any issue>"
-ad-pncli jira get <any issue key>   # pncli's confirmed read verb, built for you (jira get-issue --key <KEY>)
+ad-jira search --jql "key = <any issue>"
+ad-jira get <any issue key>      # one row: description as plain text, comments and attachments counted
+ad-jira comments <any issue key>
+ad-setup --only pncli            # ONLY if pncli is installed: accept the proposed keys if they point at url / email / token
+ad-pncli where                   # ONLY with pncli: resolved launcher: path, kind (npm shim), node entry, version
 ```
-Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source: pncli:<key path>`; `ad-doctor --only pncli` is all `ok`. Paste: the key list the wizard printed (values are masked), the answers you gave, and the `whoami` TOON. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`.
+Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source` (`keyring`, `env`, or `pncli:<key path>` on an install that still borrows pncli's token); `ad-doctor --only jira` is all `ok`, and `ad-doctor --only pncli` is `skip` rows without pncli, all `ok` with it. Paste: the `whoami` TOON and, with pncli, the key list the wizard printed (values are masked) and the answers you gave. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`.
 
 | # | What to do | What it must do | Host | Date |
 |---|---|---|---|---|

@@ -435,6 +435,7 @@ FLEET_PROCESS_STATE = {
     "agentdata.fleet.serve": ("_desk", "_selection", "_desk_loaded", "_refreshed_at", "_measure_asks",
                               "_desk_written", "_read_order", "LOADED", "_SERVING", "_live"),
     "agentdata.fleet.fingerprint": ("_cache",),
+    "agentdata.fleet.skills": ("_running",),
     "agentdata.fleet.poll": ("_branches_cache",),
     "agentdata.fleet.trace": ("_SECONDS_CACHE",),
 }

@@ -1,9 +1,10 @@
 # Jira changelog — what ad-jira does and why
 
 ## Where the token comes from
-`ad-jira` never runs the pncli binary. It reads pncli's own config (`~/.pncli/config.json`) at call time using the
-key names chosen in `ad-setup --only pncli`, and sends the token itself. Env `JIRA_URL` / `JIRA_EMAIL` /
-`JIRA_TOKEN` override. Nothing is ever printed or stored; `ad-jira whoami` shows only `token_source`.
+`ad-jira` never runs the pncli binary. At call time it reads env `JIRA_URL` / `JIRA_EMAIL` / `JIRA_TOKEN` first, then
+the keyring entry `ad-setup --only jira` stored (`jira:default`, beside `jira.base_url` / `jira.email` in config), and
+last pncli's own config (`~/.pncli/config.json`) by the key names chosen in `ad-setup --only pncli` -- the optional
+backend. It sends the token itself. Nothing is ever printed or stored elsewhere; `ad-jira whoami` shows only `token_source`.
 
 ## Flavor (detected once, cached in config; `ad-jira whoami --redetect` to redo)
 | | Cloud (`*.atlassian.net`) | Data Center / Server |
@@ -30,7 +31,7 @@ key names chosen in `ad-setup --only pncli`, and sends the token itself. Env `JI
   `X-RateLimit-*` headers are read on every response, so the last requests before a limit are a pause, not a refusal.
 
 ## Limits and budgets
-A pull spends the **human's** token: pncli's. So every run has a ceiling it stops at rather than a rate limit it
+A pull spends the **human's** token. So every run has a ceiling it stops at rather than a rate limit it
 discovers.
 
 | Flag | Default | Also from | What it does |

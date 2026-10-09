@@ -119,6 +119,7 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
           "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "chat.css", "chat/chat.js",
+          "skills.css", "skills/skills.js",
           "world.css", "world/kit.js", "world/assets.js", "world/people.js", "world/bake.js", "world/render.js", "world/scenery.js", "world/city.js",
           "world/street.js", "world/bots.js", "world/hero.js", "world/world.js")
 
@@ -158,9 +159,13 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 # verbs, so it adds no route. Unlike the desk's ink and the map's scene it draws every frame: that is
 # what moving through a place is. It wears `ink-off` (the probe's gate is the desk's and the map's);
 # the palette and skin reach its HUD through `_page`, never its scene.
+#
+# `/skills` is the ninth: the skills marketplace, reached from `/settings`. Every skill installed,
+# how often each was used, where, when last and whether it worked, over `GET /api/skills`
+# (`agentdata/fleet/skills.py`, docs/fleet-skills.md). Read-only; it wears `ink-off` like the map.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
          "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/chat": "chat.html",
-         "/world": "world.html"}
+         "/world": "world.html", "/skills": "skills.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, the map, whose scene
 #: (#409) is gated by the same probe, and the chat (2026-10-06). The map keeps `ink-off` for its
@@ -288,7 +293,7 @@ def static_body(name: str, path: str | None = None) -> bytes:
 
 # The world's people from the operator's own folder (docs/fleet-world.md, "Realistic people",
 # decided 2026-10-05): characters that may not be redistributed -- MetaHuman or Fab exports put
-# through `tools/world/people/` -- stay out of git and out of the wheel, in
+# through play-sports' `tools/assets/world/people/` -- stay out of git and out of the wheel, in
 # `~/.agentdata/world/people/` beside the config (or `$AGENTDATA_WORLD_PEOPLE_DIR`). When that folder
 # holds a `people.json`, every `/static/world/people/<file>` it also holds is answered from it;
 # anything it lacks, and everything when it has no manifest, comes from the package's CC0 stand-in.
@@ -308,7 +313,7 @@ def people_dir() -> str:
 
 
 def people_file(name: str) -> str | None:
-    """The operator's own file for `/static/world/people/<name>`, or None for the stand-in's.
+    """The operator's own file for `/static/world/people/<name>`, or None (a 404: the CC0 stand-in left for play-sports).
 
     Only a folder with a manifest takes over (a half-copied folder without one changes nothing), and
     only a plain file directly inside it: no subfolders, nothing above it, no `.md`."""
@@ -3049,10 +3054,40 @@ def _act(what: str, body: dict) -> dict:
             return cleanup.decide(repo, body)
         except cleanup.CleanupError as e:
             raise ServeError(e.msg, e.hint, code=e.code) from None
+    if what == "skills-sync":
+        # The marketplace's one write (docs/fleet-skills.md §The marketplace source): install what
+        # `fleet.skills.source` offers, on a thread, one at a time. The answer is that it started;
+        # the page polls `/api/skills` until `sync.running` is false and reads the result there.
+        from . import skills as SKILLS
+
+        src = SKILLS.source()
+        if not SKILLS.source_kind(src):
+            raise ServeError(f"not a marketplace: {src!r}",
+                             "set fleet.skills.source on /settings to a GitHub owner/repo, a git URL or a folder",
+                             code="skills_bad_source")
+        out = SKILLS.start_sync()
+        if not out.get("ok"):
+            raise ServeError(out.get("error") or "a sync is already running", out.get("hint") or "",
+                             code="skills_sync_running")
+        return {"started": True, "source": src}
+    if what == "skills-refresh":
+        # Re-read what the marketplace offers without installing any of it, and answer the snapshot
+        # with the catalogue folded in.
+        from . import skills as SKILLS
+
+        src = SKILLS.source()
+        if not SKILLS.source_kind(src):
+            raise ServeError(f"not a marketplace: {src!r}",
+                             "set fleet.skills.source on /settings to a GitHub owner/repo, a git URL or a folder",
+                             code="skills_bad_source")
+        cat = SKILLS.catalog(src)
+        if cat.get("error") and not cat.get("skills"):
+            raise ServeError(cat["error"], cat.get("hint") or "", code="skills_sync_failed")
+        return SKILLS.snapshot(fold=False)
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load | wrapup | tidy | grant | copilot")
+                     "measure | load | wrapup | tidy | grant | copilot | skills-sync | skills-refresh")
 
 
 def _write_settings(C, SET, body: dict) -> None:
@@ -3777,6 +3812,12 @@ class Handler(BaseHTTPRequestHandler):
                                "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})
+        if route == "/api/skills":
+            from . import skills as SKILLS
+
+            # The marketplace (docs/fleet-skills.md): what is installed, and how each skill has been
+            # used, folded from the agents' streams and Copilot's own sessions. Read-only.
+            return self._json({"ok": True, **SKILLS.snapshot()})
         if route == "/api/models":
             return self._json({"ok": True, **models_snapshot()})
         if route == "/api/board":

@@ -274,3 +274,17 @@ def test_shell_specific_commands_show_both_forms():
                 if not has_pair:
                     problems.append(f"{name}/SKILL.md:{n}: {marker!r} with no counterpart shown")
     assert not problems, ("shell-specific command lines need both forms:\n  " + "\n  ".join(problems))
+
+
+def test_the_author_skill_patches_a_missing_property_instead_of_stopping():
+    """Desktop 2.157's schemas are vendored, so a property no verb covers is checked, not banned: the author skill
+    names `ad-pbip pbir patch`, reserves the friction log for what the schema refuses, and no longer stops."""
+    author = open(os.path.join(ROOT, "skills", "pbi-report-author", "SKILL.md"), encoding="utf-8").read()
+    assert "## Cardinal Rule: Verbs first, `pbir patch` second, never raw" in author
+    assert "ad-pbip pbir patch" in author
+    assert "then stop" not in author
+    assert "Never edit a `$schema` by hand" in author
+    validate = open(os.path.join(ROOT, "skills", "pbi-validate", "SKILL.md"), encoding="utf-8").read()
+    assert "ad-pbip pbir patch" in validate and "never edit raw report JSON" in validate
+    layout = open(os.path.join(ROOT, "skills", "pbip-projection", "references", "pbip-layout.md"), encoding="utf-8").read()
+    assert "does **not** hot-reload" not in layout and "ad-pbip desktop reload --pid <pid> [--report-only]" in layout

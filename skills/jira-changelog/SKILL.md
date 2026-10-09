@@ -1,10 +1,10 @@
 ---
 name: jira-changelog
-description: "Use for field history, sprint reports, committed vs completed points, \"when did X change\", or anything current Jira values cannot answer. Uses ad-jira (Jira REST reusing the pncli token). For current-state lists use ad-pncli jira search instead."
+description: "Use for field history, sprint reports, committed vs completed points, \"when did X change\", or anything current Jira values cannot answer. Uses ad-jira (Jira REST). For current-state lists use ad-jira search instead."
 ---
 # Jira changelog and sprint replay
 
-Prereq: `ad-doctor` row `pncli / jira auth` is not `fail`. Failing → print its hint, STOP.
+Prereq: `ad-doctor` row `jira / jira auth` is not `fail`. Failing → print its hint, STOP.
 
 1. Once per Jira instance: `ad-jira fields --like sprint` and `ad-jira fields --like point`; then `ad-jira fields --pin` (stores the Sprint and Story Points field ids in the global config). Two plausible point fields with different meanings → `friction-log` type `missing-info`. STOP. Why the ids are not the same on two instances: `references/jira-changelog.md` §Field ids are per instance.
 2. First run of a new JQL: pass `--stats` and read `requests` in the meta before widening that JQL or dropping `--since`. Hundreds of requests on the narrow form means the wide form will hit the budget; narrow the JQL instead of raising `--max-requests`. The defaults, the flags and what a budget stop looks like: `references/jira-changelog.md` §Limits and budgets.

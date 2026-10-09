@@ -27,7 +27,7 @@ FILTER_NAME = re.compile(r"^Filter[0-9a-f]{24}$")
 # definition.pbir is definitionProperties 2.0.0 with "version": "4.0". A file we add copies the `$schema` its kind
 # already has in the project, because the version Desktop chose is one the operator's Desktop reads (schema_for); these
 # apply only to a kind the project has no file of. The next Desktop release is one edit here, plus its schemas vendored
-# under schema/fabric/ (see schema/fabric/SOURCE) so tests/pbir_schema.py can validate what we write.
+# under schema/fabric/ (see schema/fabric/SOURCE) so schema_check.py can validate what we write and what `pbir patch` edits.
 DESKTOP_RELEASE = "2.157"
 DESKTOP_SCHEMAS = {
     "report": "3.3.0",

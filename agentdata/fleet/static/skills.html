@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>fleet · skills</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/skills.css">
+</head>
+<body class="skills-page ink-off">
+<header class="toolbar">
+  <h1>skills marketplace</h1>
+  <a id="backbtn" class="linkbtn" title="back to settings">&larr; settings</a>
+  <a id="deskbtn" class="linkbtn" title="the desk: every agent side by side">the desk</a>
+  <span class="spacer"></span>
+  <label for="skillq" class="sr">filter the skills</label>
+  <input id="skillq" type="search" placeholder="filter skills" autocomplete="off" spellcheck="false">
+</header>
+
+<main id="skills">
+  <section class="sk-source" aria-labelledby="sksrc-head">
+    <h2 id="sksrc-head">marketplace</h2>
+    <p class="sk-src-line"><code id="sksrc"></code> <span id="sksrckind" class="sk-pill"></span> <span id="sksynced" class="why"></span></p>
+    <div class="sk-src-row">
+      <button type="button" id="sksync" title="install what the marketplace offers; replaces only skills a sync installed">sync</button>
+      <button type="button" id="skrefresh" class="linkbtn" title="re-read what the marketplace offers, without installing">refresh</button>
+      <a id="sksettings" class="linkbtn" title="fleet.skills.source, on the settings page">change the source on settings</a>
+      <span id="sksyncline" class="why" role="status"></span>
+    </div>
+  </section>
+  <p id="skillsline" class="why" aria-live="polite">reading the skills&hellip;</p>
+  <div class="sk-head" role="row">
+    <button type="button" class="sk-sort" data-sort="name" title="sort by name">name</button>
+    <span>what it does</span>
+    <button type="button" class="sk-sort" data-sort="uses" title="sort by how often it was used" aria-sort="descending">uses</button>
+    <button type="button" class="sk-sort" data-sort="last" title="sort by when it was last used">last used</button>
+    <span>repositories</span>
+    <span title="results: worked / failed">ok / failed</span>
+    <span title="the first twelve hex digits of the SKILL.md's sha256">version</span>
+    <span>installed in</span>
+  </div>
+  <ol id="skillrows" aria-label="every skill, with its use"></ol>
+  <p id="skillsnone" class="why" hidden>No skills installed. <code>ad-update</code> installs this project's.</p>
+  <section id="sknew" aria-labelledby="sknew-head" hidden>
+    <h2 id="sknew-head">offered by the marketplace, not installed</h2>
+    <ol id="sknewrows" aria-label="skills the marketplace offers that are not installed"></ol>
+  </section>
+</main>
+
+<template id="skillrow"><li class="sk">
+  <div class="sk-row" role="button" tabindex="0" aria-expanded="false">
+    <span class="sk-name"><span class="sk-n"></span><span class="sk-pill sk-unused" hidden>unused</span><span class="sk-pill sk-missing" hidden>missing</span><span class="sk-pill sk-shadowed" hidden>shadowed</span></span>
+    <span class="sk-desc"></span>
+    <span class="sk-uses"></span>
+    <span class="sk-last"></span>
+    <span class="sk-repos"></span>
+    <span class="sk-okf"></span>
+    <code class="sk-ver"></code>
+    <span class="sk-dir"></span>
+  </div>
+  <div class="sk-more" hidden>
+    <p class="sk-facts"></p>
+    <ul class="sk-repolist" aria-label="where it was used"></ul>
+    <p class="sk-tickets"></p>
+  </div>
+</li></template>
+<template id="sknewrow"><li class="sk-new"><span class="sk-n"></span> <span class="sk-desc"></span></li></template>
+<template id="skillrepo"><li><span class="sk-r-name"></span> <span class="sk-r-uses"></span> <span class="sk-r-last"></span></li></template>
+
+<script src="/static/common.js"></script>
+<script src="/static/skills/skills.js"></script>
+</body>
+</html>

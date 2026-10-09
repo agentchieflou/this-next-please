@@ -137,6 +137,10 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Git push | the branch is behind its remote branch (a push would be rejected, and there is no force) | `refused: diverged`, exit 2, nothing pushed | `test_git_push.py::test_a_branch_behind_its_remote_branch_is_refused_as_diverged` |
 | Git push | `--force`, `-f`, `--force-with-lease`, `--mirror`, `--delete`, `--tags`, or any extra argument | `refused: force_refused`, exit 2, before git runs | `test_git_push.py::test_every_force_and_every_extra_argument_is_refused` |
 | Git push | git's push failed, timed out, or the remote-tracking ref does not equal HEAD afterwards | `refused: push_failed`, exit 1, git's stderr and a hint | `test_git_push.py::test_a_rejected_push_is_push_failed_with_gits_message` |
+| Skills marketplace | `fleet.skills.source` is set to something that is not a GitHub `owner/repo`, a git URL or a folder that exists | `SettingsError bad_source`, nothing written | `test_fleet_skills.py::test_the_source_setting_is_read_round_tripped_and_a_bad_one_refused` |
+| Skills marketplace | `skills-sync` or `skills-refresh` while the stored source is not a marketplace | `refused: skills_bad_source` | `test_fleet_skills.py::test_the_sync_and_refresh_routes_start_a_sync_once_and_refuse_a_bad_source` |
+| Skills marketplace | `skills-sync` while a sync is already running | `refused: skills_sync_running`, the running source in the hint; nothing started | `test_fleet_skills.py::test_the_sync_and_refresh_routes_start_a_sync_once_and_refuse_a_bad_source` |
+| Skills marketplace | `skills-refresh` when the marketplace cannot be read at all (no clone, no gh, no folder) | `refused: skills_sync_failed` with the fetch's error and hint | `test_fleet_skills.py::test_the_sync_and_refresh_routes_start_a_sync_once_and_refuse_a_bad_source` |
 | Cleanup | a decision names a survey the tree no longer matches (a file changed since) | `refused: changed`, nothing applied, the tree surveyed again | `test_fleet_tidy.py::test_a_decision_about_a_tree_that_moved_is_refused` |
 | Cleanup | `commit` on a protected branch or a detached HEAD | `refused: protected_branch`, offering `branch` | `test_fleet_tidy.py::test_a_protected_branch_takes_no_commit_and_the_work_moves_to_a_branch` |
 | Cleanup | a choice that is not commit, branch, stash or skip (there is no discard) | `refused: bad_choice` | `test_fleet_tidy.py::test_nothing_a_choice_can_name_discards_work` |
@@ -217,6 +221,10 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Power BI publish | an approved SDK visual and a target workspace that is not `pbi_sdk_workspace` | `code: custom_visual_blocked`, `custom-visual-sdk-workspace`, exit 1 | `test_pbi_cli.py::test_publish_report_refuses_an_approved_sdk_visual_outside_its_workspace` |
 | Power BI visuals | `ad-pbiviz new`, `dev`, `package` or `import` while `pbi_sdk_visuals` is not `approved` | `code: sdk_visuals_blocked`, exit 2, nothing written, no install hint | `test_pbiviz.py::test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals` |
 | Power BI visuals | `ad-pbip visual deneb` adding Deneb while its GUID is not in `pbi_certified_visuals` | `error`, exit 2, nothing written | `test_pbip_deneb.py::test_deneb_is_not_added_while_its_certification_is_unrecorded` |
+| PBIR patch | `ad-pbip pbir patch` whose result violates the file's own `$schema` | `fail: schema_invalid`, `errors` naming each JSON path, exit 2, file untouched | `test_pbir_patch.py::test_a_set_the_schema_refuses_is_refused_and_the_file_is_untouched` |
+| PBIR patch | a pointer whose first segment is `$schema` or `name` | `fail: protected_pointer`, exit 2 | `test_pbir_patch.py::test_the_schema_and_name_pointers_are_protected` |
+| PBIR patch | `.platform`, `definition.pbir`, `localSettings.json`, `version.json`, or any file outside `definition/` | `fail: protected_file`, exit 2 | `test_pbir_patch.py::test_the_project_files_and_anything_outside_definition_are_protected` |
+| PBIR patch | the file names no vendored `$schema`, or jsonschema is not installed | `fail: schema_unvendored` naming the URL / `fail: schema_checker_missing` with the install hint, exit 2, nothing written unchecked | `test_pbir_patch.py::test_no_vendored_schema_and_no_checker_are_refusals_not_writes` |
 
 ## Debugging a swallowed exception
 

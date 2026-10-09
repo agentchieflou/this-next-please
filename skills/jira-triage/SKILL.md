@@ -1,13 +1,13 @@
 ---
 name: jira-triage
-description: "Use when given a Jira ticket key, asked \"what's next\", or asked to plan work. Reads the ticket via ad-pncli, extracts acceptance criteria, sets the plan and branch name. Use before any query, code, or PR work on a ticket."
+description: "Use when given a Jira ticket key, asked \"what's next\", or asked to plan work. Reads the ticket via ad-jira, extracts acceptance criteria, sets the plan and branch name. Use before any query, code, or PR work on a ticket."
 ---
 # Jira triage
 
-1. Run `ad-pncli jira search --jql "key = <KEY>" --fields key,status,assignee,priority,updated,summary`. `refused: not_found` → `ad-pncli where`, print its `hint` and `tried` rows, `friction-log` type `tool-error`, STOP (never install pncli or edit PATH yourself).
-2. Run `ad-pncli jira get <KEY>` for description + acceptance criteria (`--fields key,status,summary,description` narrows it). It issues pncli's confirmed read verb `jira get-issue --key <KEY>`: never assemble that command by hand.
+1. Run `ad-jira search --jql "key = <KEY>" --fields key,status,assignee,priority,updated,summary`. `ok: false` → print its `hint` (it names `ad-setup --only jira`), `friction-log` type `tool-error`, STOP (never edit credentials or PATH yourself).
+2. Run `ad-jira get <KEY>` for description + acceptance criteria (`--fields key,status,summary,description` narrows it; the description is plain text, comments and attachments are counts).
 3. Extract acceptance criteria into ≤ 6 numbered lines. Each must be testable (has a number, date window, or exact field).
-4. Any criterion untestable: run `ad-pncli jira comments <KEY>` first — a human has usually already answered
+4. Any criterion untestable: run `ad-jira comments <KEY>` first — a human has usually already answered
    there. Still untestable, and **two readings lead to different work** → `ad-state ask "<the question>"
    --choice "<reading A>" --choice "<reading B>"`, then `friction-log` type `ambiguity` quoting the line,
    STOP. **A safe, reversible default settles it** → `ad-state ask "<assumption>" --assume "<default>"`,

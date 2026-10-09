@@ -16,6 +16,6 @@ description: "Domain sub-router for Jira work: triage a key, create a ticket, fi
 | comment on a ticket, reply to the reporter, "add a note to", post the findings on the ticket | `jira-comment` |
 | "what did people say on", read the thread, the reporter's answer | `jira-triage` |
 
-2. Preconditions, each a command and never a judgement: `ad-doctor` row `pncli / jira auth` is not `fail`; failing → print its hint, `friction-log` type `tool-error`, STOP. A transition or a new ticket runs with `--dry-run` first (AGENTS.md rule 8) -- the leaf skill does that; never skip it here.
+2. Preconditions, each a command and never a judgement: `ad-doctor` row `jira / jira auth` is not `fail`; failing → print its hint, `friction-log` type `tool-error`, STOP. A transition or a new ticket runs with `--dry-run` first (AGENTS.md rule 8) -- the leaf skill does that; never skip it here.
 3. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
 4. No match after reading the table twice → invoke `research-spike`. STOP.
