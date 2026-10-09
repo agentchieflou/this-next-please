@@ -55,5 +55,8 @@ Volatile: `position` floats, `expansionStates`, `annotations`, `howCreated`, the
 Load-bearing: object names, `pageOrder`, filter names, `.platform` `logicalId`, `lineageTag`s already present.
 
 ## Reading Desktop into the workflow
-Desktop does **not** hot-reload TMDL or report JSON: after any edit, close and reopen the `.pbip` to see it. Saving from Desktop
-rewrites files in its own canonical order — commit before opening Desktop so its rewrite is a separate, reviewable diff.
+A running Desktop re-reads the files on `ad-pbip desktop reload --pid <pid> [--report-only]` (the Desktop Bridge's `file.reload`,
+documented for Desktop 2.155+, verified on 2.157): `--report-only` after PBIR-only edits, without it the model is re-applied too.
+It refuses while Desktop has unsaved changes — ask the human to save, never pass `--discard` on your own. Close and reopen the
+`.pbip` only where there is no bridge (`ad-pbip capabilities` says so). Saving from Desktop rewrites files in its own canonical
+order — commit before opening Desktop so its rewrite is a separate, reviewable diff.

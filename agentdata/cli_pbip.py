@@ -1092,6 +1092,33 @@ def cmd_visual(a) -> int:
     return 0
 
 
+def cmd_pbir(a) -> int:
+    """`pbir patch`: one property of one file, written only once the result validates against its `$schema`."""
+    sub_c = getattr(a, "pbir_cmd", None)
+    source = f"ad-pbip pbir {sub_c}"
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+        if sub_c == "patch":
+            res = AU.patch_file(pbip, file=a.file, page=a.page, visual=a.visual, sets=a.set or [],
+                                unsets=a.unset or [], dry_run=a.dry_run)
+        else:
+            return 0
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        print(error(str(e), "name the file (--file definition/...) or the page and visual; --set <pointer>=<json>", source))
+        return 2
+    if not res.get("ok"):
+        if policy.pretty():
+            ui.facts([(k, str(v)) for k, v in res.items() if k != "ok"], title=source, subtitle="refused")
+        else:
+            print(toon.encode({"meta": {"source": source, **res}}))
+        return 2
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in res.items()], title=source)
+    else:
+        print(toon.encode({"meta": {"source": source, **res}}))
+    return 0
+
+
 def cmd_brief(a) -> int:
     sub_c = getattr(a, "brief_cmd", None)
     if sub_c == "check":
@@ -1664,6 +1691,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_vd.add_argument("--cross-highlight", action="store_true", help="respond to highlights from other visuals")
     p_vd.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_vd.set_defaults(fn=cmd_visual)
+
+    # PBIR: any property, checked against the file's own schema
+    p_pbir = sub.add_parser("pbir", help="PBIR file edits no verb covers, validated against the file's $schema (patch)")
+    pbir_sub = p_pbir.add_subparsers(dest="pbir_cmd", required=True)
+    p_pp = pbir_sub.add_parser("patch", help="set or unset properties of one PBIR file by JSON pointer; written only "
+                                             "when the result validates against the file's own $schema")
+    p_pp.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_pp.add_argument("--file", help="the file, relative to the .Report folder (definition/...)")
+    p_pp.add_argument("--page", help="page id or display name (its page.json, or the page of --visual)")
+    p_pp.add_argument("--visual", help="visual id (20-hex): its visual.json")
+    p_pp.add_argument("--set", action="append", metavar="POINTER=JSON",
+                      help="JSON pointer and value (JSON, else text); a missing object is created, '-' appends to an array (repeatable)")
+    p_pp.add_argument("--unset", action="append", metavar="POINTER", help="JSON pointer to remove (repeatable)")
+    p_pp.add_argument("--dry-run", action="store_true", help="validate and report, write nothing")
+    p_pp.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_pp.set_defaults(fn=cmd_pbir)
 
     # Filter
     p_flt = sub.add_parser("filter", help="mechanical filter edits")

@@ -743,3 +743,164 @@ def theme_set(pbip_path: str, theme_file: str) -> dict[str, Any]:
         "target": textio.norm_path(str(dest_path)),
         "report_json": textio.norm_path(str(rj_path))
     }
+
+
+# ---------- pbir patch: any property, checked against the file's own schema ----------
+# What `pbir patch` never touches. The pointers are a file's identity (`name` is what pages.json, bookmarks and
+# cross-highlighting bind to; `$schema` is the version a Desktop reads, chosen by schema_for). The files hold the
+# project's identity too (`.platform` logicalId, definition.pbir's dataset reference, Desktop's own version stamps),
+# and none of them names a vendored schema to check an edit against.
+PROTECTED_POINTERS = ("$schema", "name")
+PROTECTED_FILES = (".platform", "definition.pbir", "localSettings.json", "version.json")
+PATCH_HINT = "fix the property named, or set it in Desktop 2.157 and read the file it saves"
+
+
+def parse_pointer(text: str) -> list[str]:
+    """RFC 6901 segments of `text`, the leading slash optional: `/visual/objects/title/0` or `visual/objects/title/0`."""
+    text = text.strip()
+    if text.startswith("/"):
+        text = text[1:]
+    if not text:
+        raise ValueError("an empty pointer names the whole document; name a property")
+    return [seg.replace("~1", "/").replace("~0", "~") for seg in text.split("/")]
+
+
+def parse_set(text: str) -> tuple[str, Any]:
+    """`<pointer>=<json>`: the value as JSON when it parses, else the text itself."""
+    if "=" not in text:
+        raise ValueError(f"--set takes <json-pointer>=<json-value>, got {text!r}")
+    pointer, raw = text.split("=", 1)
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = raw
+    return pointer.strip(), value
+
+
+def _pointer_set(doc: Any, segs: list[str], value: Any) -> None:
+    cur = doc
+    for i, seg in enumerate(segs):
+        last = i == len(segs) - 1
+        if isinstance(cur, list):
+            if seg == "-":
+                if not last:
+                    raise ValueError(f"'-' appends to the array; nothing can follow it at /{'/'.join(segs[:i + 1])}")
+                cur.append(value)
+                return
+            try:
+                idx = int(seg)
+            except ValueError:
+                raise ValueError(f"/{'/'.join(segs[:i])} is an array; the next segment must be an index or '-', not {seg!r}") from None
+            if not 0 <= idx < len(cur):
+                raise ValueError(f"/{'/'.join(segs[:i + 1])}: index {idx} is outside the array of {len(cur)}")
+            if last:
+                cur[idx] = value
+                return
+            cur = cur[idx]
+            continue
+        if not isinstance(cur, dict):
+            raise ValueError(f"/{'/'.join(segs[:i])} is a {type(cur).__name__}, not an object; nothing can be set under it")
+        if last:
+            cur[seg] = value
+            return
+        if seg not in cur:
+            cur[seg] = [] if segs[i + 1] == "-" else {}
+        cur = cur[seg]
+
+
+def _pointer_unset(doc: Any, segs: list[str]) -> None:
+    cur = doc
+    for i, seg in enumerate(segs[:-1]):
+        if isinstance(cur, list):
+            try:
+                cur = cur[int(seg)]
+            except (ValueError, IndexError):
+                raise ValueError(f"nothing at /{'/'.join(segs[:i + 1])}") from None
+        elif isinstance(cur, dict) and seg in cur:
+            cur = cur[seg]
+        else:
+            raise ValueError(f"nothing at /{'/'.join(segs[:i + 1])}")
+    leaf = segs[-1]
+    if isinstance(cur, list):
+        try:
+            del cur[int(leaf)]
+        except (ValueError, IndexError):
+            raise ValueError(f"nothing at /{'/'.join(segs)}") from None
+    elif isinstance(cur, dict) and leaf in cur:
+        del cur[leaf]
+    else:
+        raise ValueError(f"nothing at /{'/'.join(segs)}")
+
+
+def _patch_target(root: str, file: str | None, page: str | None, visual: str | None) -> Path:
+    """The file a patch names, or the KeyError/FileNotFoundError/ValueError the other verbs raise for a bad name."""
+    if file:
+        if page or visual:
+            raise ValueError("name the file with --file, or the page (and visual) it belongs to, not both")
+        return Path(root) / file
+    if visual:
+        if page:
+            page_dir, _ = find_page_dir(root, page)
+            for vj in (page_dir / "visuals").glob("*/visual.json"):
+                if vj.parent.name.lower() == visual.lower() or (_load_json(vj).get("name") or "").lower() == visual.lower():
+                    return vj
+            raise KeyError(f"Visual '{visual}' not found on page '{page}'")
+        return find_visual_file(root, visual)[0]
+    if page:
+        return find_page_dir(root, page)[0] / "page.json"
+    raise ValueError("name what to patch: --file <definition/...>, --page <page> [--visual <id>]")
+
+
+def patch_file(pbip_path: str, file: str | None = None, page: str | None = None, visual: str | None = None,
+               sets: list[str] | None = None, unsets: list[str] | None = None, dry_run: bool = False) -> dict[str, Any]:
+    """Set or remove any property of one PBIR file, then validate the result against the file's own `$schema`.
+
+    Nothing is written unless the patched document validates: a refusal comes back as `ok: False, fail: <code>` with
+    the file untouched. `sets` are `<json-pointer>=<json-value>` (RFC 6901; a missing intermediate object is created,
+    `-` appends to an array); `unsets` are pointers.
+    """
+    root = P.find_report_dir(pbip_path)
+    target = _patch_target(root, file, page, visual)
+    rel = textio.norm_path(os.path.relpath(target, root))
+    parts = Path(rel).parts
+    if ".." in parts or parts[0] != "definition" or target.name in PROTECTED_FILES:
+        return {"ok": False, "action": "pbir_patch", "file": rel, "fail": "protected_file",
+                "hint": f"pbir patch edits files under definition/ only, never {', '.join(PROTECTED_FILES)}"}
+    if not target.is_file():
+        raise FileNotFoundError(f"{rel} does not exist under {root}")
+
+    edits: list[tuple[str, list[str], Any, bool]] = []    # pointer text, segments, value, is_set
+    for text in sets or []:
+        pointer, value = parse_set(text)
+        edits.append((pointer, parse_pointer(pointer), value, True))
+    for pointer in unsets or []:
+        edits.append((pointer, parse_pointer(pointer), None, False))
+    if not edits:
+        raise ValueError("nothing to do: pass --set <pointer>=<json> or --unset <pointer>")
+    for pointer, segs, _, _ in edits:
+        if segs[0] in PROTECTED_POINTERS:
+            return {"ok": False, "action": "pbir_patch", "file": rel, "fail": "protected_pointer", "pointer": pointer,
+                    "hint": f"{segs[0]} is the file's identity: a new file gets its own from the verb that adds it"}
+
+    from . import schema_check as SC
+    if not SC.available():
+        return {"ok": False, "action": "pbir_patch", "file": rel, "fail": "schema_checker_missing",
+                "hint": f"a patch is written only once it validates: {SC.install_hint()}"}
+    data = _load_json(target)
+    url = data.get("$schema") if isinstance(data, dict) else None
+    if not url or not SC.vendored(url):
+        return {"ok": False, "action": "pbir_patch", "file": rel, "fail": "schema_unvendored", "schema": url,
+                "hint": "no vendored schema to check the edit against; `ad-pbip schema update` vendors Desktop's"}
+    for _, segs, value, is_set in edits:
+        if is_set:
+            _pointer_set(data, segs, value)
+        else:
+            _pointer_unset(data, segs)
+    problems = SC.errors(data, url)
+    if problems:
+        return {"ok": False, "action": "pbir_patch", "file": rel, "fail": "schema_invalid", "schema": url,
+                "errors": problems, "hint": PATCH_HINT}
+    if not dry_run:
+        _save_json(target, data)
+    return {"ok": True, "action": "pbir_patch", "file": rel, "changed": [e[0] for e in edits], "schema": url,
+            "validation": "passed", "written": not dry_run}

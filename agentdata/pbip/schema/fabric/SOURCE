@@ -12,5 +12,5 @@ files: each at the path it has upstream and in its URL, https://developer.micros
     visualConfiguration/2.7.0/schema-embedded.json, filterConfiguration/1.3.0/schema-embedded.json,
     formattingObjectDefinitions/1.5.0/schema.json, semanticQuery/1.4.0/schema.json
   agentdata/pbip/pbir.py DESKTOP_SCHEMAS names the versions; a new Desktop release vendors its set here the same way
-why: tests/pbir_schema.py validates what `ad-pbip page|visual|bookmark add` and `ad-pbiviz import` write, without the
+why: agentdata/pbip/schema_check.py (tests/pbir_schema.py re-exports it) validates what `ad-pbip pbir patch` edits, what `ad-pbip page|visual|bookmark add` and `ad-pbiviz import` write, without the
   network

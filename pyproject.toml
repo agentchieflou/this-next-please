@@ -30,7 +30,7 @@ keyring = []        # no-op: keyring is a base dependency now. Kept so an existi
 # Windows Action Center toasts for `ad-fleet` (#97). Optional on purpose: WinRT is Windows-only,
 # and the fleet must run on a machine without it -- badges still work and `ad-fleet status` says so.
 fleet-win = ["windows-toasts>=1.1; sys_platform == 'win32'"]
-pbi = ["psutil"]
+pbi = ["psutil", "jsonschema>=4.18"]
 uat = ["openpyxl", "python-docx"]
 pandas = ["pandas", "pyarrow"]
 # Microsoft Foundry / Azure AI Content Understanding. Optional like teradata and oracle: most installs

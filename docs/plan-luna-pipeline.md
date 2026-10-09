@@ -220,7 +220,7 @@ Output: `meta{ok, dialect, errors, warnings}` + `findings[n]{severity,line,rule,
 
 ## Repo housekeeping in the same change
 - `pyproject.toml`: new scripts + extras; `.gitignore` fix (`build/` and `dist/` on separate lines).
-- `README.md`: install → `pip install -e ".[dev]"` then `ad-setup`; layout rows for new dirs; Desktop preview features to enable (PBIP save, TMDL storage, PBIR) — names marked as reported, TMDL upgrade is one-way.
+- `README.md`: install → `pip install -e ".[dev]"` then `ad-setup`; layout rows for new dirs. (PBIP, TMDL and PBIR are GA in Desktop 2.157 with no preview switch to enable; the earlier "preview features" sentence is gone. TMDL upgrade is one-way.)
 - `HANDOFF.md`: checklist updated (done items ticked; new open items: Fabric REST deploy, rename propagation, Spark, verify Teradata probes on a real instance).
 - `docs/data-format-policy.md`: connector notes for `ad-pbip`, `ad-jira`, `ad-uat`, `ad-sql-check` + changelog line (no threshold change); fix the rule-7 doc mismatch (`render_nested` writes `.tsv` only).
 - Defects fixed along the way: `--timeout` no-op in teradata/hive where the driver allows; `ad-pncli raw --raw` dead flag.

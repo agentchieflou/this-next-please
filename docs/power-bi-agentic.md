@@ -23,7 +23,7 @@ $$\text{Plan} \longrightarrow \text{Design} \xrightarrow{\text{Gate 1: Brief App
 - **Automated Pre-flight**: Run `ad-pbip brief check <spec.md>` to assert zero overlapping placements, canvas boundary compliance, space audit $\le 100\%$, and model field resolution.
 - **Interactive Terminal Gate**: `ad-pbip brief approve <spec.md>` must be executed interactively in a terminal TTY (`isatty`).
 - **Stamp**: Writes `.agent/brief/<KEY>.approval.json` recording spec SHA256 and model SHA.
-- **Author Gate**: Authoring verbs (`visual add`, `page add`) verify that `ad-pbip brief status` is `current` before writing PBIR.
+- **Author Gate**: Authoring verbs (`visual add`, `page add`) verify that `ad-pbip brief status` is `current` before writing PBIR when `--brief <spec.md>` is passed; a call without the flag is not gated, so the author recipe passes it.
 
 ### §3. Author (`pbi-report-author`)
 - **Zero Handwriting**: Never hand-write or guess visual JSON.
@@ -33,6 +33,7 @@ $$\text{Plan} \longrightarrow \text{Design} \xrightarrow{\text{Gate 1: Brief App
   - `ad-pbip filter set`
   - `ad-pbip bookmark add`
   - `ad-pbip theme set`
+- **Patching PBIR**: A property no verb covers is set with `ad-pbip pbir patch <pbip> (--file <definition/...> | --page <p> [--visual <id>]) --set <json-pointer>=<json-value> [--unset <pointer>] [--dry-run]`. The patched document is validated against the file's own `$schema` (Desktop 2.157's, vendored under `agentdata/pbip/schema/fabric/`) and written only when it passes; `fail: schema_invalid` names the property, `protected_pointer` covers `$schema` and `name`, `protected_file` covers `.platform`, `definition.pbir`, `version.json`, `localSettings.json` and anything outside `definition/`. Without jsonschema (`pip install "agentdata[pbi]"`) it refuses rather than writes unchecked. `ad-pbip check` runs the same validation on every file naming a vendored `$schema` (`schema-invalid`).
 - **Verification Loop**: After edits, reload running Desktop (`ad-pbip desktop reload --pid <pid>`, the Desktop Bridge's `file.reload` on 2.155+) and verify via screenshot (`ad-pbip screenshot --pid <pid> --page <p>`, the bridge's `report.snapshot.capture`).
 
 ### §3b. Model Authoring, Audit & Optimization (`tmdl-edit` & `pbi-model-audit`)

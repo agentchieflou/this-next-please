@@ -217,6 +217,10 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Power BI publish | an approved SDK visual and a target workspace that is not `pbi_sdk_workspace` | `code: custom_visual_blocked`, `custom-visual-sdk-workspace`, exit 1 | `test_pbi_cli.py::test_publish_report_refuses_an_approved_sdk_visual_outside_its_workspace` |
 | Power BI visuals | `ad-pbiviz new`, `dev`, `package` or `import` while `pbi_sdk_visuals` is not `approved` | `code: sdk_visuals_blocked`, exit 2, nothing written, no install hint | `test_pbiviz.py::test_sdk_verbs_refuse_until_the_operator_approves_sdk_visuals` |
 | Power BI visuals | `ad-pbip visual deneb` adding Deneb while its GUID is not in `pbi_certified_visuals` | `error`, exit 2, nothing written | `test_pbip_deneb.py::test_deneb_is_not_added_while_its_certification_is_unrecorded` |
+| PBIR patch | `ad-pbip pbir patch` whose result violates the file's own `$schema` | `fail: schema_invalid`, `errors` naming each JSON path, exit 2, file untouched | `test_pbir_patch.py::test_a_set_the_schema_refuses_is_refused_and_the_file_is_untouched` |
+| PBIR patch | a pointer whose first segment is `$schema` or `name` | `fail: protected_pointer`, exit 2 | `test_pbir_patch.py::test_the_schema_and_name_pointers_are_protected` |
+| PBIR patch | `.platform`, `definition.pbir`, `localSettings.json`, `version.json`, or any file outside `definition/` | `fail: protected_file`, exit 2 | `test_pbir_patch.py::test_the_project_files_and_anything_outside_definition_are_protected` |
+| PBIR patch | the file names no vendored `$schema`, or jsonschema is not installed | `fail: schema_unvendored` naming the URL / `fail: schema_checker_missing` with the install hint, exit 2, nothing written unchecked | `test_pbir_patch.py::test_no_vendored_schema_and_no_checker_are_refusals_not_writes` |
 
 ## Debugging a swallowed exception
 
