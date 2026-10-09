@@ -119,6 +119,7 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `q()`, like the ink layer.
 ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
           "map.css", "map/map.js", "m.css", "m/m.js", "tidy.css", "tidy.js", "chat.css", "chat/chat.js",
+          "skills.css", "skills/skills.js",
           "world.css", "world/kit.js", "world/assets.js", "world/people.js", "world/bake.js", "world/render.js", "world/scenery.js", "world/city.js",
           "world/street.js", "world/bots.js", "world/hero.js", "world/world.js")
 
@@ -158,9 +159,13 @@ ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.j
 # verbs, so it adds no route. Unlike the desk's ink and the map's scene it draws every frame: that is
 # what moving through a place is. It wears `ink-off` (the probe's gate is the desk's and the map's);
 # the palette and skin reach its HUD through `_page`, never its scene.
+#
+# `/skills` is the ninth: the skills marketplace, reached from `/settings`. Every skill installed,
+# how often each was used, where, when last and whether it worked, over `GET /api/skills`
+# (`agentdata/fleet/skills.py`, docs/fleet-skills.md). Read-only; it wears `ink-off` like the map.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
          "/map": "map.html", "/m": "m.html", "/tidy": "tidy.html", "/chat": "chat.html",
-         "/world": "world.html"}
+         "/world": "world.html", "/skills": "skills.html"}
 
 #: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, the map, whose scene
 #: (#409) is gated by the same probe, and the chat (2026-10-06). The map keeps `ink-off` for its
@@ -3777,6 +3782,12 @@ class Handler(BaseHTTPRequestHandler):
                                "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})
+        if route == "/api/skills":
+            from . import skills as SKILLS
+
+            # The marketplace (docs/fleet-skills.md): what is installed, and how each skill has been
+            # used, folded from the agents' streams and Copilot's own sessions. Read-only.
+            return self._json({"ok": True, **SKILLS.snapshot()})
         if route == "/api/models":
             return self._json({"ok": True, **models_snapshot()})
         if route == "/api/board":

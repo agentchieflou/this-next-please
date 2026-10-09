@@ -2,6 +2,8 @@
 
 var backLink = document.getElementById("backbtn");
 if (backLink) backLink.href = pageUrl("/");
+var skillsLink = document.getElementById("skillsbtn");
+if (skillsLink) skillsLink.href = pageUrl("/skills");
 
 var pendingTheme = null;
 var heardDuringWrite = null;
@@ -998,9 +1000,21 @@ function renderPatterns(listId, countId, rows) {
   if (count) text(count, "(" + (rows || []).length + ")");
 }
 
+function loadSkillsLine() {
+  var line = document.getElementById("skillsline");
+  if (!line) return Promise.resolve();
+  return fetch(q("/api/skills")).then(function (r) { return r.json(); }).then(function (d) {
+    var t = d && d.ok !== false && d.totals;
+    if (!t) throw new Error("no");
+    text(line, t.skills + (t.skills === 1 ? " skill" : " skills") + " installed, " + t.used_recently +
+      " used in the last " + t.recent_days + " days \u2014 open the marketplace to see which, where and when.");
+  }).catch(function () { text(line, "skills: unavailable"); });
+}
+
 function load() {
   if (!modelListAsked) modelListAsked = loadModelList();
   var settings = fetch(q("/api/settings")).then(function (r) { return r.json(); });
+  loadSkillsLine();
   return Promise.all([settings, modelListAsked])
     .then(function (got) {
       var data = got[0];

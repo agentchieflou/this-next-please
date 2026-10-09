@@ -68,7 +68,7 @@ def test_every_draw_function_is_named_in_the_inventory():
     doc = open(INVENTORY, encoding="utf-8").read()
     missing = []
     for page in ("app.js", "settings.js", "map/map.js", "picker.js", "m/m.js", "chat/chat.js",
-                 "world/world.js", "world/hero.js", "world/bots.js", "world/scenery.js", "world/city.js", "world/street.js",
+                 "skills/skills.js", "world/world.js", "world/hero.js", "world/bots.js", "world/scenery.js", "world/city.js", "world/street.js",
                  "world/render.js", "world/bake.js", "world/kit.js", "world/assets.js", "world/people.js"):
         js = open(os.path.join(STATIC, page), encoding="utf-8").read()
         for name in sorted(set(re.findall(r"(?m)^function (draw[A-Za-z]*)\(", js))):
@@ -81,9 +81,10 @@ def test_every_component_class_the_inventory_names_really_exists():
     """The other direction: a row for a component that is not on the page is a row that will rot."""
     doc = open(INVENTORY, encoding="utf-8").read()
     html = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                   for n in ("index.html", "map.html", "m.html", "chat.html", "world.html"))
+                   for n in ("index.html", "map.html", "m.html", "chat.html", "world.html",
+                             "settings.html", "skills.html"))
     css = "".join(open(os.path.join(STATIC, n), encoding="utf-8").read()
-                  for n in ("app.css", "map.css", "m.css", "chat.css", "world.css"))
+                  for n in ("app.css", "map.css", "m.css", "chat.css", "world.css", "skills.css"))
     # Only the `Styled in` column, which is the one that names classes and ids.
     named = set()
     for row in doc.splitlines():

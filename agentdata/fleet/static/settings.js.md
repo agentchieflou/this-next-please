@@ -31,6 +31,13 @@ was bug #195 on the desk, and a settings page with no stream is where it would c
 Every link out of here has to carry the run token: `_authorized` reads it from the query string
 alone, so a static href in the markup is a 403 that looks like a dead button.
 
+### `var skillsLink`
+
+Above `var skillsLink = document.getElementById("skillsbtn");`:
+
+The *Skills* block's door to the marketplace, `/skills`, with the window's own query carried
+(`pageUrl`), as the back link's is: the token lives in the query string.
+
 ### `var pendingTheme`
 
 Above `var pendingTheme = null;`:
@@ -324,6 +331,14 @@ What the desk is drawing with, when that is not what the boxes say: a four in th
 not go together -- a hand edit -- is drawn at CI's numbers, and this says why (#235).
 
 ## load
+
+### `function loadSkillsLine`
+
+The *Skills* block's one line, from `GET /api/skills`'s totals: how many skills are installed and how
+many were used in the last thirty days, with the marketplace as the place to see which. Its own
+fetch beside the settings one, so a marketplace that cannot answer (no fleet directory yet, a ledger
+being rebuilt) leaves the line reading *skills: unavailable* and every other section drawn: it
+never throws into `load`'s chain.
 
 ### `function load`
 

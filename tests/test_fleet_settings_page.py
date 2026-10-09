@@ -184,7 +184,11 @@ def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path, d
         page.wait_for_selector("#modelrows tr", timeout=10000)
 
         heads = page.eval_on_selector_all("h2", "els => els.map(e => e.textContent.trim())")
-        assert heads == ["Appearance", "Model per agent", "Copilot", "What an agent may run"], heads
+        assert heads == ["Appearance", "Model per agent", "Copilot", "What an agent may run", "Skills"], heads
+        # the Skills block (2026-10) says what is installed and opens the marketplace with the token
+        page.wait_for_function("() => /\\d+ skills? installed/.test(document.getElementById('skillsline').textContent)",
+                               timeout=15000)
+        assert f"/skills?t={token}" in page.get_attribute("#skillsbtn", "href")
 
         # one row per registered repository, in the registry's order
         repos = page.eval_on_selector_all("#modelrows tr td:first-child",
@@ -234,7 +238,7 @@ def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path, d
                                        timeout=5000).json_value()
         assert desk["sw"] == desk["cw"] and desk["labels"] and set(desk["labels"]) == {190}, desk
         assert phone["sw"] == phone["cw"], f"/settings scrolls sideways at 390 px: {phone}"
-        assert phone["heads"] == 4, phone
+        assert phone["heads"] == 5, phone
         assert again == desk, (desk, again)
 
         # `refresh the list` asks the server to ask copilot, and says so. Answered here, so no

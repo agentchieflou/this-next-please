@@ -703,6 +703,14 @@ def refresh(name: str, repo_path: str = "", *, repo_state: dict | None = None) -
         SPEND.update(name)
     except Exception:                         # noqa: BLE001 - see the module docstring
         pass
+    # The skills ledger follows it the same way (the marketplace): what skill each call ran, folded
+    # before the stream can roll, and a count that cannot be saved is one that gets rebuilt.
+    try:
+        from . import skills as SKILLS
+
+        SKILLS.update(name)
+    except Exception:                         # noqa: BLE001 - as above
+        pass
     return out
 
 
