@@ -293,7 +293,7 @@ def static_body(name: str, path: str | None = None) -> bytes:
 
 # The world's people from the operator's own folder (docs/fleet-world.md, "Realistic people",
 # decided 2026-10-05): characters that may not be redistributed -- MetaHuman or Fab exports put
-# through `tools/world/people/` -- stay out of git and out of the wheel, in
+# through play-sports' `tools/assets/world/people/` -- stay out of git and out of the wheel, in
 # `~/.agentdata/world/people/` beside the config (or `$AGENTDATA_WORLD_PEOPLE_DIR`). When that folder
 # holds a `people.json`, every `/static/world/people/<file>` it also holds is answered from it;
 # anything it lacks, and everything when it has no manifest, comes from the package's CC0 stand-in.
@@ -313,7 +313,7 @@ def people_dir() -> str:
 
 
 def people_file(name: str) -> str | None:
-    """The operator's own file for `/static/world/people/<name>`, or None for the stand-in's.
+    """The operator's own file for `/static/world/people/<name>`, or None (a 404: the CC0 stand-in left for play-sports).
 
     Only a folder with a manifest takes over (a half-copied folder without one changes nothing), and
     only a plain file directly inside it: no subfolders, nothing above it, no `.md`."""

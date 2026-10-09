@@ -51,8 +51,8 @@ window, *refresh* lists what it offers against what is installed.
 
 **The world, parked.** Its assets, people, trees, cars and asset pipeline are maintained in
 `agentchieflou/play-sports` from now on (its `RawAssets/world/`, four specs and Track R); no new work on the
-world lands here. The page, the office, the walk and the take-over stay; a follow-up commit removes the copies
-this package still ships (`docs/fleet-world.md`).
+world lands here. The page, the office, the walk and the take-over stay; the copies are gone from the wheel
+(about 11 MB less), and the page draws its own fallbacks in their place (`docs/fleet-world.md`).
 
 ## 0.18.0
 

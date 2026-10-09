@@ -7,9 +7,10 @@
 > `Specs/Weather_DayNight_Spec.md`, and Track R of its roadmap). What moves there and is maintained
 > there from now on: the CC0 photo textures, skies and scanned props (`static/world/cc0/`), the
 > MakeHuman people (`static/world/people/`), the grown trees and lofted cars, and the offline asset
-> pipeline (`tools/world/`); this package still ships its copies until a follow-up commit removes
-> them (the page's fallbacks -- baked materials, the sky shader, built hydrants, the cartoon character
-> and robots, its own trees and cars -- are what it will draw then). What stays for good: the page,
+> pipeline (`tools/world/`); they are gone from this package, and the page draws its own fallbacks
+> in their place: baked materials, the sky shader, built hydrants, the cartoon character and robots,
+> its own trees and cars (an operator's own people folder still gives it a skinned character and the
+> agents as people). What stays for good: the page,
 > the office and its desks (`static/world/office/`, 0.12 MiB), the walk, the reach rule, the
 > conversation, the take-over, and the operator's-own-people folder (`~/.agentdata/world/people/`),
 > which a MetaHuman set still drops into. The rest of this document describes the page as it was
