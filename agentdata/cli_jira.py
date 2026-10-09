@@ -1,6 +1,6 @@
 # PYTHON_ARGCOMPLETE_OK
-"""ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · transitions · transition · comment · sprints · changelog · sprint-replay · cache.
-Never shells out to pncli; the token is read from pncli's config file by key name at call time.
+"""ad-jira: Jira over REST. whoami · search · get · comments · fields · statuses · transitions · transition · comment · create · sprints · changelog · sprint-replay · cache.
+Never shells out to pncli; the token comes from the env, the keyring (`ad-setup --only jira`) or, last, pncli's own config file by key name, at call time.
 
 Epic #121 changed how a changelog pull is *run*; it never changed what a row means. Four operator-facing
 consequences live in this file.
@@ -45,6 +45,7 @@ from . import jira_create as JC
 from . import jira_stream as ST
 from . import jira_workflow as W
 from .connectors import jira_api as J
+from .connectors import jira_reads as R
 from .console import utf8_stdout
 from .jira_cache import ChangelogCache
 from .model import AgentTable
@@ -129,6 +130,32 @@ def cmd_whoami(a) -> int:
            "token_source": j.creds.source, "display_name": me.get("displayName"),
            "account": me.get("accountId") or me.get("name"), "email": me.get("emailAddress"), "timezone": me.get("timeZone")}
     print(render(AgentTable.from_records([rec], name="whoami", source="ad-jira whoami"), raw=a.raw))
+    return 0
+
+
+def _split_fields(a) -> list[str] | None:
+    return [f.strip() for f in a.fields.split(",") if f.strip()] if getattr(a, "fields", None) else None
+
+
+def cmd_search(a) -> int:
+    """`ad-jira search --jql <JQL>`: the current-state list `ad-pncli jira search` used to be the only way to."""
+    _, j, _ = _client()
+    t = R.jira_search(a.jql, _split_fields(a), a.max_results, j=j)
+    print(render(t, raw=a.raw))
+    return 0
+
+
+def cmd_get(a) -> int:
+    """`ad-jira get <KEY>`: one issue as one row (description as plain text, comments and attachments counted)."""
+    _, j, _ = _client()
+    print(render(R.get_issue(a.key, _split_fields(a), j=j), raw=a.raw))
+    return 0
+
+
+def cmd_comments(a) -> int:
+    """`ad-jira comments <KEY>`: every comment, oldest first, the body as plain text."""
+    _, j, _ = _client()
+    print(render(R.get_comments(a.key, j=j), raw=a.raw))
     return 0
 
 
@@ -1157,13 +1184,29 @@ def _add_run_flags(p, bulk: bool = True) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
-    ap = argparse.ArgumentParser(prog="ad-jira", description="Jira REST via pncli's token: history the current-state search cannot give.")
+    ap = argparse.ArgumentParser(prog="ad-jira", description="Jira over REST: current-state reads (search, get, comments), "
+                                 "workflow writes behind the approval gate, and the history the current state cannot give.")
     from . import version
     version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("whoami", help="detect Cloud/DC flavor and auth; caches it in config")
     p.add_argument("--redetect", action="store_true"); p.add_argument("--raw", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_whoami)
+    p = sub.add_parser("search", help='issues a JQL matches, current state: --jql "project = X AND updated >= \'2026-01-01\'"')
+    p.add_argument("--jql", required=True, help="the JQL; every value is quoted inside it, as Jira itself wants")
+    p.add_argument("--fields", default=None, help="comma-separated columns (default key,status,assignee,priority,updated,summary)")
+    p.add_argument("--max-results", type=int, default=500, help="rows kept (default 500); more sets meta.truncated")
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_search)
+    p = sub.add_parser("get", help="one issue as one row: description (plain text), acceptance criteria, counts of comments and attachments")
+    p.add_argument("key", help="issue key, e.g. RDSD-1")
+    p.add_argument("--fields", default=None, help="comma-separated columns to keep (status, summary, description, ... or any field id)")
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_get)
+    p = sub.add_parser("comments", help="the comments on one issue, oldest first, bodies as plain text")
+    p.add_argument("key", help="issue key, e.g. RDSD-1")
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_comments)
     p = sub.add_parser("fields", help="field name <-> id map; --pin stores Sprint / Story Points ids")
     p.add_argument("--like"); p.add_argument("--pin", action="store_true"); p.add_argument("--raw", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_fields)
@@ -1250,7 +1293,7 @@ def main(argv: list[str] | None = None) -> int:
     except J.JiraError as e:
         print(error(str(e), e.hint or "ad-jira whoami --redetect", "ad-jira")); return 1
     except C.ConfigError as e:
-        print(error(str(e), e.hint or "ad-setup --only pncli", "ad-jira")); return 2
+        print(error(str(e), e.hint or "ad-setup --only jira", "ad-jira")); return 2
 
 
 if __name__ == "__main__":

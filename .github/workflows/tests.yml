@@ -97,8 +97,9 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: pip install -e .
-      # The contract, not a clean bill of health: a runner has no pncli, so a row fails, and
-      # check_doctor.py holds what that must look like (exit 1, TOON, a hint on every fail row).
+      # The contract, not a clean bill of health: a runner has no Jira credentials (no JIRA_TOKEN, no keyring
+      # entry, no pncli config), so the `jira` step's token row fails -- pncli itself is optional and its absence
+      # is a skip row -- and check_doctor.py holds what that must look like (exit 1, TOON, a hint on every fail row).
       - name: ad-doctor
         run: |
           set +e
@@ -594,7 +595,7 @@ jobs:
           $got = $r.CompletionMatches | ForEach-Object { $_.CompletionText }
           if ($got -notcontains 'check') { throw "5.1 completed to: $got" }
           Write-Host 'tab-completion works under Windows PowerShell 5.1'
-          # ad-doctor legitimately exits 1 on a bare runner (no pncli), and GitHub appends
+          # ad-doctor legitimately exits 1 on a bare runner (no Jira credentials), and GitHub appends
           # `exit $LASTEXITCODE` to this shell -- so the step would inherit the exit code of a
           # command whose failure is not what it is asserting. Every assertion above throws.
           exit 0

@@ -1,6 +1,7 @@
-"""Section 2: pncli import and Jira flavor.
+"""Section 2: Jira credentials and flavor; pncli is the optional backend.
 
 pncli is an npm shim with no .exe, and the doctor must prove the launcher starts, not that a file exists.
+`ad-jira whoami` needs no pncli at all: `ad-setup --only jira` (keyring), JIRA_TOKEN, or pncli's file last.
 """
 from __future__ import annotations
 import os
@@ -19,9 +20,7 @@ def test_pncli_resolves_or_says_why(run):
 
 
 def test_jira_whoami_reports_the_flavor(run):
-    if shutil.which("pncli") is None:
-        pytest.skip("pncli is not installed on this laptop")
     rc, out, _err = run("ad-jira whoami", ["jira", "whoami"])
     if rc != 0:
-        pytest.skip("pncli is installed but not configured; run ad-setup --only pncli")
+        pytest.skip("no Jira credentials on this laptop; run ad-setup --only jira (or --only pncli with pncli installed)")
     assert "flavor" in out and "token_source" in out

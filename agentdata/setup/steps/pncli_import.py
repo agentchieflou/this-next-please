@@ -1,5 +1,10 @@
-"""Step 1: import pncli's global config (~/.pncli/config.json) by KEY NAME. Values are never stored here;
-the Jira token is read from pncli's file at call time (connectors/jira_api.py) and never printed."""
+"""Step: the optional pncli backend (Confluence pages, Bitbucket PRs, and a Jira token to borrow).
+
+Imports pncli's global config (~/.pncli/config.json) by KEY NAME. Values are never stored here; a borrowed Jira
+token is read from pncli's file at call time (connectors/jira_api.py, after the env and the keyring) and never
+printed. pncli is optional since the `jira` step: a missing launcher is a `skip` row unless the operator opted
+in (`pncli.required: true`, or `pncli.exe` pinned to a path that does not start), and an installed-but-broken
+pncli still fails, because that is a thing to fix."""
 from __future__ import annotations
 import re
 from ... import config as C
@@ -54,14 +59,24 @@ class PncliStep(Step):
         return found
 
     def check(self, ctx: Context, found: dict) -> None:
+        from .jira import has_credentials
         k = self.key
         lz = found.get("launcher") or {}
         pkg = C.get(ctx.cfg, "pncli.npm_package") or NPM_PACKAGE
         hint = (f"pncli is an npm package: `npm install -g {pkg}` installs it as pncli.cmd (there is no pncli.exe), "
                 "or pin its path with PNCLI_EXE / ad-setup --only pncli. `ad-pncli where` shows what was tried.")
+        pinned = C.get(ctx.cfg, "pncli.exe") or ""
+        opted_in = bool(C.get(ctx.cfg, "pncli.required")) or bool(pinned)
         if not lz.get("found"):
-            ctx.add(k, "pncli launcher", "fail", lz.get("error") or "pncli not found on PATH, PATHEXT or the npm global prefix",
-                    hint, ("pncli.exe",))
+            if opted_in:
+                why = f"pncli.exe = {pinned} does not resolve" if pinned else "pncli.required is true but pncli was"
+                ctx.add(k, "pncli launcher", "fail", lz.get("error") or f"{why} not found on PATH, PATHEXT or the npm global prefix",
+                        hint, ("pncli.exe",))
+            else:
+                ctx.add(k, "pncli launcher", "skip", "pncli not installed: optional backend for Confluence pages and Bitbucket PRs",
+                        f"`npm install -g {pkg}` then ad-setup --only pncli; pncli.required=true makes this row fail")
+                if has_credentials(ctx) and not found["exists"]:
+                    return            # the jira step has the token; nothing else here is needed
         elif lz.get("rc") not in (0, None):
             ctx.add(k, "pncli launcher", "fail", f"{lz['path']} ({lz.get('kind')}) exits {lz.get('rc')} on --version",
                     hint, ("pncli.exe",))
@@ -70,7 +85,10 @@ class PncliStep(Step):
             ctx.add(k, "pncli launcher", "ok", detail + (f" · node {lz['node']}" if lz.get("node") else ""))
         p = C.display_path(C.expand(found["config_path"]))
         if not found["exists"]:
-            ctx.add(k, "pncli config", "fail", f"missing {p}", "run `pncli config init`, then `ad-setup --patch`", ("pncli.config_path",))
+            if lz.get("found") or opted_in:
+                ctx.add(k, "pncli config", "fail", f"missing {p}", "run `pncli config init`, then `ad-setup --patch`", ("pncli.config_path",))
+            else:
+                ctx.add(k, "pncli config", "skip", f"no {p} (only needed with pncli installed)")
             return
         if found["json_error"]:
             ctx.add(k, "pncli config", "fail", f"{p}: {found['json_error']}", "pncli config must be JSON; fix it, then `ad-setup --patch`",
@@ -79,7 +97,10 @@ class PncliStep(Step):
         ctx.add(k, "pncli config", "ok", f"{p} ({len(found['flat'])} keys)")
         keys = found["keys"]
         if not keys.get("jira_token"):
-            ctx.add(k, "jira token key", "fail", "no token key chosen", "ad-setup --patch", ("pncli.jira_token_key",))
+            if has_credentials(ctx):
+                ctx.add(k, "jira token key", "skip", "no token key chosen; the jira step has a token")
+            else:
+                ctx.add(k, "jira token key", "fail", "no token key chosen", "ad-setup --patch", ("pncli.jira_token_key",))
             return
         for name in ("jira_url", "jira_email", "jira_token"):
             kp = keys.get(name)
@@ -89,12 +110,6 @@ class PncliStep(Step):
                 ctx.add(k, name, "ok", f"key {kp}")
             else:
                 ctx.add(k, name, "fail", f"key {kp} missing or empty in pncli config", "ad-setup --patch", (f"pncli.{name}_key",))
-        v = C.get(ctx.cfg, "verified.jira")
-        if v:
-            ctx.add(k, "jira auth", "ok", f"verified {v} · {C.get(ctx.cfg, 'jira.flavor')}/{C.get(ctx.cfg, 'jira.auth')} v{C.get(ctx.cfg, 'jira.api')}")
-        else:
-            ctx.add(k, "jira auth", "warn", "token never verified", "ad-setup --only pncli (online) or ad-doctor --online",
-                    ("pncli.jira_token_key",))
 
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
@@ -151,14 +166,8 @@ class PncliStep(Step):
             ctx.add(self.key, "pncli import", "ok", "keys: " + ", ".join(f"{k}={v}" for k, v in chosen.items() if v))
 
     def verify(self, ctx: Context) -> None:
-        if not C.get(ctx.cfg, "pncli.keys.jira_token") and not ctx.det.env("JIRA_TOKEN"):
-            ctx.add(self.key, "jira auth", "skip", "no token key configured")
-            return
-        try:
-            info = ctx.det.jira_whoami(ctx.cfg, redetect=True)
-        except Exception as e:  # noqa: BLE001 - JiraError or network
-            ctx.add(self.key, "jira auth", "fail", f"{type(e).__name__}: {str(e)[:160]}",
-                    getattr(e, "hint", "") or "check VPN/proxy; ad-setup --patch", ("pncli.jira_token_key", "pncli.config_path"))
-            return
-        who = info.get("display_name") or info.get("account") or "?"
-        ctx.add(self.key, "jira auth", "ok", f"{info['flavor']}/{info['auth']} v{info['api']} as {who} ({info['token_source']})")
+        """The `jira` step owns the `jira auth` row. It runs before this one, so a token that only became
+        reachable through the keys chosen here is verified now, on its behalf, under its own row name."""
+        from .jira import JiraStep, has_credentials
+        if ctx.online and not C.get(ctx.cfg, "verified.jira") and has_credentials(ctx):
+            JiraStep().verify(ctx)

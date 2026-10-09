@@ -13,13 +13,9 @@ from ..model import AgentTable
 
 NPM_PACKAGE = "@kolatts/pncli"      # laptop diagnosis 2026-09-02; override with the `pncli.npm_package` config key
 
-JIRA_DEFAULT_FIELDS = ["key", "fields.status.name", "fields.assignee.displayName", "fields.priority.name",
-                       "fields.updated", "fields.summary"]
-JIRA_RENAME = {"fields.status.name": "status", "fields.assignee.displayName": "assignee",
-               "fields.priority.name": "priority", "fields.updated": "updated", "fields.summary": "summary"}
-ISSUE_RENAME = dict(JIRA_RENAME, **{"fields.description": "description", "fields.issuetype.name": "issuetype",
-                                    "fields.resolution.name": "resolution", "fields.labels": "labels"})
-ISSUE_RENAME_BACK = {v: k for k, v in ISSUE_RENAME.items()}
+# The column names are shared with `ad-jira search|get|comments`, the REST path that replaced these reads as
+# the default (`connectors/jira_columns.py`); pncli is the optional backend and keeps printing the same names.
+from .jira_columns import JIRA_DEFAULT_FIELDS, JIRA_RENAME, ISSUE_RENAME, ISSUE_RENAME_BACK  # noqa: F401 (re-exported)
 LIST_KEYS = ("issues", "results", "values", "items", "data")
 # pncli is a commander.js CLI: every argument is a NAMED option (`--key RDSD-1`), never a positional. Its usage
 # errors say so exactly, so turn them into the command the caller should have run instead of a generic hint.

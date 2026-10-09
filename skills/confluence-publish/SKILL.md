@@ -4,6 +4,7 @@ description: "Use to write findings, runbooks, or work documentation to Confluen
 ---
 # Confluence publish
 
+Requires the optional pncli backend (`ad-doctor` row `pncli / pncli launcher`); there is no REST path for this yet.
 Confluence does not render Markdown. `ad-confluence` converts it; you never write the page body yourself.
 
 1. Source of truth is a Markdown file under `.agent/out/` (e.g. `<KEY>-uat-findings.md`). No file → go back to the skill that produced the data. Do not compose from memory.

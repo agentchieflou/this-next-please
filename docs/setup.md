@@ -66,7 +66,8 @@ Aliases such as `opus` are never flagged, and the doctor rewrites nothing and ne
 |---|---|---|
 | `console` | checks current shell, host, encoding, and path settings; `launchers` runs `ad-state`, `ad-pncli`, `ad-jira` and `ad-confluence` with `--version` (`fail` when one on PATH does not start, `warn` when one reports another install's version) and `module` says which agentdata `python -m agentdata` would run from the `python` on PATH (#500). The `fleet` step repeats both | (read-only) |
 | `theme` | introduces CLI themes gallery; configures default theme, live recolour, zero-Python directory hooks, Windows Terminal fragment, and Oh My Posh prompt integration | `theme.default`, hooks (`hook.{ps1,sh,lua}`), WT fragment, `.omp.json` |
-| `pncli` | resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `jira.base_url/flavor/auth/api`, `verified.jira` |
+| `jira` | Jira over REST: base URL, email, and the API token (keyring, never config). Finds credentials from any source first (`JIRA_*` env, the keyring, pncli's config); online, `/myself` verifies and detects Cloud (v3, Basic) vs Data Center (v2, Bearer). This is the step a laptop without pncli needs | `jira.base_url`, `jira.email`, `jira.flavor/auth/api`, `verified.jira`; the token -> `keyring` service `jira:default` |
+| `pncli` | **optional backend** (Confluence pages, Bitbucket PRs, a Jira token to borrow): a missing launcher is a `skip` row unless `pncli.required` is true or `pncli.exe` is pinned; installed but broken still fails. Resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `pncli.required`, `jira.base_url` |
 | `sources` | per Teradata / Hive / Impala: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user. **Oracle is asked differently** (see below): hostname, port, service name or SID, because there is no ODBC DSN to point at. Then `SELECT 1` and capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
 | `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe` and **`az`** (a `.cmd`, searched on PATH and in `%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin`); the XMLA sign-in mode (`token`: Tabular Editor and service DAX are handed an az access token per launch; `interactive`: the tools' own cached sign-in) and whether the agent may run `az login --allow-no-subscriptions` itself; `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script **using that same sign-in** | `powerbi.tools.*` (incl. `az_exe`), `powerbi.auth.mode`, `powerbi.auth.auto_login`, `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
 | `content_understanding` | optional, and `skip` until a project says it uses it: the Microsoft Foundry resource endpoint (shape-checked offline -- a pasted portal key and an endpoint with the API path already on it are the two mistakes it catches), auth mode, and a default analyzer. Online, `get_analyzer` proves endpoint + credential + permission + analyzer id in one call and sends no document anywhere | `content_understanding.endpoint/auth/analyzer`, `verified.content_understanding:<analyzer>`; the resource key -> `keyring` service `content_understanding:default` |
@@ -193,7 +194,7 @@ each finding.
 ## Sharing setup across a team (`--export-defaults` and `--import`)
 
 Everything stored in `~/.agentdata/config.json` is non-secret by design (`save()` rejects credential-shaped keys;
-passwords go to `keyring` and tokens stay in pncli). That makes the configuration safe to share across a team so new
+passwords and the Jira token go to `keyring`; a borrowed pncli token stays in pncli's file). That makes the configuration safe to share across a team so new
 hires don't re-type hostnames, ports, and workspace names from scratch:
 
 1. **Export defaults**:
@@ -284,7 +285,7 @@ CLI flag → environment variable → `~/.agentdata/config.json` → project `AG
 Env overrides keep working: `TD_HOST_<ENV>`/`TD_HOST`, `TD_USER`, `TD_LOGMECH`, `HIVE_HOST_<ENV>`, `HIVE_PORT`,
 `IMPALA_HOST_<ENV>`, `IMPALA_PORT`, `ORA_HOST_<ENV>`, `ORA_PORT_<ENV>`, `ORA_SERVICE_<ENV>`, `ORA_SID_<ENV>`,
 `ORA_DSN_<ENV>`, `ORA_USER`, `ORACLE_CLIENT_LIB`, `TNS_ADMIN`;
-Jira: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`; pncli launcher: `PNCLI_EXE`; TLS: `AGENTDATA_CA_BUNDLE`.
+Jira: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN` (alias `AGENTDATA_JIRA_TOKEN`) -- read before the keyring entry from `ad-setup --only jira`, which is read before pncli's config; pncli launcher (optional backend): `PNCLI_EXE`; TLS: `AGENTDATA_CA_BUNDLE`.
 Content Understanding: `CONTENT_UNDERSTANDING_ENDPOINT`, `CONTENT_UNDERSTANDING_ANALYZER`, `CONTENT_UNDERSTANDING_KEY`.
 
 ## Oracle: the four fields, not one string

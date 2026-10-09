@@ -8,7 +8,7 @@ Scope: every project that installs these skills. Do not restate these in project
 3. Never read a second project's `.agent/` directory.
 
 ## Data
-4. Never call Teradata/Oracle/Hive/Spark/pncli directly for data. Use `ad-*` commands (skill `data-adapter`).
+4. Never call Teradata/Oracle/Hive/Spark, Jira, Confluence or Bitbucket directly for data. Use `ad-*` commands (skill `data-adapter`).
 5. Data arrives as TOON. Full rows live on disk under `.agent/out/`. Do not open files > 500 rows; script over them.
 6. Never compare datasets in your head. Use `ad-diff`.
 7. Read-only SQL only. The adapter rejects DML/DDL; do not work around it.
