@@ -1,5 +1,13 @@
 # HANDOFF — for the Claude Code session that finishes this repo
 
+> **2026-10-09 checkpoint:** 0.19.0 (PR #657) shipped PBIR patching for Desktop 2.157, pncli as an optional backend with
+> Jira over REST, the skills marketplace with a configurable source, and the world parked (its assets and knowledge
+> moved to `agentchieflou/play-sports`, Track R). The next phase is the Microsoft 365 lane, `docs/plan-m365-bridge.md`:
+> the coming Power Automate workspace as a second relay (the mobile lane's shape, generalised), SharePoint and OneDrive
+> as on-demand context into `.agent/in/<KEY>/context/`, results out behind the approval gate, and the loop between
+> triggered Microsoft agents and the fleet's Copilot agents. Slice M-0, the tenant sitting (§2 of the plan), comes first;
+> nothing else starts without it.
+>
 > **2026-09-02 checkpoint:** the approved design for the next phase (Power BI PBIP/TMDL pipeline, `ad-setup` wizard, SQL dialect guardrails, Jira changelog + sprint replay, visual-level UAT) lives in `docs/plan-luna-pipeline.md`. Implement it in the slice order given there; slice 1 (`agentdata/config.py` + `ad-setup`/`ad-doctor`) comes first. All six slices are built (setup wizard, SQL guardrails, Jira changelog + sprint replay, PBIP projection/validator/editor, Desktop + DAX runner, UAT engine). Next: run `docs/windows-verification.md` on the laptop; each pasted failure becomes a fix PR with a reproducing test. Domain workflow skills started with `dpm-consumer-integration` (`agentdata/dpm/`, `ad-dpm`): the DPM → data_remediation_foundry_DPM_fork handoff contract; its builtin binding encodes assumptions listed in `skills/dpm-consumer-integration/references/dpm-contract.md` that must be confirmed against the real hand-back document.
 
 Context: scaffold produced offline. Owner: Michael. Worker model in production: "Luna"

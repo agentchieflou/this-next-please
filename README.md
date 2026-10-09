@@ -210,6 +210,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
 | `docs/copilot-personalization.md` | the Microsoft 365 Copilot custom-instructions block, and why repo rules belong in `AGENTS.md` instead |
 | `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
+| `docs/plan-m365-bridge.md` | proposed (2026-10-09): the Microsoft 365 lane — Power Automate as the second relay, SharePoint and OneDrive as sources ("on the fly RAG" into the ticket's folder), results out behind the gate, and the loop between triggered Microsoft agents and the fleet's Copilot agents |
 | `docs/plan-cli-theming.md` | planned design for CLI theming (epic #135): the palette model, the host matrix, one theme per project |
 | `docs/plan-desk-refactor.md` | planned refactor of the fleet dashboard on Windows: the run you are in, movable tiles, HIG chrome, and one palette shared with the terminal |
 | `docs/desk-components.md` | the fleet desk's component inventory and the render contract every one of them keeps: created once, patched forever, one owner per property; and where a component's reasoning lives, the tagalong `<file>.md` beside each served file (#523) |

@@ -49,6 +49,10 @@ outside the fleet, into `<fleet_dir>/skills.json`, which survives log rotation (
 repository), any git URL, or a local folder; *sync* installs or updates the skills it offers from the fleet
 window, *refresh* lists what it offers against what is installed.
 
+**Planned, not built:** `docs/plan-m365-bridge.md`, the Microsoft 365 lane: Power Automate as the second relay,
+SharePoint and OneDrive as on-demand context into the ticket's folder, results out behind the approval gate, and the
+loop between triggered Microsoft agents and the fleet's Copilot agents. Its first slice is a sitting on the tenant.
+
 **The world, parked.** Its assets, people, trees, cars and asset pipeline are maintained in
 `agentchieflou/play-sports` from now on (its `RawAssets/world/`, four specs and Track R); no new work on the
 world lands here. The page, the office, the walk and the take-over stay; the copies are gone from the wheel
