@@ -29,18 +29,25 @@ session file, so a poll re-reads only what Copilot appended.
 Claude Code's own transcripts are not read yet: nothing here knows their shape, and guessing would
 count wrong rather than count nothing.
 
+**Where the skills come from** is the setting `fleet.skills.source` (docs/fleet-skills.md §The
+marketplace source): a GitHub `owner/repo` (optionally `@ref`), a git URL, or a local folder holding
+`skills/*/SKILL.md`. `sync` installs what the source offers into the first skills directory that
+exists, replacing only folders carrying this source's `.marketplace` marker, and `catalog` reads what
+it offers without installing. Both keep their last answer in the ledger.
+
 Read-only against everything outside the fleet directory, like the rest of the fleet.
 """
 from __future__ import annotations
 import calendar
 import hashlib
+import shutil
 import json
 import os
 import re
 import threading
 import time
 
-from .. import textio
+from .. import proc, textio
 from .registry import fleet_dir
 
 LEDGER = "skills.json"
@@ -52,8 +59,24 @@ RECENT_DAYS = 30
 #: The tool Copilot runs a skill through.
 SKILL_TOOL = "skill"
 
+#: The setting naming the marketplace, and what it is when nothing was set: this repo's skills.
+SOURCE_KEY = "fleet.skills.source"
+DEFAULT_SOURCE = "agentchieflou/this-next-please"
+#: The file a folder this module installed carries: the source it came from, one line.
+MARKER = ".marketplace"
+#: Where a git source is cloned: `<fleet dir>/marketplace/<sha12 of the url>/`.
+CLONES = "marketplace"
+SYNC_TIMEOUT_S = 120
+REFRESH_TIMEOUT_S = 30
+#: Where a sync installs when no skills directory exists yet: the one `gh skill install` writes.
+INSTALL_DIR = "~/.copilot/skills"
+
 _lock = threading.Lock()
+_sync_lock = threading.Lock()
+_running: dict = {"on": False, "source": ""}
 _FRONT = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
+_GITHUB = re.compile(r"^([A-Za-z0-9][\w.-]*)/([A-Za-z0-9][\w.-]*?)(?:\.git)?(?:@([\w./-]+))?$")
+_GIT_URL = re.compile(r"^(https?://|ssh://|git://|file://|[\w.-]+@[\w.-]+:)")
 
 
 # ------------------------------------------------------------------------------ what is installed
@@ -179,7 +202,7 @@ def ledger_path() -> str:
 
 def blank() -> dict:
     return {"schema": SCHEMA, "agents": {}, "copilot": {}, "fleet_sessions": {}, "skills": {},
-            "updated": ""}
+            "sync": {}, "catalog": {}, "updated": ""}
 
 
 def _blank_skill() -> dict:
@@ -197,7 +220,7 @@ def read_ledger() -> dict:
     if not isinstance(raw, dict) or int(raw.get("schema") or 0) != SCHEMA:
         return blank()
     out = blank()
-    for key in ("agents", "copilot", "fleet_sessions", "skills"):
+    for key in ("agents", "copilot", "fleet_sessions", "skills", "sync", "catalog"):
         if isinstance(raw.get(key), dict):
             out[key] = raw[key]
     out["updated"] = str(raw.get("updated") or "")
@@ -214,7 +237,8 @@ def write_ledger(state: dict) -> str:
     body = {"schema": SCHEMA, "agents": state.get("agents") or {},
             "copilot": state.get("copilot") or {},
             "fleet_sessions": state.get("fleet_sessions") or {},
-            "skills": state.get("skills") or {}, "updated": state["updated"]}
+            "skills": state.get("skills") or {}, "updated": state["updated"],
+            "sync": state.get("sync") or {}, "catalog": state.get("catalog") or {}}
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(body, handle, indent=1, sort_keys=True)
@@ -558,8 +582,21 @@ def snapshot(*, fold: bool = True, copilot: bool = True) -> dict:
               "uses": sum(r["uses"] for r in counted),
               "used_recently": sum(1 for r in counted if _recent(r["last"], RECENT_DAYS, now)),
               "recent_days": RECENT_DAYS, "missing": sum(1 for r in counted if r.get("missing"))}
+    src = source()
+    cat = state.get("catalog") or {}
+    offered = {r["name"]: r for r in (cat.get("skills") or []) if isinstance(r, dict) and r.get("name")}
+    same_source = bool(offered) and cat.get("source") == src
+    installed_names = {r["name"] for r in rows if not r.get("missing")}
+    for r in rows:
+        r["available"] = (r["name"] in offered) if same_source else None
+    not_installed = [{"name": n, "description": offered[n].get("description", "")}
+                     for n in sorted(offered) if n not in installed_names] if same_source else []
+    last = dict(state.get("sync") or {})
+    last["running"] = sync_running()
     return {"dirs": [short_dir(d) for d in dirs()], "skills": rows, "totals": totals,
-            "ledger_updated": state.get("updated") or "", "ledger": ledger_path()}
+            "ledger_updated": state.get("updated") or "", "ledger": ledger_path(),
+            "source": {"value": src, "kind": source_kind(src), "key": SOURCE_KEY},
+            "sync": last, "catalog": cat if same_source else {}, "not_installed": not_installed}
 
 
 def _row(row: dict, use: dict | None, now: float) -> dict:
@@ -578,3 +615,390 @@ def _row(row: dict, use: dict | None, now: float) -> dict:
     out["missing"] = bool(row.get("missing"))
     out["unused"] = out["uses"] == 0 and not out["missing"] and not row.get("shadowed_by")
     return out
+
+
+# ------------------------------------------------------------------------------ the source
+
+
+def source() -> str:
+    """`fleet.skills.source`, or the default."""
+    from .. import config as C
+
+    try:
+        value = C.get(C.load(), "fleet.skills.source")
+    except Exception:                        # noqa: BLE001 - no config is the default source
+        value = None
+    return str(value or DEFAULT_SOURCE).strip()
+
+
+def source_kind(value: str) -> str:
+    """`path` for a folder that exists, `github` for `owner/repo[@ref]`, `git` for anything
+    `git clone` takes, "" for what none of them can be. A folder is looked for first, so a relative
+    folder that happens to be spelled `a/b` is the folder."""
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    try:
+        if os.path.isdir(os.path.expanduser(value)):
+            return "path"
+    except OSError:
+        pass
+    if _GIT_URL.match(value) or value.endswith(".git"):
+        return "git"
+    if _GITHUB.match(value):
+        return "github"
+    return ""
+
+
+def _github_parts(value: str) -> tuple[str, str, str]:
+    m = _GITHUB.match(value.strip())
+    return (m.group(1), m.group(2), m.group(3) or "") if m else ("", "", "")
+
+
+def _split_ref(value: str) -> tuple[str, str]:
+    """`url@ref` for a git source: the ref after the last `@` that follows the last `/`, so an
+    `git@host:` user is never read as one."""
+    at = value.rfind("@")
+    if at > value.rfind("/") and at > value.rfind(":"):
+        return value[:at], value[at + 1:]
+    return value, ""
+
+
+def target_dir() -> str:
+    """Where a sync installs: the first `SKILL_DIRS` entry that exists, made when none does."""
+    from .. import update as U
+
+    for raw in U.SKILL_DIRS:
+        d = os.path.expanduser(raw)
+        if os.path.isdir(d):
+            return textio.norm_path(d)
+    d = os.path.expanduser(INSTALL_DIR)
+    os.makedirs(d, exist_ok=True)
+    return textio.norm_path(d)
+
+
+def clone_dir(url: str) -> str:
+    return os.path.join(fleet_dir(), CLONES, hashlib.sha256(url.strip().encode()).hexdigest()[:12])
+
+
+def _dir_hashes(d: str) -> dict[str, str]:
+    out = {}
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    for n in names:
+        path = os.path.join(d, n, "SKILL.md")
+        if os.path.isfile(path):
+            out[n] = _sha12(path)
+    return out
+
+
+def _marker(folder: str) -> str:
+    try:
+        return textio.read_text(os.path.join(folder, MARKER)).strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def _skills_root(folder: str) -> str:
+    """`<folder>/skills` when it is there, else the folder itself, so a checkout of this repository
+    and a bare folder of skills both read."""
+    sub = os.path.join(folder, "skills")
+    return sub if os.path.isdir(sub) else folder
+
+
+def _offered(folder: str) -> list[dict]:
+    root = _skills_root(folder)
+    out = []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for n in names:
+        path = os.path.join(root, n, "SKILL.md")
+        if not os.path.isfile(path):
+            continue
+        try:
+            front = front_matter(textio.read_text(path))
+        except (OSError, ValueError):
+            front = {}
+        out.append({"name": n, "description": front.get("description", ""), "version": _sha12(path)})
+    return out
+
+
+def _git(args: list[str], *, cwd: str | None = None, timeout: int) -> tuple[int, str, str]:
+    code, out, err, _el = proc.run(["git", *args], cwd=cwd, timeout=timeout,
+                                   env={"GIT_TERMINAL_PROMPT": "0"})
+    return code, out or "", err or ""
+
+
+def _fetch_git(url: str, ref: str, *, timeout: int) -> tuple[str, str, str, str]:
+    """`(folder, commit, error, hint)`: a shallow clone the first time, a fast-forward pull after.
+    A pull that cannot fast-forward, or a clone that fails, leaves what is there and says why."""
+    folder = clone_dir(url + ("@" + ref if ref else ""))
+    try:
+        if os.path.isdir(os.path.join(folder, ".git")):
+            # A fetch and a hard reset, not a pull: the clone is shallow and nobody edits it, and a
+            # `pull --ff-only` of a shallow clone calls the two histories diverged.
+            code, out, err = _git(["fetch", "--depth", "1", "--quiet", "origin", ref or "HEAD"],
+                                  cwd=folder, timeout=timeout)
+            if code == 0:
+                code, out, err = _git(["reset", "--hard", "--quiet", "FETCH_HEAD"], cwd=folder, timeout=timeout)
+            if code != 0:
+                tail = (err or out).strip().splitlines()
+                return folder, _head(folder), f"git fetch: {tail[-1][:200] if tail else code}", \
+                    f"the clone is at {folder}; delete it to clone afresh"
+        else:
+            os.makedirs(os.path.dirname(folder), exist_ok=True)
+            args = ["clone", "--depth", "1", "--quiet"] + (["--branch", ref] if ref else []) + [url, folder]
+            code, out, err = _git(args, timeout=timeout)
+            if code != 0:
+                tail = (err or out).strip().splitlines()
+                return "", "", f"git clone: {tail[-1][:200] if tail else code}", \
+                    "check the URL and that this machine can reach it; a private host needs its key loaded"
+    except proc.ProcError as e:
+        return folder if os.path.isdir(folder) else "", "", e.msg, e.hint or "install git and try again"
+    return folder, _head(folder), "", ""
+
+
+def _head(folder: str) -> str:
+    try:
+        code, out, _err = _git(["rev-parse", "HEAD"], cwd=folder, timeout=10)
+    except proc.ProcError:
+        return ""
+    return out.strip()[:12] if code == 0 else ""
+
+
+def _install_from(folder: str, target: str, src: str, *, kinds: dict) -> list[str]:
+    """Copy every offered skill into `target`, replacing only folders carrying this source's
+    marker; a folder without one, or with another source's, is left as it is and named in
+    `kinds["skipped"]`. A folder with this source's marker the source no longer offers is removed.
+    Returns the names installed."""
+    offered = {row["name"] for row in _offered(folder)}
+    root = _skills_root(folder)
+    done = []
+    for name in sorted(offered):
+        dest = os.path.join(target, name)
+        if os.path.isdir(dest):
+            mark = _marker(dest)
+            if mark != src:
+                kinds["skipped"].append(name + (" (another source: " + mark + ")" if mark else " (not installed by a sync)"))
+                continue
+            shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(os.path.join(root, name), dest)
+        with open(os.path.join(dest, MARKER), "w", encoding="utf-8", newline="\n") as f:
+            f.write(src + "\n")
+        done.append(name)
+    try:
+        for name in sorted(os.listdir(target)):
+            dest = os.path.join(target, name)
+            if name not in offered and os.path.isdir(dest) and _marker(dest) == src:
+                shutil.rmtree(dest, ignore_errors=True)
+    except OSError:
+        pass
+    return done
+
+
+def _mark(target: str, names, src: str) -> None:
+    for name in names:
+        dest = os.path.join(target, name)
+        if os.path.isdir(dest) and not _marker(dest):
+            try:
+                with open(os.path.join(dest, MARKER), "w", encoding="utf-8", newline="\n") as f:
+                    f.write(src + "\n")
+            except OSError:
+                pass
+
+
+def _github_commit(owner: str, repo: str, ref: str) -> str:
+    try:
+        code, out, _err, _el = proc.run(["gh", "api", f"repos/{owner}/{repo}/commits/{ref or 'HEAD'}",
+                                         "--jq", ".sha"], timeout=REFRESH_TIMEOUT_S)
+    except proc.ProcError:
+        return ""
+    return out.strip()[:12] if code == 0 else ""
+
+
+def sync(value: str | None = None) -> dict:
+    """Install what the marketplace offers, and say what changed.
+
+    `github` runs `gh skill install <owner/repo> --all` as `ad-update` does, with its "already
+    installed" retry; `git` clones (or pulls) under the fleet directory and copies; `path` copies.
+    Before and after, the SKILL.md hashes in the target directory say what was added, updated,
+    removed or left as it was. Every failure is a result with `error` and `hint`, never a raise.
+    """
+    from .. import update as U
+
+    src = (value or source()).strip()
+    kind = source_kind(src)
+    started = time.time()
+    result = {"ok": False, "source": src, "kind": kind, "started": _stamp(started), "finished": "",
+              "seconds": 0.0, "added": [], "updated": [], "unchanged": [], "removed": [],
+              "skipped": [], "commit": "", "error": "", "hint": "", "target": ""}
+
+    def finish(error: str = "", hint: str = "") -> dict:
+        result.update(error=error, hint=hint, ok=not error, finished=_stamp(time.time()),
+                      seconds=round(time.time() - started, 1))
+        with _lock:
+            state = read_ledger()
+            state["sync"] = dict(result)
+            try:
+                write_ledger(state)
+            except OSError:
+                pass
+        return result
+
+    if not kind:
+        return finish(f"not a marketplace: {src!r}",
+                      "set fleet.skills.source to a GitHub owner/repo, a git URL or a folder that exists")
+    try:
+        target = target_dir()
+    except OSError as e:
+        return finish(f"no skills directory can be made: {e}", "create ~/.copilot/skills by hand")
+    result["target"] = short_dir(target)
+    before = _dir_hashes(target)
+    kinds = {"skipped": result["skipped"]}
+    try:
+        if kind == "path":
+            folder = os.path.expanduser(src)
+            if not _offered(folder):
+                return finish(f"no skills/*/SKILL.md under {src}", "a marketplace folder holds one folder per skill, each with a SKILL.md")
+            _install_from(folder, target, src, kinds=kinds)
+        elif kind == "git":
+            url, ref = _split_ref(src)
+            folder, commit, error, hint = _fetch_git(url, ref, timeout=SYNC_TIMEOUT_S)
+            result["commit"] = commit
+            if error:
+                return finish(error, hint)
+            if not _offered(folder):
+                return finish(f"no skills/*/SKILL.md in {src}", "the repository holds no skills folder at its root")
+            _install_from(folder, target, src, kinds=kinds)
+        else:
+            owner, repo, ref = _github_parts(src)
+            spec = f"{owner}/{repo}" + (f"@{ref}" if ref else "")
+            cmd = U.skills_command(spec)
+            try:
+                code, out, err, _el = proc.run(cmd, timeout=SYNC_TIMEOUT_S)
+            except proc.ProcError as e:
+                return finish(e.msg, e.hint or "install GitHub CLI (gh) and sign in, or name a git URL or a folder")
+            if code != 0:
+                already = U.parse_already_installed(f"{out}\n{err}")
+                if already:
+                    U.remove_our_skills(target, already)
+                    retry = cmd + ["--force"] if U.supports_force() else cmd
+                    try:
+                        code, out, err, _el = proc.run(retry, timeout=SYNC_TIMEOUT_S)
+                    except proc.ProcError as e:
+                        return finish(e.msg, e.hint)
+                if code != 0:
+                    return finish("gh skill install: " + U.tail_lines(out, err, 3).replace("\n", " · ")[:300],
+                                  U.diagnose(code, out, err) or "run the command yourself to see why")
+            result["commit"] = _github_commit(owner, repo, ref)
+    except OSError as e:
+        return finish(f"copy failed: {e}", f"check that {short_dir(target)} is writable")
+    after = _dir_hashes(target)
+    result["added"] = sorted(n for n in after if n not in before)
+    result["removed"] = sorted(n for n in before if n not in after)
+    result["updated"] = sorted(n for n in after if n in before and before[n] != after[n])
+    result["unchanged"] = sorted(n for n in after if n in before and before[n] == after[n])
+    if kind == "github":
+        _mark(target, result["added"] + result["updated"], src)
+    try:
+        from . import fingerprint
+        fingerprint.forget()
+    except Exception:                        # noqa: BLE001
+        pass
+    return finish()
+
+
+def start_sync(value: str | None = None) -> dict:
+    """Run `sync` on a thread, one at a time. `{"ok": True, "started": True}` or
+    `{"ok": False, "code": "skills_sync_running"}` while one is already running."""
+    with _sync_lock:
+        if _running["on"]:
+            return {"ok": False, "code": "skills_sync_running", "error": "a sync is already running",
+                    "hint": f"wait for the sync from {_running['source']} to finish", "source": _running["source"]}
+        _running.update(on=True, source=(value or source()).strip())
+
+    def go():
+        try:
+            sync(value)
+        finally:
+            with _sync_lock:
+                _running.update(on=False, source="")
+
+    threading.Thread(target=go, name="skills-sync", daemon=True).start()
+    return {"ok": True, "started": True, "source": _running["source"]}
+
+
+def sync_running() -> bool:
+    with _sync_lock:
+        return bool(_running["on"])
+
+
+def catalog(value: str | None = None) -> dict:
+    """What the marketplace offers, without installing: `{source, kind, fetched, skills: [{name,
+    description, version}], commit, error, hint}`, kept in the ledger as `catalog`. A GitHub source
+    is listed through `gh api` when gh is there (names only, the descriptions from a clone when one
+    is), else cloned over https; a git source from its clone; a folder from itself."""
+    src = (value or source()).strip()
+    kind = source_kind(src)
+    out = {"source": src, "kind": kind, "fetched": _stamp(time.time()), "skills": [], "commit": "",
+           "error": "", "hint": ""}
+    if not kind:
+        out.update(error=f"not a marketplace: {src!r}",
+                   hint="set fleet.skills.source to a GitHub owner/repo, a git URL or a folder that exists")
+    elif kind == "path":
+        out["skills"] = _offered(os.path.expanduser(src))
+        if not out["skills"]:
+            out.update(error=f"no skills/*/SKILL.md under {src}", hint="a marketplace folder holds one folder per skill")
+    elif kind == "git":
+        url, ref = _split_ref(src)
+        folder, commit, error, hint = _fetch_git(url, ref, timeout=REFRESH_TIMEOUT_S)
+        out["commit"] = commit
+        if error and not folder:
+            out.update(error=error, hint=hint)
+        else:
+            out["skills"] = _offered(folder)
+            if error:
+                out.update(error=error, hint=hint)
+    else:
+        owner, repo, ref = _github_parts(src)
+        names = _github_names(owner, repo, ref)
+        if names is None:
+            url = f"https://github.com/{owner}/{repo}.git"
+            folder, commit, error, hint = _fetch_git(url, ref, timeout=REFRESH_TIMEOUT_S)
+            out["commit"] = commit
+            if error and not folder:
+                out.update(error=error, hint=hint or "install GitHub CLI (gh), or check the network")
+            else:
+                out["skills"] = _offered(folder)
+        else:
+            by_name = {}
+            for candidate in (clone_dir(f"https://github.com/{owner}/{repo}.git" + ("@" + ref if ref else "")),):
+                if os.path.isdir(candidate):
+                    by_name = {r["name"]: r for r in _offered(candidate)}
+            out["skills"] = [by_name.get(n) or {"name": n, "description": "", "version": ""} for n in names]
+            out["commit"] = _github_commit(owner, repo, ref)
+    with _lock:
+        state = read_ledger()
+        state["catalog"] = dict(out)
+        try:
+            write_ledger(state)
+        except OSError:
+            pass
+    return out
+
+
+def _github_names(owner: str, repo: str, ref: str) -> list[str] | None:
+    """The skill folders a GitHub repo offers, through `gh api`; None when gh cannot answer."""
+    path = f"repos/{owner}/{repo}/contents/skills" + (f"?ref={ref}" if ref else "")
+    try:
+        code, out, _err, _el = proc.run(["gh", "api", path, "--jq", '.[] | select(.type == "dir") | .name'],
+                                        timeout=REFRESH_TIMEOUT_S)
+    except proc.ProcError:
+        return None
+    if code != 0:
+        return None
+    return sorted(n.strip() for n in out.splitlines() if n.strip())

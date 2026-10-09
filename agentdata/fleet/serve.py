@@ -3054,10 +3054,40 @@ def _act(what: str, body: dict) -> dict:
             return cleanup.decide(repo, body)
         except cleanup.CleanupError as e:
             raise ServeError(e.msg, e.hint, code=e.code) from None
+    if what == "skills-sync":
+        # The marketplace's one write (docs/fleet-skills.md §The marketplace source): install what
+        # `fleet.skills.source` offers, on a thread, one at a time. The answer is that it started;
+        # the page polls `/api/skills` until `sync.running` is false and reads the result there.
+        from . import skills as SKILLS
+
+        src = SKILLS.source()
+        if not SKILLS.source_kind(src):
+            raise ServeError(f"not a marketplace: {src!r}",
+                             "set fleet.skills.source on /settings to a GitHub owner/repo, a git URL or a folder",
+                             code="skills_bad_source")
+        out = SKILLS.start_sync()
+        if not out.get("ok"):
+            raise ServeError(out.get("error") or "a sync is already running", out.get("hint") or "",
+                             code="skills_sync_running")
+        return {"started": True, "source": src}
+    if what == "skills-refresh":
+        # Re-read what the marketplace offers without installing any of it, and answer the snapshot
+        # with the catalogue folded in.
+        from . import skills as SKILLS
+
+        src = SKILLS.source()
+        if not SKILLS.source_kind(src):
+            raise ServeError(f"not a marketplace: {src!r}",
+                             "set fleet.skills.source on /settings to a GitHub owner/repo, a git URL or a folder",
+                             code="skills_bad_source")
+        cat = SKILLS.catalog(src)
+        if cat.get("error") and not cat.get("skills"):
+            raise ServeError(cat["error"], cat.get("hint") or "", code="skills_sync_failed")
+        return SKILLS.snapshot(fold=False)
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load | wrapup | tidy | grant | copilot")
+                     "measure | load | wrapup | tidy | grant | copilot | skills-sync | skills-refresh")
 
 
 def _write_settings(C, SET, body: dict) -> None:

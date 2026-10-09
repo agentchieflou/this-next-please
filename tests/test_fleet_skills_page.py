@@ -13,7 +13,10 @@ from agentdata.fleet import events as E, skills as SK
 
 from desk_harness import close_pages
 from desk_waits import record_mutations
-from test_fleet_skills import _call, _result, _serve, _skill, _stop, _three_calls, fleet_home, two_dirs  # noqa: F401
+from agentdata.fleet import serve as S
+
+from test_fleet_skills import (_call, _marketplace, _result, _serve, _skill, _stop, _three_calls,  # noqa: F401
+                               fleet_home, two_dirs)
 
 READY = "() => !!window.FleetSkills && FleetSkills.rows.length > 0"
 NAMES = "() => [...document.querySelectorAll('#skillrows .sk')].map(li => li.querySelector('.sk-n').textContent)"
@@ -28,6 +31,9 @@ def test_the_page_lists_the_skills_filters_expands_a_row_and_an_idle_redraw_writ
     E.append("alpha", [_call("alpha", "gone", "c7", ticket="RDSD-9", ts="2026-01-01T00:00:00"),
                        _result("alpha", "c7", True, ticket="RDSD-9", ts="2026-01-01T00:00:01")])
     SK.update("alpha")
+    market = _marketplace(tmp_path / "market", {"triage": "sort the inbox", "fresh": "not yet installed"})
+    S.act("settings", {"set": [{"key": "fleet.skills.source", "value": market}]})
+    SK.catalog()
     server, token, port = _serve()
     try:
         page = desk_browser.new_page(viewport={"width": 1280, "height": 900})
@@ -49,6 +55,17 @@ def test_the_page_lists_the_skills_filters_expands_a_row_and_an_idle_redraw_writ
         line = page.text_content("#skillsline")
         assert line.startswith("3 skills installed, 3 used, 1 never, 1 used but gone"), line
         assert f"/settings?t={token}" in page.get_attribute("#backbtn", "href")
+
+        # the marketplace box: the source, its kind, never synced yet, the two buttons and the door to settings;
+        # and what the source offers that is not installed
+        box = page.evaluate("""() => ({ src: document.getElementById('sksrc').textContent,
+            kind: document.getElementById('sksrckind').textContent, synced: document.getElementById('sksynced').textContent,
+            sync: document.getElementById('sksync').disabled, refresh: document.getElementById('skrefresh').disabled,
+            settings: document.getElementById('sksettings').getAttribute('href'),
+            fresh: [...document.querySelectorAll('#sknewrows li .sk-n')].map(e => e.textContent) })""")
+        assert box["src"] == market and box["kind"] == "path" and box["synced"] == "never synced", box
+        assert box["sync"] is False and box["refresh"] is False and box["fresh"] == ["fresh"], box
+        assert box["settings"].endswith("#cfg-fleet-skills-source") and f"t={token}" in box["settings"], box
 
         # an idle redraw writes nothing (rule 1), rows open or closed
         seen = record_mutations(page, target="body")

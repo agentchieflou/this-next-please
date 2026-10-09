@@ -18,6 +18,16 @@
 </header>
 
 <main id="skills">
+  <section class="sk-source" aria-labelledby="sksrc-head">
+    <h2 id="sksrc-head">marketplace</h2>
+    <p class="sk-src-line"><code id="sksrc"></code> <span id="sksrckind" class="sk-pill"></span> <span id="sksynced" class="why"></span></p>
+    <div class="sk-src-row">
+      <button type="button" id="sksync" title="install what the marketplace offers; replaces only skills a sync installed">sync</button>
+      <button type="button" id="skrefresh" class="linkbtn" title="re-read what the marketplace offers, without installing">refresh</button>
+      <a id="sksettings" class="linkbtn" title="fleet.skills.source, on the settings page">change the source on settings</a>
+      <span id="sksyncline" class="why" role="status"></span>
+    </div>
+  </section>
   <p id="skillsline" class="why" aria-live="polite">reading the skills&hellip;</p>
   <div class="sk-head" role="row">
     <button type="button" class="sk-sort" data-sort="name" title="sort by name">name</button>
@@ -31,6 +41,10 @@
   </div>
   <ol id="skillrows" aria-label="every skill, with its use"></ol>
   <p id="skillsnone" class="why" hidden>No skills installed. <code>ad-update</code> installs this project's.</p>
+  <section id="sknew" aria-labelledby="sknew-head" hidden>
+    <h2 id="sknew-head">offered by the marketplace, not installed</h2>
+    <ol id="sknewrows" aria-label="skills the marketplace offers that are not installed"></ol>
+  </section>
 </main>
 
 <template id="skillrow"><li class="sk">
@@ -50,6 +64,7 @@
     <p class="sk-tickets"></p>
   </div>
 </li></template>
+<template id="sknewrow"><li class="sk-new"><span class="sk-n"></span> <span class="sk-desc"></span></li></template>
 <template id="skillrepo"><li><span class="sk-r-name"></span> <span class="sk-r-uses"></span> <span class="sk-r-last"></span></li></template>
 
 <script src="/static/common.js"></script>

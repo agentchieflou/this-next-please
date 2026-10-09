@@ -72,14 +72,42 @@ the description, the uses, when last (relative, the ISO stamp as the title), the
 repositories, ok / failed, the version (the SKILL.md's hash, the install time as its title) and where
 it is installed. The expansion is drawn only while it is open, so a closed row costs a draw nothing.
 
+### `function skSyncWords`
+
+The last sync's result as one line: what was added, updated, removed and left as it was, or the
+server's error and hint when it failed. Said on `#sksyncline` once a sync the page started has
+finished, and again on every load, so a sync started from another window is read here too.
+
+### `function drawSource`
+
+The marketplace box: the source (`fleet.skills.source`), its kind, when it was last synced and from
+what, at which commit; the *sync* and *refresh* buttons, disabled while a sync runs anywhere (the
+server says `sync.running`) or a press of this page's is in flight; and the skills the marketplace
+offers that are not installed (`not_installed`), one line each through `patchList`. The box is drawn
+from the same answer as the list, so one poll keeps both true.
+
 ### `function drawSkills`
 
 The list through `patchList`, the totals line, and `aria-sort` on the pressed header, every write
 guarded, so the 30-second poll that finds nothing new touches nothing (contract rule 7).
 
+### `function skTake`
+
+One place the server's answer lands, because two calls bring it: the poll (`/api/skills`) and a
+*refresh* (`skills-refresh` answers the snapshot too).
+
 ### `function skLoad`
 
-One fetch; a failure is said on the line and never thrown.
+One fetch; a failure is said on the line and never thrown. While the server says a sync is running
+the page asks again every two seconds (`SK_SYNC_POLL_MS`), so the result lands within two seconds
+of the sync's end whichever window started it.
+
+### `function skPost`
+
+The two presses. `skills-sync` only starts the sync -- the answer is that it started -- and the
+two-second poll brings the result; `skills-refresh` runs to completion and answers the snapshot,
+drawn at once. A refusal (`skills_sync_running`, `skills_bad_source`, `skills_sync_failed`) is said
+on the line in the server's words.
 
 ### `setInterval(function () { if (document.visibilityState === "visible") skLoad(); }, SK_POLL_MS);`
 

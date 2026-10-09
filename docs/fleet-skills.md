@@ -96,6 +96,48 @@ result lands; a call with no result yet (the agent is still in it, or the stream
 answered) is a use with neither. The settings page's line counts a skill as *used in the last 30
 days* when its last use is within that window.
 
+## The marketplace source
+
+`fleet.skills.source` (on `/settings`, under the Copilot block; `ad-setup` writes the same
+`~/.agentdata/config.json`) names where the skills come from. Three shapes, told apart by
+`skills.source_kind`:
+
+| Shape | Looks like | Sync does | Refresh does |
+| --- | --- | --- | --- |
+| `github` | `owner/repo`, optionally `owner/repo@ref` | `gh skill install owner/repo --all --scope user --agent github-copilot`, the line `ad-update` runs (`update.skills_command`), with its *already installed → remove ours, retry* handling | `gh api repos/owner/repo/contents/skills` for the names (descriptions from a clone when one is there); without `gh`, a shallow clone over https |
+| `git` | anything `git clone` takes: `https://…`, `ssh://…`, `git@host:…`, `file://…`, `….git`; `@ref` after the path picks a branch or tag | `git clone --depth 1 [--branch ref]` into `<fleet dir>/marketplace/<sha12 of the url>/`, or `git pull --ff-only` when the clone is there; then the copy below | the same clone or pull, read, nothing copied |
+| `path` | a folder that exists (looked for first, so a relative `a/b` that exists is a folder) | the copy below, from `<folder>/skills/` when there is one, else the folder itself | the folder, read |
+
+Anything else is refused on the settings page (`bad_source`) and by both verbs (`skills_bad_source`),
+so a typo is never stored as a source nothing can sync from. The default is this repository.
+
+**The copy.** Every `<name>/SKILL.md` the source offers goes to the first `SKILL_DIRS` entry that
+exists (`~/.copilot/skills` first; it is created when none exists). A folder the sync installs
+carries a `.marketplace` file holding the source string. A folder already there is replaced only
+when it carries this source's marker; one without a marker (installed by hand, by `ad-update`, by
+`gh`), or with another source's, is left as it is and named in the result's `skipped`. A folder with
+this source's marker that the source no longer offers is removed: a sync mirrors its source. For a
+GitHub source `gh` does the writing, and the folders it added or changed are given the marker
+afterwards so the next sync recognises them.
+
+**The result.** Before and after, the SKILL.md hashes in the target directory say what was `added`,
+`updated`, `removed` or `unchanged` (the same digest the install fingerprint takes;
+`fingerprint.changed` compares two recorded sets, not a before and an after, so the diff is taken
+here). `commit` is the clone's head, or the GitHub branch's through `gh api`, when known. The result
+is kept in the ledger as `sync` and shown on the page as *last synced <when> from <source> @
+<commit>*; the catalogue a refresh read is kept as `catalog`, and the snapshot marks each installed
+skill `available` and lists what is offered and not installed.
+
+**One at a time.** A sync runs on a thread; `skills-sync` answers that it started, a second press
+while it runs is refused `skills_sync_running`, and the page polls `/api/skills` every two seconds
+until `sync.running` is false. A sync is capped at 120 s and a refresh at 30 s; every subprocess goes
+through `agentdata/proc.py` (the Windows shims, `GIT_TERMINAL_PROMPT=0`), and every failure is a
+result with `error` and `hint`, never a traceback.
+
+**Offline.** A git or GitHub source that cannot be reached leaves what is installed as it was, keeps
+the last clone and the last catalogue, and says so on the page. A `path` source needs no network at
+all.
+
 ## Limits
 
 * **Claude Code's transcripts are not read.** Only Copilot's two shapes (the fleet's normalized
@@ -114,7 +156,9 @@ days* when its last use is within that window.
 | Method | Path | What |
 | --- | --- | --- |
 | GET | `/skills` | the page |
-| GET | `/api/skills` | `{ok, dirs, skills[], totals, ledger_updated}`; the shape is in [fleet-dashboard.md](fleet-dashboard.md) §Endpoints |
+| GET | `/api/skills` | `{ok, source, sync, catalog, not_installed, dirs, skills[], totals, ledger_updated}`; the shape is in [fleet-dashboard.md](fleet-dashboard.md) §Endpoints |
+| POST | `/api/skills-sync` | start a sync of the stored source; `{started: true}`, or `skills_sync_running` / `skills_bad_source` |
+| POST | `/api/skills-refresh` | read the catalogue and answer the snapshot; `skills_bad_source` / `skills_sync_failed` |
 
-No POST: the page changes nothing. Tested by `tests/test_fleet_skills.py` and, in a browser,
+The list itself changes nothing: the only write is *sync*. Tested by `tests/test_fleet_skills.py` and, in a browser,
 `tests/test_fleet_skills_page.py`.

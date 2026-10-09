@@ -34,8 +34,15 @@ SKILL_SPEC = "agentchieflou/this-next-please"
 # `--agent` pinned, not left to the default. `gh skill install` picks a destination from the agent,
 # and the default is only `github-copilot` "when running non-interactively" -- so an interactive run
 # could put the skills somewhere the CLI never reads.
-SKILLS_CMD = ["gh", "skill", "install", SKILL_SPEC, "--all", "--scope", "user",
-              "--agent", "github-copilot"]
+
+
+def skills_command(spec: str = SKILL_SPEC) -> list[str]:
+    """The install line for one marketplace: `ad-update` runs it for this repo's skills, and the
+    fleet's skills marketplace (`fleet.skills.source`) for whichever GitHub repo the operator named."""
+    return ["gh", "skill", "install", spec, "--all", "--scope", "user", "--agent", "github-copilot"]
+
+
+SKILLS_CMD = skills_command()
 # Where an agent reads user-scope skills. Copilot CLI 1.0.81 reads **both** `~/.copilot/skills` and
 # `~/.agents/skills` -- measured for the #92 spike by installing into the first and watching skills
 # from both appear in one `copilot skill list`. `~/.copilot/skills` is first because that is where

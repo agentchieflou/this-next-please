@@ -144,6 +144,7 @@ when a change takes effect, because the answers differ:
 | `fleet.model_list.max_age_h` | hours the model list read from the Copilot CLI is kept before it is asked again (default 24; a new CLI version is asked at once). `ad-fleet models --refresh` asks now | at the next read of the list |
 | `fleet.approval_timeout` | seconds a gated write waits for your click | now |
 | `fleet.max_restarts`, `fleet.log_mb`, `fleet.log_keep` | how often an agent is resumed after a crash, and how its logs rotate | now |
+| `fleet.skills.source` | the skills marketplace `/skills` syncs from: a GitHub `owner/repo` (optionally `@ref`), a git URL, or a local folder holding `skills/*/SKILL.md` (default `agentchieflou/this-next-please`; [fleet-skills.md](fleet-skills.md) §The marketplace source) | now |
 | `fleet.board_ttl`, `fleet.branches.warn`, `fleet.attach.max_mb` | the Jira board cache, the branch-clutter warning, the attachment cap | now |
 | `fleet.console.host`, `fleet.console.palette` | which terminal a console opens in, and whether it is coloured | next console |
 | `fleet.notify.*` | dashboard, desktop and chime notifications, the cooldown, quiet hours | now |

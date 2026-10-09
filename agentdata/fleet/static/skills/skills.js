@@ -9,6 +9,16 @@ var skRows = document.getElementById("skillrows");
 var skLine = document.getElementById("skillsline");
 var skNone = document.getElementById("skillsnone");
 var skHead = document.querySelector(".sk-head");
+var skSrc = document.getElementById("sksrc");
+var skSrcKind = document.getElementById("sksrckind");
+var skSynced = document.getElementById("sksynced");
+var skSync = /** @type {HTMLButtonElement} */ (document.getElementById("sksync"));
+var skRefresh = /** @type {HTMLButtonElement} */ (document.getElementById("skrefresh"));
+var skSettings = document.getElementById("sksettings");
+var skSyncLine = document.getElementById("sksyncline");
+var skNew = document.getElementById("sknew");
+var skNewRows = document.getElementById("sknewrows");
+if (skSettings) skSettings.href = pageUrl("/settings") + "#cfg-fleet-skills-source";
 
 /**
  * @typedef {Object} SkillRepo
@@ -40,11 +50,15 @@ var skHead = document.querySelector(".sk-head");
 var skState = {
   /** @type {Array<SkillRow>} */ rows: [],
   /** @type {Object} */ totals: null,
+  /** @type {Object} */ source: null,
+  /** @type {Object} */ sync: null,
+  /** @type {Array<Object>} */ notInstalled: [],
   sort: "uses", dir: -1, q: "",
   /** @type {Object<string, boolean>} */ open: {},
-  failed: false
+  failed: false, busy: false, said: ""
 };
 var SK_POLL_MS = 30000;
+var SK_SYNC_POLL_MS = 2000;
 var SK_TOP = 3;
 
 /** @param {SkillRow} r @returns {string} */
@@ -162,7 +176,43 @@ function drawSkill(li, r) {
   text(li.querySelector(".sk-tickets"), r.tickets && r.tickets.length ? "tickets: " + r.tickets.slice().reverse().join(", ") : "");
 }
 
+/** @param {Object} r @returns {string} */
+function skSyncWords(r) {
+  if (!r || !r.finished) return "";
+  if (r.error) return "sync failed: " + r.error + (r.hint ? " \u2014 " + r.hint : "");
+  var parts = [r.added.length + " added", r.updated.length + " updated", r.removed.length + " removed",
+               r.unchanged.length + " unchanged"];
+  if (r.skipped && r.skipped.length) parts.push(r.skipped.length + " left alone");
+  return "synced " + skAgo(r.finished) + ": " + parts.join(", ");
+}
+
+function drawSource() {
+  var src = skState.source, last = skState.sync;
+  if (!src) return;
+  text(skSrc, src.value);
+  text(skSrcKind, src.kind || "not a marketplace");
+  var running = !!(last && last.running);
+  text(skSynced, running ? "syncing\u2026" : last && last.finished
+    ? "last synced " + skAgo(last.finished) + " from " + last.source + (last.commit ? " @ " + last.commit : "")
+      + (last.ok ? "" : " (failed)")
+    : "never synced");
+  attr(skSynced, "title", last && last.finished ? last.finished : null);
+  disable(skSync, running || skState.busy || !src.kind);
+  disable(skRefresh, running || skState.busy || !src.kind);
+  text(skSyncLine, skState.said || (running ? "" : skSyncWords(last)));
+  var rows = skState.notInstalled || [];
+  hide(skNew, !rows.length);
+  patchList(skNewRows, rows, function (x) { return x.name; }, function () {
+    var tpl = /** @type {HTMLTemplateElement} */ (document.getElementById("sknewrow"));
+    return /** @type {HTMLElement} */ (tpl.content.firstElementChild.cloneNode(true));
+  }, function (el, x) {
+    text(el.querySelector(".sk-n"), x.name);
+    text(el.querySelector(".sk-desc"), x.description);
+  });
+}
+
 function drawSkills() {
+  drawSource();
   var rows = skSorted();
   patchList(skRows, rows, skKey, skCreate, drawSkill);
   hide(skNone, skState.rows.length > 0 || skState.failed);
@@ -181,18 +231,48 @@ function drawSkills() {
   }
 }
 
+/** @param {Object} d */
+function skTake(d) {
+  skState.rows = d.skills || [];
+  skState.totals = d.totals || null;
+  skState.source = d.source || null;
+  skState.sync = d.sync || null;
+  skState.notInstalled = d.not_installed || [];
+  skState.failed = false;
+}
+
 function skLoad() {
   return fetch(q("/api/skills")).then(function (r) { return r.json(); }).then(function (d) {
     if (!d || d.ok === false) throw new Error("no");
-    skState.rows = d.skills || [];
-    skState.totals = d.totals || null;
-    skState.failed = false;
+    skTake(d);
     drawSkills();
+    if (d.sync && d.sync.running) setTimeout(skLoad, SK_SYNC_POLL_MS);
   }).catch(function () {
     skState.failed = true;
     drawSkills();
   });
 }
+
+/** @param {string} what */
+function skPost(what) {
+  skState.busy = true;
+  skState.said = what === "skills-sync" ? "starting\u2026" : "reading the marketplace\u2026";
+  drawSkills();
+  return post(what, {}).then(function (res) {
+    skState.busy = false;
+    if (!res || res.ok === false) {
+      skState.said = (res && res.error) || "no answer";
+      drawSkills();
+      return;
+    }
+    skState.said = "";
+    if (res.skills) { skTake(res); drawSkills(); }
+    else skLoad();
+  });
+}
+
+if (skSync) skSync.addEventListener("click", function () { skPost("skills-sync"); });
+if (skRefresh) skRefresh.addEventListener("click", function () { skPost("skills-refresh"); });
 
 if (skHead) {
   skHead.addEventListener("click", function (e) {
@@ -214,6 +294,7 @@ skLoad();
 window.FleetSkills = Object.freeze({
   get rows() { return skState.rows; },
   get totals() { return skState.totals; },
+  get sync() { return skState.sync; },
   load: skLoad,
   draw: drawSkills
 });

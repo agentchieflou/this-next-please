@@ -304,3 +304,194 @@ def test_the_route_answers_the_snapshot_and_the_page_is_served_like_every_page(f
     assert 'id="skillsblock"' in settings and 'id="skillsline"' in settings and 'id="skillsbtn"' in settings
     assert 'skillsLink.href = pageUrl("/skills")' in js
     assert 'text(line, "skills: unavailable")' in js, "a marketplace that cannot answer leaves the line, never throws"
+
+
+# ------------------------------------------------------------------------------- the marketplace source
+
+
+def _git(cwd, *args):
+    import subprocess
+    done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60,
+                          env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x", "GIT_TERMINAL_PROMPT": "0"})
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+def _marketplace(root, names: dict) -> str:
+    """A folder shaped like this repository: `skills/<name>/SKILL.md` per entry."""
+    for name, description in names.items():
+        _skill(root / "skills", name, description, body=f"the {name} skill\n")
+    return str(root)
+
+
+@pytest.fixture()
+def install_dir(tmp_path, monkeypatch):
+    """One skills directory, so a sync has somewhere real to write and nothing else."""
+    d = tmp_path / "installed"
+    d.mkdir()
+    monkeypatch.setattr(U, "SKILL_DIRS", (str(d), str(tmp_path / "nowhere")))
+    return d
+
+
+def test_source_kind_tells_the_three_shapes_apart_and_refuses_the_rest(tmp_path):
+    assert SK.source_kind("agentchieflou/this-next-please") == "github"
+    assert SK.source_kind("owner/repo@v2") == "github"
+    assert SK.source_kind("https://github.com/owner/repo.git") == "git"
+    assert SK.source_kind("git@github.com:owner/repo.git") == "git"
+    assert SK.source_kind("ssh://git@host/owner/repo") == "git"
+    assert SK.source_kind(str(tmp_path)) == "path"
+    for bad in ("", "not a source", "owner//repo", "/no/such/folder/anywhere", "owner/repo extra"):
+        assert SK.source_kind(bad) == "", bad
+
+
+def test_the_source_setting_is_read_round_tripped_and_a_bad_one_refused(fleet_home, tmp_path):
+    from agentdata.fleet import settings as SET
+
+    assert SET.EDITABLE["fleet.skills.source"]["default"] == "agentchieflou/this-next-please"
+    assert SK.source() == "agentchieflou/this-next-please"
+    S.act("settings", {"set": [{"key": "fleet.skills.source", "value": str(tmp_path)}]})
+    assert SK.source() == str(tmp_path) and C.get(C.load(), "fleet.skills.source") == str(tmp_path)
+    with pytest.raises(S.ServeError) as e:
+        S.act("settings", {"set": [{"key": "fleet.skills.source", "value": "not a marketplace"}]})
+    assert e.value.code == "bad_source" and "owner/repo" in (e.value.hint or "")
+    assert SK.source() == str(tmp_path), "nothing written on a refusal"
+    snap = S.settings_snapshot()
+    assert any(r["key"] == "fleet.skills.source" for r in snap["editable"]), "the control is on the page"
+
+
+def test_a_sync_from_a_folder_installs_marks_reports_and_never_touches_what_it_did_not_install(
+        fleet_home, tmp_path, install_dir):
+    src = _marketplace(tmp_path / "market", {"triage": "sort the inbox", "publish": "push the report"})
+    _skill(install_dir, "mine", "installed by hand")                      # no marker: never touched
+    _skill(install_dir, "triage", "an older copy")                        # same name, no marker
+    first = SK.sync(src)
+    assert first["ok"] and first["kind"] == "path" and first["error"] == "", first
+    assert first["added"] == ["publish"] and first["updated"] == [] and first["removed"] == []
+    assert first["unchanged"] == ["mine", "triage"] and first["skipped"] == ["triage (not installed by a sync)"]
+    assert (install_dir / "publish" / ".marketplace").read_text(encoding="utf-8").strip() == src
+    assert not (install_dir / "mine" / ".marketplace").exists()
+    assert "older copy" in (install_dir / "triage" / "SKILL.md").read_text(encoding="utf-8")
+    assert first["target"] == SK.short_dir(str(install_dir)) and first["finished"] and first["seconds"] >= 0
+    assert SK.read_ledger()["sync"]["added"] == ["publish"], "the result is kept in the ledger"
+
+    # the second run: one changed, one dropped by the source, one added, the hand-installed left alone
+    (install_dir / "triage").rename(install_dir / "gone-later")           # pretend it was never there
+    _skill(tmp_path / "market" / "skills", "publish", "push the report, v2", body="changed\n")
+    _skill(tmp_path / "market" / "skills", "review", "read a PR")
+    second = SK.sync(src)
+    assert second["ok"], second
+    assert second["added"] == ["review", "triage"] and second["updated"] == ["publish"] and second["removed"] == []
+    assert "gone-later" in second["unchanged"] and "mine" in second["unchanged"]
+    import shutil
+    shutil.rmtree(tmp_path / "market" / "skills" / "review")
+    third = SK.sync(src)
+    assert third["removed"] == ["review"] and not (install_dir / "review").exists(), \
+        "a folder with this source's marker the source no longer offers is removed"
+    assert (install_dir / "mine").is_dir() and (install_dir / "gone-later").is_dir()
+
+    other = _marketplace(tmp_path / "other", {"publish": "someone else's"})
+    fourth = SK.sync(other)
+    assert fourth["skipped"] == [f"publish (another source: {src})"] and fourth["added"] == []
+    assert "v2" in (install_dir / "publish" / "SKILL.md").read_text(encoding="utf-8")
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    bad = SK.sync(str(empty))
+    assert not bad["ok"] and "no skills" in bad["error"] and bad["hint"]
+    assert not SK.sync("nonsense")["ok"]
+
+
+def test_a_sync_from_a_git_repository_clones_under_the_fleet_then_pulls(fleet_home, tmp_path, install_dir):
+    work = tmp_path / "work"
+    _marketplace(work, {"triage": "sort the inbox"})
+    _git(work, "init", "-q", "-b", "main")
+    _git(work, "add", ".")
+    _git(work, "commit", "-q", "-m", "one")
+    bare = tmp_path / "market.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(work), str(bare))
+    url = bare.as_uri() if os.name != "nt" else str(bare)
+
+    cat = SK.catalog(url)
+    assert cat["kind"] == "git" and [r["name"] for r in cat["skills"]] == ["triage"] and cat["error"] == ""
+    assert cat["skills"][0]["description"] == "sort the inbox" and len(cat["commit"]) == 12
+    assert os.path.isdir(os.path.join(SK.clone_dir(url), ".git")) and SK.clone_dir(url).startswith(str(fleet_home))
+
+    out = SK.sync(url)
+    assert out["ok"] and out["added"] == ["triage"] and out["commit"] == cat["commit"], out
+    assert (install_dir / "triage" / ".marketplace").read_text(encoding="utf-8").strip() == url
+
+    _skill(work / "skills", "review", "read a PR")
+    _git(work, "add", ".")
+    _git(work, "commit", "-q", "-m", "two")
+    _git(work, "push", "-q", str(bare), "main")
+    again = SK.sync(url)
+    assert again["ok"] and again["added"] == ["review"] and again["unchanged"] == ["triage"]
+    assert again["commit"] != out["commit"], "the pull moved the head"
+
+    snap = SK.snapshot()
+    assert snap["sync"]["commit"] == again["commit"] and snap["sync"]["running"] is False
+    broken = SK.sync("https://127.0.0.1:9/nowhere/at-all.git")
+    assert not broken["ok"] and "git clone" in broken["error"] and broken["hint"]
+
+
+def test_a_catalog_from_a_folder_marks_what_is_installed_and_lists_what_is_not(fleet_home, tmp_path, install_dir):
+    src = _marketplace(tmp_path / "market", {"triage": "sort the inbox", "publish": "push the report"})
+    S.act("settings", {"set": [{"key": "fleet.skills.source", "value": src}]})
+    _skill(install_dir, "triage", "sort the inbox")
+    cat = SK.catalog()
+    assert cat["source"] == src and [r["name"] for r in cat["skills"]] == ["publish", "triage"]
+    snap = SK.snapshot()
+    assert snap["source"] == {"value": src, "kind": "path", "key": "fleet.skills.source"}
+    assert snap["not_installed"] == [{"name": "publish", "description": "push the report"}]
+    assert {r["name"]: r["available"] for r in snap["skills"]} == {"triage": True}
+    assert snap["catalog"]["fetched"]
+    S.act("settings", {"set": [{"key": "fleet.skills.source", "value": str(tmp_path)}]})
+    assert SK.snapshot()["not_installed"] == [] and SK.snapshot()["catalog"] == {}, \
+        "a catalogue read from another source is not this source's"
+
+
+def test_the_sync_and_refresh_routes_start_a_sync_once_and_refuse_a_bad_source(fleet_home, tmp_path, install_dir,
+                                                                                 monkeypatch):
+    src = _marketplace(tmp_path / "market", {"triage": "sort the inbox"})
+    S.act("settings", {"set": [{"key": "fleet.skills.source", "value": src}]})
+
+    out = S.act("skills-refresh", {})
+    assert out["not_installed"] == [{"name": "triage", "description": "sort the inbox"}] and out["source"]["value"] == src
+
+    gate = threading.Event()
+    real = SK.sync
+
+    def slow(value=None):
+        gate.wait(10)
+        return real(value)
+
+    monkeypatch.setattr(SK, "sync", slow)
+    assert S.act("skills-sync", {}) == {"started": True, "source": src}
+    with pytest.raises(S.ServeError) as e:
+        S.act("skills-sync", {})
+    assert e.value.code == "skills_sync_running" and src in (e.value.hint or "")
+    assert SK.snapshot(fold=False)["sync"]["running"] is True
+    gate.set()
+    deadline = __import__("time").monotonic() + 10
+    while SK.sync_running() and __import__("time").monotonic() < deadline:
+        __import__("time").sleep(0.02)
+    assert not SK.sync_running()
+    snap = SK.snapshot(fold=False)
+    assert snap["sync"]["added"] == ["triage"] and snap["sync"]["running"] is False
+    assert (install_dir / "triage" / ".marketplace").exists()
+
+    import shutil
+    shutil.rmtree(tmp_path / "market" / "skills")
+    with pytest.raises(S.ServeError) as e:
+        S.act("skills-refresh", {})
+    assert e.value.code == "skills_sync_failed" and e.value.hint
+
+    monkeypatch.setattr(SK, "source", lambda: "not a marketplace")
+    for verb in ("skills-sync", "skills-refresh"):
+        with pytest.raises(S.ServeError) as e:
+            S.act(verb, {})
+        assert e.value.code == "skills_bad_source", verb
+    with pytest.raises(S.ServeError) as e:
+        S.act("nonsense", {})
+    assert "skills-sync" in (e.value.hint or "") and "skills-refresh" in (e.value.hint or "")

@@ -340,6 +340,13 @@ fetch beside the settings one, so a marketplace that cannot answer (no fleet dir
 being rebuilt) leaves the line reading *skills: unavailable* and every other section drawn: it
 never throws into `load`'s chain.
 
+### `function landOnControl`
+
+`/settings#cfg-<key-with-dashes>` lands on one control, the way `#model-<repo>` lands on a row: the
+skills marketplace's *change the source on settings* opens `#cfg-fleet-skills-source`. Once, after
+the first draw, because the rows are built from the answer and the browser's own hash scroll ran
+before they existed.
+
 ### `function load`
 
 Above `if (!modelListAsked) modelListAsked = loadModelList();`:

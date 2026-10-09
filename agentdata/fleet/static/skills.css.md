@@ -39,3 +39,14 @@ a hand.
 
 Under 900 px the description, version and directory columns go; under 560 px the repositories and
 the ok / failed count too. Each is still in the row's expansion.
+
+### `.sk-source, #sknew`
+
+The marketplace box above the list and the *not installed* box under it: the same panel as a row,
+so the page reads as one column. The box holds the source as code, its kind as a pill, when it was
+last synced, and the three things to do about it: *sync*, *refresh*, *change the source*.
+
+### `#sknewrows`
+
+One line per skill the marketplace offers and the disk does not have: its name and description,
+nothing to press: installing is *sync*, which takes them all.

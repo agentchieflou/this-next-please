@@ -218,7 +218,7 @@
   "tests/test_fleet_settings_page.py": {"tests": 12},
   "tests/test_fleet_settings_theme.py": {"tests": 11},
   "tests/test_fleet_shells.py": {"tests": 27},
-  "tests/test_fleet_skills.py": {"tests": 9},
+  "tests/test_fleet_skills.py": {"tests": 15},
   "tests/test_fleet_skills_page.py": {"tests": 1},
   "tests/test_fleet_skin_auto.py": {"tests": 6},
   "tests/test_fleet_skin_guard.py": {"tests": 5},

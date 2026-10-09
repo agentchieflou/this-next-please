@@ -291,6 +291,7 @@ var modelSnap = null;
 var fleetPicker = null;
 var rowPickers = new WeakMap();
 var landing = location.hash.indexOf("#model-") === 0;
+var landingControl = location.hash.indexOf("#cfg-") === 0;
 
 function loadModelList() {
   return fetch(q("/api/models")).then(function (r) { return r.json(); }).then(function (data) {
@@ -1006,9 +1007,19 @@ function loadSkillsLine() {
   return fetch(q("/api/skills")).then(function (r) { return r.json(); }).then(function (d) {
     var t = d && d.ok !== false && d.totals;
     if (!t) throw new Error("no");
+    var from = d.source && d.source.value ? ", synced from " + d.source.value : "";
     text(line, t.skills + (t.skills === 1 ? " skill" : " skills") + " installed, " + t.used_recently +
-      " used in the last " + t.recent_days + " days \u2014 open the marketplace to see which, where and when.");
+      " used in the last " + t.recent_days + " days" + from + " \u2014 open the marketplace to see which, where and when.");
   }).catch(function () { text(line, "skills: unavailable"); });
+}
+
+function landOnControl() {
+  if (!landingControl || location.hash.indexOf("#cfg-") !== 0) return;
+  var el = document.getElementById(location.hash.slice(1));
+  if (!el) return;
+  landingControl = false;
+  el.scrollIntoView({ block: "center" });
+  el.focus();
 }
 
 function load() {
@@ -1024,6 +1035,7 @@ function load() {
       draw(data);
       renderTierNote(data.tiers);
       landOnRow();
+      landOnControl();
     }).catch(function () {});
 }
 
