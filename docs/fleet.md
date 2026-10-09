@@ -196,9 +196,9 @@ approve its write or send it a message, you walk up to it: nothing in the world 
 distance. It is built to draw each frame within 10 ms (100 frames a second, or your display's rate
 if that is lower). [fleet-world.md](fleet-world.md) has the controls and how the frame budget is
 kept. **Parked since 2026-10-08:** the world's photo assets, people, trees, cars and asset pipeline
-moved to `agentchieflou/play-sports` (its `RawAssets/world/` and Track R), where the 3D work goes
-on; the page stays at the fidelity its own fallbacks give it, with the office, the walk and the
-take-over.
+are maintained in `agentchieflou/play-sports` (its `RawAssets/world/` and Track R) from now on,
+where the 3D work goes on; no new work on the world lands here, and a follow-up commit removes
+the copies this package still ships. The page, the office, the walk and the take-over stay.
 
 ### The catalogue
 
