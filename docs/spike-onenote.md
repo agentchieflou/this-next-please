@@ -27,6 +27,9 @@ Two facts decide most of this:
 - **The Standard OneNote (Business) connector can do every action listed above.** So the relayed path needs no
   Premium licence, and M365-D1's default ("no Premium") holds.
 
+**The operator's pick (2026-10-09): use 2**, as worklogs in a notebook laid out like the fleet map (project →
+checkout → month → day). The design is [plan-onenote-worklog.md](plan-onenote-worklog.md).
+
 ## 2. OneNote as an API: what Microsoft documents
 
 | Fact | Consequence for us | Source |

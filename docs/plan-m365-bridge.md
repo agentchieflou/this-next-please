@@ -147,7 +147,8 @@ configured source, the ledger says which of them get used and where, and a skill
 
 OneNote rides these slices rather than adding one: the research is in [spike-onenote.md](spike-onenote.md)
 (context from a named section, a fleet log page appended behind the gate, an Agent inbox section as intake, and
-Copilot Notebooks as the reasoning surface we write for but do not build).
+Copilot Notebooks as the reasoning surface we write for but do not build). The operator chose the log page; its design is
+[plan-onenote-worklog.md](plan-onenote-worklog.md).
 
 Each slice follows the mobile lane's method: the contract page first (`docs/fleet-m365.md`, a sibling of
 [fleet-mobile.md](fleet-mobile.md), read by a test for every record kind, setting, verb, event and refusal code),
