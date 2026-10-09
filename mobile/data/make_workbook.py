@@ -88,7 +88,7 @@ NONCE_REJECTED = "c0d3e6f9a2b5c8d1e4f7a0b3c6d9e2f5"
 LAPTOP_ID = "5e1c9a7b3d2f4e6a8c0b1d3f5a7c9e2b"
 APPROVAL_PENDING = "rdsd-uat-jira-transition-20260926T091200Z-7f3a"
 APPROVAL_APPROVED = "luna-jira-create-20260925T160301Z-a1c9"
-APPROVAL_DENIED = "dpm-reports-pncli-write-20260925T110000Z-33be"
+APPROVAL_DENIED = "dpm-reports-confluence-publish-20260925T110000Z-33be"
 APPROVAL_EXPIRED = "rdsd-uat-jira-transition-20260924T083000Z-0c4d"
 
 # What FleetOutboxToLists writes from contract/examples/*.json (tests/test_mobile_contract.py holds them to it).
@@ -150,12 +150,12 @@ ROWS = {
             "Nonce": NONCE_APPLIED, "ResultCode": "", "ResultText": "", "SourceFile": APPROVAL_APPROVED + ".json",
         },
         {
-            "Title": APPROVAL_DENIED, "Repo": "dpm-reports", "Ticket": "DPM-77", "ApprovalKind": "pncli-write",
-            "Summary": "Publish the DPM-77 report to the production workspace",
-            "PayloadPreview": '{"truncated":true,"bytes":9120,"head":"{\\"workspace\\":\\"Production\\",\\"report\\":\\"DPM-77 weekly\\", ..."}',
+            "Title": APPROVAL_DENIED, "Repo": "dpm-reports", "Ticket": "DPM-77", "ApprovalKind": "confluence-publish",
+            "Summary": "create page \"DPM-77 weekly\" in PROD (9120 chars)",
+            "PayloadPreview": '{"truncated":true,"bytes":9120,"head":"{\\"space\\":\\"PROD\\",\\"title\\":\\"DPM-77 weekly\\", ..."}',
             "PayloadTruncated": "true", "PayloadBytes": "9120", "Digest": DIGEST_D, "Created": "2026-09-25T11:00:00Z",
             "Expires": "2026-09-25T11:30:00Z", "WaitingSeconds": "61", "Status": "denied", "DecidedBy": "operator",
-            "DecidedAt": "2026-09-25T11:01:01Z", "Reason": "Wrong workspace; retarget to UAT first.", "Via": "laptop",
+            "DecidedAt": "2026-09-25T11:01:01Z", "Reason": "Wrong space; publish to UAT first.", "Via": "laptop",
             "Late": "false", "Nonce": "", "ResultCode": "", "ResultText": "", "SourceFile": APPROVAL_DENIED + ".json",
         },
     ],

@@ -71,18 +71,25 @@ def test_a_chain_asks_only_for_what_the_shipped_list_lacks():
 
 
 @pytest.mark.parametrize("command, instead", [
-    ("pncli bitbucket --help", "ad-pncli help"),
-    ("pncli jira get-issue --key RDSD-1", "ad-pncli"),
     ("git push -u origin HEAD", "ad-git push"),
     ("curl -X POST https://jira.example.test/rest/api/2/issue", "ad-*"),
     ("rm -rf .agent/out", "cleanup guide"),
-    ("cd x && pncli confluence create-page --title t", "ad-pncli"),
+    ("cd x && wget https://confluence.example.test/rest/api/content", "ad-*"),
 ])
 def test_the_deny_floor_is_never_offered_and_says_what_to_use_instead(command, instead):
     got = _refused("bash", {"command": command})
     (row,) = got["refused_tools"]
     assert not row["grantable"] and row["patterns"] == [] and row["floor"], row
     assert instead in row["instead"] and instead in got["why"], got["why"]
+
+
+def test_pncli_is_not_on_the_floor_its_writes_are_the_shims_to_refuse():
+    """pncli is used directly: a read needs no grant, and a write is not a grant either -- the fleet's shim
+    refuses it (tests/test_fleet_pncli_gate.py), so nothing here offers or forbids it."""
+    for command in ("pncli jira get-issue --key RDSD-1", "pncli confluence create-page --title t"):
+        row = G.refusal("bash", {"command": command})
+        assert row["floor"] == "" and row["patterns"] == [] and not row["grantable"], row
+    assert "ad-confluence publish" in G.INSTEAD["pncli"] and "ad-git pr" in G.INSTEAD["pncli"]
 
 
 def test_a_denial_whose_call_was_never_seen_keeps_its_own_words():
@@ -140,8 +147,8 @@ def test_a_grant_for_every_agent_is_the_fleets_list(home):
 def test_a_grant_never_reaches_past_a_denial(home):
     cfg = C.load()
     with pytest.raises(G.GrantError) as floor:
-        G.grant(cfg, "luna", ["shell(pncli)"], known={"luna"})
-    assert floor.value.code == "denied_by_floor" and "ad-pncli" in floor.value.hint
+        G.grant(cfg, "luna", ["shell(curl)"], known={"luna"})
+    assert floor.value.code == "denied_by_floor" and "ad-*" in floor.value.hint
     C.put(cfg, "fleet.copilot.deny_extra", ["shell(dscmd.exe)"])
     with pytest.raises(G.GrantError) as mine:
         G.grant(cfg, "luna", ["shell(dscmd.exe)"], known={"luna"})
@@ -204,7 +211,8 @@ def test_the_refused_card_names_the_command_and_one_press_grants_and_retries(hom
                 ticket="RDSD-7"),
         E.event("luna", "denied", {"id": "t1", "message": "Permission denied"}, ticket="RDSD-7"),
         E.event("luna", "tool_call", {"tool": "powershell", "id": "t2",
-                                      "arguments": {"command": "pncli bitbucket --help"}}, ticket="RDSD-7"),
+                                      "arguments": {"command": "curl https://jira.example.test/rest/api/2/myself"}},
+                ticket="RDSD-7"),
         E.event("luna", "denied", {"id": "t2", "message": "Permission denied"}, ticket="RDSD-7"),
         E.event("luna", "turn_ended", {"turn": "0"}, ticket="RDSD-7"),
     ])
@@ -224,7 +232,7 @@ def test_the_refused_card_names_the_command_and_one_press_grants_and_retries(hom
         assert first.locator(".refusal-what").inner_text() == "powershell: dscmd.exe csv q.csv -s localhost:5123"
         assert first.locator(".refusal-allow").inner_text() == "allow shell(dscmd.exe) for luna, then retry"
         assert first.locator(".refusal-allow").is_visible() and first.locator(".refusal-all").is_visible()
-        assert "ad-pncli help" in floor.locator(".refusal-note").inner_text()
+        assert "ad-*" in floor.locator(".refusal-note").inner_text()
         assert not floor.locator(".refusal-allow").is_visible(), "the deny floor is never offered"
 
         sent = []
@@ -251,9 +259,9 @@ def test_the_refused_card_names_the_command_and_one_press_grants_and_retries(hom
 def test_the_terminal_verb_is_the_same_action_and_refuses_the_floor_by_name(home, capsys):
     from agentdata import cli_fleet
 
-    assert cli_fleet.main(["grant", "luna", "shell(pncli)"]) == 2
+    assert cli_fleet.main(["grant", "luna", "shell(curl)"]) == 2
     out = capsys.readouterr().out
-    assert "refused: denied_by_floor" in out and "ad-pncli" in out
+    assert "refused: denied_by_floor" in out and "ad-*" in out
     assert cli_fleet.main(["grant", "luna", "shell(dscmd.exe)"]) == 0
     out = capsys.readouterr().out
     assert "allowed: shell(dscmd.exe)" in out and "retried: false" in out
@@ -272,7 +280,7 @@ def test_with_a_windows_tools_only_the_fleets_own_commands_are_refused_and_never
 # ------------------------------------------------------------------- the environment it starts in
 
 
-def test_the_agent_gets_what_a_new_terminal_would_have_without_losing_the_desks_own(monkeypatch):
+def test_the_agent_gets_what_a_new_terminal_would_have_without_losing_the_desks_own(monkeypatch, tmp_path):
     """The desk runs for days; pncli or a proxy installed since were in every new terminal and
     missing from every agent. A launch tops the desk's environment up from a new login's: missing
     directories appended to PATH after its own, missing variables added, nothing replaced."""
@@ -281,17 +289,19 @@ def test_the_agent_gets_what_a_new_terminal_would_have_without_losing_the_desks_
     monkeypatch.delenv("PNCLI_HOME", raising=False)
     fresh = {"Path": os.pathsep.join(["/usr/bin/", "/npm/global"]), "HTTPS_PROXY": "http://other:3128",
              "PNCLI_HOME": "/home/luna/.pncli"}
-    env = L.child_env("luna", "/fleet", login=lambda: fresh)
-    assert env["PATH"].split(os.pathsep) == ["/venv/bin", "/usr/bin", "/npm/global"], "theirs first, once each"
+    env = L.child_env("luna", str(tmp_path), login=lambda: fresh)
+    shims = L.shim_dir(str(tmp_path))
+    assert env["PATH"].split(os.pathsep) == [shims, "/venv/bin", "/usr/bin", "/npm/global"], \
+        "the fleet's pncli shim, then theirs, once each"
     assert env["HTTPS_PROXY"] == "http://the-desks-own:8080", "a value the desk was started with is kept"
     assert env["PNCLI_HOME"] == "/home/luna/.pncli"
     assert env["AGENTDATA_FLEET_AGENT"] == "luna"
 
 
-def test_a_login_environment_that_cannot_be_read_never_stops_a_launch():
+def test_a_login_environment_that_cannot_be_read_never_stops_a_launch(tmp_path):
     def broken():
         raise OSError("the registry said no")
 
-    env = L.child_env("luna", "/fleet", login=broken)
+    env = L.child_env("luna", str(tmp_path / "fleet"), login=broken)
     assert env["AGENTDATA_FLEET_AGENT"] == "luna"
     assert L.login_env() == {} or os.name == "nt", "elsewhere a login shell cannot be read without running one"

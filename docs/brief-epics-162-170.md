@@ -143,15 +143,15 @@ Plan section: §Where everything is written down. Depends on nothing; everything
 | `agentdata/state.py` | 11 | `PHASES` has `optimizing`, lacks `closed` and `merged` |
 | `skills/state-update/SKILL.md` | 10 | the phase list lacks `optimizing` |
 | `agentdata/fleet/events.py` | 37–57 | `KINDS` — reserve the new kinds here |
-| `agentdata/cli.py` | 81 | `ad-pncli jira` accepts `choices=["search", "get"]`; `("jira","comments")` is already in `connectors/pncli.READ_VERBS` |
+| `agentdata/cli.py` | 81 | the pncli wrapper (retired in 0.20.0) accepts `jira` `choices=["search", "get"]`; `("jira","comments")` is already in `connectors/pncli.READ_VERBS` |
 
 **Build.** A `code` on every 409 body and `dispatch()` switching on it; `application/x-agentdata-ticket` with
 `text/plain` kept as the fallback; the kinds and fields the plan reserves (`question_opened` grows `id, choices,
 default, want, blocking`; new `question_answered`, `handoff.brief`, `scope.added`; `started` grows `answers,
 scope`; `friction` grows `severity`), documented in `docs/fleet-events.md`; `docs/fleet-handoff.md` for the
 `.agent/in/<KEY>/` layout and its five inherited rules; the attach response fixed; one `TERMINAL_PHASES` imported by
-the supervisor; `closed`/`merged` settled one way for `state.PHASES`; `optimizing` in the skill; `ad-pncli jira
-comments`; Playwright helpers that build a `DataTransfer` with files in page context and dispatch `drop` on a tile.
+the supervisor; `closed`/`merged` settled one way for `state.PHASES`; `optimizing` in the skill; the wrapper's `jira
+comments` (retired in 0.20.0); Playwright helpers that build a `DataTransfer` with files in page context and dispatch `drop` on a tile.
 
 **Tests to write.** Rendered-page: the override still appears after the refusal text is reworded; a successful
 attach reads *attached → …* (must fail on the previous commit). Unit: the two terminal-phase tuples are one object

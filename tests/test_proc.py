@@ -1,5 +1,5 @@
 """Starting programs on Windows. `pncli` is an npm package: it exists as pncli.cmd, never pncli.exe, so handing the
-bare name to CreateProcess fails with [WinError 2] — the 2026-09-02 laptop failure of `ad-pncli jira search`.
+bare name to CreateProcess fails with [WinError 2] — the 2026-09-02 laptop failure of the first Jira search.
 Windows behaviour is exercised on any OS through the `windows=` switch."""
 import json
 import os
@@ -191,9 +191,9 @@ def test_usage_errors_become_the_exact_fix():
     """
     assert P.usage_hint("error: required option '--key <issue-key>' not specified", ["jira", "get-issue", "RDSD-22399"]) == (
         "pncli options are named, never positional (you passed 'RDSD-22399' positionally): re-run with "
-        "`--key RDSD-22399`, e.g. `ad-pncli raw jira get-issue --key RDSD-22399`")
+        "`--key RDSD-22399`, e.g. `pncli jira get-issue --key RDSD-22399`")
     assert "--key <issue-key>" in P.usage_hint("required option '--key <issue-key>' not specified", ["jira", "get-issue"])
-    assert "run `ad-pncli help jira` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
+    assert "run `pncli jira --help` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
     assert P.usage_hint("Traceback: connection reset", ["jira", "search"]) == ""
 
 
@@ -243,59 +243,76 @@ def test_a_pinned_js_entry_point_runs_through_node(tmp_path, monkeypatch):
     assert info["kind"] == "executable" and "no `node` on PATH" in info["error"]
 
 
+PAGE_TEMPLATE = "confluence create-page --space {space} --title {title} --parent {parent} --body {body}"
+
+
+def _pin_page(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {"page_create": PAGE_TEMPLATE}}}),
+                                       encoding="utf-8")
+
+
 @pytest.mark.skipif(os.name == "nt", reason="the stand-in is a shell loop; Windows is covered by test_a_multiline_body_is_refused_through_a_cmd_shim")
-def test_raw_body_file_sends_the_page_as_one_argument(tmp_path, monkeypatch, capsys):
-    """`pncli confluence create-page` takes the body INLINE. A page of HTML cannot survive shell quoting, so it goes
-    across as a single argv element — and is never echoed back into the agent's context."""
-    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    html = '<h2>Findings</h2>\n<p>A "quoted" &amp; <b>bold</b> line, with > and | in it.</p>\n'
-    page = tmp_path / "page.html"
-    page.write_text(html, encoding="utf-8")
+def test_publish_sends_the_page_as_one_argument(tmp_path, monkeypatch, capsys):
+    """pncli's page verb takes the body INLINE. A page of storage format cannot survive shell quoting, so
+    `ad-confluence publish` hands it across as a single argv element -- and never echoes it into the agent's
+    context. An empty `--parent {parent}` is left out with its option."""
+    _pin_page(tmp_path, monkeypatch)
+    md = '# Findings\n\nA "quoted" & **bold** line, with > and | in it.\n\n- one\n- two\n'
+    page = tmp_path / "findings.md"
+    page.write_text(md, encoding="utf-8")
     body = 'prev=""; n=0\nfor a in "$@"; do\n  if [ "$prev" = "--body" ]; then n=${#a}; fi\n  prev="$a"\ndone\n' \
-           'printf \'{"ok":true,"args":%s,"body":%s}\' "$#" "$n"'
+           'printf \'{"id":"%s-%s"}\' "$#" "$n"'
     monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, body))
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(page),
-                                      "confluence", "create-page", "--space", "RDSD", "--title", "T", "--dry-run"])
-    from agentdata import cli
-    cli.main_pncli()
+    from agentdata import cli_confluence
+    from agentdata import confluence as CF
+
+    html, _info = CF.to_storage(md, lift_title=True)
+    assert cli_confluence.main(["publish", str(page), "--space", "RDSD"]) == 0
     out = capsys.readouterr().out
-    assert f"body: {len(html)}" in out and "args: 9" in out          # the whole file, as one trailing argument
-    assert "<h2>" not in out and f"<{len(html)} chars from" in out   # the page is summarised, never echoed
+    assert f"chars: {len(html)}" in out
+    assert f"page_id: 8-{len(html)}" in out, out     # 8 arguments, the last one the whole body
+    assert "<strong>" not in out and f"--body <{len(html)} chars>" in out   # the page is summarised, never echoed
 
 
-def test_raw_refuses_to_post_markdown_to_confluence(tmp_path, monkeypatch, capsys):
-    """The reported bug: the body reached Confluence as Markdown and rendered as `## mismatch`. The last gate is
-    here, because a body only becomes a page at the moment `--body-file` is read -- and it closes BEFORE pncli is
-    launched, which is why this half of the contract holds on every platform."""
-    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    md = tmp_path / "findings.md"
-    md.write_text("## Findings\n\n- one\n", encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "confluence", "create-page", "--dry-run"])
-    from agentdata import cli
-    with pytest.raises(SystemExit) as e:
-        cli.main_pncli()
-    out = capsys.readouterr().out
-    assert e.value.code == 2 and "ok: false" in out and "# heading" in out and "ad-confluence html" in out
+def test_publish_refuses_a_body_that_is_not_markdown(tmp_path, monkeypatch, capsys):
+    """The reported bug was a page posted as Markdown and rendered as `## mismatch`. The body is now built here
+    from the Markdown source, so what is refused is the other way round: a storage-format file, or no Markdown
+    at all. The refusal closes BEFORE pncli is looked for, on every platform."""
+    _pin_page(tmp_path, monkeypatch)
+    monkeypatch.delenv("PNCLI_EXE", raising=False)
+    from agentdata import cli_confluence
+
+    html = tmp_path / "findings.html"
+    html.write_text("<h2>Findings</h2><ul><li>one</li></ul>", encoding="utf-8")
+    assert cli_confluence.main(["publish", str(html), "--space", "RDSD", "--dry-run"]) == 2
+    assert "refused: not_markdown" in capsys.readouterr().out
+    disguised = tmp_path / "findings.md"
+    disguised.write_text("<h2>Findings</h2>\n", encoding="utf-8")
+    assert cli_confluence.main(["publish", str(disguised), "--space", "RDSD", "--dry-run"]) == 2
+    assert "refused: not_markdown" in capsys.readouterr().out
+    empty = tmp_path / "empty.md"
+    empty.write_text("\n\n", encoding="utf-8")
+    assert cli_confluence.main(["publish", str(empty), "--space", "RDSD", "--dry-run"]) == 2
+    assert "refused: empty_source" in capsys.readouterr().out
     assert "PNCLI_EXE" not in os.environ                              # refused without ever looking for pncli
 
 
-@pytest.mark.skipif(os.name == "nt", reason="the stand-in is a shell loop; Windows is covered by test_a_multiline_body_is_refused_through_a_cmd_shim")
-def test_raw_lets_a_converted_body_and_a_jira_comment_through(tmp_path, monkeypatch, capsys):
-    """The other half: the gate is narrow. Storage format passes, and Markdown in a Jira comment is not a page."""
-    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'printf \'{"ok":true}\''))
-    from agentdata import cli
-    html = tmp_path / "findings.html"
-    html.write_text("<h2>Findings</h2><ul><li>one</li></ul>", encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(html), "confluence", "create-page", "--dry-run"])
-    cli.main_pncli()
-    assert "ok: true" in capsys.readouterr().out
+def test_publish_dry_run_resolves_everything_and_launches_nothing(tmp_path, monkeypatch, capsys):
+    """The other half: a dry run reads the facts, builds the body and the argv, and never starts pncli."""
+    _pin_page(tmp_path, monkeypatch)
+    monkeypatch.setenv("PNCLI_EXE", str(tmp_path / "never-started.cmd"))
+    (tmp_path / "AGENTS.md").write_text("- confluence_space: RDSD\n- confluence_parent: 12345\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    page = tmp_path / "findings.md"
+    page.write_text("# Findings\n\n- one\n", encoding="utf-8")
+    from agentdata import cli_confluence
 
-    md = tmp_path / "findings.md"
-    md.write_text("## Findings\n\n- one\n", encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "jira", "add-comment", "--key", "X"])
-    cli.main_pncli()
-    assert "ok: true" in capsys.readouterr().out
+    assert cli_confluence.main(["publish", "findings.md", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    for line in ("action: create", "title: Findings", "space: RDSD", "parent: \"12345\"", "dry_run: true"):
+        assert line in out or line.replace('"', "") in out, (line, out)
+    assert "--parent 12345 --body <" in out
 
 
 # --------------------------------------------- the timeout has to be a timeout, grandchildren or not

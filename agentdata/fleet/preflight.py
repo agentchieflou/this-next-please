@@ -134,11 +134,12 @@ def fetch_issue(key: str, *, cfg: dict | None = None, client=None,
     issue: dict[str, Any] = {"description": "", "issuetype": "", "comments": 0,
                              "attachments": 0, "error": "", "cached": False}
     try:
-        if client is None:
-            from ..connectors import jira_reads
+        if client is not None:
+            table = client.get_issue(key)
+        else:
+            from ..connectors import pncli
 
-            client = jira_reads.backend(cfg)     # REST when credentials exist, pncli only when they do not
-        table = client.get_issue(key)
+            table = pncli.get_issue(key)
         rows = getattr(table, "rows", None) or []
         cols = list(getattr(table, "columns", None) or [])
         if rows:
@@ -166,7 +167,7 @@ def criteria_found(description: str) -> int:
     """How many acceptance criteria the description appears to carry.
 
     Deliberately a count and not a list: the card says *four found*, and the agent still reads them
-    itself through `ad-pncli`, because a fleet that pasted criteria into a card would be showing the
+    itself through `pncli jira get-issue`, because a fleet that pasted criteria into a card would be showing the
     operator a second, staler copy of the ticket.
     """
     if not description.strip():

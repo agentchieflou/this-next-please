@@ -94,22 +94,23 @@ ad-doctor
 ```
 Pass: exit 1 with `fail`/`warn` rows that each carry a hint naming `ad-setup --only <step>`; no traceback. Paste: the output.
 
-## 2. Jira credentials and flavor (pncli optional)
+## 2. pncli and the Jira credentials it lends
 ```powershell
-ad-setup --only jira             # base URL, email, API token -> keyring; `token_source: keyring` from then on
+pncli config init                # once, if ~/.pncli/config.json does not exist yet
+ad-setup --only pncli            # accept the proposed keys if they point at url / email / token; note if the proposal is wrong
+ad-doctor --only pncli,jira      # pncli rows ok; the jira step's url / email / token rows skip, "from pncli's config"
 ad-jira whoami
 ad-jira whoami --redetect        # only if the first call failed
-ad-jira search --jql "key = <any issue>"
-ad-jira get <any issue key>      # one row: description as plain text, comments and attachments counted
-ad-jira comments <any issue key>
-ad-setup --only pncli            # ONLY if pncli is installed: accept the proposed keys if they point at url / email / token
-ad-pncli where                   # ONLY with pncli: resolved launcher: path, kind (npm shim), node entry, version
+pncli jira search --jql "key = <any issue>" > .agent/out/check.json
+ad-view .agent/out/check.json
+pncli jira get-issue --key <any issue key> > .agent/out/check-issue.json
+ad-view .agent/out/check-issue.json
 ```
-Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source` (`keyring`, `env`, or `pncli:<key path>` on an install that still borrows pncli's token); `ad-doctor --only jira` is all `ok`, and `ad-doctor --only pncli` is `skip` rows without pncli, all `ok` with it. Paste: the `whoami` TOON and, with pncli, the key list the wizard printed (values are masked) and the answers you gave. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`.
+Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source: pncli:<key path>`; `ad-doctor --only pncli,jira` is all `ok` or `skip`, no `fail`; each `ad-view` prints the issue's `key` and `status` (Windows PowerShell 5.1's `>` writes UTF-16, which `ad-view` reads). Paste: the key list the wizard printed (values are masked), the answers you gave, and the `whoami` TOON. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`. A laptop that cannot have pncli: `ad-setup --only jira` stores a token in the keyring (the fallback), and `ad-doctor` keeps one `pncli launcher` fail row.
 
 | # | What to do | What it must do | Host | Date |
 |---|---|---|---|---|
-| P1 | `ad-pncli capture-help` (#498, WRAP-D6), then read the file it names and attach it to #506 | one file beside the config: a header per `pncli … --help` call with its exit code; your Jira, Confluence and Bitbucket hosts read `<jira-host>`, `<confluence-host>`, `<bitbucket-host>`, other hosts `<host>`, your home `<home>` | _not yet measured_ | — |
+| P1 | Read `pncli bitbucket --help` and `pncli confluence create-page --help` (WRAP-D6), pin the two verbs with `ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create="<the verb and its options>"` (then `page_create`), and run `ad-git pr --dry-run` on a ticket branch and `ad-confluence publish .agent/out/<KEY>-confluence.md --dry-run` | each dry run prints its plan, `command:` the pinned verb with the body summarised; nothing is sent. Paste both `--help` texts (hosts redacted by hand) on #506 | _not yet measured_ | — |
 | L1 | Move (rename) the venv the `ad-*` launchers were installed from, then run `python -m agentdata doctor` from the moved venv's python (#500) | `console/launchers: fail`, naming the launcher and *Unable to create process*, with a hint naming that `sys.executable`; a `console/module` row naming the `python` on PATH and its version. Run the hint: `launchers: ok` | _not yet measured_ | — |
 
 ## 3. Jira changelog and sprint replay
@@ -522,19 +523,19 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 | Desktop refuses a report after `ad-pbiviz import`, or its save changes the `CustomVisual` entry or `CustomVisuals\` | `pbiviz/core.import_custom_visual`, `package_visual` | the entry's shape (`tests/pbir_schema.py` checks it against the vendored report schema) or the package layout |
 | reconcile class wrong | `uat/reconcile.classify` | rule order, coverage semantics |
 | `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
-| pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; confirmed verbs get their own `ad-pncli` subcommand |
+| pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; every pncli recipe in a skill names its options |
 | `The filename, directory name, or volume label syntax is incorrect` from `az login` / any `.cmd` tool | `agentdata/proc.py` | the cmd.exe command line must reach Windows as one string; a list goes through `list2cmdline`, which backslash-escapes the quotes |
 | `ad-pbi auth --probe` fails only in token mode (passes with `AGENTDATA_PBI_AUTH=interactive` after a GUI sign-in) | `agentdata/pbi/auth.py` | the `Password=<token>` connection-string form Tabular Editor is handed; `-L "" <token>` is the alternative |
 | `az login` ran but `token: not_signed_in` persists | `agentdata/pbi/auth.py` | the sign-in was made without `--allow-no-subscriptions` or into another tenant; `powerbi.tenant_id` |
 | `ad-jira create` refuses a field the project really has | `agentdata/jira_create.py` | the schema type → value shape table in `coerce` |
 | az not found although it is installed | `agentdata/proc.TOOL_DIRS`, `steps/powerbi.py` | the Azure CLI `wbin` dir is searched even when the installer left it off PATH; `ad-setup --patch` asks for the path |
-| `[WinError 2] The system cannot find the file specified` from any `ad-*` command | `agentdata/proc.py` | the tool is a `.cmd` shim (npm) or a `.bat`, not an `.exe`: resolution honours PATHEXT + the npm global prefix and unwraps the shim to `node <script>`; `ad-pncli where` shows what was tried |
+| `[WinError 2] The system cannot find the file specified` from any `ad-*` command | `agentdata/proc.py` | the tool is a `.cmd` shim (npm) or a `.bat`, not an `.exe`: resolution honours PATHEXT + the npm global prefix and unwraps the shim to `node <script>`; `ad-doctor --only pncli` shows what resolved |
 | `pytest` fails on Windows | tests / `.gitattributes` | line endings, path separators |
 
 ## Fixed from laptop results
 - 2026-09-02 (data_remediation_foundry_dpm_fork, session-bootstrap): `ad-setup --only project --non-interactive --answers .agent\setup-answers.json` failed with `JSONDecodeError: Unexpected UTF-8 BOM` — the answers file came from `Set-Content -Encoding utf8` (Windows PowerShell 5.1 adds a BOM) and the loader crashed with a traceback instead of a TOON error. Fix: every reader sniffs BOM/UTF-16 (`agentdata/textio.py`), `ad-setup --set key=value` removes the need for answer files, `ad-state` replaces hand-written state.json edits, and the three skills say so.
-- 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli jira search --jql "key = RDSD-22399"` failed with `[WinError 2] The system cannot find the file specified`, and `ad-doctor` had called pncli "ok" because `shutil.which` found the shim while the connector passed the bare name `pncli` to `subprocess`. pncli is an npm package: on Windows it is `pncli.cmd`, there is no `pncli.exe`. Fix: `agentdata/proc.py` resolves PATHEXT + the npm global prefix and runs the shim's Node entry point directly, the doctor row now proves the launcher starts (`--version`), the resolved shim is pinned in `pncli.exe`, and `ad-pncli where` diagnoses it.
-- 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli raw jira get-issue RDSD-22399` returned `ok: false` — pncli wants `--key <issue-key>`, because it is a commander.js CLI where every argument is a named option, and the skill still carried a `TODO(pin the verb)` placeholder. Fix: `ad-pncli jira get <KEY>` builds the confirmed verb `jira get-issue --key <KEY>`; any pncli usage error is turned into the exact re-run (`usage_hint`); the jira-triage step no longer asks the model to assemble a pncli command.
+- 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): the pncli wrapper's `jira search --jql "key = RDSD-22399"` (retired in 0.20.0) failed with `[WinError 2] The system cannot find the file specified`, and `ad-doctor` had called pncli "ok" because `shutil.which` found the shim while the connector passed the bare name `pncli` to `subprocess`. pncli is an npm package: on Windows it is `pncli.cmd`, there is no `pncli.exe`. Fix: `agentdata/proc.py` resolves PATHEXT + the npm global prefix and runs the shim's Node entry point directly, the doctor row now proves the launcher starts (`--version`), the resolved shim is pinned in `pncli.exe`, and the wrapper's `where` diagnosed it (`ad-doctor --only pncli` since 0.20.0).
+- 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): the wrapper's `raw jira get-issue RDSD-22399` returned `ok: false` — pncli wants `--key <issue-key>`, because it is a commander.js CLI where every argument is a named option, and the skill still carried a `TODO(pin the verb)` placeholder. Fix: the wrapper's `jira get <KEY>` built the confirmed verb `jira get-issue --key <KEY>` (0.20.0: `pncli jira get-issue --key <KEY>` directly, then `ad-view`); any pncli usage error is turned into the exact re-run (`usage_hint`); the jira-triage step no longer asks the model to assemble a pncli command.
 - 2026-09-02 (data_remediation_foundry_dpm_fork, ad-setup powerbi): `az login` failed with *"The filename, directory name, or volume label syntax is incorrect"*. az is `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, and the cmd.exe command line built for it was handed to `subprocess` as a list, so `list2cmdline` backslash-escaped the inner quotes. Fix: the cmd.exe line is passed to Windows as one string, az is a configurable tool (`powerbi.tools.az_exe`) whose install dirs are searched even when they are off PATH, and `ad-setup --patch` re-asks only the settings that fail.
 
 ## Console: one pass per terminal host

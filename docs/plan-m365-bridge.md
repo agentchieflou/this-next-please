@@ -15,7 +15,7 @@ against it rather than remembered.
 |---|---|---|
 | The skill route network | 50 skills, 6 routers, 1 bounded spike; every leaf reachable from a router or a hand-off | `tests/test_skill_handoffs.py`; [plan-routing-expansion.md](plan-routing-expansion.md) §The network as it stands |
 | The marketplace | every installed skill, its uses, repositories and success rate; a configurable source (GitHub, any git URL, a folder) synced and refreshed from `/skills` | [fleet-skills.md](fleet-skills.md); 0.19.0 |
-| Jira | REST throughout; pncli optional; the token from the environment, the keyring or pncli | [pncli-parts.md](pncli-parts.md); 0.19.0 |
+| Jira, Confluence, Bitbucket | pncli directly for what it does; `ad-jira`, `ad-confluence publish` and `ad-git pr` extend it (history, workflow writes, gated page and PR writes); the token from the environment, pncli's config or the keyring | [pncli-parts.md](pncli-parts.md); 0.20.0 |
 | Power BI | PBIP/TMDL projection, validator, authoring verbs, and since 0.19.0 any property patched and checked against Desktop 2.157's schema; the Desktop Bridge; service parity | [power-bi-agentic.md](power-bi-agentic.md); [pbir-authoring.md](pbir-authoring.md) |
 | Documents | DPM hand-back, label extraction, Content Understanding analyzers (Foundry), folder sorting by plan | `dpm-router`; `agentdata/connectors/content_understanding.py` |
 | The fleet | several headless Copilot agents, one per repository, one page; the approval gate; the normalized event stream; the Command Center; the handoff (`.agent/in/<KEY>/`) | [fleet.md](fleet.md); [fleet-approvals.md](fleet-approvals.md); [fleet-handoff.md](fleet-handoff.md) |
@@ -89,7 +89,7 @@ through Jira and Confluence only. The outbox gains `publish` records: *post this
 channel X*, *send this summary to these people*, *put this file in this SharePoint library*, *update this row in
 this List*. The flow `FleetPublish` does the write on the tenant, under the maker's identity, and writes a
 `publish-result` record back (the message id, the item URL) so the agent can cite it. Every `publish` is a
-`pncli-write`-class approval: dry-run first, the operator's click, then the record. Row 16's refusal becomes a
+`confluence-publish`-class approval: dry-run first, the operator's click, then the record. Row 16's refusal becomes a
 route, and nothing the fleet never had (a mail credential, a Teams token) is added to the laptop.
 
 ### 3c. The loop — triggered Microsoft agents and Copilot agents, both ways
@@ -127,7 +127,7 @@ lines, imperative, ends in a STOP or a hand-off, and names its `ad-doctor` preco
 | | | `m365-publish`: Teams message, mail, library upload, List row; dry-run, approval, record, the result URL in the hand-off line | dear (gated write) | 3b |
 | | | `flow-run`: start a named flow with a record, wait for its result record, report; never a flow this project's `AGENTS.md` does not name | medium | 3c |
 | | | `intake-triage`: what `jira-triage` is for a Jira key, for an `intake` record: who asked, where, what they attached, which ticket it is or becomes | medium | 3c |
-| Confluence, "what does the page say" (row 1 of the routing plan, still mis-routed) | `m365-router` or the existing row | `confluence-read`: the page as Markdown to `.agent/out/`, once the verb is pinned or the REST client exists | cheap | pncli or a Confluence REST client |
+| Confluence, "what does the page say" (row 1 of the routing plan, still mis-routed) | `m365-router` or the existing row | `confluence-read`: `pncli confluence get-page` to `.agent/out/`, read with `ad-view` | cheap | pncli |
 | "who uses this report", "the dataflow", "the lakehouse table" (rows 13–14) | `pbi-router` | `pbi-usage`, `fabric-items`: through the Power BI connector or `ad-pbi` once the tenant exposes the items | medium | tenant facts |
 
 Everything the marketplace shipped in 0.19.0 is what makes this shippable: the new skills arrive by `sync` from the
@@ -172,7 +172,7 @@ then the laptop side with its tests, then the tenant side as a sitting that reco
 | M365-D3 | Which triggers may start work (`FleetIntake`)? | one channel and one library per project, named in `AGENTS.md`; mail and Forms off until asked |
 | M365-D4 | A Copilot Studio agent at all, or flows only? | flows only until the licence is confirmed; the record kinds are the same either way |
 | M365-D5 | May context fetched for a ticket be indexed by the catalogue for `ad-fleet where`? | yes, with the credential refusal; the operator can turn the kind off per project |
-| M365-D6 | Does the `pncli-write` approval kind cover `publish`, or does it get its own kind? | its own kind, `m365-publish`, so the phone can show it in its own words |
+| M365-D6 | Does the `confluence-publish` approval kind cover `publish`, or does it get its own kind? | its own kind, `m365-publish`, so the phone can show it in its own words |
 
 ## 8. What is left to improve on, honestly
 
@@ -180,8 +180,9 @@ The operator's question was *"what's there left to improve on here?"*. Beyond th
 
 - **The two mis-routes are still mis-routed** (`confluence-read`, `pr-review`): cheap, read-only, and waiting on a
   verb or a client that nobody has written.
-- **Confluence and Bitbucket still need pncli.** The Jira half moved to REST in 0.19.0; the other two have no REST
-  client here yet.
+- **Confluence and Bitbucket use pncli, as intended.** 0.20.0 settled it: pncli is used directly for what it does,
+  and the writes it cannot gate are extensions (`ad-confluence publish`, `ad-git pr`) waiting only on the operator
+  pinning the two verbs from `pncli <product> --help`.
 - **The marketplace's GitHub sync and catalogue were tested with folder and local-git sources only**; the first
   real `gh skill install` from `/skills` is a sitting.
 - **The ledger reads Copilot's sessions and the fleet's streams, not Claude Code's transcripts**; a second source

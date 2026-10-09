@@ -190,14 +190,20 @@ def test_load_credentials_from_pncli_and_env(tmp_path, monkeypatch):
         J.load_credentials({"pncli": {"config_path": str(p), "keys": {"jira_token": "nope.key"}}})
 
 
-def test_load_credentials_from_keyring_and_the_env_alias(tmp_path, monkeypatch):
-    """env -> keyring -> pncli: the keyring entry `ad-setup --only jira` writes needs no pncli file at all,
-    AGENTDATA_JIRA_TOKEN is JIRA_TOKEN by another name, and the hints name `ad-setup --only jira` first."""
+def test_load_credentials_env_then_pncli_then_the_keyring(tmp_path, monkeypatch):
+    """env -> pncli's config (the default) -> the keyring entry `ad-setup --only jira` writes (a machine without
+    pncli). AGENTDATA_JIRA_TOKEN is JIRA_TOKEN by another name, and the hints name `ad-setup --only pncli` first."""
     for v in ("JIRA_URL", "JIRA_EMAIL", "JIRA_TOKEN", "AGENTDATA_JIRA_TOKEN"):
         monkeypatch.delenv(v, raising=False)
     from agentdata.connectors import secrets
     store = {("jira:default", "api-token"): "kr_tok_1234567890"}
     monkeypatch.setattr(secrets, "get_password", lambda src, env, user: store.get((f"{src}:{env}", user)))
+    p = tmp_path / "pncli.json"
+    p.write_text(json.dumps({"jira": {"url": "acme.atlassian.net", "email": "me@acme.com", "token": TOKEN}}),
+                 encoding="utf-8")
+    keys = {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}
+    with_pncli = {"jira": {"base_url": "acme.atlassian.net"}, "pncli": {"config_path": str(p), "keys": keys}}
+    assert J.load_credentials(with_pncli).source == "pncli:jira.token", "pncli's config wins over the keyring"
     cfg = {"jira": {"base_url": "acme.atlassian.net", "email": "me@acme.com"},
            "pncli": {"config_path": str(tmp_path / "missing.json")}}
     c = J.load_credentials(cfg)
@@ -205,24 +211,25 @@ def test_load_credentials_from_keyring_and_the_env_alias(tmp_path, monkeypatch):
     assert c.email == "me@acme.com" and "kr_tok" not in repr(c)
     monkeypatch.setenv("AGENTDATA_JIRA_TOKEN", "alias_tok")
     assert J.load_credentials(cfg).source == "env" and J.load_credentials(cfg).token == "alias_tok"
+    assert J.load_credentials(with_pncli).source == "env", "the environment wins over pncli's config"
     monkeypatch.setenv("JIRA_TOKEN", "envtok")
     assert J.load_credentials(cfg).token == "envtok"                 # JIRA_TOKEN wins over its alias
     monkeypatch.delenv("JIRA_TOKEN"); monkeypatch.delenv("AGENTDATA_JIRA_TOKEN")
     store.clear()
     with pytest.raises(J.JiraError) as ei:
         J.load_credentials(cfg)
-    assert "not in the keyring" in str(ei.value) and ei.value.hint.startswith("ad-setup --only jira")
-    assert "JIRA_TOKEN" in ei.value.hint and "ad-setup --only pncli" in ei.value.hint
+    assert "not in the keyring" in str(ei.value) and ei.value.hint.startswith("ad-setup --only pncli")
+    assert "JIRA_TOKEN" in ei.value.hint and "ad-setup --only jira" in ei.value.hint
     assert J.has_credentials(cfg) is False
     store[("jira:default", "api-token")] = "back"
     assert J.has_credentials(cfg) is True
-    # a broken keyring backend reads as "nothing stored", so the pncli fallback still gets its turn
+    # a broken keyring backend reads as "nothing stored": pncli's own error is the one raised
     def boom(*a):
         raise C.ConfigError("keyring backend failed on read")
     monkeypatch.setattr(secrets, "get_password", boom)
     with pytest.raises(J.JiraError) as ei:
         J.load_credentials(cfg)
-    assert "no Jira token" in str(ei.value)
+    assert "no Jira token" in str(ei.value) and "pncli config init" in ei.value.hint
 
 
 def test_parse_ts_forms():

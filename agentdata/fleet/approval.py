@@ -14,8 +14,9 @@ every existing test -- `require()` returns `approved` before touching the disk. 
 anyway". A gate that fails open on a full disk is not a gate; it is a delay.
 
 **Not the only layer.** The launch allow-list (#93) is the other half: the agent may run `ad-*` and
-may not run `curl`, `Invoke-RestMethod` or `pncli` directly, so it cannot route around this by
-picking a different tool. Neither layer is sufficient alone -- the spike measured Copilot's own
+may not run `curl` or `Invoke-RestMethod`, and the `pncli` it runs is the fleet's shim
+(`fleet/pncli_gate.py`), which refuses a write and names the gated extension -- so it cannot route
+around this by picking a different tool. Neither layer is sufficient alone -- the spike measured Copilot's own
 classifier allowing a .NET file write after refusing three plainer spellings of the same thing
 (docs/fleet-spike.md), which is exactly why the gate lives in our commands and not in its
 permission prompt.

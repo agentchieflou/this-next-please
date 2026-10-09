@@ -95,8 +95,9 @@ month and never a stopped ticket.
 
 ## Candidates — the routes we have not met yet
 
-The method: every verb the `ad-*` CLI already has was listed (`ad-jira`, `ad-pncli`, `ad-pbi`, `ad-uat`, `ad-git`,
-`ad-graph`, `ad-test`, `ad-sort`, `ad-dpm`, `ad-foundry`, `ad-confluence`, `ad-fleet`), every router row was read
+The method: every verb the `ad-*` CLI already has was listed (`ad-jira`, `ad-pbi`, `ad-uat`, `ad-git`,
+`ad-graph`, `ad-test`, `ad-sort`, `ad-dpm`, `ad-foundry`, `ad-confluence`, `ad-fleet`; pncli's own read verbs, run
+directly since 0.20.0), every router row was read
 against the requests a BI reporting team sends an agent in a week, and every request that today lands in step 7,
 in `friction-log`, or in the *wrong* row was written down. Then each was given a trigger phrase, an owner, a cost
 class (*cheap*: reads and one `ad-*` command; *medium*: a query, a projection or a spike; *dear*: a model run, a
@@ -104,7 +105,7 @@ deploy, a write behind the approval gate) and a rank, by how often the team will
 
 | # | Request, in the team's words | Today | Proposed owner | Cost | Posture |
 |---|---|---|---|---|---|
-| 1 | "what does the runbook page say", "read the Confluence page on X", "is there a page about" | **mis-routed**: the `Confluence, document, page` row sends a *read* to `confluence-publish`, a writer | `confluence-read` (new): `ad-pncli raw confluence <get-page verb>` once the verb is pinned from `ad-pncli capture-help` (#498, #506); writes the page to `.agent/out/` as Markdown; never edits | cheap | either |
+| 1 | "what does the runbook page say", "read the Confluence page on X", "is there a page about" | **mis-routed**: the `Confluence, document, page` row sends a *read* to `confluence-publish`, a writer | `confluence-read` (new), a skill row only: `pncli confluence get-page` directly, saved to `.agent/out/` and read with `ad-view`; no new verb; never edits | cheap | either |
 | 2 | "review this PR", "what do you think of these changes", "did they handle X" | nothing; `bitbucket-pr` opens PRs and nothing reads one | `pr-review` (new): read-only; `git diff <base>...<head>`, `ad-graph refs` on the touched symbols, `ad-test run` on the branch, a findings file; never a comment on the PR without the operator's word | medium | balanced preferred |
 | 3 | "profile this table", "what's in column X", "null rate", "distinct values", "how far back does it go" | an ad-hoc `teradata-query`; the SQL is written by the model each time and often wrong on the engine | `data-profile` (new): generated per engine the way `ad-uat` generates reconciliation SQL; counts, nulls, min/max, top-20 values, one TOON | medium | either |
 | 4 | "put it in a spreadsheet", "export this to Excel", "a CSV for the business" | nothing; TOON and TSV are the only outputs, `openpyxl` is already the `uat` extra | `tabular-export` (new) or a verb on `ad-view`: TOON/TSV → `.xlsx`/`.csv` under `.agent/out/`, deterministic, no model pass | cheap | either |
@@ -151,8 +152,8 @@ Nothing to build. The operator sets `fleet.credits.allowance` to 50000 on `/sett
 `ad-fleet spend` answers M5 and this page's September/October table gets its October column.
 
 ### C — the two mis-routes: `confluence-read` and `pr-review`
-Each ≤ 40 lines, read-only, one row in its router. `confluence-read` waits on the page verb from
-`ad-pncli capture-help`; `pr-review` needs no new verb.
+Each ≤ 40 lines, read-only, one row in its router. `confluence-read` is `pncli confluence get-page`
+directly plus `ad-view` (0.20.0); `pr-review` needs no new verb either.
 
 ### D — the cheap band: `data-profile`, `tabular-export`, `incident-triage`, `repo-history`, `setup-repair`
 In the order M9 ranks them. Each is a row in a sub-router that has 17–19 rows of room, so none forces a split.

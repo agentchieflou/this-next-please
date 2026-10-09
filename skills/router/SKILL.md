@@ -20,7 +20,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
    - An answer to a ticket question is applied by `ad-state answer` itself (a key moves the work, `none` untracks it) and its `next` says `jira-create` when the operator chose `new`.
 4. The request only starts the session ("start", "bootstrap", "initialize", "are you set up", a greeting) and names no work → print `ready — <the state: line>` and STOP. That is the end of the turn, not a friction.
 5. Match the request to ONE row. First match wins. Rows in the project's own `AGENTS.md` `## Project routes` table (if any) come first; a row there that names a skill that is not installed is ignored.
-   **Ours first.** A row here beats a skill another package installed (pncli's own, a vendor's), even one whose description fits better; inside a skill, a dedicated `ad-*` verb beats `ad-pncli raw`, and bare `pncli` is never run (a fleet denies it; it skips the approval gate).
+   **Ours first.** A row here beats a skill another package installed (pncli's own, a vendor's), even one whose description fits better. pncli is used directly for what it reads; an `ad-*` verb exists only where it extends pncli, and a write always goes through one (`ad-jira`, `ad-confluence publish`, `ad-git pr`). In a fleet a pncli write is refused (`pncli_write_in_fleet`) and its `hint` names the extension to run.
    **A sub-router is one hop, not a detour.** A row that names `*-router` costs one more read and nothing else: it holds that domain's rows in the order they must be tried, and it ends in the same place this table does.
 
 | Request mentions | Invoke |

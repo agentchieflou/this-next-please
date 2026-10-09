@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.19.0"
+version = "0.20.0"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.14"
 dependencies = [
@@ -46,7 +46,6 @@ dev = ["pytest", "pytest-xdist>=3", "pyyaml", "coverage>=7", "hypothesis>=6", "p
 # skips: that check is what stands between a change and a report Desktop refuses to open.
 
 [project.scripts]
-ad-pncli = "agentdata.cli:main_pncli"
 ad-td = "agentdata.cli:main_td"
 ad-ora = "agentdata.cli:main_ora"
 ad-hive = "agentdata.cli:main_hive"

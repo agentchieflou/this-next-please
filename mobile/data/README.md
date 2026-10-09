@@ -93,7 +93,7 @@ is the contract's longest value; the flow truncates the three single-line column
 | `Title` | text | 96 | `id` | `<repo>-<kind>-<stamp>-<hex>` |
 | `Repo` | text | 64 | `repo` | |
 | `Ticket` | text | 32 | `ticket` | |
-| `ApprovalKind` | text | 32 | `approval_kind` | `jira-transition, jira-create, pncli-write` |
+| `ApprovalKind` | text | 32 | `approval_kind` | `jira-transition, jira-create, confluence-publish` |
 | `Summary` | text | 300 -> 255 | `summary` | truncated by the flow |
 | `PayloadPreview` | **multi** | 8192 | `payload_preview` | JSON text of the dry-run payload, or `{"truncated":true,"bytes":N,"head":"..."}` |
 | `PayloadTruncated` | text | 5 | `payload_truncated` | |

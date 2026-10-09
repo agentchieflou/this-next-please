@@ -1,6 +1,6 @@
 {
   "source": "synthesized",
-  "note": "what `ad-pncli where` reads",
+  "note": "what `pncli.where()` and the doctor's launcher row read",
   "match": [
     "--version"
   ],

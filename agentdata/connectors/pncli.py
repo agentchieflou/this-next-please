@@ -1,4 +1,9 @@
-"""Run a pncli command, extract its result list, normalize. pncli always emits JSON; we never show it raw by default.
+"""pncli as a library: classify an argv, run a read, extract its result list, name its columns.
+
+pncli itself is used directly for everything it does (`docs/pncli-parts.md`). This module is what the fleet and
+the `ad-*` extensions need from it in-process: the read/write split the fleet's shim gates on
+(`fleet/pncli_gate.py`), the PR read of the fleet's poll, the issue read of a pre-flight, and the Jira column
+names `ad-view` gives a saved `pncli jira search` / `pncli jira get-issue` answer.
 
 pncli is distributed as an npm package, so on Windows it exists as `pncli.cmd` (npm's command shim) and never as
 `pncli.exe`: launching the bare name fails with `[WinError 2] The system cannot find the file specified`. All
@@ -8,13 +13,13 @@ cmd.exe. `pncli.exe` in the config (or PNCLI_EXE) pins an explicit path."""
 from __future__ import annotations
 import json, os, re
 from .. import config as C
-from .. import proc, textio
+from .. import proc
 from ..model import AgentTable
 
 NPM_PACKAGE = "@kolatts/pncli"      # laptop diagnosis 2026-09-02; override with the `pncli.npm_package` config key
 
-# The column names are shared with `ad-jira search|get|comments`, the REST path that replaced these reads as
-# the default (`connectors/jira_columns.py`); pncli is the optional backend and keeps printing the same names.
+# The column names a Jira read answers with (`connectors/jira_columns.py`): `ad-view` renders a saved
+# `pncli jira search` / `pncli jira get-issue` answer with exactly these, and so do the in-process reads below.
 from .jira_columns import JIRA_DEFAULT_FIELDS, JIRA_RENAME, ISSUE_RENAME, ISSUE_RENAME_BACK  # noqa: F401 (re-exported)
 LIST_KEYS = ("issues", "results", "values", "items", "data")
 # pncli is a commander.js CLI: every argument is a NAMED option (`--key RDSD-1`), never a positional. Its usage
@@ -110,33 +115,63 @@ def usage_hint(text: str, args: list[str]) -> str:
         value = positionals[0] if positionals else "<" + placeholder + ">"
         seen = f" (you passed {positionals[0]!r} positionally)" if positionals else ""
         return (f"pncli options are named, never positional{seen}: re-run with `{opt} {value}`, e.g. "
-                f"`ad-pncli raw {' '.join(args[:2])} {opt} {value}`")
+                f"`pncli {' '.join(args[:2])} {opt} {value}`")
     m = _UNKNOWN.search(text)
     if m:
-        return (f"pncli has no {m.group(1)} {m.group(3)!r}: run `ad-pncli help {args[0] if args else ''}` once, "
+        return (f"pncli has no {m.group(1)} {m.group(3)!r}: run `pncli {args[0] if args else ''} --help` once, "
                 "use a listed verb, and report it so the skill can pin it. Do not guess a second time.")
     return ""
 
 
+# A fleet agent's PATH starts with the fleet's pncli shim (`fleet/pncli_gate.py`); `launch.child_env` names its
+# directory here. Every launch from this package resolves the REAL pncli with that directory left out, so the
+# gated extensions (`ad-confluence publish`, `ad-git pr`) are not refused by the shim, and the shim never runs itself.
+SHIM_ENV = "AGENTDATA_PNCLI_SHIM"
+
+
+def shim_dirs() -> list[str]:
+    return [d for d in os.environ.get(SHIM_ENV, "").split(os.pathsep) if d.strip()]
+
+
+def _in_shim_dir(path: str, dirs: list[str]) -> bool:
+    here = os.path.normcase(os.path.abspath(os.path.dirname(path)))
+    return any(here == os.path.normcase(os.path.abspath(d)) for d in dirs)
+
+
+def search_path() -> str | None:
+    """PATH without the shim's directory, or None (the plain PATH) when no shim is set."""
+    dirs = shim_dirs()
+    if not dirs:
+        return None
+    keep = [p for p in os.environ.get("PATH", "").split(os.pathsep)
+            if p.strip() and not any(os.path.normcase(os.path.abspath(p)) == os.path.normcase(os.path.abspath(d))
+                                     for d in dirs)]
+    return os.pathsep.join(keep)
+
+
 def exe(cfg: dict | None = None) -> str | None:
-    """Pinned launcher path: PNCLI_EXE, else the `pncli.exe` config key. None = resolve `pncli` over PATH."""
+    """Pinned launcher path: PNCLI_EXE, else the `pncli.exe` config key. None = resolve `pncli` over PATH.
+    A pin that points into the shim's directory is ignored: that is the gate, not pncli."""
     cfg = C.load() if cfg is None else cfg
-    return os.environ.get("PNCLI_EXE") or C.get(cfg, "pncli.exe") or None
+    pinned = os.environ.get("PNCLI_EXE") or C.get(cfg, "pncli.exe") or None
+    if pinned and shim_dirs() and _in_shim_dir(pinned, shim_dirs()):
+        return None
+    return pinned
 
 
 def install_hint(cfg: dict | None = None) -> str:
     pkg = C.get(C.load() if cfg is None else cfg, "pncli.npm_package") or NPM_PACKAGE
     return (f"pncli is an npm package: install it with `npm install -g {pkg}` (it lands as pncli.cmd, never pncli.exe), "
-            "or pin its path with PNCLI_EXE / `ad-setup --only pncli`. `ad-pncli where` shows what was tried.")
+            "or pin its path with PNCLI_EXE / `ad-setup --only pncli`. `ad-doctor --only pncli` shows what was tried.")
 
 
 def where(cfg: dict | None = None) -> dict:
     """How `pncli` resolves on this machine: path, kind (executable / npm shim / cmd shim), node entry, version."""
     cfg = C.load() if cfg is None else cfg
-    info = proc.resolve("pncli", exe=exe(cfg))
+    info = proc.resolve("pncli", exe=exe(cfg), path=search_path())
     if info["found"]:
         try:
-            rc, out, err, _el = proc.run(["pncli", "--version"], exe=exe(cfg), timeout=60)
+            rc, out, err, _el = proc.run(["pncli", "--version"], exe=exe(cfg), timeout=60, path=search_path())
             line = (out or err).strip().splitlines()
             info["version"] = line[0][:60] if line else ""
             info["rc"] = rc
@@ -145,22 +180,19 @@ def where(cfg: dict | None = None) -> dict:
     return info
 
 
-def get_issue(key: str, fields: list[str] | None = None) -> AgentTable:
-    """One issue. `jira get-issue --key <KEY>`: the verb and its named option are confirmed against pncli."""
-    payload, el = run(["jira", "get-issue", "--key", key])
+def get_issue_from_payload(payload, fields: list[str] | None = None, source: str = "pncli jira get-issue") -> AgentTable:
+    """One issue as pncli's `jira get-issue` answers it, with the issue columns (`ISSUE_RENAME`)."""
     recs = extract_records(payload)
-    t = AgentTable.from_records(recs, name="issue", source=f"pncli jira get-issue --key {key}",
+    t = AgentTable.from_records(recs, name="issue", source=source,
                                 fields=[ISSUE_RENAME_BACK.get(f, f) for f in fields] if fields else None, raw=payload)
     t.columns = [ISSUE_RENAME.get(c, c.replace("fields.", "")) for c in t.columns]
-    t.elapsed_s = el
     return t
 
 
-def get_comments(key: str) -> AgentTable:
-    """Read comments on an issue. `jira comments --key <KEY>`."""
-    payload, el = run(["jira", "comments", "--key", key])
-    recs = extract_records(payload)
-    t = AgentTable.from_records(recs, name="comments", source=f"pncli jira comments --key {key}", raw=payload)
+def get_issue(key: str, fields: list[str] | None = None) -> AgentTable:
+    """One issue. `jira get-issue --key <KEY>`: the verb and its named option are confirmed against pncli."""
+    payload, el = run(["jira", "get-issue", "--key", key])
+    t = get_issue_from_payload(payload, fields, source=f"pncli jira get-issue --key {key}")
     t.elapsed_s = el
     return t
 
@@ -168,7 +200,7 @@ def get_comments(key: str) -> AgentTable:
 def run(args: list[str], timeout: int = 120, cfg: dict | None = None) -> tuple[dict | list, float]:
     cfg = C.load() if cfg is None else cfg
     hint = install_hint(cfg)
-    rc, out, err, el = proc.run(["pncli", *args], exe=exe(cfg), timeout=timeout, hint=hint)
+    rc, out, err, el = proc.run(["pncli", *args], exe=exe(cfg), timeout=timeout, hint=hint, path=search_path())
     text = out.strip() or err.strip()
     try:
         payload = json.loads(text)
@@ -198,168 +230,118 @@ def extract_records(payload) -> list:
     return []
 
 
-def jira_search(jql: str, fields: list[str] | None = None, max_results: int = 500) -> AgentTable:
-    payload, el = run(["jira", "search", "--jql", jql, "--max-results", str(max_results)])
+def jira_search_from_payload(payload, fields: list[str] | None = None, max_results: int | None = None,
+                             source: str = "pncli jira search") -> AgentTable:
+    """A `jira search` answer with the search columns (`JIRA_RENAME`); short names like `status` are accepted."""
     recs = extract_records(payload)
-    want = fields or JIRA_DEFAULT_FIELDS
-    # allow short names
     short = {v: k for k, v in JIRA_RENAME.items()}
-    want = [short.get(f, f) for f in want]
-    t = AgentTable.from_records(recs, name="jira", source=f"pncli jira search --jql {jql!r}", fields=want, raw=payload)
+    want = [short.get(f, f) for f in (fields or JIRA_DEFAULT_FIELDS)]
+    t = AgentTable.from_records(recs, name="jira", source=source, fields=want, raw=payload)
     t.columns = [JIRA_RENAME.get(c, c.replace("fields.", "")) for c in t.columns]
-    t.elapsed_s = el
-    t.truncated = len(recs) >= max_results
+    t.truncated = max_results is not None and len(recs) >= max_results
     return t
 
 
-# ------------------------------------------------------------------ capture-help (#498, WRAP-D6)
-
-CAPTURE_PRODUCTS = ("bitbucket", "confluence", "jira")
-CAPTURE_TIMEOUT = 30
-_HEADING = re.compile(r"^(?:[A-Z][\w-]*\s+)*Commands:\s*$")      # `Commands:`, or a group like `Management Commands:`
-_ITEM = re.compile(r"^  (?! )(\S+)")                              # commander.js indents a term by exactly two spaces
-_URL_HOST = re.compile(r"(https?://)([^/\s:'\"<>]+)(:\d+)?", re.I)
+def jira_search(jql: str, fields: list[str] | None = None, max_results: int = 500) -> AgentTable:
+    payload, el = run(["jira", "search", "--jql", jql, "--max-results", str(max_results)])
+    t = jira_search_from_payload(payload, fields, max_results, source=f"pncli jira search --jql {jql!r}")
+    t.elapsed_s = el
+    return t
 
 
-def help_commands(text: str) -> list[str]:
-    """The verbs a commander.js help lists under its `Commands:` heading(s), `help` left out.
-
-    Option terms are never read: only lines under a `...Commands:` heading count, up to the next blank
-    line or heading. A wrapped description is indented past the term column, so it is never a verb.
-    """
-    verbs: list[str] = []
-    inside = False
-    for line in (text or "").splitlines():
-        if _HEADING.match(line):
-            inside = True
-            continue
-        if not line.strip() or not line.startswith(" "):
-            inside = False
-            continue
-        m = _ITEM.match(line) if inside else None
-        if m:
-            name = m.group(1).split("|")[0]
-            if name != "help" and not name.startswith("-") and name not in verbs:
-                verbs.append(name)
-    return verbs
+def payload_kind(payload) -> str:
+    """`search` for a Jira search answer (an `issues` list of issue objects), `issue` for one issue (an object
+    with `key` and `fields`, or the same under `data` / `result`), else `""`."""
+    if isinstance(payload, dict):
+        issues = payload.get("issues")
+        if isinstance(issues, list) and issues and all(isinstance(i, dict) and ("fields" in i or "key" in i)
+                                                       for i in issues):
+            return "search"
+        if isinstance(payload.get("key"), str) and isinstance(payload.get("fields"), dict):
+            return "issue"
+        for k in ("data", "result"):
+            if isinstance(payload.get(k), dict):
+                inner = payload_kind(payload[k])
+                if inner:
+                    return inner
+    return ""
 
 
-def _host(url) -> str:
-    m = _URL_HOST.match(str(url or "").strip())
-    return m.group(2).lower() if m else ""
+# ------------------------------------------------------------------ pinned write verbs (the gated extensions)
+
+# The write verbs `ad-confluence publish` and `ad-git pr` run are argv templates the operator pins once pncli's
+# own `--help` has been read (`ad-setup --only pncli --non-interactive --set pncli.verbs.page_create="..."`). They
+# are never guessed: an unset template is a `not_pinned` refusal, never a default.
+VERBS = {
+    "page_create": ("space", "title", "parent", "body"),
+    "page_update": ("page_id", "title", "body", "version"),
+    "pr_create": ("title", "source", "target", "description", "draft"),
+    "pr_update": ("pr_id", "title", "source", "target", "description", "draft"),
+}
+_PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 
 
-def redaction_hosts(cfg: dict | None = None) -> dict[str, str]:
-    """{host: placeholder} for the configured Jira, Confluence and Bitbucket bases.
-
-    The bases come from this config (`jira.base_url`, `JIRA_URL`, `confluence.base_url`,
-    `bitbucket.base_url`) and from pncli's own config file, whose URL values are named by product.
-    Every other `http(s)://host` is redacted anyway; this only gives the three their own names.
-    """
+def verb_template(name: str, cfg: dict | None = None) -> str:
     cfg = C.load() if cfg is None else cfg
-    found: dict[str, str] = {}
+    return str(C.get(cfg, f"pncli.verbs.{name}") or "").strip()
 
-    def add(product: str, url) -> None:
-        h = _host(url)
-        if h and h not in found:
-            found[h] = f"<{product}-host>"
 
-    add("jira", os.environ.get("JIRA_URL") or C.get(cfg, "jira.base_url"))
-    for product in ("confluence", "bitbucket"):
-        add(product, C.get(cfg, f"{product}.base_url"))
-    path = C.expand(C.get(cfg, "pncli.config_path") or "~/.pncli/config.json")
+def template_argv(template: str, values: dict) -> list[str]:
+    """A pinned template as argv. The template is split first and the values put in after, so a value -- a page
+    body, a PR description -- is always ONE argv element and never re-split or re-quoted. A token that is only a
+    placeholder whose value is empty is left out together with the option before it (`--parent {parent}`).
+    Raises ValueError for an unknown placeholder or a template that does not split."""
+    import shlex
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            flat = C.flatten(json.load(f))
-    except (OSError, ValueError):
-        flat = {}
-    for key, value in sorted(flat.items()):
-        for product in CAPTURE_PRODUCTS:
-            if product in key.lower() and isinstance(value, str) and _host(value):
-                add(product, value)
-    return found
+        tokens = shlex.split(template, posix=True)
+    except ValueError as e:
+        raise ValueError(f"the template does not split: {e}") from None
+    out: list[str] = []
+    for tok in tokens:
+        for name in _PLACEHOLDER.findall(tok):
+            if name not in values:
+                raise ValueError(f"unknown placeholder {{{name}}}; this template takes "
+                                 + ", ".join("{" + k + "}" for k in values))
+        whole = _PLACEHOLDER.fullmatch(tok)
+        if whole and values[whole.group(1)] in (None, ""):
+            if out and out[-1].startswith("-"):
+                out.pop()
+            continue
+        out.append(_PLACEHOLDER.sub(lambda m: str(values[m.group(1)]), tok))
+    return out
 
 
-def redact(text: str, hosts: dict[str, str], home: str) -> tuple[str, dict[str, int]]:
-    """Replace the named hosts, every other URL host, and the home directory. Returns the text and counts."""
-    counts: dict[str, int] = {}
-
-    def bump(what: str, n: int) -> None:
-        if n:
-            counts[what] = counts.get(what, 0) + n
-
-    for host, label in sorted(hosts.items(), key=lambda kv: -len(kv[0])):
-        text, n = re.subn(re.escape(host), label, text, flags=re.I)
-        bump(label, n)
-
-    def other(m: re.Match) -> str:
-        bump("<host>", 1)
-        return m.group(1) + "<host>"
-
-    text = _URL_HOST.sub(lambda m: m.group(0) if m.group(2).startswith("<") else other(m), text)
-    if home and len(home.rstrip("/\\")) > 3:
-        for form in {home.rstrip("/\\"), textio.norm_path(home.rstrip("/\\"))}:
-            text, n = re.subn(re.escape(form), "<home>", text, flags=re.I if os.name == "nt" else 0)
-            bump("<home>", n)
-    return text, counts
+def shown_argv(argv: list[str], long_values: dict) -> str:
+    """The argv as one line for a person, each long value (a body) replaced by `<N chars>`."""
+    hidden = {str(v): f"<{len(str(v))} chars>" for v in long_values.values() if v}
+    return " ".join(["pncli", *(hidden.get(a, a) for a in argv)])
 
 
-HELP_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+def find(payload, *keys: str) -> str:
+    """The first non-empty scalar under any of `keys`, depth first (a write's answer: an id, a URL)."""
+    if isinstance(payload, dict):
+        for k in keys:
+            v = payload.get(k)
+            if isinstance(v, (str, int)) and str(v).strip():
+                return str(v)
+        for v in payload.values():
+            got = find(v, *keys)
+            if got:
+                return got
+    elif isinstance(payload, list):
+        for v in payload:
+            got = find(v, *keys)
+            if got:
+                return got
+    return ""
 
 
-def help_for(names: list[str], cfg: dict | None = None) -> dict:
-    """`pncli [<product> [<verb>]] --help`, the agent's way to read pncli's own usage.
-
-    Bare `pncli` is on the fleet's deny floor (`fleet/launch.py`), so a skill that said "run
-    `pncli bitbucket --help` once" sent an agent into a refusal it could not get past -- and the
-    operator out of the desk into a terminal of their own. Only command names are passed through,
-    at most two, and `--help` is always last: commander.js prints the help and exits before an
-    action runs (#524), so nothing here can be a write in disguise.
-    """
-    names = [str(n) for n in names if str(n)]
-    if len(names) > 2 or not all(HELP_NAME.match(n) for n in names):
-        raise proc.ProcError("bad_args", f"not a pncli command path: {' '.join(names) or '(none)'}",
-                             "ad-pncli help [<product> [<verb>]] -- names only, e.g. `ad-pncli help bitbucket`")
-    cfg = C.load() if cfg is None else cfg
-    rc, out, err, el = proc.run(["pncli", *names, "--help"], exe=exe(cfg), timeout=CAPTURE_TIMEOUT,
-                                hint=install_hint(cfg))
-    text = "\n".join(t for t in (out or "", err or "") if t.strip())
-    return {"rc": rc, "text": text, "verbs": help_commands(text), "ms": int(el * 1000)}
-
-
-def capture_help(max_verbs: int = 40, cfg: dict | None = None) -> dict:
-    """Run `pncli --version`, `pncli --help`, each product's `--help` and each listed verb's `--help`.
-
-    Nothing but `--version` and `... --help` is ever run. A call that fails is recorded with its
-    output and the capture carries on. Returns the calls, redacted, and the counts.
-    """
-    cfg = C.load() if cfg is None else cfg
-    hint = install_hint(cfg)
-    calls: list[dict] = []
-
-    def call(args: list[str]) -> dict:
-        rec = {"argv": ["pncli", *args], "rc": None, "ms": 0, "out": ""}
-        try:
-            rc, out, err, el = proc.run(["pncli", *args], exe=exe(cfg), timeout=CAPTURE_TIMEOUT, hint=hint)
-            rec.update(rc=rc, ms=int(el * 1000), out="\n".join(t for t in (out or "", err or "") if t.strip()))
-        except proc.ProcError as e:
-            rec.update(rc=-1, out=f"{e.code}: {e.msg}", error=e.code)
-        calls.append(rec)
-        return rec
-
-    first = call(["--version"])
-    if first.get("error") in ("not_found", "start_failed"):
-        return {"calls": calls, "version": "", "started": False, "hint": hint}
-    call(["--help"])
-    budget, left_out = max_verbs, 0
-    for product in CAPTURE_PRODUCTS:
-        top = call([product, "--help"])
-        for v in help_commands(top["out"]) if top["rc"] == 0 else []:
-            if budget <= 0:
-                left_out += 1
-                continue
-            budget -= 1
-            call([product, v, "--help"])
-    m = re.search(r"\d+(?:\.\d+)+", first["out"] or "") if first["rc"] == 0 else None
-    version = m.group(0) if m else "unknown"
-    return {"calls": calls, "version": version, "started": True, "left_out": left_out}
+def url_of(payload) -> str:
+    """A write's answer as a link: `url`, `html_url` or `href`, or Confluence's `_links.base` + `_links.webui`."""
+    direct = find(payload, "url", "html_url", "web_url", "href")
+    if direct.startswith("http"):
+        return direct
+    base, webui = find(payload, "base"), find(payload, "webui")
+    if base.startswith("http") and webui:
+        return base.rstrip("/") + "/" + webui.lstrip("/")
+    return direct

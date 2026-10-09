@@ -339,9 +339,9 @@ class Step:
 
 def registry() -> list[Step]:
     from .steps import console, content_understanding, fleet, jira, pncli_import, powerbi, project, sources, theme
-    # console first: a report from an unsupported shell should say so before anything it explains; jira before
-    # pncli, because the pncli step is optional once the jira step has credentials
-    return [console.ConsoleStep(), theme.ThemeStep(), jira.JiraStep(), pncli_import.PncliStep(), sources.SourcesStep(),
+    # console first: a report from an unsupported shell should say so before anything it explains; pncli before
+    # jira, because pncli's config is where the Jira token comes from and the jira step is the fallback without it
+    return [console.ConsoleStep(), theme.ThemeStep(), pncli_import.PncliStep(), jira.JiraStep(), sources.SourcesStep(),
             powerbi.PowerBIStep(), content_understanding.ContentUnderstandingStep(), project.ProjectStep(),
             fleet.FleetStep()]
 
@@ -444,7 +444,7 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
     ap.add_argument("--report", action="store_true",
                     help="print the environment bundle (shells, pythons, tools, IDE default shells) and exit")
-    ap.add_argument("--only", action="append", help="step key(s), comma-separated: jira,pncli,sources,powerbi,project")
+    ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,jira,sources,powerbi,project")
     from .. import completion, version
     version.add_version(ap)
     completion.autocomplete(ap)
@@ -585,7 +585,7 @@ def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_wa
 
 
 def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="ad-setup", description="Guided setup: Jira credentials (REST; the pncli import is optional), data sources "
+    ap = argparse.ArgumentParser(prog="ad-setup", description="Guided setup: pncli (its config by key name; a keyring token is the fallback), data sources "
                                  "(native or ODBC), Power BI tools and workspaces, project stub. Re-run any time; "
                                  "existing values are the defaults. Secrets go to keyring, never to a file.")
     ap.add_argument("--check", action="store_true", help="doctor mode (no prompts, offline); same as ad-doctor")
@@ -594,7 +594,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                          "(--include-warnings covers warn rows). Name targets to skip the scan and re-ask just those, "
                          "e.g. `--patch sources.oracle` or `--patch powerbi.az_exe`")
     ap.add_argument("--include-warnings", action="store_true", help="with --patch: repair warn rows as well as fail rows")
-    ap.add_argument("--only", action="append", help="step key(s), comma-separated: jira,pncli,sources,powerbi,project")
+    ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,jira,sources,powerbi,project")
     ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --set / --answers")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="answer one prompt key inline, e.g. project.jira_project=RDSD "
                     "(repeatable; true/false for yes-no prompts; wins over --answers)")

@@ -1,7 +1,7 @@
 """Jira REST client (stdlib only). The token is read at call time, never stored in config: env JIRA_URL /
-JIRA_EMAIL / JIRA_TOKEN first (AGENTDATA_JIRA_TOKEN is an alias), then the keyring entry `ad-setup --only jira`
-writes next to `jira.base_url` / `jira.email`, and last pncli's own config by dot-path (the optional backend;
-`ad-setup --only pncli` picks the keys). Flavor is detected once and cached in agentdata config: Cloud = REST v3 +
+JIRA_EMAIL / JIRA_TOKEN first (AGENTDATA_JIRA_TOKEN is an alias), then pncli's own config by dot-path (the
+default: `ad-setup --only pncli` picks the keys), and last the keyring entry `ad-setup --only jira` writes next to
+`jira.base_url` / `jira.email` (a machine without pncli). Flavor is detected once and cached in agentdata config: Cloud = REST v3 +
 Basic(email:token), Data Center = REST v2 + Bearer PAT (Basic as a fallback). The token never appears in output
 or errors.
 
@@ -98,8 +98,9 @@ SECRET_SOURCE = "jira"
 SECRET_ENV = "default"
 SECRET_USER = "api-token"
 TOKEN_ENVS = ("JIRA_TOKEN", "AGENTDATA_JIRA_TOKEN")
-# The one hint every "no credentials" error carries: REST setup first, pncli as the alternative.
-SETUP_HINT = "ad-setup --only jira (token to the keyring), or set JIRA_TOKEN, or with pncli installed ad-setup --only pncli"
+# The one hint every "no credentials" error carries: pncli's config first, the keyring as the fallback.
+SETUP_HINT = ("ad-setup --only pncli (borrow the token from pncli's config), or set JIRA_TOKEN, "
+              "or on a machine without pncli ad-setup --only jira (token to the keyring)")
 
 
 @dataclass
@@ -115,7 +116,7 @@ class Creds:
 
 def keyring_token() -> str | None:
     """The token `ad-setup --only jira` stored, or None -- a broken keyring backend reads as "nothing stored"
-    here, because the pncli fallback below may still answer and the doctor's keyring row names the backend."""
+    here, so the caller's error names every source it tried, and the doctor's keyring row names the backend."""
     from . import secrets
     from ..config import ConfigError
     try:
@@ -137,16 +138,16 @@ def pncli_credentials(cfg: dict) -> tuple[str | None, str | None, str | None, st
     p = C.expand(C.get(cfg, "pncli.config_path") or "~/.pncli/config.json")
     keys = C.get(cfg, "pncli.keys", {}) or {}
     if not os.path.exists(p):
-        raise JiraError(f"no Jira token: not in JIRA_TOKEN, not in the keyring, and no pncli config at "
-                        f"{C.display_path(p)}", hint=SETUP_HINT + " (`pncli config init` writes that file)")
+        raise JiraError(f"no Jira token: not in JIRA_TOKEN, no pncli config at {C.display_path(p)}, and not in the "
+                        "keyring", hint=SETUP_HINT + " (`pncli config init` writes that file)")
     try:
         pj = json.loads(textio.read_text(p))
     except json.JSONDecodeError:
-        raise JiraError("pncli config is not valid JSON", hint="fix it, or ad-setup --only jira") from None
+        raise JiraError("pncli config is not valid JSON", hint="fix it (`pncli config init` rewrites it), or set JIRA_TOKEN") from None
     tk = keys.get("jira_token")
     token = C.get(pj, tk) if tk else None
     if not token:
-        raise JiraError("no Jira token: not in JIRA_TOKEN, not in the keyring, and no pncli token key configured",
+        raise JiraError("no Jira token: not in JIRA_TOKEN, no pncli token key configured, and not in the keyring",
                         hint=SETUP_HINT)
     email_ = C.get(pj, keys["jira_email"]) if keys.get("jira_email") else None
     url = C.get(pj, keys["jira_url"]) if keys.get("jira_url") else None
@@ -154,19 +155,24 @@ def pncli_credentials(cfg: dict) -> tuple[str | None, str | None, str | None, st
 
 
 def load_credentials(cfg: dict | None = None) -> Creds:
-    """env -> keyring (`ad-setup --only jira`) -> pncli's config (the optional backend), in that order."""
+    """env -> pncli's config (the default, `ad-setup --only pncli`) -> keyring (`ad-setup --only jira`), in that
+    order. A pncli config that cannot answer is not fatal while the keyring can; when neither can, pncli's own
+    error is the one raised, because that is the source to fix."""
     cfg = cfg if cfg is not None else C.load()
     url = os.environ.get("JIRA_URL") or C.get(cfg, "jira.base_url")
     email_ = os.environ.get("JIRA_EMAIL") or C.get(cfg, "jira.email")
     token = env_token()
     source = "env"
     if not token:
-        token = keyring_token()
-        source = "keyring"
-    if not token:
-        p_url, p_email, token, source = pncli_credentials(cfg)
-        email_ = email_ or p_email
-        url = url or p_url
+        try:
+            p_url, p_email, token, source = pncli_credentials(cfg)
+            email_ = email_ or p_email
+            url = url or p_url
+        except JiraError:
+            token = keyring_token()
+            if not token:
+                raise
+            source = "keyring"
     if not url:
         raise JiraError("no Jira base URL", hint="set JIRA_URL, or " + SETUP_HINT)
     url = str(url).strip()
@@ -429,11 +435,8 @@ class Jira:
         return out
 
     # ---------- issues ----------
-    def search(self, jql: str, fields: list[str], max_results: int = 5000, truncate: bool = False) -> list[dict]:
+    def search(self, jql: str, fields: list[str], max_results: int = 5000) -> list[dict]:
         """Cloud: GET /rest/api/3/search/jql (token paging; /search was retired) with /search fallback. DC: /rest/api/2/search.
-
-        `truncate=True` is for a current-state list a person reads (`ad-jira search`): the first `max_results + 1`
-        issues come back and the caller marks the table truncated, as pncli's search did. The default raises:
 
         A JQL wider than `max_results` raises rather than returning the prefix. It used to `break` and hand back
         exactly 5,000 issues with nothing saying so, and the caller -- `ad-jira changelog --jql`, whose whole
@@ -449,8 +452,6 @@ class Jira:
                 for iss in it:
                     out.append(iss)
                     if len(out) > max_results:
-                        if truncate:
-                            break
                         raise _truncated_search(max_results)
                 return out
             except JiraHTTPError as e:
@@ -460,8 +461,6 @@ class Jira:
         for iss in self.paged(f"{self.api}/search", {"jql": jql, "fields": flds}, values_key="issues"):
             out.append(iss)
             if len(out) > max_results:
-                if truncate:
-                    break
                 raise _truncated_search(max_results)
         return out
 
@@ -490,10 +489,6 @@ class Jira:
             from ..jira_workflow import adf
             body["update"] = {"comment": [{"add": {"body": adf(comment) if self.flavor.api == "3" else comment}}]}
         self.post(f"{self.api}/issue/{key}/transitions", body, idempotent=False)
-
-    def comments(self, key: str) -> list[dict]:
-        """Every comment on one issue, oldest first, as Jira's own records (`GET /issue/{key}/comment`, paged)."""
-        return list(self.paged(f"{self.api}/issue/{key}/comment", {"orderBy": "created"}, values_key="comments"))
 
     def add_comment(self, key: str, text: str) -> dict:
         """Post one comment and answer Jira's record of it. Never replayed, for the transition's reason: a POST that
@@ -920,7 +915,7 @@ def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False,
         c = creds
         if fl.auth == "basic" and not creds.email:
             if fl.kind == "cloud":
-                errors.append("cloud Basic auth needs an email (JIRA_EMAIL, or ad-setup --only jira; the email key in ad-setup --only pncli)")
+                errors.append("cloud Basic auth needs an email (JIRA_EMAIL, the email key in ad-setup --only pncli, or ad-setup --only jira)")
                 continue
             c = Creds(creds.base_url, getpass.getuser(), creds.token, creds.source)
         j = Jira(c, fl, **kw)
@@ -932,7 +927,7 @@ def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False,
                 continue
             raise
     raise JiraError("could not authenticate to Jira with the configured token: " + "; ".join(errors),
-                    hint="check the token (ad-setup --only jira, or the key in ad-setup --only pncli) or set JIRA_TOKEN / JIRA_EMAIL")
+                    hint="check the token (the key in ad-setup --only pncli, or ad-setup --only jira) or set JIRA_TOKEN / JIRA_EMAIL")
 
 
 def remember_flavor(cfg: dict, j: Jira) -> None:

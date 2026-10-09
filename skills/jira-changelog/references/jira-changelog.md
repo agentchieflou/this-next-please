@@ -1,10 +1,10 @@
 # Jira changelog — what ad-jira does and why
 
 ## Where the token comes from
-`ad-jira` never runs the pncli binary. At call time it reads env `JIRA_URL` / `JIRA_EMAIL` / `JIRA_TOKEN` first, then
-the keyring entry `ad-setup --only jira` stored (`jira:default`, beside `jira.base_url` / `jira.email` in config), and
-last pncli's own config (`~/.pncli/config.json`) by the key names chosen in `ad-setup --only pncli` -- the optional
-backend. It sends the token itself. Nothing is ever printed or stored elsewhere; `ad-jira whoami` shows only `token_source`.
+`ad-jira` extends pncli's Jira commands and never runs the pncli binary. At call time it reads env `JIRA_URL` /
+`JIRA_EMAIL` / `JIRA_TOKEN` first, then pncli's own config (`~/.pncli/config.json`) by the key names chosen in
+`ad-setup --only pncli` -- the default -- and last the keyring entry `ad-setup --only jira` stored (`jira:default`,
+beside `jira.base_url` / `jira.email` in config), the fallback on a machine without pncli. It sends the token itself. Nothing is ever printed or stored elsewhere; `ad-jira whoami` shows only `token_source`.
 
 ## Flavor (detected once, cached in config; `ad-jira whoami --redetect` to redo)
 | | Cloud (`*.atlassian.net`) | Data Center / Server |

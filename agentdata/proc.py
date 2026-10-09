@@ -2,7 +2,7 @@ r"""Starting other programs, correctly, on Windows.
 
 Windows `CreateProcess` only ever appends `.exe`: handing it the bare name of a tool installed by npm
 (`pncli` -> `pncli.cmd`) fails with `[WinError 2] The system cannot find the file specified`, which is what
-`ad-pncli jira search` hit on the laptop. `cmd.exe` resolves `.cmd`/`.bat` through `PATHEXT`; Python does not.
+the first Jira search through pncli hit on the laptop. `cmd.exe` resolves `.cmd`/`.bat` through `PATHEXT`; Python does not.
 
 So every subprocess in this package goes through `command()`:
   1. resolve the name over PATH honouring PATHEXT (.exe, .cmd, .bat, extension-less shim), plus the npm global
@@ -275,12 +275,14 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None =
 
 
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
-        cwd: str | None = None, progress: str | None = None, env: dict | None = None) -> tuple[int, str, str, float]:
+        cwd: str | None = None, progress: str | None = None, env: dict | None = None,
+        path: str | None = None) -> tuple[int, str, str, float]:
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0.
 
     `env` is laid over the child's environment (`child_env()`), for the variables one call needs --
-    `GIT_TERMINAL_PROMPT=0` on a push -- without changing this process's own. A None value removes one."""
-    real, info = prepare(argv, exe=exe, hint=hint)
+    `GIT_TERMINAL_PROMPT=0` on a push -- without changing this process's own. A None value removes one.
+    `path` replaces PATH for resolving `argv[0]` only (the fleet's pncli shim leaves its own directory out)."""
+    real, info = prepare(argv, exe=exe, hint=hint, path=path)
     launched = info["path"]
     t0 = time.time()
     try:

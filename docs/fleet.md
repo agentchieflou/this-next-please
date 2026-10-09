@@ -96,8 +96,8 @@ ad-fleet wrapup luna --project --dry-run    # end of project
 ad-fleet wrapup luna --confirm <plan_id>    # write the ticked ok steps of exactly that preview
 ```
 
-Each step runs its own adapter with `--dry-run`, in the checkout: `ad-git push`, `ad-pncli bitbucket
-pr`, `ad-confluence publish`, `ad-jira comment`, `ad-jira transition`. The confirm writes the ticked
+Each step runs its own adapter with `--dry-run`, in the checkout: `ad-git push`, `ad-git pr`,
+`ad-confluence publish`, `ad-jira comment`, `ad-jira transition`. The confirm writes the ticked
 ones in that order, and only when a fresh preview has the same `plan_id`; a step whose preview
 changed answers `changed` and is not written, and a failed step skips the steps that wait on it.
 
@@ -412,8 +412,10 @@ the month's credits every new launch steps `auto` down to `efficiency`, `ad-flee
 `credits: reserve` with the sentence that says why, and nothing stops -- the per-agent budget is
 still the only stop ([fleet-lifecycle.md](fleet-lifecycle.md) §The budget). The fleet's only deny is
 its own commands (`ad-fleet`, `ad-update`, `ad-setup`), plus whatever you deny on the settings page.
-Writes made through `ad-*` commands still wait on the approval gate, which is in the command; a
-bare `pncli` or `curl` write is the agent's, as it is in a window where you said yes. Each of these
+Writes made through `ad-*` commands still wait on the approval gate, which is in the command. A
+pncli write is refused in every mode: the agent's PATH starts with the fleet's pncli shim, which runs
+a read and refuses a write with the extension that does it ([fleet-approvals.md](fleet-approvals.md)
+§What is gated). A `curl` write is the agent's, as it is in a window where you said yes. Each of these
 is on the settings page, fleet-wide and per agent; `fleet.permissions: strict` is everything below.
 
 **Copilot's own settings, global and per repository, are on the settings page** (the operator,
@@ -439,10 +441,11 @@ apply: the fleet passes no `--model` over it unless you choose one for the agent
 deny-list. The spike measured Copilot's own permission classifier refusing three spellings of a
 file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
 `git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
-branch and an unconfigured remote itself and waits on the gate. `shell(git push)` stays denied.
+branch and an unconfigured remote itself and waits on the gate, and the PR is `shell(ad-git pr)`.
+`shell(git push)` stays denied. `shell(pncli)` is allowed: the shim is its gate.
 Two module forms are on the list, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
 agent whose launcher will not start can still record that it is stuck. The write adapters (jira,
-pncli, confluence, git) have none: the `python` on PATH may be another install, one without the
+confluence, git) have none: the `python` on PATH may be another install, one without the
 approval gate. `fleet`, `update` and `setup` stay denied.
 
 **A refused command is named, and one press allows it** (operator report, 2026-10-02: a Jira to
@@ -456,7 +459,7 @@ fleet's. `ad-fleet grant <repo> <pattern>… [--fleet] [--retry]` is the same ac
 An interpreter or `write` is marked broad, with the reason, before anyone presses: `write` together
 with `git commit -m` can edit a `.git/hooks` file that then runs. Nothing on the deny floor is ever
 offered (a deny wins over an allow, so the grant would be a lie); that row says what to use instead,
-`ad-pncli help` / `ad-pncli raw` for pncli, `ad-git push` for a push. Every grant is listed on the
+`ad-git push` for a push, `ad-*` for a raw HTTP call. Every grant is listed on the
 settings page beside the rest, and taken back there.
 
 **An agent starts with what a new terminal would have.** The desk runs for days, and a launch used

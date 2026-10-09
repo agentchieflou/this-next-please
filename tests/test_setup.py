@@ -176,40 +176,37 @@ def test_answers_file_rejects_passwords(cfg_path):
 
 
 def test_doctor_fails_without_pncli_config(cfg_path, capsys):
-    """pncli installed but never initialised is broken; pncli absent is optional unless the operator opted in."""
+    """pncli is required: installed but never initialised is broken, and not installed at all is broken too."""
     rc = W.run_doctor(["--only", "pncli"], FakeDet(pncli=None))
     out = capsys.readouterr().out
     assert rc == 1 and "ok: false" in out and "pncli config init" in out
-    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli=None, pncli_bin=None)) == 0
-    out = capsys.readouterr().out
-    assert "ok: true" in out and "pncli launcher,skip," in out
-    assert "pncli not installed: optional backend for Confluence pages and Bitbucket PRs" in out and "pncli config,skip," in out
-    C.save({"pncli": {"required": True}})
     assert W.run_doctor(["--only", "pncli"], FakeDet(pncli=None, pncli_bin=None)) == 1
     out = capsys.readouterr().out
-    assert "pncli.required is true" in out and "pncli config init" in out
+    assert "pncli launcher,fail," in out and "pncli config,fail," in out and ",skip," not in out
 
 
-def test_doctor_is_ok_with_the_jira_step_and_no_pncli(cfg_path, capsys):
-    """REST is the default: jira.base_url + jira.email in config and the token in the keyring is a complete
-    install, and a runner with no pncli at all gets a skip row, never a fail."""
+def test_doctor_fails_without_pncli_and_names_ad_setup_patch_for_its_launcher(cfg_path, capsys):
+    """The 0.19.0 contract inverted: the jira step's keyring token is a complete Jira install, but pncli is used
+    directly for Jira, Confluence and Bitbucket, so a machine without it fails the doctor -- and the launcher row
+    says how to install it and that `ad-setup --patch` pins its path. The jira step is the fallback."""
     C.save({"jira": {"base_url": "https://acme.atlassian.net", "email": "me@acme.com"}, "verified": {"jira": "2026-10-08"}})
     det = FakeDet(pncli=None, pncli_bin=None)
     det.passwords[("jira", "default", "api-token")] = "tok"
-    assert W.run_doctor(["--only", "jira,pncli"], det) == 0
+    assert W.run_doctor(["--only", "pncli,jira"], det) == 1
     out = capsys.readouterr().out
+    assert "pncli,pncli launcher,fail," in out and "npm install -g @kolatts/pncli" in out and "ad-setup --patch" in out
     assert "jira,jira url,ok," in out and "https://acme.atlassian.net (config)" in out
     assert "jira,jira token,ok," in out and "keyring jira:default" in out and "jira,jira auth,ok,verified 2026-10-08" in out
-    assert "pncli,pncli launcher,skip" in out and ",fail," not in out
+    assert out.index("pncli,pncli launcher") < out.index("jira,jira url"), "pncli first, the jira fallback after"
     det = FakeDet(pncli=None, pncli_bin=None)
     det.envs["AGENTDATA_JIRA_TOKEN"] = "tok"                     # the alias is a token too
     assert W.run_doctor(["--only", "jira"], det) == 0
     assert "jira,jira token,ok,JIRA_TOKEN" in capsys.readouterr().out
     C.save({})
-    rc = W.run_doctor(["--only", "jira,pncli"], FakeDet(pncli=None, pncli_bin=None))
+    rc = W.run_doctor(["--only", "pncli,jira"], FakeDet(pncli=None, pncli_bin=None))
     out = capsys.readouterr().out
     assert rc == 1 and "jira,jira token,fail" in out and "jira,jira url,fail" in out
-    assert "ad-setup --only jira" in out and "JIRA_TOKEN" in out and "ad-setup --only pncli" in out
+    assert "ad-setup --only pncli" in out and "JIRA_TOKEN" in out and "ad-setup --only jira" in out
     assert "jira,jira auth,skip" in out
 
 
@@ -240,13 +237,22 @@ def test_jira_step_stores_the_token_in_keyring_and_patch_reasks_only_it(cfg_path
 
 
 def test_doctor_ok_and_quiet(cfg_path, capsys):
+    """pncli supplies the token: the jira step stores nothing, its url/email/token rows say so, and it keeps
+    the `jira auth` row."""
     C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
             "verified": {"jira": "2026-09-02"}})
     det = FakeDet(tools={"pncli": "/usr/bin/pncli"})
-    assert W.run_doctor(["--only", "jira,pncli"], det) == 0
+    assert W.run_doctor(["--only", "pncli,jira"], det) == 0
     out = capsys.readouterr().out
-    assert "ok: true" in out and "jira,jira auth,ok" in out and "jira,jira token,ok," in out and "pncli:jira.token" in out
-    assert W.run_doctor(["--only", "jira,pncli", "--quiet"], det) == 0
+    assert "ok: true" in out and "jira,jira auth,ok" in out and "pncli,jira_token,ok" in out
+    for row in ("jira url", "jira email", "jira token"):
+        assert f"jira,{row},info,\"from pncli's config: " in out, row
+    assert "key jira.token" in out
+    assert W.run_doctor(["--only", "pncli,jira", "--quiet"], det) == 0
+    quiet = capsys.readouterr().out
+    # The rows that only say "from pncli's config" are `info`, so a healthy machine's quiet check is empty.
+    assert "checks[0]" in quiet and ",skip," not in quiet and ",fail," not in quiet and ",warn," not in quiet
+    assert W.run_doctor(["--only", "pncli", "--quiet"], det) == 0
     assert "checks[0]" in capsys.readouterr().out
 
 
@@ -330,20 +336,14 @@ def test_answers_file_with_bom_and_set_flags(cfg_path, tmp_path, capsys):
 
 
 def test_doctor_fails_when_pncli_launcher_is_missing_or_broken(cfg_path, capsys):
-    """2026-09-02 laptop friction: ad-pncli died with [WinError 2] while setup called pncli 'ok' — there is no pncli.exe."""
+    """2026-09-02 laptop friction: a pncli call died with [WinError 2] while setup called pncli 'ok' — there is no pncli.exe."""
     C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
-    # not installed and not asked for: the token still reaches REST through the config file, so a skip row
-    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_bin=None)) == 0
-    out = capsys.readouterr().out
-    assert "pncli launcher,skip" in out and "npm install -g @kolatts/pncli" in out and "pncli,jira_token,ok" in out
-    # opted in: the operator said pncli is required, so its absence is a fail with the install hint
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"},
-                      "required": True}})
+    # not installed: the token still reaches REST through the config file, but pncli is required, so a fail row
     assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_bin=None)) == 1
     out = capsys.readouterr().out
     assert "pncli launcher,fail" in out and "npm install -g @kolatts/pncli" in out and "there is no pncli.exe" in out
-    # installed but broken is broken whatever the opt-in says
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+    assert "pncli,jira_token,ok" in out
+    # installed but broken is broken too
     assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_rc=9)) == 1
     out = capsys.readouterr().out
     assert "exits 9 on --version" in out
@@ -392,10 +392,21 @@ def test_patch_with_nothing_broken_asks_nothing(cfg_path, capsys):
     assert "nothing to repair" in out and "--include-warnings covers warn rows" in out
 
 
+def test_the_refusal_hint_pins_a_pncli_verb_template(cfg_path, capsys):
+    """`not_pinned` tells the operator to run exactly this; it must store that one template and no other."""
+    template = "confluence create-page --space {space} --title {title} --body {body}"
+    rc = W.run_setup(["--only", "pncli", "--non-interactive", "--offline",
+                      "--set", f"pncli.verbs.page_create={template}"], FakeDet())
+    assert rc in (0, 1)
+    cfg = json.loads(cfg_path.read_text())
+    assert cfg["pncli"]["verbs"] == {"page_create": template}
+    from agentdata.connectors import pncli as P
+    assert P.verb_template("page_create", cfg) == template and P.verb_template("pr_create", cfg) == ""
+
+
 def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
     """Laptop case: pncli is not on PATH at all (npm shim, no pncli.exe). --patch asks for the one path."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"},
-                      "required": True},                        # opted in: a missing launcher is a fail row to repair
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
             "verified": {"jira": "2026-09-02"}})
     shim = tmp_path / "pncli.cmd"
     shim.write_text("@echo off\n", encoding="utf-8")
@@ -451,7 +462,7 @@ def test_launcher_probes_the_pinned_path_not_the_bare_name(tmp_path, monkeypatch
 
 
 def test_pncli_step_honours_PNCLI_EXE(cfg_path, monkeypatch):
-    """ad-pncli honours PNCLI_EXE and the check's own hint recommends it; the doctor must resolve it the same way."""
+    """The pncli connector honours PNCLI_EXE and the check's own hint recommends it; the doctor must resolve it the same way."""
     seen = {}
 
     class Det(FakeDet):
@@ -1099,7 +1110,7 @@ def test_setup_asks_the_two_sign_in_settings_and_patch_reaches_them(cfg_path, ca
 
 # ------------------------------------------------ launchers that start, and the module form (#500)
 
-LAUNCHERS = ("ad-state", "ad-pncli", "ad-jira", "ad-confluence")
+LAUNCHERS = ("ad-state", "ad-view", "ad-jira", "ad-confluence")
 
 
 def _stub(bin_dir, name, *, out="", err="", code=0, exec_python=False):
