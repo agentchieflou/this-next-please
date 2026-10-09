@@ -288,7 +288,22 @@ def test_the_approval_route_answers_one_mirror_with_its_digest_and_never_the_pay
     assert data["expires"] == time.strftime("%Y-%m-%dT%H:%M:%SZ",
                                             time.gmtime(created + approval.timeout_seconds()))
     assert data["payload_preview"] == {"key": "RDSD-1", "transition": "31 In Review"}
-    assert "payload" not in data and "pid" not in data and str(request["pid"]) not in body
+    assert "payload" not in data and "pid" not in data
+
+    # The pid never appears as a value anywhere in the mirror. Checked structurally, not as a substring of
+    # the body: a 64-hex digest contains any given four digits about one time in sixty, and on 2026-10-09
+    # the Windows leg drew pid 5128 against a digest holding "...51286..." (#657).
+    def values(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                yield from values(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from values(v)
+        else:
+            yield node
+    pid = request["pid"]
+    assert all(v != pid and v != str(pid) for v in values(data)), body
 
     for missing in (decided, "luna-jira-transition-20260101T000000-dead"):
         with pytest.raises(urllib.error.HTTPError) as e:
