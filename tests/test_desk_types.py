@@ -22,10 +22,15 @@ from agentdata.fleet import serve as S
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 
-#: The compiler, exactly. A range would let a new release change what "clean" means under a
-#: branch nobody touched; moving it is a commit that says so, in this file and in the workflow.
-TYPESCRIPT = "7.0.2"
+#: The compiler, exactly, pinned once in `package.json` (docs/npm.md) and read from there. A range
+#: would let a new release change what "clean" means under a branch nobody touched; moving it is a
+#: lockfile change that says so. `COMMAND` is the no-install spelling for a laptop without `npm ci`.
+PACKAGE = json.load(open(os.path.join(ROOT, "package.json"), encoding="utf-8"))
+TYPESCRIPT = PACKAGE["devDependencies"]["typescript"]
 COMMAND = f"npx --yes -p typescript@{TYPESCRIPT} tsc -p tsconfig.json"
+#: Every package the lockfile may hold, by name: the vetting list (docs/npm.md). A new name here is a
+#: review; `@typescript/typescript-*` are TypeScript 7's per-platform binaries, one package each.
+VETTED = {"typescript", "three", "@types/node", "@types/vscode", "undici-types", "agentdata-fleet"}
 
 
 def _tsconfig() -> dict:
@@ -78,13 +83,63 @@ def test_the_program_is_the_one_the_plan_names():
 
 
 def test_ci_and_the_docs_run_the_same_pinned_compiler():
-    """One version, said three times and held together here, so none of the three can move alone."""
+    """One version, pinned in `package.json`, and every other spelling of it held to that one: the
+    extension's manifest, the workflow (which runs the lockfile's compiler), the docs page and
+    `tsconfig.json`'s comment, so none of them can move alone."""
+    assert re.fullmatch(r"\d+\.\d+\.\d+", TYPESCRIPT), f"an exact version, not a range: {TYPESCRIPT!r}"
+    ide = json.load(open(os.path.join(ROOT, "ide", "vscode", "package.json"), encoding="utf-8"))
+    assert ide["devDependencies"]["typescript"] == TYPESCRIPT, "the extension compiles with the desk's compiler"
     workflow = open(os.path.join(ROOT, ".github", "workflows", "tests.yml"), encoding="utf-8").read()
-    assert COMMAND in workflow, "the CI step runs a different compiler from this test"
+    assert "npm ci --no-audit --no-fund" in workflow and "run: npm run types" in workflow, \
+        "the CI step runs the lockfile's compiler through `npm run types`"
+    assert "run: npm run vendor:check" in workflow, "CI holds the vendored three.js to the lockfile"
+    assert "npx --yes -p typescript@" not in workflow, "the ad hoc fetch is gone: the lockfile is the pin"
     docs = open(os.path.join(ROOT, "docs", "desk-types.md"), encoding="utf-8").read()
-    assert COMMAND in docs
+    assert "npm run types" in docs and COMMAND in docs, "the docs name both spellings"
     assert COMMAND in open(os.path.join(ROOT, "tsconfig.json"), encoding="utf-8").read()
-    assert len(set(re.findall(r"typescript@([0-9][^ \s`]*)", workflow + docs))) == 1
+    assert set(re.findall(r"typescript@([0-9][^ \s`]*)", docs)) == {TYPESCRIPT}
+
+
+def test_the_lockfile_is_the_vetting_list_and_every_pin_is_exact():
+    """What `npm ci` may install is exactly what someone vetted (docs/npm.md): one lockfile, every
+    package named here, every top-level pin exact. A new package is a new name in `VETTED`, which is
+    a review, not a drive-by. The extension's old lockfile is gone: a workspace has one."""
+    for dep, spec in PACKAGE["devDependencies"].items():
+        assert re.fullmatch(r"\d+\.\d+\.\d+", spec), f"{dep} is pinned to a range: {spec}"
+    assert PACKAGE.get("private") is True and PACKAGE["workspaces"] == ["ide/vscode"]
+    lock = json.load(open(os.path.join(ROOT, "package-lock.json"), encoding="utf-8"))
+    assert lock["lockfileVersion"] >= 3
+    names = set()
+    for key in lock["packages"]:
+        if not key:
+            continue
+        name = key.split("node_modules/")[-1]
+        if name.startswith("@typescript/typescript-"):
+            continue
+        names.add(name if key.startswith("node_modules/") else "agentdata-fleet")
+    assert names <= VETTED, f"the lockfile holds packages nobody vetted: {sorted(names - VETTED)}"
+    assert lock["packages"]["node_modules/typescript"]["version"] == TYPESCRIPT
+    assert lock["packages"]["node_modules/three"]["version"] == PACKAGE["devDependencies"]["three"]
+    assert not os.path.exists(os.path.join(ROOT, "ide", "vscode", "package-lock.json"))
+    ignored = open(os.path.join(ROOT, ".gitignore"), encoding="utf-8").read().splitlines()
+    assert "node_modules/" in ignored
+
+
+def test_the_vendored_three_is_the_pinned_packages_build():
+    """`VENDORED.json` is what `npm run vendor` wrote, and its hashes are the ones the probe tests
+    have always pinned (test_fleet_probe.THREE_SHA256), so the served file is the npm package's
+    `build/three.module.min.js`, byte for byte, with no Node needed to check it here."""
+    import hashlib
+
+    from test_fleet_probe import LICENSE_SHA256, THREE_SHA256
+
+    vendor = os.path.join(STATIC, "vendor", "three")
+    manifest = json.load(open(os.path.join(vendor, "VENDORED.json"), encoding="utf-8"))
+    assert manifest["package"] == "three" and manifest["version"] == PACKAGE["devDependencies"]["three"]
+    assert manifest["files"] == {"three.module.min.js": THREE_SHA256, "LICENSE": LICENSE_SHA256}
+    for name, want in manifest["files"].items():
+        with open(os.path.join(vendor, name), "rb") as f:
+            assert hashlib.sha256(f.read()).hexdigest() == want, name
 
 
 def test_nothing_in_the_program_is_silenced():
@@ -122,7 +177,9 @@ def test_the_desk_type_checks():
     npx = shutil.which("npx")
     if not npx:
         pytest.skip("no npx on this machine: the type check needs Node")
-    p = subprocess.run([npx, *COMMAND.split()[1:]], cwd=ROOT, capture_output=True, text=True,
+    local = os.path.join(ROOT, "node_modules", ".bin", "tsc" + (".cmd" if os.name == "nt" else ""))
+    argv = [local, "-p", "tsconfig.json"] if os.path.exists(local) else [npx, *COMMAND.split()[1:]]
+    p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=240, stdin=subprocess.DEVNULL)
     out = (p.stdout or "") + (p.stderr or "")
     if p.returncode != 0 and "error TS" not in out:

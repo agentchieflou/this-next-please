@@ -1,7 +1,9 @@
 // The desk's types, checked and never compiled (#236, plan-panes §G). Dev-only: nothing ships from
 // here, nothing is emitted, and the page is still the bytes in `agentdata/fleet/static/`.
 //
-// Run it with the pinned compiler, which is the one CI runs:
+// Run it with the pinned compiler, which is the one CI runs (package.json pins it; docs/npm.md):
+//     npm ci && npm run types
+// or, on a machine without the lockfile's install, the same version fetched once:
 //     npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
 // `docs/desk-types.md` says what is typed, why both files are in one program, and what the check
 // found the first time it ran.

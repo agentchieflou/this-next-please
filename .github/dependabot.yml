@@ -1,0 +1,15 @@
+# The npm dev manifest's bumps (docs/npm.md): one PR a week at most, so the vetting list moves one
+# reviewed lockfile change at a time. Nothing here reaches the laptop until the lockfile is merged and
+# `npm ci` is run there through the proxy's route (docs/windows-verification.md §0a).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      typescript:
+        patterns:
+          - typescript
+          - "@types/*"

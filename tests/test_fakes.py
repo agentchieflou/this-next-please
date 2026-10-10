@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -205,7 +206,7 @@ def test_ad_view_gives_a_saved_search_the_search_columns_in_the_encoding_powersh
     monkeypatch.setattr(sys, "argv", ["ad-view", str(saved)])
     cli.main_view()
     shown = capsys.readouterr().out
-    assert "key: RDSD-1" in shown and "source: ad-view" in shown, shown
+    assert "key: RDSD-1" in shown and re.search(r'source: "?ad-view', shown), shown
     assert "status:" in shown and "summary:" in shown, "the search columns, even for an issue with no fields"
     empty = tmp_path / "empty.json"
     empty.write_text("", encoding="utf-8")
@@ -279,16 +280,18 @@ def test_the_gh_already_installed_transcript_replays(monkeypatch, tmp_path):
 def test_a_multiline_body_is_refused_through_a_cmd_shim(monkeypatch, tmp_path, capsys):
     """The Windows half of `ad-confluence publish`, which sends the page body as one argument.
 
-    A page of HTML cannot survive cmd.exe's parsing, so when the only launcher is a `.cmd` shim and
-    Node is absent, the command refuses with a hint naming the way out rather than sending a mangled
-    body to Confluence. That refusal *is* the Windows behaviour, and it is worth asserting.
+    A page of HTML cannot survive cmd.exe's parsing, so when the only launcher is a `.cmd` shim with
+    nothing for `proc.unwrap_shim` to run under Node, the command refuses with a hint naming the way
+    out rather than sending a mangled body to Confluence. That refusal *is* the Windows behaviour,
+    and it is worth asserting. Paragraphs fold onto one line in storage format; a fenced block keeps
+    its newlines, so that is the body that has to be refused.
     """
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
     (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {
         "page_create": "confluence create-page --space {space} --title {title} --body {body}"}}}), encoding="utf-8")
     page = tmp_path / "page.md"
-    page.write_text("# Findings\n\ntwo lines\n\nand a second paragraph\n", encoding="utf-8")
-    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="search_ok")
+    page.write_text("# Findings\n\n```\nline one\nline two\n```\n", encoding="utf-8")
+    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="search_ok", npm=False)
     monkeypatch.setenv("PNCLI_EXE", os.path.join(str(tmp_path), "fakebin", "pncli.cmd"))
 
     from agentdata import cli_confluence

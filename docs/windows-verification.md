@@ -77,8 +77,10 @@ recorded until now:
   not on the laptop and needs no vetting. The page's own rule (no CDN; `agentdata/fleet/serve.py` lines 10–13) is
   a third thing again: it is about what the *browser* fetches, and holds whatever npm does.
 
-Consequences for the desk: prefer a vendored file or a hand-written stub over a new npm package on the laptop
-(`docs/spike-tools-and-fleet-improvements.md` §3a, §5, TOOLS-D8). Paste: the exact npm config lines Playwright's
+Consequences for the desk: prefer a vendored file over a new npm package on the laptop, and keep every package in
+the one lockfile (`docs/npm.md`), which is the vetting record. To run the desk's checks here: `npm ci --no-audit
+--no-fund` once, through Playwright's route, then `npm run types` and `npm run vendor:check` (`docs/npm.md`
+§Commands); nothing on the laptop runs from `node_modules` otherwise. Paste: the exact npm config lines Playwright's
 route needs (`npm config get proxy`, `https-proxy`, `registry`), so the next person does not rediscover them.
 
 ## 0b. Tab-completion (#76)

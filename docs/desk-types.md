@@ -20,6 +20,13 @@ checks both its callers and its body, which a declaration in a separate `.d.ts` 
 ## Running it
 
 ```
+npm ci --no-audit --no-fund && npm run types
+```
+
+The compiler is pinned in `package.json` and its lockfile ([npm.md](npm.md)); `npm run types` is `tsc -p
+tsconfig.json` with that compiler. Without the install, the same version fetched once does the same job:
+
+```
 npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
 ```
 
@@ -31,8 +38,8 @@ there is no `npx`, where the compiler cannot be fetched, and whenever `AGENTDATA
 which skips it without trying.
 
 The version is exact: a range would let a new release change what "clean" means under a branch nobody
-touched. It is written in four places, the workflow, the test, this page and `tsconfig.json`'s
-comment, and a test fails if they disagree. 7.0.2 is the native compiler. It reads JSDoc as 5.9 does:
+touched. It is pinned once, in `package.json`; the extension's manifest, this page and `tsconfig.json`'s
+comment repeat it, the workflow runs the lockfile's copy, and a test fails if any of them disagree. 7.0.2 is the native compiler. It reads JSDoc as 5.9 does:
 on the first run, before anything was typed, it flagged the same places as 5.9.3 plus two
 (`new Promise` resolves called with nothing), in under a second.
 

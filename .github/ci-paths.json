@@ -11,7 +11,8 @@
         "pyproject.toml",
         "tests/conftest.py",
         "tests/shard.py",
-        "tests/tier_matrix.py"
+        "tests/tier_matrix.py",
+        ".github/dependabot.yml"
       ],
       "except": [
         ".github/scripts/smoke.*"
@@ -145,7 +146,11 @@
         "tests/test_fleet.py",
         "tests/conftest.py",
         "tests/winsock_capture.py",
-        "tests/hig_audit.py"
+        "tests/hig_audit.py",
+        "package.json",
+        "package-lock.json",
+        "tools/vendor.mjs",
+        "agentdata/fleet/static/vendor/three/VENDORED.json"
       ]
     },
     "static-only": {
@@ -178,7 +183,9 @@
       "paths": [
         "ide/vscode/**",
         "agentdata/fleet/serve.py",
-        "docs/fleet-ide.md"
+        "docs/fleet-ide.md",
+        "package.json",
+        "package-lock.json"
       ]
     },
     "ide-jetbrains": {

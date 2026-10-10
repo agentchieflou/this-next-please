@@ -240,7 +240,7 @@ leaving it to a review checklist: the shells may not name a state, a severity ru
 
 ### Building them
 
-Neither is part of the Python wheel. CI builds both on every push:
+Neither is part of the Python wheel. The extension is a workspace of the root `package.json` ([npm.md](npm.md)): `npm ci` at the root, then `npm run compile -w ide/vscode`. CI builds both on every push:
 
 | Artefact | Job | Verified |
 | --- | --- | --- |
