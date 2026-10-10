@@ -4,6 +4,7 @@ The bug this file guards shipped: the page body went up as raw Markdown, so the 
 `- L-1001` as literal text. Everything here is about the two ways that happens -- nobody converted, or the
 "conversion" produced markup Confluence rejects -- plus the escaping that a hand-written body always gets wrong.
 """
+import re
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -142,7 +143,8 @@ def test_cli_writes_the_body_and_names_the_publish_command(tmp_path, capsys):
     assert CLI.main(["html", str(src), "--out", str(out)]) == 0
     printed = capsys.readouterr().out
     parse(out.read_text(encoding="utf-8"))
-    assert "ok: true" in printed and "next: ad-confluence publish " in printed and "RDSD-1-uat-findings.md --dry-run" in printed
+    assert "ok: true" in printed and re.search(r'next: "?ad-confluence publish ', printed), printed
+    assert "RDSD-1-uat-findings.md --dry-run" in printed
     assert "title: RDSD-22399 UAT findings" in printed and "table: 1" in printed
     assert CLI.main(["check", str(out)]) == 0 and "well_formed: true" in capsys.readouterr().out
 

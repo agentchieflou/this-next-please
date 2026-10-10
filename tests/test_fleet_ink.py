@@ -1839,22 +1839,23 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
         print(f"  a fixed loop {where}: {loop[1]:.1f}ms, throttled at 4 {loop[4]:.1f}ms ({cpu})")
     effect = min(throttle_ratio(loop["runs"]) for loop in loops)
     if sys.platform == "win32" and any(host in cpu for host in THROTTLE_HAS_NO_EFFECT_ON):
-        # Where the throttle is known to do nothing, the check is that it still does nothing and
-        # that the option says so instead of running the tests unthrottled. The day Chromium or the
-        # host changes, this fails and the host comes off the list.
-        assert effect < THROTTLE_TAKES_EFFECT, (cpu, "the throttle now takes effect here", loops)
-        assert throttle_refusal(effect, 4) is not None, (cpu, effect)
+        # Where the throttle is known to be unreliable, the check is that the option answers the
+        # measurement honestly: refused when the loop did not slow enough, allowed when it did. The
+        # same host class has measured both (#661: 4.44x on an EPYC 9V45 six hours after a 1.1x), so
+        # the measurement decides, not the list.
+        assert (throttle_refusal(effect, 4) is None) == (effect >= THROTTLE_TAKES_EFFECT), (cpu, effect, loops)
     else:
         for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
             assert loop[4] >= 3 * own, (where, own, cpu, loops)
         assert throttle_refusal(effect, 4) is None, (cpu, effect)
 
 
-#: Hosts on which CDP CPU throttling is measured to have no effect on Windows (#307): in run
+#: Hosts on which CDP CPU throttling is measured to be unreliable on Windows (#307): in run
 #: 36349924909's twenty Windows runners, the two on an AMD EPYC 9V45 ran a CPU-bound loop 1.04-1.23x
 #: slower at rates 2, 4 and 8 and at 15, 60 and 250 ms alike, while the other eighteen (EPYC 7763
 #: and 9V74, Xeon Platinum 8370C and 8573C) ran it 3.5-5.5x slower at rate 4. Train 20's failure,
-#: `{1: 15, 4: 17.4}` in run 36346175771, is the same 15 ms loop.
+#: `{1: 15, 4: 17.4}` in run 36346175771, is the same 15 ms loop. Later runs on the same host class
+#: measured 4.44x (#661), so on these hosts the test asserts the refusal follows the measurement.
 THROTTLE_HAS_NO_EFFECT_ON = ("AMD EPYC 9V45",)
 
 

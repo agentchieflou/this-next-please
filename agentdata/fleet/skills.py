@@ -634,12 +634,17 @@ def source() -> str:
 def source_kind(value: str) -> str:
     """`path` for a folder that exists, `github` for `owner/repo[@ref]`, `git` for anything
     `git clone` takes, "" for what none of them can be. A folder is looked for first, so a relative
-    folder that happens to be spelled `a/b` is the folder."""
+    folder that happens to be spelled `a/b` is the folder -- unless it is a bare repository (a `HEAD`
+    file beside an `objects/` folder), which has no skills to read and is what `git clone` takes;
+    on Windows that is how a local `.git` source is spelled, since `file://` is not a path there."""
     value = str(value or "").strip()
     if not value:
         return ""
     try:
-        if os.path.isdir(os.path.expanduser(value)):
+        folder = os.path.expanduser(value)
+        if os.path.isdir(folder):
+            if os.path.isfile(os.path.join(folder, "HEAD")) and os.path.isdir(os.path.join(folder, "objects")):
+                return "git"
             return "path"
     except OSError:
         pass

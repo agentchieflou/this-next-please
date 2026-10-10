@@ -42,6 +42,15 @@ SH_SHIM = """#!/bin/sh
 exec "{python}" "{runner}" {tool} "$@"
 """
 
+# The entry point `NPM_SHIM` names. `proc.unwrap_shim` runs it under Node directly, skipping cmd.exe,
+# only when the file exists -- which is how a real npm install looks, so the fake has one too. It
+# hands everything to the same Python runner, so the transcript is replayed either way.
+CLI_JS = """// fake npm entry point: forwards to the Python runner (tests/fakes/runner.py)
+const {{ spawnSync }} = require("node:child_process");
+const r = spawnSync({python}, [{runner}, {tool}, ...process.argv.slice(2)], {{ stdio: "inherit" }});
+process.exit(r.status === null ? 1 : r.status);
+"""
+
 
 def transcript_dir(tool: str) -> str:
     return os.path.join(HERE, tool, "transcripts")
@@ -84,11 +93,17 @@ def install(tmp_path, tools: list[str], *, case: str | None = None, npm: bool = 
         _write_executable(sh_path, SH_SHIM.format(python=python, runner=RUNNER, tool=tool), crlf=False)
         if WINDOWS:
             template = NPM_SHIM if npm else CMD_SHIM
+            package = f"@kolatts/{tool}"
             _write_executable(
                 os.path.join(bin_dir, f"{tool}.cmd"),
-                template.format(package=f"@kolatts/{tool}", python=python, runner=RUNNER, tool=tool),
+                template.format(package=package, python=python, runner=RUNNER, tool=tool),
                 crlf=True,
             )
+            if npm:
+                cli_dir = os.path.join(bin_dir, "node_modules", *package.split("/"), "bin")
+                os.makedirs(cli_dir, exist_ok=True)
+                with open(os.path.join(cli_dir, "cli.js"), "w", encoding="utf-8", newline="\n") as f:
+                    f.write(CLI_JS.format(python=json.dumps(python), runner=json.dumps(RUNNER), tool=json.dumps(tool)))
 
     env = dict(os.environ)
     env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")

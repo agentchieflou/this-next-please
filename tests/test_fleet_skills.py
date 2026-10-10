@@ -17,7 +17,7 @@ import urllib.request
 
 import pytest
 
-from agentdata import config as C, update as U
+from agentdata import config as C, textio, update as U
 from agentdata.fleet import events as E, lifecycle, registry, serve as S, skills as SK
 from agentdata.fleet.registry import Registry, agent_dir
 
@@ -111,7 +111,8 @@ def test_installed_merges_every_directory_and_the_first_copy_of_a_name_wins(flee
     assert re.fullmatch(r"[0-9a-f]{12}", winner["version"]) and winner["version"] != loser["version"]
     assert winner["lines"] == 5 and winner["ours"] is True and winner["path"].endswith("triage/SKILL.md")
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", winner["installed"])
-    assert SK.dirs() == [str(first), str(second)], "a directory that does not exist is not listed"
+    assert SK.dirs() == [textio.norm_path(str(first)), textio.norm_path(str(second))], \
+        "a directory that does not exist is not listed"
 
 
 def test_a_name_that_is_not_a_skill_folder_is_not_a_skill(fleet_home, two_dirs, tmp_path):
@@ -415,7 +416,8 @@ def test_a_sync_from_a_git_repository_clones_under_the_fleet_then_pulls(fleet_ho
     cat = SK.catalog(url)
     assert cat["kind"] == "git" and [r["name"] for r in cat["skills"]] == ["triage"] and cat["error"] == ""
     assert cat["skills"][0]["description"] == "sort the inbox" and len(cat["commit"]) == 12
-    assert os.path.isdir(os.path.join(SK.clone_dir(url), ".git")) and SK.clone_dir(url).startswith(str(fleet_home))
+    assert os.path.isdir(os.path.join(SK.clone_dir(url), ".git"))
+    assert SK.clone_dir(url).startswith(textio.norm_path(str(fleet_home)))
 
     out = SK.sync(url)
     assert out["ok"] and out["added"] == ["triage"] and out["commit"] == cat["commit"], out

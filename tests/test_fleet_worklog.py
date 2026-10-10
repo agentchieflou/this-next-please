@@ -11,7 +11,7 @@ import os
 import pytest
 
 from agentdata import cli_fleet
-from agentdata import config as C
+from agentdata import config as C, textio
 from agentdata.fleet import events as E, registry, worklog as WL, wrapup as WRAP
 from agentdata.fleet.registry import Registry
 
@@ -178,7 +178,7 @@ def test_build_folds_the_registered_agents_stream_and_write_local_mirrors_it(lun
     path = WL.write_local(m)
     assert os.path.isfile(path) and os.path.isfile(path[:-3] + ".html")
     assert open(path, encoding="utf-8").read() == WL.render_md(m)
-    assert str(fleet_home) in path and "worklog" in path
+    assert textio.norm_path(str(fleet_home)) in path and "worklog" in path
     assert WL.write_local(m) == path and open(path, encoding="utf-8").read() == WL.render_md(m), "idempotent"
 
 
