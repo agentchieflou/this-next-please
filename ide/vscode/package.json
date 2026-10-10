@@ -99,7 +99,7 @@
     "package": "vsce package --no-dependencies -o agentdata-fleet.vsix"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^26.6.4",
     "@types/vscode": "^1.90.0",
     "typescript": "7.0.2"
   }
