@@ -94,6 +94,10 @@ EDITABLE: dict[str, dict] = {
         "scope": NOW,
         "why": "the marketplace the skills are synced from: a GitHub `owner/repo`, a git URL, or a "
                "local folder holding `skills/*/SKILL.md`"},
+    "fleet.onenote.notebook": {
+        "label": "OneNote notebook", "type": "str", "default": "", "scope": NOW,
+        "why": "the notebook the fleet's worklog pages go to, as its OneNote web URL; blank keeps the worklog "
+               "local only (docs/fleet-worklog.md)"},
     "fleet.attach.max_mb": {
         "label": "attachment cap (MB)", "type": "int", "default": 10, "scope": NOW,
         "why": "the largest file the tray will copy into a checkout"},

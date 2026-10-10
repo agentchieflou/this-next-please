@@ -208,6 +208,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/pncli-parts.md` | pncli, used directly and credited: what we use as it is, what we extend and where, what we retired and why |
 | `docs/fleet-skills.md` | the skills marketplace on `/settings`: every installed skill, how often it ran, in which repositories, and the source it syncs from |
+| `docs/fleet-worklog.md` | the fleet's worklog: one page per checkout per day folded from the event stream, laid out like the fleet map (project → checkout → month → day), mirrored under the fleet directory by `ad-fleet worklog`, previewed by the wrap-up's `onenote` row; the OneNote writers are not built yet |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
 | `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |

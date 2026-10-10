@@ -39,7 +39,7 @@ from .registry import AGENT_ENV, FLEET_DIR_ENV, Registry, agent_dir
 
 MODES = ("day", "project")
 LABEL = {"day": "End of day", "project": "End of project"}
-ORDER = ("push", "pr", "page", "comment", "transition")
+ORDER = ("push", "pr", "page", "onenote", "comment", "transition")
 DEFAULT_TIMEOUT_S = 180
 READ_TIMEOUT_S = 30
 SUBJECTS = 10
@@ -50,7 +50,7 @@ COMMENT = "comment.md"
 TERMINAL = ("pr_open", "done", "closed", "merged")
 NOT_ON_A_BRANCH = ("default_branch", "detached_head")
 KIND = {"push": "git-push", "pr": "bitbucket-pr", "page": "confluence-publish", "comment": "jira-comment",
-        "transition": "jira-transition"}
+        "transition": "jira-transition", "onenote": "onenote-worklog"}
 NOT_PINNED_HINT = {
     "pr": ("the PR verb is not pinned yet (HANDOFF.md) — read `pncli bitbucket --help`, then "
            "`ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create=\"...\"` (WRAP-D6)"),
@@ -63,6 +63,7 @@ STABLE = {
     "push": ("branch", "remote", "target", "head", "ahead"),
     "pr": ("action", "pr_id", "title", "draft", "source", "target", "description", "live_hash"),
     "page": ("action", "page_id", "title", "space", "parent", "version", "edited"),
+    "onenote": ("path", "title", "seq_from", "seq_to", "action"),
     "comment": ("key", "chars", "body_sha"),
     "transition": ("key", "transition", "to", "status"),
 }
@@ -367,7 +368,7 @@ def _busy(name: str) -> str:
 
 
 def _skeleton(name: str, ticket: str, why: str) -> list[dict]:
-    steps = ["push", "pr"] + (["comment", "transition"] if ticket else [])
+    steps = ["push", "pr", "onenote"] + (["comment", "transition"] if ticket else [])
     return [_row(name, s, ok=False, ticked=False, summary=f"{s}: skipped", code="busy", hint=why) for s in steps]
 
 
@@ -470,6 +471,33 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
             rows.append(_row(name, "page", ok=False, ticked=False, summary=f"page: {gcode}", payload=dict(meta),
                              code=gcode, hint=hint or err, live=meta.get("version")))
 
+    # onenote: the day's worklog page (docs/fleet-worklog.md). W-2 of docs/plan-onenote-worklog.md: the preview
+    # is real (the address, the title, the seq range, the HTML the writer would send, and the local mirror under
+    # the fleet directory), the write is not built yet, so the row is never `ok` and never ticked. Unconfigured
+    # says what to set; configured says which slice writes it.
+    from . import worklog as WL
+
+    try:
+        wl = WL.preview(name, branch=seen["branch"], registry=registry)
+    except (WL.WorklogError, OSError) as e:
+        rows.append(_row(name, "onenote", ok=False, ticked=False, summary="worklog: failed", code="worklog_failed",
+                         hint=getattr(e, "hint", "") or str(e)))
+    else:
+        payload = {k: wl.get(k) for k in ("path", "title", "section", "groups", "seq_from", "seq_to", "events",
+                                          "action", "local", "html", "tickets", "state", "notebook")}
+        what = (f"worklog: {wl['action']} {wl['path']}" if wl["action"] != "nothing"
+                else f"worklog: nothing new for {wl['path']}")
+        if not wl["configured"]:
+            rows.append(_row(name, "onenote", ok=False, ticked=False, summary=what, payload=payload,
+                             code="not_configured",
+                             hint=f"the worklog is local only ({wl['local']}): set `{WL.NOTEBOOK_KEY}` to the "
+                                  "notebook's OneNote web URL on /settings to preview the page it would write"))
+        else:
+            rows.append(_row(name, "onenote", ok=False, ticked=False, summary=what, payload=payload,
+                             code="not_built",
+                             hint=f"the page is rendered ({wl['html']}) and the writer is not built yet: W-3 (Graph) "
+                                  "or W-4 (the connector) in docs/plan-onenote-worklog.md"))
+
     if not ticket:
         notes.append("untracked work: no ticket, so no Jira rows (AGENTS.md rule 17)")
         return _finish(name, mode, rows, notes, ticket=ticket)
@@ -570,6 +598,8 @@ def _real_argv(row: dict, name: str, mode: str, st: dict, overwrite: dict) -> li
         return adapter(*argv)
     if row["step"] == "comment":
         return adapter("jira", "comment", ticket, "--body-file", comment_path(name))
+    if row["step"] == "onenote":
+        return adapter("fleet", "worklog", name, "--write")
     want = row["id"].split(":", 1)[0].split("-", 1)[1]
     return adapter("jira", "transition", ticket, "--to", want)
 
@@ -740,11 +770,12 @@ def wait(name: str, timeout: float = 30.0) -> bool:
 # at once on a four-core laptop). A busy agent is skipped with a hint and never queued (DAY-D3).
 
 PARALLEL = 3
-TOTALS = {"push": "pushes", "pr": "prs", "page": "pages", "comment": "comments", "transition": "transitions"}
+TOTALS = {"push": "pushes", "pr": "prs", "page": "pages", "onenote": "worklogs", "comment": "comments",
+          "transition": "transitions"}
 # A row that could never write anything the operator should hear about: its verb is not pinned yet, there is
 # no page source, or end of day will not create a page. A repo whose rows are all these, or no-ops, has
 # *nothing to write*.
-QUIET = ("not_pinned", "no_source", "day_never_creates")
+QUIET = ("not_pinned", "no_source", "day_never_creates", "not_configured", "not_built", "worklog_failed")
 NOTHING = "nothing to write"
 NO_REPO_HINT = "ad-fleet wrapup <repo> [<repo> …] | --all [--day | --project]; `ad-fleet repo list` names them"
 

@@ -180,7 +180,9 @@ def test_plan_runs_only_dry_runs_of_the_module_form_and_writes_nothing_in_the_ch
 
 def test_end_of_day_on_a_ticketed_branch_with_three_unpushed_commits(luna):
     rows = _rows(WRAP.plan("luna", "day"))
-    assert list(rows) == ["push", "pr", "page", "comment", "transition-in-progress"]
+    assert list(rows) == ["push", "pr", "page", "onenote", "comment", "transition-in-progress"]
+    assert rows["onenote"]["code"] == "not_configured" and not rows["onenote"]["ticked"]
+    assert "fleet.onenote.notebook" in rows["onenote"]["hint"] and "RDSD-1-confluence.md" not in rows["onenote"]["hint"]
     push = rows["push"]
     assert push["ok"] and push["ticked"] and push["payload"]["ahead"] == 3
     assert rows["pr"]["code"] == "not_pinned" and not rows["pr"]["ticked"]
@@ -217,7 +219,7 @@ def test_end_of_project_offers_review_only_with_a_pr_and_done_unticked(luna):
 def test_untracked_work_gets_push_and_pr_rows_and_no_jira_rows(luna):
     _state(luna["path"], active_ticket="")
     plan = WRAP.plan("luna", "day")
-    assert [r["step"] for r in plan["rows"]] == ["push", "pr"]
+    assert [r["step"] for r in plan["rows"]] == ["push", "pr", "onenote"]
     assert any("untracked" in n and "rule 17" in n for n in plan["notes"])
     assert not any(a[3] == "jira" for a, _, _ in luna["rec"].calls)
 
@@ -538,7 +540,8 @@ def test_plan_all_writes_nothing_outside_the_fleet_dir_and_its_totals_match_its_
     assert _refs(fleet4["bare"]) == refs and fleet4["rec"].writes == []
     assert [r for r in fleet4["fake"].requests if r.method == "POST"] == []
     assert swept["mode"] == "day" and [r["repo"] for r in swept["repos"]] == ["luna", "sol", "terra", "vega"]
-    kinds = {"push": "pushes", "pr": "prs", "page": "pages", "comment": "comments", "transition": "transitions"}
+    kinds = {"push": "pushes", "pr": "prs", "page": "pages", "onenote": "worklogs", "comment": "comments",
+             "transition": "transitions"}
     want = {k: 0 for k in kinds.values()}
     pinned = 0
     for row in swept["repos"]:
@@ -561,7 +564,7 @@ def test_the_day_sweep_before_the_verbs_are_pinned(fleet4):
     for step in ("pr", "page"):
         assert luna[step]["code"] == "not_pinned" and "pncli.verbs." in luna[step]["hint"], luna[step]
     sol = repos["sol"]
-    assert [s["step"] for s in sol["steps"]] == ["push", "pr"] and _slots(sol)["push"]["ticked"]
+    assert [s["step"] for s in sol["steps"]] == ["push", "pr", "onenote"] and _slots(sol)["push"]["ticked"]
     assert _slots(sol)["pr"]["code"] == "not_pinned"
     assert any("untracked" in n for n in sol["notes"]) and not sol["ticket"]
     terra = _slots(repos["terra"])

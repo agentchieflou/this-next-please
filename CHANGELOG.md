@@ -4,6 +4,25 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.21.0
+
+**On update:** the two standard commands. No new dependency, no new pncli verb, and no skill changed, so a running
+Copilot chat keeps working.
+
+**The fleet's worklog, local first** (`docs/fleet-worklog.md`; W-1 and W-2 of `docs/plan-onenote-worklog.md`,
+the operator's pick from the OneNote spike):
+
+- `ad-fleet worklog <repo> [--date] [--since] [--write] [--markdown | --html]`: the day's page for one agent,
+  folded from `events.norm.jsonl` — facts only (phases, artifacts, PRs, questions as note tags, approvals,
+  friction, denials, cost, where it ended, the wrap-up comment you approved), never the model's text. `--write`
+  mirrors it under `<fleet dir>/worklog/<project>/<repo>/<yyyy-mm>/<yyyy-mm-dd>.md` (+ `.html`): the fleet map's
+  tree with time at the leaves, and the same string a OneNote page will be addressed by.
+- The wrap-up gains an `onenote` row between `page` and `comment` (one agent's sheet and the sweep, counted as
+  *worklogs*). Its preview is real — the address, the title, the seq range, the HTML the writer would send — and
+  it is never ticked: `not_configured` until `fleet.onenote.notebook` is set, `not_built` after, because the
+  OneNote writers are W-3 and W-4 and wait on the M-0 sitting.
+- New setting `fleet.onenote.notebook` (blank by default: the worklog stays local).
+
 ## 0.20.0
 
 **On update:**

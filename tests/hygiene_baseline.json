@@ -238,6 +238,7 @@
   "tests/test_fleet_voxel_ink.py": {"tests": 14},
   "tests/test_fleet_window.py": {"tests": 13},
   "tests/test_fleet_world_page.py": {"tests": 8},
+  "tests/test_fleet_worklog.py": {"tests": 14},
   "tests/test_fleet_wrapup.py": {"tests": 27},
   "tests/test_fs_semantics.py": {"skips": 3, "tests": 19},
   "tests/test_git_pr.py": {"tests": 7},
