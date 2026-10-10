@@ -171,9 +171,15 @@ jobs:
       # is emitted, and the page is still the bytes in the repository. Its own step, so a type error
       # is named here rather than as one failed test somewhere in the suite, which runs the same
       # command (`tests/test_desk_types.py`). The runner's Node, the one the suite's `node --check`
-      # uses; the compiler pinned exactly.
+      # uses; the compiler pinned exactly in package.json and its lockfile (docs/npm.md), which is
+      # also where the vendored three.js comes from: `vendor:check` fails if the served file is not
+      # the pinned package's build, byte for byte.
+      - name: npm ci (the dev manifest, docs/npm.md)
+        run: npm ci --no-audit --no-fund
       - name: the desk's types (tsc --noEmit)
-        run: npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
+        run: npm run types
+      - name: the vendored three.js is the pinned package's build
+        run: npm run vendor:check
       # Split up, because the parts want opposite things from the machine. The bulk is independent
       # work and takes every core there is; the `measured` tier asserts durations -- a 50ms paint
       # budget, a 4ms repaint, a fold under 0.05s -- and under `-n` it measures the contention
@@ -972,14 +978,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      # One lockfile at the root (docs/npm.md): `ide/vscode` is a workspace of it, so the compiler
+      # here is the desk's compiler and the vetting record is one file.
       - name: install
-        run: npm install --no-audit --no-fund
-        working-directory: ide/vscode
+        run: npm ci --no-audit --no-fund
       # `--strict` is on in tsconfig, so this is a real check and not a formality: the extension
       # talks to the fleet over HTTP and every field it reads is typed here.
       - name: typecheck and compile
-        run: npm run compile
-        working-directory: ide/vscode
+        run: npm run compile -w ide/vscode
       - name: package
         run: npx --yes @vscode/vsce@3 package --no-dependencies -o agentdata-fleet.vsix
         working-directory: ide/vscode

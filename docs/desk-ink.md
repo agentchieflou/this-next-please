@@ -26,7 +26,7 @@ Everything is in `agentdata/fleet/static/ink/`. There is no build step and nothi
 | `fx.js` | one-shot effects (#370, epic #293): one group in the scene at `api.order.fx`, the cues that play into it (#372, §Effects), and the helpers a skin reaches as `api.fx`. Imports nothing; handed three.js and the scene by the layer, it reads the page and writes nothing to it | by `layer.js`, only for a table with effects: a skin that exports `cues` or `options.fx`. Once a page, whichever tables follow |
 | `skins/<name>.js` | a skin's module: its mark table and its materials (§Writing a skin). `skins/example.js` is the pattern, used by the tests, and `skins/example.js.md` says why each part of it is there | when that skin is chosen, by every shell (the fallback draws its marks too) |
 | `<file>.md` | each file's reasoning, which its source no longer carries (#523, decision 18 on #429): `ink.js.md`, `layer.js.md`, `skins/<name>.js.md` and the rest | never: the server refuses it |
-| `../vendor/three/three.module.min.js` | three.js r160, vendored by #247 and pinned by sha256 | with `layer.js`, and never otherwise |
+| `../vendor/three/three.module.min.js` | three.js r160, vendored by #247 and pinned by sha256; since the npm manifest ([npm.md](npm.md)) it is `three@0.160.0`'s own build, copied by `npm run vendor` and held to the lockfile by `vendor:check` | with `layer.js`, and never otherwise |
 
 **Every import carries the token.** A module specifier is resolved against the importing file's URL, which does not
 carry the run token, and every route on this server wants it. So no file in `ink/` imports statically. `ink.js`

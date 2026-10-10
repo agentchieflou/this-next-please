@@ -1,0 +1,20 @@
+{
+  "name": "this-next-please-dev",
+  "private": true,
+  "description": "Dev-only manifest for the desk's type check and the vendored three.js; nothing here ships. See docs/desk-types.md and docs/npm.md.",
+  "license": "MIT",
+  "workspaces": [
+    "ide/vscode"
+  ],
+  "scripts": {
+    "types": "tsc -p tsconfig.json",
+    "vendor": "node tools/vendor.mjs",
+    "vendor:check": "node tools/vendor.mjs --check",
+    "ide:compile": "npm run compile -w ide/vscode",
+    "ide:package": "npm run package -w ide/vscode"
+  },
+  "devDependencies": {
+    "three": "0.160.0",
+    "typescript": "7.0.2"
+  }
+}

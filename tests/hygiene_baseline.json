@@ -92,7 +92,7 @@
   "tests/test_contract.py": {"tests": 13},
   "tests/test_deploy_refresh_verify.py": {"tests": 21},
   "tests/test_desk_harness.py": {"tests": 10},
-  "tests/test_desk_types.py": {"skips": 3, "tests": 5},
+  "tests/test_desk_types.py": {"skips": 3, "tests": 7},
   "tests/test_desk_waits.py": {"tests": 5},
   "tests/test_desktop_dax.py": {"tests": 7},
   "tests/test_desktop_session.py": {"tests": 12},
