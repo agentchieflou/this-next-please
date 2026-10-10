@@ -44,6 +44,7 @@ the runtime dependencies decide it, not us).
 | Power BI | PBIP/TMDL projection and validator (`ad-pbip`), Desktop bridge (`ad-pbi`), TE2 deploy; pbi-tools credited | [pbir-authoring.md](pbir-authoring.md); [pbi-tools-parts.md](pbi-tools-parts.md) |
 | Skills | 51 under `skills/`; the ledger counts uses from the fleet's stream and Copilot's session files; sync from `fleet.skills.source` | [fleet-skills.md](fleet-skills.md) |
 | Lint and types | shellcheck, PSScriptAnalyzer and `tsc --noEmit` in CI; **no** ruff, black, flake8, mypy or pyright | `.github/workflows/tests.yml`; `tsconfig.json` |
+| Node and npm on the laptop | Node.js is installed; `npm install` works only through the route Playwright's install uses (the one npm path the proxy allows); **every npm package must be vetted** before install. A laptop rule, not a CI rule | [windows-verification.md](windows-verification.md) §0a (recorded 2026-10-10) |
 
 The ledger does not yet say which skills run most, and this checkout has no `.agent/friction/`, so "what we use
 most" above is what CI and the laptop spend their minutes on, not what the operator types most. That is a gap the
@@ -63,6 +64,7 @@ second source, [plan-m365-bridge.md](plan-m365-bridge.md) §8).
 | **Playwright tracing** | `--tracing retain-on-failure` in pytest-playwright writes a trace zip per failing test; upload it as a job artefact beside `junit/` | the browser jobs. This week's flake (a `page.click("#wtake")` that completed, then a navigation that never came) would have come with a timeline instead of a 30 s timeout | the pytest-playwright reference; our `tests/desk_harness.py` launches Chromium itself, so the flag may need to become a harness option |
 | **pytest-flakefinder** | runs each test N times in one session to surface order- and timing-sensitivity | the nightly `order-independence-nightly` job already shuffles seeds; flakefinder on the browser tier once a week would find the next `#wtake` before a PR does | it finds flakes; the rule that no test is skipped or quarantined to get green stands |
 | **TypeScript 7** | the Go compiler shipped as `tsc` in July 2026; 8–12× faster full builds reported | already pinned (`typescript@7.0.2`). Two follow-ups: `strict` is reported to default to `true` in 7.0 (our `tsconfig.json` sets `false` explicitly, so nothing changed under us); and `settings.js`/`probe.js` are still outside the check | release coverage (§10); the "strict by default" claim is from one blog, **verify** against the 7.0 notes |
+| **Typing the three.js files** | `probe.js`, `ink/layer.js` and `map/scene.js` import the vendored `three.module.min.js`; a program that includes them makes tsc infer types from 656 KB of minified code, slowly and uselessly | a **hand-written `three.d.ts`** declaring only what the desk uses, under `declare module "*/three.module.min.js"`; the world stays out (parked, moved to play-sports). `@types/three` would be more complete but is an npm package to vet on the laptop and a version to keep matched to the vendored release; CI could fetch it, the laptop should not have to | the npm facts in §2; `tsconfig.json`'s own comment on why `probe.js` is not in the program yet |
 
 ### 3b. The CLI's start-up
 
@@ -203,7 +205,7 @@ budget. Inside those rules:
 |---|---|---|---|
 | **Strict types for the whole desk** | `strict: true` in `tsconfig.json`; add `settings.js` and `probe.js` to the checked set | TS 7 makes the check cheap enough to run on every push; two served files are unchecked | cheap, then a day of fixes |
 | **Container queries for the tiers** | the pane tiers switch on widths set as `fleet.tiers.*` ([desk-window.md](desk-window.md)) in JS; CSS `@container` lets each pane answer to *its own* width | fewer resize listeners on the gesture budget; a pane dropped into the IDE at an odd width lays itself out | medium; measure the swap frame time (16.7 ms median today) |
-| **A live terminal pane** | xterm.js (MIT, no bundler needed) rendering a ConPTY-backed console inside the desk, the agent-dashboard pattern | the console is a separate window today (`ad-fleet console`); a pane keeps the operator on the desk | dear: ConPTY from Python needs `pywinpty` or `ctypes`; a vendored xterm.js is ~300 KB against a 200 KB static budget. A sitting first |
+| **A live terminal pane** | xterm.js (MIT, no bundler needed) rendering a ConPTY-backed console inside the desk, the agent-dashboard pattern | the console is a separate window today (`ad-fleet console`); a pane keeps the operator on the desk | dear: ConPTY from Python needs `pywinpty` or `ctypes`; a vendored xterm.js is ~300 KB against a 200 KB static budget, and one more npm package to vet on the laptop. A sitting first |
 | **uPlot for the activity trace** | canvas charts, zero dependencies, ~50 kB, script-tag build, cursor sync across charts | **not yet**: the trace is "an hour in sixty numbers" drawn in a few lines, and the rendering rule says a library earns its bytes only when charts multiply. Named so the day cost per tool (§3d) has a candidate | — |
 | **Lit, htmx, VanJS** | small component or hypermedia libraries | **no**: [desk-components.md](desk-components.md) §not here is explicit, and `patchList` is 30 lines | — |
 
@@ -245,6 +247,7 @@ budget. Inside those rules:
 | A JS framework or chart library on the desk | the rendering rule; 154 of 200 KB already spent |
 | DuckDB or Datasette as runtime dependencies | the catalogue's SQLite FTS5 is the production index; both tools are for a developer's afternoon over JSONL |
 | A hosted skills registry as the source of trust | the ledger knows what *we* ran and whether it worked; a registry knows installs |
+| A new npm package on the laptop where a vendored file or a hand-written stub does the job | every npm package is vetted before install and reaches the registry only through Playwright's route ([windows-verification.md](windows-verification.md) §0a); CI may `npx` what it likes, the laptop pays for each one |
 
 ## 8. Measurements this spike proposes
 
@@ -272,6 +275,7 @@ on the answer.
 | TOOLS-D5 | Risk tiers on the approval gate with an undo lane for `git-push` and draft `bitbucket-pr`? | tiers shown, undo lane off until the approval-integrity seams of #537 cover `via: undo` |
 | TOOLS-D6 | Worktree offered on a second ticket for a busy project? | ask, default no |
 | TOOLS-D7 | A terminal pane in the desk (xterm.js + ConPTY)? | no; a sitting to measure the bytes and the PTY first |
+| TOOLS-D8 | Type the three.js-importing desk files with a hand-written `three.d.ts` stub, or vet `@types/three`? | the stub; `@types/three` only if the stub grows past the surface a person can keep honest |
 
 ## 10. Sources (read 2026-10-10)
 
