@@ -1573,6 +1573,45 @@ def cmd_events(a) -> int:
     return EXIT_OK
 
 
+def cmd_worklog(a) -> int:
+    """`ad-fleet worklog <repo> [--date] [--since] [--write]`: the day's worklog page, folded from the stream
+    (docs/fleet-worklog.md). TOON by default; `--write` also writes the local mirror under the fleet directory
+    (`<fleet dir>/worklog/<project>/<repo>/<yyyy-mm>/<yyyy-mm-dd>.md` and `.html`) and prints where."""
+    from .fleet import worklog as WL
+
+    source = "ad-fleet worklog"
+    try:
+        model = WL.build(a.repo, day=a.date, since=a.since)
+    except (RegistryError, WL.WorklogError) as e:
+        return _refuse(source, e)
+    local = WL.write_local(model) if a.write else ""
+    if a.markdown:
+        print(WL.render_md(model), end="")
+        return EXIT_OK
+    if a.html:
+        print(WL.render_html(model), end="")
+        return EXIT_OK
+    meta = {"repo": a.repo, "project": model["project"], "day": model["day"], "path": model["layout"]["path"],
+            "title": model["layout"]["title"], "section": model["layout"]["section"],
+            "events": model["events"], "seq_from": model["seq_from"], "seq_to": model["seq_to"],
+            "turns": model["turns"], "premium": model["premium"], "denied": model["denied"],
+            "state": model["state"], "notebook": model["notebook"] or "(local only)"}
+    if local:
+        meta["local"] = local
+    if model["empty"]:
+        meta["note"] = f"nothing happened on {model['day']}" + (f" after seq {model['since']}" if model["since"] else "")
+    rows = []
+    for key, tk in model["tickets"].items():
+        open_q = sum(q["status"] == "open" for q in tk["questions"].values())
+        rows.append([key, len(tk["phases"]), tk["phases"][-1]["to"] if tk["phases"] else "", len(tk["artifacts"]),
+                     len(tk["prs"]), open_q, len(tk["questions"]) - open_q, len(tk["approvals"]),
+                     len(tk["friction"]), tk["denied"]])
+    print(toon.encode({"meta": {"ok": True, "source": source, **meta}}))
+    print(toon.table("tickets", ["ticket", "phases", "phase", "artifacts", "prs", "asks", "answered", "approvals",
+                                 "friction", "denied"], rows))
+    return EXIT_OK
+
+
 def _remembered_windows() -> tuple[list[str], list[str]]:
     """What `--all` opens -- the windows `desk.json` remembers less the IDE views (`O.IDE_WINDOWS`),
     or `main` when that leaves none -- and the IDE views it leaves to their IDE.
@@ -2533,6 +2572,17 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--limit", type=int, default=60, help="how many events (0 = all)")
     ev.add_argument("--raw", action="store_true", help="the normalized JSON, one object per line")
     ev.set_defaults(fn=cmd_events)
+
+    wl = sub.add_parser("worklog", help="the day's worklog page for one agent, folded from its event stream "
+                                        "(docs/fleet-worklog.md)")
+    wl.add_argument("repo")
+    wl.add_argument("--date", help="the day, YYYY-MM-DD (default: today, UTC like the stream)")
+    wl.add_argument("--since", type=int, default=None, help="only events after this seq (default: the day's cursor)")
+    wl.add_argument("--write", action="store_true", help="also write the local mirror under the fleet directory")
+    shape = wl.add_mutually_exclusive_group()
+    shape.add_argument("--markdown", action="store_true", help="print the page as Markdown instead of TOON")
+    shape.add_argument("--html", action="store_true", help="print the page as OneNote input HTML instead of TOON")
+    wl.set_defaults(fn=cmd_worklog)
 
     ap = sub.add_parser("approvals", help="writes waiting for a click, oldest first")
     ap.add_argument("--raw", action="store_true", help="one JSON object per pending approval")

@@ -413,15 +413,15 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         job = WRAP.fleet_job_state()
         planned = {r["repo"]: [s["id"] for s in r["steps"] if s["ticked"]] for r in job["repos"]}
         assert {k: [c["id"] for c in r["cells"] if c["ticked"]] for k, r in swept.items()} == planned, swept
-        assert [c["step"] for c in swept["yday"]["cells"]] == ["push", "pr", "page", "comment"], swept["yday"]
-        assert [c["step"] for c in swept["free"]["cells"]] == ["push", "pr"], swept["free"]
+        assert [c["step"] for c in swept["yday"]["cells"]] == ["push", "pr", "page", "onenote", "comment"], swept["yday"]
+        assert [c["step"] for c in swept["free"]["cells"]] == ["push", "pr", "onenote"], swept["free"]
         for repo, row in swept.items():
             pr = next(c for c in row["cells"] if c["step"] == "pr")
             assert "not_pinned" in pr["text"] and "pncli.verbs" in pr["text"] and pr["disabled"], (repo, pr)
         page_cell = next(c for c in swept["yday"]["cells"] if c["step"] == "page")
         assert "not_pinned" in page_cell["text"], page_cell
         ticked = sum(len(v) for v in planned.values())
-        assert page.inner_text("#daygo") == (f"write {ticked} — 6 pushes, 0 PRs, 0 pages, 5 comments, "
+        assert page.inner_text("#daygo") == (f"write {ticked} — 6 pushes, 0 PRs, 0 pages, 0 worklogs, 5 comments, "
                                              "0 transitions"), page.inner_text("#daygo")
         assert not any("merge" in c["text"].lower() for r in swept.values() for c in r["cells"])
         # An idle desk with the table open, and no job running, writes nothing.

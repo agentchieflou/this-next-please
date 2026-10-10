@@ -10,6 +10,13 @@
 > and used directly, the wrapper and the duplicate REST reads are retired, and an `ad-*` command exists only where it
 > extends pncli -- `ad-jira`, `ad-confluence publish`, `ad-git pr`, and the fleet's shim that refuses a pncli write.
 >
+> **2026-10-10:** three research pages merged (PR #659: `docs/spike-onenote.md`, `docs/plan-onenote-worklog.md`,
+> `docs/spike-tools-and-fleet-improvements.md`), and 0.21.0 built the first two slices of the operator's pick, the
+> OneNote worklog, local first (`docs/fleet-worklog.md`): `ad-fleet worklog` folds one page per checkout per day from the
+> event stream into `<fleet dir>/worklog/<project>/<repo>/<yyyy-mm>/<yyyy-mm-dd>.md`, and the wrap-up previews it as an
+> `onenote` row that stays unticked (`not_configured` / `not_built`) until a writer exists. W-3 (Graph) and W-4 (the
+> connector) wait on the M-0 sitting; `fleet.onenote.notebook` is the setting.
+>
 > **2026-09-02 checkpoint:** the approved design for the next phase (Power BI PBIP/TMDL pipeline, `ad-setup` wizard, SQL dialect guardrails, Jira changelog + sprint replay, visual-level UAT) lives in `docs/plan-luna-pipeline.md`. Implement it in the slice order given there; slice 1 (`agentdata/config.py` + `ad-setup`/`ad-doctor`) comes first. All six slices are built (setup wizard, SQL guardrails, Jira changelog + sprint replay, PBIP projection/validator/editor, Desktop + DAX runner, UAT engine). Next: run `docs/windows-verification.md` on the laptop; each pasted failure becomes a fix PR with a reproducing test. Domain workflow skills started with `dpm-consumer-integration` (`agentdata/dpm/`, `ad-dpm`): the DPM → data_remediation_foundry_DPM_fork handoff contract; its builtin binding encodes assumptions listed in `skills/dpm-consumer-integration/references/dpm-contract.md` that must be confirmed against the real hand-back document.
 
 Context: scaffold produced offline. Owner: Michael. Worker model in production: "Luna"

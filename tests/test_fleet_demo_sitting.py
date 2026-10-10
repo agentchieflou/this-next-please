@@ -265,7 +265,7 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
     # The wrap-up (#510): the preset's rows, one write post with exactly the ticked ids, patched rows.
     rows, ticked = wrapped["rows"], wrapped["ticked"]
     assert wrapped["reading"], "the sheet said nothing while the adapters read"
-    assert [r["step"] for r in rows] == ["push", "pr", "page", "comment", "transition", "transition"], rows
+    assert [r["step"] for r in rows] == ["push", "pr", "page", "onenote", "comment", "transition", "transition"], rows
     by = {r["slot"]: r for r in rows}
     for step in ("pr", "page"):
         assert "not_pinned" in by[step]["text"] and by[step]["disabled"] and not by[step]["checked"], by[step]
@@ -317,10 +317,10 @@ def _wrap_up_from_the_pane(grid, path, tmp_path, monkeypatch) -> dict:
     grid.keyboard.press("w")
     grid.wait_for_selector("#inspector:not([hidden]) .wrapsheet:not([hidden])", timeout=5000)
     reading = grid.wait_for_function(
-        "() => /^reading push · pr · page · comment · transition/.test("
+        "() => /^reading push · pr · page · worklog · comment · transition/.test("
         "document.querySelector('.wrapsheet .wrap-status').textContent)", timeout=5000) is not None
     grid.wait_for_function("() => document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')"
-                           ".length === 6", timeout=20000)
+                           ".length === 7", timeout=20000)
     rows = grid.eval_on_selector_all(".wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)", """els => els.map(e => ({
         id: e.dataset.id, slot: e.dataset.rowkey, step: e.querySelector('.wrap-step').textContent,
         checked: e.querySelector('input.wrap-tick').checked, disabled: e.querySelector('input.wrap-tick').disabled,

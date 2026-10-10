@@ -125,9 +125,10 @@ the operator left it.
 The rail ends with **wrap up** (#510), and `w` on a pane or rail does the same: the project section
 opens on that agent with the wrap-up sheet above its details, set to *end of project* (the pairing for
 one agent; *end of day* is the other half of its toggle, and pressing it previews again). The sheet
-reads *reading push · pr · page · comment · transition…* while #503's job runs every adapter's
+reads *reading push · pr · page · worklog · comment · transition…* while #503's job runs every adapter's
 dry-run, then shows one row per write with a tick as the preset says; a row that is not `ok` is
-disabled with its code and hint (the pr and page rows read `not_pinned` until #506 and #507), and a
+disabled with its code and hint (the pr and page rows read `not_pinned` until #506 and #507; the worklog row
+reads `not_configured` or `not_built`, [fleet-worklog.md](fleet-worklog.md)), and a
 ticked row that waits on another says *after push*. A transition row offers Jira's own names, a page or
 PR description someone edited offers *replace*, and the comment row offers *edit* — each of those is a
 second preview, never a write (WRAP-D8). **Write n** posts exactly the ticked ids; each row then reads
@@ -473,7 +474,7 @@ red everywhere or the colour stops being information:
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
-| *day* → *end of day…* / *end of project…* | the sweep (#512): the day strip previews every agent's Jira, Bitbucket and Confluence writes (#505) — *reading N agents…*, then one row per agent with a cell per write, drawn as the wrap-up sheet draws a step (tick, summary, hint; `not_pinned` names the `pncli <product> --help` to read and the `ad-setup --set pncli.verbs.*` that pins the verb); an agent with nothing to write, or a busy one, is one muted line saying why. *Edit* on a comment cell opens that agent's text, previewed again when it changes. *Write N — P pushes, R PRs, G pages, C comments, T transitions* posts the ticked ids per agent, and each cell then reads written, failed, changed or skipped. At end of project *done* is unticked, the operator's call; no cell offers a merge. `Esc` closes it |
+| *day* → *end of day…* / *end of project…* | the sweep (#512): the day strip previews every agent's Jira, Bitbucket and Confluence writes (#505) — *reading N agents…*, then one row per agent with a cell per write, drawn as the wrap-up sheet draws a step (tick, summary, hint; `not_pinned` names the `pncli <product> --help` to read and the `ad-setup --set pncli.verbs.*` that pins the verb); an agent with nothing to write, or a busy one, is one muted line saying why. *Edit* on a comment cell opens that agent's text, previewed again when it changes. *Write N — P pushes, R PRs, G pages, W worklogs, C comments, T transitions* posts the ticked ids per agent, and each cell then reads written, failed, changed or skipped. At end of project *done* is unticked, the operator's call; no cell offers a merge. `Esc` closes it |
 | `Shift`+`N` | a fresh day for every pane (preview): the day strip under the toolbar, one row per agent — ticked, tickable (no ticket), or why not, a *needs you* row with its question and *answer* — then *start N fresh — about N premium turns*; `Esc` closes it (#511) |
 | `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |

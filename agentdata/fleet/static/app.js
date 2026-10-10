@@ -3172,7 +3172,7 @@ document.getElementById("closeinspector").addEventListener("click", function () 
   section("inspector", false);
 });
 
-var WRAP_STEPS = "push · pr · page · comment · transition";
+var WRAP_STEPS = "push · pr · page · worklog · comment · transition";
 var WRAP_GLYPH = { written: "✓", failed: "✗", changed: "↻", skipped: "–" };
 var wrap = { repo: "", mode: "project", job: "", state: "", rows: [], results: {}, ticks: {}, comment: null,
              editing: false, extra: {} };
@@ -5456,7 +5456,8 @@ var dayKind = "fresh";
 var sweep = { mode: "day", job: "", state: "", repos: [], results: {}, ticks: {}, comments: {}, editing: {},
               reading: [], asked: false };
 var SWEEP_KINDS = [["push", "push", "pushes"], ["pr", "PR", "PRs"], ["page", "page", "pages"],
-                   ["comment", "comment", "comments"], ["transition", "transition", "transitions"]];
+                   ["onenote", "worklog", "worklogs"], ["comment", "comment", "comments"],
+                   ["transition", "transition", "transitions"]];
 
 function dayHolds(kind) {
   var strip = dayStrip();

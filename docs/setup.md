@@ -145,6 +145,7 @@ when a change takes effect, because the answers differ:
 | `fleet.approval_timeout` | seconds a gated write waits for your click | now |
 | `fleet.max_restarts`, `fleet.log_mb`, `fleet.log_keep` | how often an agent is resumed after a crash, and how its logs rotate | now |
 | `fleet.skills.source` | the skills marketplace `/skills` syncs from: a GitHub `owner/repo` (optionally `@ref`), a git URL, or a local folder holding `skills/*/SKILL.md` (default `agentchieflou/this-next-please`; [fleet-skills.md](fleet-skills.md) §The marketplace source) | now |
+| `fleet.onenote.notebook` | the notebook the fleet's worklog pages go to, as its OneNote web URL; blank keeps the worklog local only ([fleet-worklog.md](fleet-worklog.md)) | now |
 | `fleet.board_ttl`, `fleet.branches.warn`, `fleet.attach.max_mb` | the Jira board cache, the branch-clutter warning, the attachment cap | now |
 | `fleet.console.host`, `fleet.console.palette` | which terminal a console opens in, and whether it is coloured | next console |
 | `fleet.notify.*` | dashboard, desktop and chime notifications, the cooldown, quiet hours | now |
