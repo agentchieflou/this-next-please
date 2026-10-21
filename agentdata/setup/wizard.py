@@ -25,6 +25,7 @@ from ..console import eprint, prompt as _console_prompt, utf8_stdout
 from .. import color
 from .. import proc
 from .. import ui
+from .scope import Scope, detect as detect_scope
 
 # `info` is a fact the operator may want once, not a thing to fix: it sorts below `ok` and, like
 # `ok`, it is hidden by `--quiet`. That matters because `session-bootstrap` runs `ad-doctor
@@ -333,6 +334,7 @@ class Context:
     facts: dict = field(default_factory=dict)
     checks: list[Check] = field(default_factory=list)
     project_dir: str | None = None
+    scope: "Scope | None" = None    # where this run is: repo, folder of repos, or machine (setup/scope.py)
 
     def add(self, step: str, name: str, status: str, detail: str = "", hint: str = "", keys: tuple[str, ...] = ()) -> None:
         self.checks.append(Check(step, name, status, detail, hint, keys))
@@ -367,12 +369,12 @@ class Step:
 
 
 def registry() -> list[Step]:
-    from .steps import console, content_understanding, fleet, jira, powerbi, project, sources, theme, toil
+    from .steps import console, content_understanding, fleet, jira, powerbi, project, repo, sources, theme, toil
     # console first: a report from an unsupported shell should say so before anything it explains; toil before
     # jira, because toil's connection is where Jira requests go and the jira step is the fallback without it
     return [console.ConsoleStep(), theme.ThemeStep(), toil.ToilStep(), jira.JiraStep(), sources.SourcesStep(),
             powerbi.PowerBIStep(), content_understanding.ContentUnderstandingStep(), project.ProjectStep(),
-            fleet.FleetStep()]
+            repo.RepoStep(), fleet.FleetStep()]
 
 
 # A step key a script or a habit may still type: `--only pncli` is the toil step since 0.22.0.
@@ -477,7 +479,8 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
     ap.add_argument("--report", action="store_true",
                     help="print the environment bundle (shells, pythons, tools, IDE default shells) and exit")
-    ap.add_argument("--only", action="append", help="step key(s), comma-separated: toil,jira,sources,powerbi,project")
+    ap.add_argument("--only", action="append", help="step key(s), comma-separated: toil,jira,sources,powerbi,project,repo")
+    ap.add_argument("--repo", metavar="NAME", help="check one repository in this folder (a name or a path)")
     from .. import completion, version
     version.add_version(ap)
     completion.autocomplete(ap)
@@ -495,8 +498,9 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
 
     try:
         cfg = C.load()
+        where = detect_scope(None, a.repo)
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=AnswerPrompter({}), online=a.online, interactive=False,
-                      facts=C.project_facts())
+                      facts=C.project_facts(where.agents_md or "AGENTS.md"), scope=where)
         for step in _select(registry(), a.only):
             found = step.detect(ctx)
             step.check(ctx, found)
@@ -504,7 +508,8 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
                 step.verify(ctx)
         if a.online:
             C.save(cfg)
-        return 0 if print_checks(ctx, "ad-doctor", quiet=a.quiet) else 1
+        return 0 if print_checks(ctx, "ad-doctor", extra={"scope": where.kind, "where": where.summary()},
+                                 quiet=a.quiet) else 1
     except C.ConfigError as e:
         print(toon.encode({"meta": {"ok": False, "source": "ad-doctor", "error": str(e), "hint": e.hint}}))
         ui.problem(str(e), e.hint or "", title="ad-doctor")
@@ -627,7 +632,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                          "(--include-warnings covers warn rows). Name targets to skip the scan and re-ask just those, "
                          "e.g. `--patch sources.oracle` or `--patch powerbi.az_exe`")
     ap.add_argument("--include-warnings", action="store_true", help="with --patch: repair warn rows as well as fail rows")
-    ap.add_argument("--only", action="append", help="step key(s), comma-separated: toil,jira,sources,powerbi,project")
+    ap.add_argument("--only", action="append", help="step key(s), comma-separated: toil,jira,sources,powerbi,project,repo")
     ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --set / --answers")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="answer one prompt key inline, e.g. project.jira_project=RDSD "
                     "(repeatable; true/false for yes-no prompts; wins over --answers)")
@@ -640,6 +645,8 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
     ap.add_argument("--import", dest="import_defaults", metavar="PATH",
                     help="load team defaults JSON as starting values (never overwrites existing configuration without asking)")
     ap.add_argument("--offline", action="store_true", help="skip network verification")
+    ap.add_argument("--repo", metavar="NAME", help="set up one repository in this folder (a name or a path): its "
+                    "AGENTS.md facts and Power BI targets, without changing directory")
     ap.add_argument("--project", metavar="DIR", help="generate/update a project stub (AGENTS.md, .agent/state.json) in DIR")
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--color", choices=["auto", "always", "never"], default="auto",
@@ -684,6 +691,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         return 0
     if a.check:
         rest = ["--quiet"] if a.quiet else []
+        rest += ["--repo", a.repo] if a.repo else []
         for o in a.only or []:
             rest += ["--only", o]
         return run_doctor(rest, det)
@@ -711,18 +719,24 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
             prompter = QuickPrompter()
         else:
             prompter = Prompter()
+        where = detect_scope(None, a.repo)
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=prompter, online=not a.offline, interactive=interactive,
-                      facts=C.project_facts(), project_dir=a.project)
+                      facts=C.project_facts(where.agents_md or "AGENTS.md"), project_dir=a.project, scope=where)
         only = a.only
         if a.project and not only:
             only = ["project"]
+        elif a.repo and not only:
+            only = ["repo"]
+        writes = where.writes()
         if ui.on() and not a.quiet:
-            ui.facts([("config", C.display_path(C.path())), ("network", "online" if ctx.online else "offline"),
-                      ("secrets", "keyring only — never a file, never this screen"),
+            ui.facts([("scope", where.summary()), *[(f"writes {w}", p) for w, p in writes],
+                      ("network", "online" if ctx.online else "offline"),
                       ("steps", ", ".join(s.key for s in _select(registry(), only)))], title="agentdata setup")
         else:
-            ctx.say(color.paint("agentdata setup", "bold") + f" · config {C.display_path(C.path())} · "
-                    f"{'online' if ctx.online else 'offline'} · " + color.paint("secrets → keyring only", "dim"))
+            ctx.say(color.paint("agentdata setup", "bold") + f" · {where.summary()} · "
+                    f"{'online' if ctx.online else 'offline'}")
+            for w, p in writes:
+                ctx.say(color.paint(f"  writes {w}: {p}", "dim"))
         if a.patch is not None:
             return run_patch(ctx, _select(registry(), only), prompter, include_warnings=a.include_warnings,
                              quiet=a.quiet, targets=a.patch or None)
@@ -742,7 +756,8 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                 step.verify(ctx)
                 C.save(cfg)
         saved = C.save(cfg)
-        extra = {"saved": saved}
+        extra = {"saved": saved, "scope": where.kind,
+                 "writes": "; ".join(f"{w}: {p}" for w, p in writes)}
         if getattr(prompter, "auto_accepted", None):
             extra["auto_accepted"] = len(prompter.auto_accepted)
         if getattr(prompter, "unanswered", None):

@@ -1,4 +1,4 @@
-"""Step 2: data sources — Teradata, Hive, Impala, Oracle. Native driver or ODBC DSN per env, SELECT 1 smoke test,
+"""Step 2: data sources — Teradata, Hive, Impala, Oracle, Spark (Thrift Server). Native driver or ODBC DSN per env, SELECT 1 smoke test,
 capability probes (consumed by ad-sql-check). Passwords go to keyring under `<source>:<env>`, never to config."""
 from __future__ import annotations
 import json
@@ -6,14 +6,18 @@ from ... import config as C
 from ...install import install_cmd
 from ..wizard import Context, Step
 
-LABEL = {"teradata": "Teradata", "hive": "Hive (HiveServer2)", "impala": "Impala", "oracle": "Oracle"}
+LABEL = {"teradata": "Teradata", "hive": "Hive (HiveServer2)", "impala": "Impala", "oracle": "Oracle",
+         "spark": "Spark (Thrift Server)"}
+# The sources that speak HiveServer2's protocol: one set of questions, one connector (`connectors/hs2.py`).
+HS2 = ("hive", "impala", "spark")
+SPARK_TRANSPORT = ["binary", "http"]
 ORA_STYLES = ["basic", "tns"]      # basic = hostname + port + service/SID (SQL Developer's Basic tab); tns = alias
 ORA_IDENT = ["service", "sid"]
 # Thick mode (client_lib) and authentication are INDEPENDENT: thick is also how you reach an old server or a wallet,
 # and it still takes a username and password. Only kerberos/wallet skip the credential prompts.
 ORA_AUTH = ["password", "kerberos", "wallet"]
-MODULE = {"teradata": "teradatasql", "hive": "impala", "impala": "impala", "oracle": "oracledb"}
-DEFAULT_PORT = {"hive": 10000, "impala": 21050}
+MODULE = {"teradata": "teradatasql", "hive": "impala", "impala": "impala", "oracle": "oracledb", "spark": "impala"}
+DEFAULT_PORT = {"hive": 10000, "impala": 21050, "spark": 10000}
 TD_LOGMECH = ["KRB5", "TDNEGO", "LDAP", "TD2"]
 HS2_AUTH = ["GSSAPI", "PLAIN", "LDAP", "NOSASL"]
 
@@ -29,7 +33,7 @@ def ora_auth(e: dict) -> str:
 def needs_password(source: str, e: dict) -> bool:
     if source == "teradata":
         return str(e.get("logmech", "")).upper() in ("LDAP", "TD2")
-    if source in ("hive", "impala"):
+    if source in HS2:
         return str(e.get("auth", "GSSAPI")).upper() in ("PLAIN", "LDAP")
     if source == "oracle":
         return ora_auth(e) == "password"
@@ -50,14 +54,14 @@ def _password_row(ctx: Context, key: str, tag: str, s: str, env: str, user: str)
 def uses_kerberos(source: str, e: dict) -> bool:
     if source == "teradata":
         return str(e.get("logmech", "KRB5")).upper() in ("KRB5", "TDNEGO")
-    if source in ("hive", "impala"):
+    if source in HS2:
         return str(e.get("auth", "GSSAPI")).upper() == "GSSAPI"
     return ora_auth(e) == "kerberos"
 
 
 class SourcesStep(Step):
     key = "sources"
-    title = "data sources (Teradata / Hive / Impala / Oracle)"
+    title = "data sources (Teradata / Hive / Impala / Oracle / Spark)"
 
     def detect(self, ctx: Context) -> dict:
         det = ctx.det
@@ -123,116 +127,142 @@ class SourcesStep(Step):
                     "Kerberos logons need a TGT; install MIT Kerberos, or switch the env to LDAP/TD2 with a keyring password")
 
     def ask(self, ctx: Context, found: dict) -> None:
-        det = ctx.det
         if found["pyodbc"]:
             ctx.say(f"  ODBC ({found['bits']}-bit Python): {len(found['drivers'])} drivers · DSNs: {', '.join(found['dsns']) or 'none'}")
         for s in C.SOURCES:
-            existing = found["envs"][s]
-            if not ctx.ask.confirm(f"sources.{s}.use", f"Use {LABEL[s]}?", bool(existing) or found["modules"][s]):
-                continue
+            if ctx.ask.confirm(f"sources.{s}.use", f"Use {LABEL[s]}?", bool(found["envs"][s]) or found["modules"][s]):
+                self.ask_source(ctx, found, s)
+
+    def ask_source(self, ctx: Context, found: dict, s: str, envs: list[str] | None = None) -> None:
+        """One source's questions: its environment names, then each environment's connection. With `envs` (the
+        TUI adding one connection) only those are asked, and every other environment of the source is kept."""
+        existing = found["envs"][s]
+        only = envs is not None
+        if not only:
             label = "connection names, e.g. OIMPROD1_ROSVC" if s == "oracle" else "environment names"
             raw = ctx.ask.ask(f"sources.{s}.envs", f"[{s}] {label} (comma-separated)", ",".join(existing) or "prod")
             envs = [x.strip() for x in raw.split(",") if x.strip()] or ["prod"]
-            for env in envs:
-                e = dict(existing.get(env, {}))
-                e.pop("env", None)
-                e.pop("source", None)
-                tag = f"{s}:{env}"
-                if s == "oracle":
-                    mode = "native"          # python-oracledb only; an ODBC DSN here would be read as a TNS alias
-                else:
-                    modes = ([("native")] if found["modules"][s] else []) + (["odbc"] if found["pyodbc"] and found["dsns"] else [])
-                    modes = modes or ["native", "odbc"]
-                    mode = ctx.ask.ask(f"sources.{s}.{env}.mode", f"[{tag}] connection mode",
-                                       e.get("mode") or modes[0], modes,
-                                       confident=len(modes) == 1) or modes[0]
-                e["mode"] = mode
-                if mode == "odbc":
-                    names = list(found["dsns"])
-                    for i, d in enumerate(names, 1):
-                        ctx.say(f"    {i}. {d} ({found['dsns'][d]})")
-                    single_dsn = names[0] if len(names) == 1 else ""
-                    dsn_default = e.get("dsn") or single_dsn
-                    ans = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] DSN name or number",
-                                       dsn_default, confident=len(names) == 1)
-                    if ans.isdigit() and 1 <= int(ans) <= len(names):
-                        ans = names[int(ans) - 1]
-                    e["dsn"] = ans
-                    e.pop("host", None)
-                    if s == "teradata":
-                        e["logmech"] = ctx.ask.ask(f"sources.{s}.{env}.logmech", f"[{tag}] logon mechanism", e.get("logmech") or "KRB5", TD_LOGMECH) or "KRB5"
-                    elif s in ("hive", "impala"):
-                        e["auth"] = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] auth mechanism", e.get("auth") or "GSSAPI", HS2_AUTH) or "GSSAPI"
-                elif s == "oracle":
-                    # Oracle has no ODBC DSN to pick from, so ask for the parts SQL Developer's Basic tab asks for
-                    style = ctx.ask.ask(f"sources.{s}.{env}.style", f"[{tag}] connection style",
-                                        e.get("style") or ("tns" if e.get("dsn") and not e.get("host") else "basic"),
-                                        ORA_STYLES) or "basic"
-                    e["style"] = style
-                    if style == "basic":
-                        e["host"] = ctx.ask.ask(f"sources.{s}.{env}.host", f"[{tag}] hostname", e.get("host") or "")
-                        port = ctx.ask.ask(f"sources.{s}.{env}.port", f"[{tag}] port", str(e.get("port") or C.ORACLE_PORT))
-                        e["port"] = int(port) if str(port).isdigit() else C.ORACLE_PORT
-                        which = ctx.ask.ask(f"sources.{s}.{env}.identifier", f"[{tag}] identified by",
-                                            "sid" if e.get("sid") and not e.get("service_name") else "service", ORA_IDENT) or "service"
-                        if which == "service":
-                            e["service_name"] = ctx.ask.ask(f"sources.{s}.{env}.service_name", f"[{tag}] service name", e.get("service_name") or "")
-                            e.pop("sid", None)
-                        else:
-                            e["sid"] = ctx.ask.ask(f"sources.{s}.{env}.sid", f"[{tag}] SID", e.get("sid") or "")
-                            e.pop("service_name", None)
-                        e.pop("dsn", None)                      # composed from the parts (config.oracle_dsn)
-                    else:
-                        e["dsn"] = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] TNS alias or connect string (host:1521/service)",
-                                               e.get("dsn") or "")
-                        for k in ("host", "port", "service_name", "sid"):
-                            e.pop(k, None)
-                    auth = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] authentication", ora_auth(e), ORA_AUTH) or "password"
-                    e["auth"] = auth
-                    lib_label = ("Oracle Instant Client lib dir (REQUIRED for %s)" % auth if auth != "password"
-                                 else "Oracle Instant Client lib dir (blank = thin mode, which is fine with a password)")
-                    for opt, label in (("tns_admin", "TNS_ADMIN directory (blank = none)"), ("client_lib", lib_label)):
-                        v = ctx.ask.ask(f"sources.{s}.{env}.{opt}", f"[{tag}] {label}", e.get(opt) or "")
-                        if v:
-                            e[opt] = v
-                        else:
-                            e.pop(opt, None)
-                else:
-                    e["host"] = ctx.ask.ask(f"sources.{s}.{env}.host", f"[{tag}] host", e.get("host") or "")
-                    e.pop("dsn", None)
-                    if s in ("hive", "impala"):
-                        port = ctx.ask.ask(f"sources.{s}.{env}.port", f"[{tag}] port", str(e.get("port") or DEFAULT_PORT[s]))
-                        e["port"] = int(port) if str(port).isdigit() else DEFAULT_PORT[s]
-                        e["auth"] = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] auth mechanism", e.get("auth") or "GSSAPI", HS2_AUTH) or "GSSAPI"
-                        e["ssl"] = ctx.ask.confirm(f"sources.{s}.{env}.ssl", f"[{tag}] TLS?", bool(e.get("ssl", False)))
-                    else:
-                        e["logmech"] = ctx.ask.ask(f"sources.{s}.{env}.logmech", f"[{tag}] logon mechanism", e.get("logmech") or "KRB5", TD_LOGMECH) or "KRB5"
-                        tm = ctx.ask.ask(f"sources.{s}.{env}.tmode", f"[{tag}] transaction mode ANSI/TERA (blank = server default)", e.get("tmode") or "")
-                        if tm:
-                            e["tmode"] = tm.upper()
-                        else:
-                            e.pop("tmode", None)
-                if needs_password(s, e):
-                    user = ctx.ask.ask(f"sources.{s}.{env}.user", f"[{tag}] user", e.get("user") or det.getuser())
-                    e["user"] = user
-                    if det.has_password(s, env, user) and ctx.ask.confirm(f"sources.{s}.{env}.keep_password", f"[{tag}] keep the password already in keyring?", True, confident=True):
-                        pass
-                    elif ctx.interactive:
-                        pw = ctx.ask.ask(f"sources.{s}.{env}.password", f"[{tag}] password (stored in keyring only)", secret=True)
-                        if pw:
-                            try:
-                                det.set_password(s, env, user, pw)
-                            except C.ConfigError as ex:
-                                # a broken keyring backend must not throw away the rest of this env's answers
-                                ctx.add(self.key, tag, "warn", str(ex), ex.hint)
-                    else:
-                        ctx.add(self.key, tag, "warn", "password auth configured but no keyring entry",
-                                "run interactive `ad-setup --only sources` once to store it")
-                C.put_leaf(ctx.cfg, f"sources.{s}.envs", env, e)
+        for env in envs or []:
+            self.ask_env(ctx, found, s, env)
+        if not only:
             envs_cfg = C.get(ctx.cfg, f"sources.{s}.envs") or {}
             for old in list(envs_cfg):
                 if old not in envs:
                     envs_cfg.pop(old, None)
+
+    def ask_env(self, ctx: Context, found: dict, s: str, env: str) -> None:
+        """One environment's connection: mode, where it is, how it signs in; the password goes to keyring only."""
+        det = ctx.det
+        existing = found["envs"][s]
+        e = dict(existing.get(env, {}))
+        e.pop("env", None)
+        e.pop("source", None)
+        tag = f"{s}:{env}"
+        if s == "oracle":
+            mode = "native"          # python-oracledb only; an ODBC DSN here would be read as a TNS alias
+        else:
+            modes = ([("native")] if found["modules"][s] else []) + (["odbc"] if found["pyodbc"] and found["dsns"] else [])
+            modes = modes or ["native", "odbc"]
+            mode = ctx.ask.ask(f"sources.{s}.{env}.mode", f"[{tag}] connection mode",
+                               e.get("mode") or modes[0], modes,
+                               confident=len(modes) == 1) or modes[0]
+        e["mode"] = mode
+        if mode == "odbc":
+            names = list(found["dsns"])
+            for i, d in enumerate(names, 1):
+                ctx.say(f"    {i}. {d} ({found['dsns'][d]})")
+            single_dsn = names[0] if len(names) == 1 else ""
+            dsn_default = e.get("dsn") or single_dsn
+            ans = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] DSN name or number",
+                               dsn_default, confident=len(names) == 1)
+            if ans.isdigit() and 1 <= int(ans) <= len(names):
+                ans = names[int(ans) - 1]
+            e["dsn"] = ans
+            e.pop("host", None)
+            if s == "teradata":
+                e["logmech"] = ctx.ask.ask(f"sources.{s}.{env}.logmech", f"[{tag}] logon mechanism", e.get("logmech") or "KRB5", TD_LOGMECH) or "KRB5"
+            elif s in HS2:
+                e["auth"] = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] auth mechanism", e.get("auth") or "GSSAPI", HS2_AUTH) or "GSSAPI"
+        elif s == "oracle":
+            # Oracle has no ODBC DSN to pick from, so ask for the parts SQL Developer's Basic tab asks for
+            style = ctx.ask.ask(f"sources.{s}.{env}.style", f"[{tag}] connection style",
+                                e.get("style") or ("tns" if e.get("dsn") and not e.get("host") else "basic"),
+                                ORA_STYLES) or "basic"
+            e["style"] = style
+            if style == "basic":
+                e["host"] = ctx.ask.ask(f"sources.{s}.{env}.host", f"[{tag}] hostname", e.get("host") or "")
+                port = ctx.ask.ask(f"sources.{s}.{env}.port", f"[{tag}] port", str(e.get("port") or C.ORACLE_PORT))
+                e["port"] = int(port) if str(port).isdigit() else C.ORACLE_PORT
+                which = ctx.ask.ask(f"sources.{s}.{env}.identifier", f"[{tag}] identified by",
+                                    "sid" if e.get("sid") and not e.get("service_name") else "service", ORA_IDENT) or "service"
+                if which == "service":
+                    e["service_name"] = ctx.ask.ask(f"sources.{s}.{env}.service_name", f"[{tag}] service name", e.get("service_name") or "")
+                    e.pop("sid", None)
+                else:
+                    e["sid"] = ctx.ask.ask(f"sources.{s}.{env}.sid", f"[{tag}] SID", e.get("sid") or "")
+                    e.pop("service_name", None)
+                e.pop("dsn", None)                      # composed from the parts (config.oracle_dsn)
+            else:
+                e["dsn"] = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] TNS alias or connect string (host:1521/service)",
+                                       e.get("dsn") or "")
+                for k in ("host", "port", "service_name", "sid"):
+                    e.pop(k, None)
+            auth = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] authentication", ora_auth(e), ORA_AUTH) or "password"
+            e["auth"] = auth
+            lib_label = ("Oracle Instant Client lib dir (REQUIRED for %s)" % auth if auth != "password"
+                         else "Oracle Instant Client lib dir (blank = thin mode, which is fine with a password)")
+            for opt, label in (("tns_admin", "TNS_ADMIN directory (blank = none)"), ("client_lib", lib_label)):
+                v = ctx.ask.ask(f"sources.{s}.{env}.{opt}", f"[{tag}] {label}", e.get(opt) or "")
+                if v:
+                    e[opt] = v
+                else:
+                    e.pop(opt, None)
+        else:
+            e["host"] = ctx.ask.ask(f"sources.{s}.{env}.host", f"[{tag}] host", e.get("host") or "")
+            e.pop("dsn", None)
+            if s in HS2:
+                if s == "spark":
+                    # Spark Thrift Servers are often HTTP (hive.server2.transport.mode=http, port 10001)
+                    e["transport"] = ctx.ask.ask(f"sources.{s}.{env}.transport", f"[{tag}] Thrift transport",
+                                                 e.get("transport") or "binary", SPARK_TRANSPORT) or "binary"
+                default_port = 10001 if e.get("transport") == "http" else DEFAULT_PORT[s]
+                port = ctx.ask.ask(f"sources.{s}.{env}.port", f"[{tag}] port", str(e.get("port") or default_port))
+                e["port"] = int(port) if str(port).isdigit() else default_port
+                if e.get("transport") == "http":
+                    e["http_path"] = ctx.ask.ask(f"sources.{s}.{env}.http_path", f"[{tag}] HTTP path",
+                                                 e.get("http_path") or "cliservice") or "cliservice"
+                else:
+                    e.pop("http_path", None)
+                e["auth"] = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] auth mechanism", e.get("auth") or "GSSAPI", HS2_AUTH) or "GSSAPI"
+                if s == "spark" and e["auth"] == "GSSAPI":
+                    e["service_name"] = ctx.ask.ask(f"sources.{s}.{env}.service_name",
+                                                    f"[{tag}] Kerberos service in the server's principal (<service>/host@REALM)",
+                                                    e.get("service_name") or "hive") or "hive"
+                e["ssl"] = ctx.ask.confirm(f"sources.{s}.{env}.ssl", f"[{tag}] TLS?", bool(e.get("ssl", False)))
+            else:
+                e["logmech"] = ctx.ask.ask(f"sources.{s}.{env}.logmech", f"[{tag}] logon mechanism", e.get("logmech") or "KRB5", TD_LOGMECH) or "KRB5"
+                tm = ctx.ask.ask(f"sources.{s}.{env}.tmode", f"[{tag}] transaction mode ANSI/TERA (blank = server default)", e.get("tmode") or "")
+                if tm:
+                    e["tmode"] = tm.upper()
+                else:
+                    e.pop("tmode", None)
+        if needs_password(s, e):
+            user = ctx.ask.ask(f"sources.{s}.{env}.user", f"[{tag}] user", e.get("user") or det.getuser())
+            e["user"] = user
+            if det.has_password(s, env, user) and ctx.ask.confirm(f"sources.{s}.{env}.keep_password", f"[{tag}] keep the password already in keyring?", True, confident=True):
+                pass
+            elif ctx.interactive:
+                pw = ctx.ask.ask(f"sources.{s}.{env}.password", f"[{tag}] password (stored in keyring only)", secret=True)
+                if pw:
+                    try:
+                        det.set_password(s, env, user, pw)
+                    except C.ConfigError as ex:
+                        # a broken keyring backend must not throw away the rest of this env's answers
+                        ctx.add(self.key, tag, "warn", str(ex), ex.hint)
+            else:
+                ctx.add(self.key, tag, "warn", "password auth configured but no keyring entry",
+                        "run interactive `ad-setup --only sources` once to store it")
+        C.put_leaf(ctx.cfg, f"sources.{s}.envs", env, e)
 
     def verify(self, ctx: Context) -> None:
         import concurrent.futures

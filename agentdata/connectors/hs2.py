@@ -1,13 +1,17 @@
-"""HiveServer2 (Hive) and Impala via impyla, or a pyodbc DSN. Credentials resolved at call time, never printed.
-GSSAPI needs a live TGT (klist); on Windows install `winkerberos`."""
+"""HiveServer2 (Hive), Impala and the Spark Thrift Server via impyla, or a pyodbc DSN. Credentials resolved at call
+time, never printed. GSSAPI needs a live TGT (klist); on Windows install `winkerberos`. The Spark Thrift Server speaks
+HiveServer2's protocol, often over HTTP (`transport: http`, port 10001, `http_path: cliservice`)."""
 from __future__ import annotations
 import getpass
 from ..config import ConfigError, source_env
 from ..install import install_cmd
 from . import odbc, secrets
 
-DEFAULT_PORT = {"hive": 10000, "impala": 21050}
-DEFAULT_SERVICE = {"hive": "hive", "impala": "impala"}
+DEFAULT_PORT = {"hive": 10000, "impala": 21050, "spark": 10000}
+# The Kerberos service in the server's principal (`<service>/<host>@REALM`). A Spark Thrift Server is usually started
+# with Hive's principal, so `hive` is its default too; `service_name` in the env overrides it.
+DEFAULT_SERVICE = {"hive": "hive", "impala": "impala", "spark": "hive"}
+DEFAULT_HTTP_PATH = "cliservice"
 PASSWORD_AUTH = ("PLAIN", "LDAP")
 
 
@@ -31,6 +35,9 @@ def connect(source: str, env: str, cfg: dict | None = None, timeout: int | None 
                 "use_ssl": bool(e.get("ssl", False))}
     if timeout:
         kw["timeout"] = int(timeout)
+    if str(e.get("transport") or "binary").lower() == "http":
+        kw["use_http_transport"] = True
+        kw["http_path"] = e.get("http_path") or DEFAULT_HTTP_PATH
     if auth == "GSSAPI":
         kw["kerberos_service_name"] = e.get("service_name") or DEFAULT_SERVICE[source]
     elif auth in PASSWORD_AUTH:

@@ -11,7 +11,7 @@ description: "Domain sub-router for warehouse reads and UAT: Teradata, Hive, Imp
 | UAT across **two** warehouses at once, migration or cutover parity ("do Teradata and Hadoop agree") | `uat-jira-vs-warehouses` |
 | UAT, remediation, "compare Jira to Teradata / Hadoop / Hive / Impala / Oracle" (status / assignee lists, counts that look wrong) | `uat-jira-vs-source` |
 | query, count, rows, table, SQL, Teradata, "Jira history" | `teradata-query` |
-| Hive, Hadoop, Impala, Spark table | `hive-query` |
+| Hive, Hadoop, Impala, Spark table, Spark SQL | `hive-query` |
 | Oracle | `oracle-query` |
 | compare two datasets, diff two extracts, "did the numbers change between runs", two TOON or TSV files | `data-adapter` |
 | a query that exceeds the laptop (hours, hundreds of millions of rows), "run it on the cluster" | `slurm-submit` |

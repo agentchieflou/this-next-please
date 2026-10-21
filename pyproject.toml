@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.22.0"
+version = "0.23.0"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.14"
 dependencies = [
@@ -24,6 +24,7 @@ teradata = ["teradatasql"]
 oracle = ["oracledb"]
 hive = ["impyla"]
 impala = ["impyla"]
+spark = ["impyla"]       # the Spark Thrift Server speaks HiveServer2's protocol
 odbc = []           # no-op, same reason as keyring below: pyodbc is a base dependency now
 keyring = []        # no-op: keyring is a base dependency now. Kept so an existing `pip install agentdata[keyring]`
                     # (this repo's own docs used to say to type it) still works instead of erroring on an unknown extra.
@@ -50,10 +51,12 @@ ad-td = "agentdata.cli:main_td"
 ad-ora = "agentdata.cli:main_ora"
 ad-hive = "agentdata.cli:main_hive"
 ad-impala = "agentdata.cli:main_impala"
+ad-spark = "agentdata.cli:main_spark"
 ad-diff = "agentdata.cli:main_diff"
 ad-view = "agentdata.cli:main_view"
 ad-setup = "agentdata.cli_setup:main_setup"
 ad-doctor = "agentdata.cli_setup:main_doctor"
+tnp = "agentdata.tnp:main_tnp"
 ad-sql-check = "agentdata.cli_sqlcheck:main"
 ad-jira = "agentdata.cli_jira:main"
 ad-git = "agentdata.cli_git:main"

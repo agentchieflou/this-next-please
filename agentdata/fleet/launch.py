@@ -87,7 +87,7 @@ DEFAULT_ALLOW = [
     "shell(ad-uat)",
     "shell(ad-dpm)",
     "shell(ad-confluence)",
-    "shell(ad-td)", "shell(ad-ora)", "shell(ad-hive)", "shell(ad-impala)",
+    "shell(ad-td)", "shell(ad-ora)", "shell(ad-hive)", "shell(ad-impala)", "shell(ad-spark)",
     "shell(ad-view)", "shell(ad-diff)",
     "shell(git status)",
     "shell(git diff)",

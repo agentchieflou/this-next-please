@@ -23,7 +23,7 @@ LOCK = threading.Lock()
 CONFIG_ENV = "AGENTDATA_CONFIG"
 DEFAULT_PATH = "~/.agentdata/config.json"
 VERSION = 1
-SOURCES = ("teradata", "hive", "impala", "oracle")
+SOURCES = ("teradata", "hive", "impala", "oracle", "spark")
 
 _SECRET_KEY = re.compile(r"(?:^|_)(password|passwd|pwd|secret|token|api_?key|pat|client_secret)$", re.I)
 # Values there are key *names* (dot-paths into pncli's config, from setup before 0.22.0), not secrets: a config
@@ -38,13 +38,16 @@ _ENV_VARS: dict[str, dict[str, tuple[str, ...]]] = {
              "dsn": ("HIVE_DSN_{ENV}", "HIVE_DSN"), "auth": ("HIVE_AUTH",)},
     "impala": {"host": ("IMPALA_HOST_{ENV}", "IMPALA_HOST"), "port": ("IMPALA_PORT",), "user": ("IMPALA_USER",),
                "dsn": ("IMPALA_DSN_{ENV}", "IMPALA_DSN"), "auth": ("IMPALA_AUTH",)},
+    # Spark through its Thrift Server: HiveServer2's protocol, so the same parts as Hive plus the HTTP transport.
+    "spark": {"host": ("SPARK_HOST_{ENV}", "SPARK_HOST"), "port": ("SPARK_PORT",), "user": ("SPARK_USER",),
+              "dsn": ("SPARK_DSN_{ENV}", "SPARK_DSN"), "auth": ("SPARK_AUTH",)},
     # Oracle has no DSN registry (no odbcad32 equivalent), so the parts are first-class: host, port, service/SID.
     "oracle": {"host": ("ORA_HOST_{ENV}", "ORA_HOST"), "port": ("ORA_PORT_{ENV}", "ORA_PORT"),
                "service_name": ("ORA_SERVICE_{ENV}", "ORA_SERVICE"), "sid": ("ORA_SID_{ENV}", "ORA_SID"),
                "dsn": ("ORA_DSN_{ENV}", "ORA_DSN"), "user": ("ORA_USER",), "client_lib": ("ORACLE_CLIENT_LIB",),
                "tns_admin": ("TNS_ADMIN",)},
 }
-_PRIMARY_KEY = {"teradata": "host", "hive": "host", "impala": "host", "oracle": "host"}
+_PRIMARY_KEY = {"teradata": "host", "hive": "host", "impala": "host", "oracle": "host", "spark": "host"}
 
 
 class ConfigError(Exception):

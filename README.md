@@ -84,6 +84,8 @@ pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.g
 #    with the extras you actually use:
 #    pip install "agentdata[teradata,impala,oracle,pbi,uat,test] @ git+https://github.com/agentchieflou/this-next-please.git"
 
+tnp                    # the setup menu: data connections (paste a JDBC URL), Power BI, each repo's settings,
+#                        toil's connections; says where every answer is written (docs/tnp.md)
 ad-setup               # guided: toil (its launcher, and which connection each service uses), data sources,
 #                        Power BI tools/workspaces; without toil, `ad-setup --only jira` keeps a token in the keyring
 #    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)
@@ -103,7 +105,9 @@ or name the skills you want: `gh skill install agentchieflou/this-next-please ro
 
 **Project repos install nothing.** `rdsd-pbi-reporting` and friends hold PBIP folders, TMDL and SQL — not Python.
 Running `pip install -e ".[dev]"` there fails with *"neither 'setup.py' nor 'pyproject.toml' found"*, and that is
-correct: the CLI is laptop-wide, like `git`. Per project you only run `ad-setup --project .`.
+correct: the CLI is laptop-wide, like `git`. Per project you only run `ad-setup` inside it (or `ad-setup --repo <name>`
+from the folder that holds your repos): that writes only the repo's AGENTS.md, i.e. which environment of each source it
+reads and the Power BI models and reports it changes.
 
 **If `ad-setup` is "not recognized as the name of a cmdlet"**, pip printed *Defaulting to user installation* and put the
 console scripts in a folder Windows does not have on PATH. Either add it —

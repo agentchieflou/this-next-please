@@ -68,6 +68,7 @@ def main_td(): _sql_main("teradata", "ad-td")
 def main_ora(): _sql_main("oracle", "ad-ora")
 def main_hive(): _sql_main("hive", "ad-hive")
 def main_impala(): _sql_main("impala", "ad-impala")
+def main_spark(): _sql_main("spark", "ad-spark")
 
 
 def main_view() -> None:

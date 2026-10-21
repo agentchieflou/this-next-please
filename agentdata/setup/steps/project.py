@@ -130,11 +130,16 @@ class ProjectStep(Step):
         if not d:
             if not ctx.ask.confirm("project.generate", "Generate or update a project stub (AGENTS.md, .agent/state.json) now?", False):
                 return
-            d = ctx.ask.ask("project.dir", "project directory", ".") or "."
+            here = ctx.scope.root if ctx.scope and ctx.scope.kind == "repo" else "."
+            d = ctx.ask.ask("project.dir", "project directory", here) or here
         if not found["template_ok"]:
             ctx.add(self.key, "project", "fail", "packaged project stub missing", f"reinstall agentdata: {install_cmd()}")
             return
         facts = facts_from_config(ctx.cfg)
+        if ctx.scope is not None and ctx.scope.kind == "repo":
+            # which environment and workspace this repo uses is the repo step's question, asked out loud; the first
+            # one configured on the machine is a guess, and a wrong guess here is invisible until a query fails
+            facts = {k: v for k, v in facts.items() if k in ("te2_exe", "dscmd_exe")}
         facts["jira_project"] = ctx.ask.ask("project.jira_project", "Jira project key", ctx.facts.get("jira_project") or "")
         facts["confluence_space"] = ctx.ask.ask("project.confluence_space", "Confluence space key (blank = later)", ctx.facts.get("confluence_space") or "")
         facts["confluence_parent"] = ctx.ask.ask("project.confluence_parent", "Confluence parent page id (blank = later)", ctx.facts.get("confluence_parent") or "")

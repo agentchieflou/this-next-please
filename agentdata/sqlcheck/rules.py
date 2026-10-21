@@ -8,8 +8,11 @@ from typing import Any
 from . import strip as S
 from .. import toon
 
-DIALECTS = ("teradata", "hive", "impala", "oracle")
-DOC = {"teradata": "teradata-sql.md", "hive": "hive-impala-sql.md", "impala": "hive-impala-sql.md", "oracle": "oracle-sql.md"}
+DIALECTS = ("teradata", "hive", "impala", "oracle", "spark")
+# Spark SQL has no reference of its own yet: it is closest to Hive's, which is where its section lives. Only the
+# common rules apply to it; a Spark-specific rule is added when a real query proves one is needed.
+DOC = {"teradata": "teradata-sql.md", "hive": "hive-impala-sql.md", "impala": "hive-impala-sql.md", "oracle": "oracle-sql.md",
+       "spark": "hive-impala-sql.md"}
 _F = re.I | re.M
 
 

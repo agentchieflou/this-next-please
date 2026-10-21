@@ -9,7 +9,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF = {"teradata": "skills/teradata-query/references/teradata-sql.md",
        "hive": "skills/hive-query/references/hive-impala-sql.md",
        "impala": "skills/hive-query/references/hive-impala-sql.md",
-       "oracle": "skills/oracle-query/references/oracle-sql.md"}
+       "oracle": "skills/oracle-query/references/oracle-sql.md",
+       "spark": "skills/hive-query/references/hive-impala-sql.md"}
 
 
 def ids(sql, dialect, caps=None):
@@ -36,6 +37,7 @@ CANONICAL = {
     "hive": "SELECT issue_key, count(*) FROM db.t WHERE dt = '2025-01-31' AND a || b = 'x' GROUP BY issue_key LIMIT 100",
     "impala": "SELECT `key`, concat(a, 'x') FROM db.t WHERE dt = '2025-01-31' LIMIT 100 OFFSET 0",
     "oracle": "SELECT h.issue_key FROM jira_hist h WHERE h.changed_ts >= DATE '2025-01-01' ORDER BY h.changed_ts FETCH FIRST 10 ROWS ONLY",
+    "spark": "SELECT issue_key, count(*) FROM db.t WHERE dt = date'2025-01-31' GROUP BY issue_key LIMIT 100",
 }
 
 

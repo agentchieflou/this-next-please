@@ -10,6 +10,7 @@ import sys
 COMMANDS = {
     "setup": ("agentdata.cli_setup", "main_setup", "guided setup wizard"),
     "doctor": ("agentdata.cli_setup", "main_doctor", "offline health check"),
+    "tnp": ("agentdata.tnp", "main_tnp", "the setup menu (bare `tnp`)"),
     "sql-check": ("agentdata.cli_sqlcheck", "main", "lint SQL for a dialect"),
     "jira": ("agentdata.cli_jira", "main", "Jira changelog and sprint replay"),
     "git": ("agentdata.cli_git", "main", "push the current branch (never forced) and open its PR, gated"),
@@ -25,6 +26,7 @@ COMMANDS = {
     "ora": ("agentdata.cli", "main_ora", "Oracle query"),
     "hive": ("agentdata.cli", "main_hive", "Hive query"),
     "impala": ("agentdata.cli", "main_impala", "Impala query"),
+    "spark": ("agentdata.cli", "main_spark", "Spark SQL query (Thrift Server)"),
     "view": ("agentdata.cli", "main_view", "render a TSV, a CSV or a saved toil envelope as TOON"),
     "diff": ("agentdata.cli", "main_diff", "compare two TSVs"),
     "help": ("agentdata.cli_help", "main", "command catalog and per-command help"),

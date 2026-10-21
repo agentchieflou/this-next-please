@@ -12,6 +12,15 @@ CONNS = [{"name": "corp-jira", "area": "jira", "isDefault": True, "host": "jira.
           "definedIn": "file"},
          {"name": "corp-bb", "area": "bitbucket", "isDefault": True, "host": "bb.acme.test", "writes": True,
           "definedIn": "file"}]
+@pytest.fixture(autouse=True)
+def _outside_any_repo(tmp_path, monkeypatch):
+    """Setup now reads where it runs (setup/scope.py): run it in an empty folder, never in this checkout, whose
+    AGENTS.md the repo step would otherwise read and write."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+
+
 PKG_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__import__("agentdata").__file__)))
 
 
@@ -673,7 +682,7 @@ def test_a_broken_keyring_backend_does_not_lose_the_rest_of_the_answers(cfg_path
     is what secrets.py now turns every such failure into before it ever reaches this step."""
     monkeypatch.setattr(W, "has_tty", lambda: True)
     answers = iter(["y", "prod", "native", "tdprod01.corp.example.com", "LDAP", "", "jsmith", "hunter2",
-                    "n", "n", "n"])
+                    "n", "n", "n", "n"])
     monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(answers))
     det = FakeDet(modules={"teradatasql"}, set_password_error="keyring backend failed on write (PanicException)")
     rc = W.run_setup(["--only", "sources", "--offline"], det)
@@ -696,7 +705,7 @@ def test_patch_explicit_teradata_target_sees_a_freshly_interactive_setup(cfg_pat
     monkeypatch.setattr(W, "has_tty", lambda: True)
     det = FakeDet(modules={"teradatasql"})
 
-    setup_answers = iter(["y", "PRODTD1", "native", "tdprod01.corp.example.com", "KRB5", "", "n", "n", "n"])
+    setup_answers = iter(["y", "PRODTD1", "native", "tdprod01.corp.example.com", "KRB5", "", "n", "n", "n", "n"])
     monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(setup_answers))
     rc1 = W.run_setup(["--only", "sources", "--offline"], det)
     assert rc1 == 0
@@ -734,7 +743,7 @@ def test_teradata_env_named_after_its_dsn_survives_setup_and_patch(cfg_path, mon
     dsn = "TPRDDB.pncint.net"
     det = FakeDet(modules={"teradatasql", "pyodbc", "keyring"}, dsns={dsn: "Teradata Database ODBC Driver 20.00"})
 
-    setup_answers = iter(["y", dsn, "odbc", "1", "LDAP", "pk40484", "hunter2", "n", "n", "n"])
+    setup_answers = iter(["y", dsn, "odbc", "1", "LDAP", "pk40484", "hunter2", "n", "n", "n", "n"])
     monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(setup_answers))
     rc1 = W.run_setup(["--only", "sources", "--offline"], det)
     assert rc1 == 0

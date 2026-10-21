@@ -4,7 +4,8 @@ import re
 import time
 from typing import Any
 
-SCALAR = {"teradata": "SELECT 1", "hive": "SELECT 1", "impala": "SELECT 1", "oracle": "SELECT 1 FROM DUAL"}
+SCALAR = {"teradata": "SELECT 1", "hive": "SELECT 1", "impala": "SELECT 1", "oracle": "SELECT 1 FROM DUAL",
+          "spark": "SELECT 1"}
 
 
 def connect(source: str, env: str, cfg: dict | None = None, timeout: int | None = 30):
@@ -67,7 +68,7 @@ def capabilities(source: str, con) -> dict[str, Any]:
         caps["trunc_date"] = _try(con, "SELECT TRUNC(CURRENT_DATE, 'MM')")[0]
         caps["to_char"] = _try(con, "SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')")[0]
         caps["listagg"] = _try(con, "SELECT LISTAGG(x, ',') WITHIN GROUP (ORDER BY x) FROM (SELECT 'a' AS x) t")[0]
-    elif source in ("hive", "impala"):
+    elif source in ("hive", "impala", "spark"):
         v, major = _version(con, "SELECT version()")
         if v:
             caps["version"] = v

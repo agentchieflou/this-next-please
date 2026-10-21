@@ -20,6 +20,7 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - hive_env: <hive_env_name>                 # ad-hive --env
 - impala_env: <impala_env_name>             # ad-impala --env
 - oracle_env: <oracle_env_name>             # ad-ora --env
+- spark_env: <spark_env_name>               # ad-spark --env (the Spark Thrift Server)
 - confluence_base: <https://confluence.example.com>   # the wiki base the tile links a page to
 - confluence_space: <SPACE>
 - bitbucket_repo: <project/repo>            # the tile's repo and open-PR links

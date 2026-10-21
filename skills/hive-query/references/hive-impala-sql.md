@@ -80,3 +80,17 @@ Hive 4+: `... QUALIFY row_number() OVER (...) = 1` after `WHERE`/`GROUP BY`. Hiv
 9. Impala `concat` with a NULL argument returns NULL.
 10. Stale Impala metadata after Hive/Spark writes → ask for `REFRESH`.
 11. `SYSDATE`, `ROWNUM`, `TO_CHAR`, `LISTAGG` are Oracle — none exist here.
+
+## Spark SQL
+`ad-spark` runs on the Spark Thrift Server: Spark SQL, against the same Hive metastore. It is closer to Hive than to
+Impala, with these differences (Spark 3.x; **verify on your instance** for the version `ad-setup --only sources` records):
+- `||` **concatenates** (as in Hive); `concat()` still works everywhere.
+- `LIMIT n` takes a literal; `OFFSET m` needs Spark 3.4+. `TABLESAMPLE (10 PERCENT)` works.
+- `QUALIFY` is not in open-source Spark 3.x: use the `row_number()` subquery under §Row limiting.
+- `date_trunc('MONTH', ts)` takes the unit **first**; `trunc(date, 'MM')` takes the date first (as Hive's).
+- `to_date(s, 'yyyy-MM-dd')` and `to_timestamp(s, fmt)` take a format; patterns are Spark's datetime patterns
+  (`MM` month, `mm` minute), and an unparseable value is NULL unless `spark.sql.ansi.enabled` is on, when it errors.
+- Integer `/` returns a DOUBLE (as in Hive); `div` is integer division.
+- A Delta or Iceberg table reads like any other table; `DESCRIBE HISTORY` / time travel are reads, and every write
+  (`INSERT`, `MERGE`, `OPTIMIZE`, `VACUUM`) is refused by the adapter, as in every engine here.
+
