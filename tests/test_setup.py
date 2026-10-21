@@ -205,6 +205,7 @@ def test_doctor_fails_without_toil_or_its_connections(cfg_path, capsys):
     out = capsys.readouterr().out
     assert "toil,jira connection,fail," in out and "toil connections add <name> --area jira" in out
     assert "toil,confluence connection,warn," in out and "toil,bitbucket connection,warn," in out
+    assert "toil,github connection,info," in out, "GitHub is optional: a Bitbucket shop needs none"
 
 
 def test_the_jira_keyring_fallback_stands_in_for_toils_jira_connection(cfg_path, capsys):

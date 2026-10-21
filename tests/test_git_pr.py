@@ -107,6 +107,50 @@ def test_writes_off_is_refused_before_the_operator_is_asked(repo, capsys, monkey
         assert "toil bitbucket pr create" in out
 
 
+GITHUB = {"name": "corp-gh", "area": "github", "isDefault": True, "host": "github.example.test", "writes": True}
+
+
+@pytest.mark.parametrize("url", ["https://github.example.test/acme/thing.git", "git@github.example.test:acme/thing.git",
+                                 "ssh://git@github.example.test:22/acme/thing"])
+def test_a_remote_on_the_github_connections_host_opens_a_github_pr_and_may_be_a_draft(repo, capsys, monkeypatch,
+                                                                                    url):  # noqa: F811
+    work, _bare = repo
+    fakes.toil_connections(monkeypatch, fakes.WRITABLE + [GITHUB])
+    git(work, "remote", "set-url", "origin", url)
+    rc, out = run(capsys, "--title", "RDSD-1: x", "--draft", "--dry-run")
+    assert rc == 0, out
+    assert "provider: github" in out and "draft: true" in out and "connection: corp-gh" in out
+    assert ("toil github pr create --title 'RDSD-1: x' --head feature/RDSD-1-thing --base main --body '<" in out
+            and "--draft --connection corp-gh --allow-write" in out), out
+
+
+def test_a_remote_on_no_connections_host_stays_bitbucket(repo, capsys, monkeypatch):  # noqa: F811
+    work, _bare = repo
+    fakes.toil_connections(monkeypatch, fakes.WRITABLE + [GITHUB])
+    git(work, "remote", "set-url", "origin", "https://bb.example.test/scm/rdsd/thing.git")
+    rc, out = run(capsys, "--title", "RDSD-1: x", "--dry-run")
+    assert rc == 0 and "provider: bitbucket" in out and "toil bitbucket pr create" in out
+    rc, out = run(capsys, "--draft", "--dry-run")
+    assert rc == 2 and "refused: draft_unsupported" in out
+
+
+def test_the_github_connection_with_writes_off_is_refused_first(repo, capsys, monkeypatch):  # noqa: F811
+    work, _bare = repo
+    fakes.toil_connections(monkeypatch, fakes.WRITABLE + [dict(GITHUB, writes=False)])
+    git(work, "remote", "set-url", "origin", "https://github.example.test/acme/thing.git")
+    rc, out = run(capsys, "--dry-run")
+    assert rc == 2 and "refused: writes_off" in out and "TOIL_GITHUB_WRITES=true" in out
+
+
+def test_github_com_remotes_match_the_api_host():
+    from agentdata.connectors import toil as T
+
+    assert T.host_matches("api.github.com", "github.com") and T.host_matches("bb.example.test:7990", "bb.example.test")
+    assert not T.host_matches("api.github.com", "ghe.example.test") and not T.host_matches("", "github.com")
+    assert T.url_of({"url": "https://api.github.com/repos/a/b/pulls/7",
+                     "html_url": "https://github.com/a/b/pull/7"}) == "https://github.com/a/b/pull/7"
+
+
 def test_the_pr_is_on_the_strict_allow_list_and_the_gate_is_in_the_command():
     assert "shell(ad-git pr)" in launch.DEFAULT_ALLOW
     source = open(G.__file__, encoding="utf-8").read()

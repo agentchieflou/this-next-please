@@ -1,6 +1,7 @@
 """ad-git push: the one push -- the current branch, to its own name, on a configured remote, gated (#502).
-ad-git pr: the Bitbucket pull request for that branch, through toil's `bitbucket pr create|update`, gated
-(`bitbucket-pr`): the overlay's dry run and approval first, `--allow-write` only on the approved run.
+ad-git pr: the pull request for that branch, through toil's `bitbucket pr create|update` -- or `github pr create|update`
+when the remote is on the host of toil's GitHub connection -- gated (`bitbucket-pr`): the overlay's dry run and
+approval first, `--allow-write` only on the approved run.
 
 `shell(git push)` stays on the fleet's deny floor (launch.py). A deny is a prefix, so no allow entry can offer a
 push without also offering `git push -u origin HEAD --force`; and a push without an explicit refspec follows
@@ -179,17 +180,42 @@ def _default_target(cwd: str, remote: str) -> str:
     return next((b for b in ("main", "master") if _ref(cwd, f"refs/remotes/{remote}/{b}")), "")
 
 
+# The PR providers `ad-git pr` writes through, each toil area family Data Center (or GitHub.com) first. The first is
+# the one a remote on no known host gets.
+PR_FAMILIES = {"bitbucket": ("bitbucket", "bitbucket-cloud"), "github": ("github",)}
+
+
+def _remote_host(cwd: str, remote: str) -> str:
+    """The host of `remote`'s URL (`git@host:o/r`, `ssh://git@host:7999/o/r`, `https://host/scm/o/r`), or ""."""
+    import re as _re
+    import urllib.parse
+    code, url, _ = _git(cwd, "remote", "get-url", remote)
+    url = url.strip() if code == 0 else ""
+    if not url:
+        return ""
+    if "://" in url:
+        return (urllib.parse.urlsplit(url).hostname or "").lower()
+    m = _re.match(r"^(?:[^@/]+@)?([^:/]+):", url)       # scp-like: git@host:owner/repo
+    return m.group(1).lower() if m else ""
+
+
 def pr_plan(cwd: str, *, title: str | None = None, target: str | None = None, draft: bool = False,
             overwrite: str | None = None, remote: str | None = None, cfg: dict | None = None) -> dict:
     """Everything `ad-git pr` would send, from local refs and config only. Raises `Refused`.
 
-    toil's `bitbucket pr create` has no draft flag (0.1.0-alpha.5), so a PR opens ready for review, and asking for a
-    draft is refused rather than quietly opening one ready: the operator decides whether that is acceptable."""
+    The provider is the remote's host: the toil connection on it (`toil.area_for_remote`), Bitbucket when none is.
+    toil's `bitbucket pr create` has no draft flag (0.1.0-alpha.5), so there a PR opens ready for review, and asking
+    for a draft is refused rather than quietly opening one ready; `github pr create --draft` has one."""
     from .connectors import toil as T
     cfg = C.load() if cfg is None else cfg
     p = plan(cwd, remote)                     # detached head, protected branch, unknown remote, diverged
     action = "update" if overwrite else "create"
-    if draft:
+    try:
+        conns: list[dict] | None = T.connections(cfg)
+    except proc.ProcError:
+        conns = None                          # write_target asks again and names the failure
+    family = T.area_for_remote(_remote_host(cwd, p["remote"]), PR_FAMILIES, conns or [])
+    if draft and family == "bitbucket":
         raise Refused("draft_unsupported", "toil's `bitbucket pr create` cannot open a draft PR",
                       "run `ad-git pr` without --draft to open it ready for review, or open the draft in Bitbucket "
                       "yourself", p)
@@ -212,16 +238,23 @@ def pr_plan(cwd: str, *, title: str | None = None, target: str | None = None, dr
     lines = ([f"Ticket: {ticket}", ""] if ticket else []) + ["Commits:"] + \
         [f"- {s}" for s in logged.splitlines() if s.strip()]
     description = "\n".join(lines)
-    conn, code, hint = T.write_target(("bitbucket", "bitbucket-cloud"), cfg)
-    area = str((conn or {}).get("area") or "bitbucket")
-    if overwrite:
+    conn, code, hint = T.write_target(PR_FAMILIES[family], cfg, conns)
+    area = str((conn or {}).get("area") or family)
+    if family == "github":
+        if overwrite:
+            argv = [area, "pr", "update", overwrite, "--title", title, "--body", description]
+        else:
+            argv = [area, "pr", "create", "--title", title, "--head", p["branch"], "--base", target,
+                    "--body", description, *(["--draft"] if draft else [])]
+    elif overwrite:
         argv = [area, "pr", "update", overwrite, "--title", title, "--description", description]
     else:
         argv = [area, "pr", "create", "--title", title, "--source", p["branch"], "--target", target,
                 "--description", description]
     argv += [*(["--connection", str(conn["name"])] if conn else []), T.ALLOW_WRITE]
     shown = [f"<{len(description)} chars>" if a == description else a for a in argv]
-    out = {"action": action, "pr_id": overwrite or "", "title": title, "draft": False, "source": p["branch"],
+    out = {"action": action, "pr_id": overwrite or "", "title": title, "draft": bool(draft and family == "github"),
+           "provider": family, "source": p["branch"],
            "target": target, "remote": p["remote"], "description": "replaced" if overwrite else "written",
            "live_hash": "", "head": p["head"], "argv": argv, "command": T.shown_argv(shown),
            "connection": (conn or {}).get("name") or ""}
@@ -249,8 +282,8 @@ def _pr(a) -> int:
                 "refused": r.code, "error": r.error, "hint": r.hint}
         print(toon.encode({"meta": meta}))
         return r.exit_code
-    keep = ("action", "pr_id", "title", "draft", "source", "target", "remote", "description", "live_hash", "head",
-            "connection", "command", "note")
+    keep = ("action", "pr_id", "title", "draft", "provider", "source", "target", "remote", "description", "live_hash",
+            "head", "connection", "command", "note")
     # `source` is the PR's source branch here, the name the wrap-up's stable fields read (`fleet/wrapup.STABLE`);
     # a refusal's `source` is the command, as everywhere else.
     meta = {"ok": True, **{k: p[k] for k in keep if k in p}}
@@ -262,7 +295,7 @@ def _pr(a) -> int:
     from .fleet import approval
 
     payload = {k: p[k] for k in keep if k in p and k != "note"}
-    decision = approval.require("bitbucket-pr", f"{p['action']} {'draft ' if p['draft'] else ''}PR "
+    decision = approval.require("bitbucket-pr", f"{p['action']} {'draft ' if p['draft'] else ''}{p['provider']} PR "
                                 f"{p['source']} → {p['target']}: {p['title']}", payload,
                                 ticket=_active_ticket(cwd), cfg=cfg)
     if not decision.ok:
@@ -277,7 +310,7 @@ def _pr(a) -> int:
                                     "hint": e.hint or "read toil's message; nothing is retried"}}))
         return 1
     data = T.data_of(answer)
-    meta.update(pr_id=p["pr_id"] or T.find(data, "id", "prId", "pr_id"), url=T.url_of(data),
+    meta.update(pr_id=p["pr_id"] or T.find(data, "number", "id", "prId", "pr_id"), url=T.url_of(data),
                 elapsed_ms=int(elapsed * 1000))
     _print_meta(meta, src)
     return 0
@@ -365,13 +398,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the plan from local refs; contact no remote")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     r = sub.add_parser("pr", allow_abbrev=False,
-                       help="open or update the Bitbucket PR for the current branch through toil's PR verb "
+                       help="open or update the PR for the current branch through toil's PR verb (Bitbucket, or GitHub by the remote's host) "
                             "(never from a protected branch; --dry-run first; gated in a fleet)")
     r.add_argument("--title", help="the PR title (default: the active ticket and the last commit's subject)")
     r.add_argument("--target", metavar="BRANCH", help="the branch to merge into (default: the remote's HEAD)")
     mode = r.add_mutually_exclusive_group()
     mode.add_argument("--draft", action="store_true",
-                      help="open it as a draft: refused, toil's PR verb cannot (draft_unsupported)")
+                      help="open it as a draft: GitHub only; on Bitbucket toil's PR verb cannot (draft_unsupported)")
     mode.add_argument("--ready", action="store_true", help="open it ready for review (the default)")
     r.add_argument("--overwrite", metavar="PR_ID", help="update this PR instead of opening one")
     r.add_argument("--dry-run", action="store_true", help="print the plan from local refs and config; send nothing")

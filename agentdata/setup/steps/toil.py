@@ -19,7 +19,10 @@ from ... import textio
 # (row name, toil areas that serve it, what a missing one costs)
 SERVICES = (("jira", ("jira", "jira-cloud"), "`ad-jira`, the fleet's Jira cells and the UAT live side"),
             ("confluence", ("confluence", "confluence-cloud"), "`ad-confluence publish`"),
-            ("bitbucket", ("bitbucket", "bitbucket-cloud"), "`ad-git pr` and the fleet's PR cell"))
+            ("bitbucket", ("bitbucket", "bitbucket-cloud"), "`ad-git pr` and the fleet's PR cell"),
+            ("github", ("github",), "`ad-git pr` on a GitHub remote"))
+# A service a machine may simply not use: its missing connection is `info` (quiet hides it), never a warning.
+OPTIONAL = ("github",)
 
 
 def chosen(found: dict, areas: tuple[str, ...], cfg: dict) -> dict | None:
@@ -83,6 +86,8 @@ class ToilStep(Step):
                         (f"toil.connections.{areas[0]}",))
             elif name == "jira" and jira_fallback:
                 ctx.add(k, row, "skip", "none in toil; JIRA_TOKEN or the jira step's keyring entry answers instead")
+            elif name in OPTIONAL:
+                ctx.add(k, row, "info", f"none in toil; {cost} needs one")
             else:
                 ctx.add(k, row, "warn" if name != "jira" else "fail", f"no {name} connection in toil: {cost} cannot run",
                         f"`toil connections add <name> --area {areas[0]}` (a person, at a terminal: the token goes to "

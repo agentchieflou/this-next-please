@@ -76,9 +76,12 @@ truncated on Data Center (`JIRA_CHANGELOG_TRUNCATED`): a successful read is not 
 (`toil jira issue get RDSD-1`) and everything else as a flag. The skills' recipes are checked against the commands
 toil has (`tests/test_skill_contracts.py`).
 
-**No draft PRs.** toil's `bitbucket pr create` has no draft flag, so `ad-git pr` opens a PR ready for review and
-refuses `--draft` (`draft_unsupported`) rather than quietly ignoring it; end of day in the fleet's wrap-up leaves a PR
-create unticked and says why.
+**The PR provider is the remote's host.** `ad-git pr` writes through the toil connection on the host of the branch's
+remote: `github pr create|update` for GitHub or Enterprise Server (toil's `api.github.com` stands for `github.com`),
+`bitbucket pr create|update` otherwise. toil's `bitbucket pr create` has no draft flag, so on Bitbucket a PR opens
+ready for review and `--draft` is refused (`draft_unsupported`) rather than quietly ignored; GitHub's takes `--draft`.
+End of day in the fleet's wrap-up leaves a PR create unticked and says why. The fleet's PR cell reads either kind of
+link (`/pull-requests/<n>`, `/pull/<n>`), and a GitHub PR closed with `merged: true` is `MERGED`.
 
 **Node 24.14+.** toil needs it, and answers `UNSUPPORTED_NODE` below it; the doctor's launcher row proves `toil
 version` answers, not that a file exists.

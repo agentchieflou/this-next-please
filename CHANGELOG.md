@@ -33,7 +33,7 @@ Read this before running `ad-update`: it says whether an update needs anything b
 | `ad-view` of pncli's JSON | `ad-view` of toil's envelope: a failed one prints toil's code and fix; warnings and the next page's cursor stay on the meta |
 | `ad-jira` borrowing the token from pncli's config by key name | `ad-jira`'s REST calls go through `toil jira api`; the token never leaves toil. Order: env, toil's connection, keyring |
 | pinned verb templates (`pncli.verbs.*`), `refused: not_pinned` | toil's fixed verbs: `confluence page create|update`, `bitbucket pr create|update`; the page body goes on stdin |
-| `ad-git pr` opening a draft | toil has no draft PR: a PR opens ready for review, `--draft` is refused (`draft_unsupported`), and end of day leaves a PR create unticked |
+| `ad-git pr` on Bitbucket only, opening a draft | the provider is the remote's host: GitHub through toil's GitHub connection (`--draft` works there), Bitbucket otherwise, where toil has no draft (`--draft` is refused, `draft_unsupported`); end of day leaves a PR create unticked |
 | the fleet's pncli shim, `pncli_write_in_fleet` | the fleet's toil shim, `toil_write_in_fleet`: `--allow-write` anywhere, or a change to toil's own setup, is refused |
 | `PNCLI_EXE`, `pncli.exe` · `tools.pncli_verified` | `TOIL_EXE`, `toil.exe` (a clone's `dist/toil.js` works) · `tools.toil_verified` |
 

@@ -622,7 +622,12 @@ def test_the_pr_read_is_a_read_and_names_its_repository():
         ("bitbucket", ["--project", "RDSD", "--repo", "x"])
     assert P.pr_location("https://bitbucket.org/acme/rdsd/pull-requests/7") == \
         ("bitbucket-cloud", ["--ws", "acme", "--repo", "rdsd"])
+    assert P.pr_location("https://github.com/acme/rdsd/pull/12") == ("github", ["--owner", "acme", "--repo", "rdsd"])
     assert P.pr_location("https://elsewhere.test/pr/7") == ("bitbucket", [])
+    merged = P._pr_value("https://github.com/acme/rdsd/pull/12", {"number": 12, "id": 99, "state": "closed",
+                                                                  "merged": True, "title": "x"})
+    assert merged["state"] == "MERGED" and merged["id"] == "12"
+    assert P._pr_value("https://github.com/acme/rdsd/pull/12", {"state": "closed", "merged": False})["state"] == "CLOSED"
 
 
 def test_read_pr_reads_the_envelope_through_toil(monkeypatch, tmp_path):

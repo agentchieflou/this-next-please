@@ -260,7 +260,26 @@ def connection_for(area: str, conns: list[dict], cfg: dict | None = None) -> dic
     return mine[0] if len(mine) == 1 else None
 
 
-def write_target(areas: tuple[str, ...], cfg: dict | None = None) -> tuple[dict | None, str, str]:
+def host_matches(conn_host: str, remote_host: str) -> bool:
+    """Is a git remote on this connection's host? toil names GitHub.com's connection by its API host, so
+    `api.github.com` stands for `github.com`; Enterprise Server and Bitbucket share one host for web and API."""
+    a, b = (conn_host or "").lower().split(":")[0], (remote_host or "").lower().split(":")[0]
+    if not a or not b:
+        return False
+    return a == b or (a == "api.github.com" and b == "github.com")
+
+
+def area_for_remote(remote_host: str, families: dict[str, tuple[str, ...]], conns: list[dict]) -> str:
+    """The family (a key of `families`, e.g. `bitbucket` / `github`) whose connection is on the remote's host, else
+    the first family: what was there before a second provider was."""
+    for family, areas in families.items():
+        if any(c.get("area") in areas and host_matches(str(c.get("host") or ""), remote_host) for c in conns):
+            return family
+    return next(iter(families))
+
+
+def write_target(areas: tuple[str, ...], cfg: dict | None = None,
+                 conns: list[dict] | None = None) -> tuple[dict | None, str, str]:
     """(connection, refusal code, hint) for a write the overlay is about to plan in one of `areas` (the Data Center
     area first, then Cloud). Reads `toil connections list` -- local, no network -- so a write toil would refuse is
     refused here, before an operator is asked to approve it:
@@ -271,10 +290,11 @@ def write_target(areas: tuple[str, ...], cfg: dict | None = None) -> tuple[dict 
 
     The code is "" when the write can run; the connection is returned whenever one was found."""
     cfg = C.load() if cfg is None else cfg
-    try:
-        conns = connections(cfg)
-    except proc.ProcError as e:
-        return None, "toil_not_ready", f"{e.msg} -- {e.hint or install_hint(cfg)}"
+    if conns is None:
+        try:
+            conns = connections(cfg)
+        except proc.ProcError as e:
+            return None, "toil_not_ready", f"{e.msg} -- {e.hint or install_hint(cfg)}"
     found = next((c for c in (connection_for(a, conns, cfg) for a in areas) if c), None)
     if found is None:
         return None, "no_connection", (f"toil has no {areas[0]} connection to write through: a person adds one "
@@ -403,10 +423,10 @@ def find(payload, *keys: str) -> str:
 
 
 def url_of(payload) -> str:
-    """A write's answer as a link: `url`, `html_url`, `href` (Bitbucket's `links.self[].href`), or Confluence's
-    `_links.base` + `_links.webui`."""
+    """A write's answer as a link: `html_url` (GitHub's page, where `url` is its API address), `web_url`, `url`,
+    `href` (Bitbucket's `links.self[].href`), or Confluence's `_links.base` + `_links.webui`."""
     payload = data_of(payload)
-    direct = find(payload, "url", "html_url", "web_url", "href")
+    direct = find(payload, "html_url", "web_url", "url", "href")
     if direct.startswith("http"):
         return direct
     base, webui = find(payload, "base"), find(payload, "webui")

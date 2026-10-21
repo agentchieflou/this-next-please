@@ -115,7 +115,7 @@ REFRESH_DONE = ("Completed", "Succeeded", "Failed", "Disabled", "Cancelled")
 PR_MERGED_STATES = ("MERGED", "MERGE", "MERGED_BY_REVIEWER")
 
 # `.../pull-requests/42` on Cloud and Server alike; `/pullrequests/42` is the older Server spelling.
-_PR_ID = re.compile(r"/pull-?requests?/(\d+)", re.I)
+_PR_ID = re.compile(r"/pull(?:-?requests?)?/(\d+)", re.I)      # Bitbucket's /pull-requests/N, GitHub's /pull/N
 _GIT_AB = re.compile(r"^# branch\.ab \+(\d+) -(\d+)")
 
 
@@ -929,8 +929,10 @@ def _ticket_value(key: str, issue: dict) -> dict:
 
 def _pr_value(url: str, answer: dict) -> dict:
     state = str(answer.get("state") or answer.get("status") or "").strip().upper()
+    if answer.get("merged") is True or answer.get("merged_at"):    # GitHub: `closed` and merged
+        state = "MERGED"
     from_url = _PR_ID.search(url)
-    ident = str(answer.get("id") or (from_url.group(1) if from_url else ""))
+    ident = str(answer.get("number") or answer.get("id") or (from_url.group(1) if from_url else ""))
     return {"text": state or "(unknown)", "state": state, "id": ident, "url": url,
             "title": str(answer.get("title") or "").strip()[:200]}
 
@@ -983,12 +985,15 @@ def pr_location(url: str) -> tuple[str, list[str]]:
     """(toil area, its `--project/--repo` or `--ws/--repo` flags) out of a Bitbucket PR URL.
 
     Data Center nests the repository under `/projects/<KEY>/repos/<slug>` (`bitbucket`); Cloud is
-    `/<workspace>/<slug>/pull-requests/<n>` (`bitbucket-cloud`). A URL of neither shape gives `bitbucket` and no
-    flags, and toil falls back to the workspace's remote and the connection's defaults -- better than passing a
-    `--repo` that means something else.
+    `/<workspace>/<slug>/pull-requests/<n>` (`bitbucket-cloud`); GitHub and Enterprise Server are
+    `/<owner>/<repo>/pull/<n>` (`github`). A URL of none of these gives `bitbucket` and no flags, and toil falls
+    back to the workspace's remote and the connection's defaults -- better than passing a `--repo` that means
+    something else.
     """
     parts = [p for p in str(url).split("://")[-1].split("/") if p]
     low = [p.lower() for p in parts]
+    if len(parts) >= 5 and low[3] == "pull" and parts[4].isdigit():
+        return "github", ["--owner", parts[1], "--repo", parts[2]]
     if "projects" in low and "repos" in low:
         i, j = low.index("projects"), low.index("repos")
         if j == i + 2 and len(parts) > j + 1:
