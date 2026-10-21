@@ -152,9 +152,10 @@ class App(Tui):
         state = " · ".join(x for x in ((f"{fails} to fix" if fails else ""),
                                        (f"{warns} warning{'s' * (warns != 1)}" if warns else "")) if x)
         compact = self.rows is not None and self.rows < 36
-        out = ([] if compact else ["  " + B.gradient(B.NAME, bold=True), ""]) + [
-               B.muted(f"  agentdata {version()} · {state or 'no warnings'} · {conns} data connection"
-                       f"{'s' * (conns != 1)} · toil {toil} connection{'s' * (toil != 1)} · {self.tested()}"), ""]
+        status = (f"agentdata {version()} · {state or 'no warnings'} · {conns} data connection"
+                  f"{'s' * (conns != 1)} · toil {toil} connection{'s' * (toil != 1)} · {self.tested()}")
+        out = ([] if compact else ["  " + B.gradient(B.NAME, bold=True), ""]) + \
+            self.wrap(status, muted=True) + [""]                # wraps, never cut: every part of it counts
         sc = self.scope
         label = {"repo": f"repo {sc.name}", "folder": f"folder of {len(sc.repos)} repos — a machine-wide setup",
                  "machine": "machine — no repo here"}[sc.kind]

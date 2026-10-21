@@ -43,6 +43,7 @@ class Runs:
 def _app(cwd, keys, answers=None, det=None, repo=None, screen=False, **kw):
     """`screen=True`: no prompter given, so questions are answered on the screen with keys (TnpPrompter)."""
     out = io.StringIO()
+    kw.setdefault("width", 120)                              # not the runner's terminal: the same on every machine
     app = A.App(det=det or FakeDet(modules=("impala", "teradatasql", "keyring")),
                 prompter=None if screen else W.AnswerPrompter(answers or {}), keys=iter(keys), out=out,
                 cwd=str(cwd), repo=repo, **kw)
