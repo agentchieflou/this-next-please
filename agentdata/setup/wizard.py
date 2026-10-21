@@ -221,6 +221,27 @@ class Prompter:
     def say(self, text: str) -> None:
         eprint(text)
 
+    def pick_many(self, key: str, text: str, options: list[str], defaults: list[str],
+                  confident: bool = False) -> list[str]:
+        """Several of `options` (a typed name not in the list is kept as typed). Here, one line of numbers or
+        names, comma-separated, with the options numbered above it; `tnp` draws a checkbox list instead."""
+        for i, name in enumerate(options, 1):
+            self.say(f"    {i}. {name}")
+        default = ", ".join(defaults)
+        return pick(self.ask(key, f"{text} (numbers or names, comma-separated)", default,
+                             confident=confident and bool(default)), options)
+
+
+def pick(answer: str, names: list[str]) -> list[str]:
+    """Numbers (1-based) or names, comma-separated, into names; unknown entries kept as typed."""
+    out: list[str] = []
+    for part in [p.strip() for p in (answer or "").split(",") if p.strip()]:
+        if part.isdigit() and 1 <= int(part) <= len(names):
+            part = names[int(part) - 1]
+        if part not in out:
+            out.append(part)
+    return out
+
 
 class QuickPrompter(Prompter):
     """`ad-setup --quick`: auto-accepts unambiguous detected defaults without prompting stdin.
@@ -377,6 +398,10 @@ def registry() -> list[Step]:
             repo.RepoStep(), fleet.FleetStep()]
 
 
+# For `--only`'s help: every key `registry()` has, in its order (kept literal so --help needs no imports).
+STEP_KEYS = ("console", "theme", "toil", "jira", "sources", "powerbi", "content_understanding", "project", "repo",
+             "fleet")
+
 # A step key a script or a habit may still type: `--only pncli` is the toil step since 0.22.0.
 RENAMED = {"pncli": "toil"}
 
@@ -470,6 +495,15 @@ def load_answers(path: str | None, sets: list[str] | None = None) -> dict:
     return data
 
 
+def refuse(source: str, e: C.ConfigError) -> None:
+    """A refusal, once: the red panel for a person at a terminal, the TOON envelope for everyone else (an
+    agent, a pipe, a log). Printing both put the same error on the screen twice, in two styles."""
+    if ui.on():
+        ui.problem(str(e), e.hint or "", title=source)
+    else:
+        print(toon.encode({"meta": {"ok": False, "source": source, "error": str(e), "hint": e.hint}}))
+
+
 def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> int:
     ap = argparse.ArgumentParser(prog="ad-doctor", description="Offline health check of the agentdata setup. "
                                  "Exit 1 when something fails; every row carries the fix in `hint`.")
@@ -479,14 +513,14 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
     ap.add_argument("--report", action="store_true",
                     help="print the environment bundle (shells, pythons, tools, IDE default shells) and exit")
-    ap.add_argument("--only", action="append", help="step key(s), comma-separated: toil,jira,sources,powerbi,project,repo")
+    ap.add_argument("--only", action="append", help="step key(s), comma-separated: " + ",".join(STEP_KEYS))
     ap.add_argument("--repo", metavar="NAME", help="check one repository in this folder (a name or a path)")
     from .. import completion, version
     version.add_version(ap)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     utf8_stdout()
-    color.set_enabled(None if a.color == "auto" else a.color == "always")
+    color.from_flag(a.color)
 
     if a.report:
         # what a pasted bug report needs before anyone can read the rows: which shell, which
@@ -511,8 +545,7 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
         return 0 if print_checks(ctx, "ad-doctor", extra={"scope": where.kind, "where": where.summary()},
                                  quiet=a.quiet) else 1
     except C.ConfigError as e:
-        print(toon.encode({"meta": {"ok": False, "source": "ad-doctor", "error": str(e), "hint": e.hint}}))
-        ui.problem(str(e), e.hint or "", title="ad-doctor")
+        refuse("ad-doctor", e)
         return 2
 
 
@@ -632,7 +665,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                          "(--include-warnings covers warn rows). Name targets to skip the scan and re-ask just those, "
                          "e.g. `--patch sources.oracle` or `--patch powerbi.az_exe`")
     ap.add_argument("--include-warnings", action="store_true", help="with --patch: repair warn rows as well as fail rows")
-    ap.add_argument("--only", action="append", help="step key(s), comma-separated: toil,jira,sources,powerbi,project,repo")
+    ap.add_argument("--only", action="append", help="step key(s), comma-separated: " + ",".join(STEP_KEYS))
     ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --set / --answers")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="answer one prompt key inline, e.g. project.jira_project=RDSD "
                     "(repeatable; true/false for yes-no prompts; wins over --answers)")
@@ -674,7 +707,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                          "e.g. `ad-setup --print-completion bash --install`\n")
         return 2
     utf8_stdout()
-    color.set_enabled(None if a.color == "auto" else a.color == "always")
+    color.from_flag(a.color)
     if a.export_defaults:
         cfg = C.load()
         export_cfg = dict(cfg)
@@ -731,7 +764,9 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         if ui.on() and not a.quiet:
             ui.facts([("scope", where.summary()), *[(f"writes {w}", p) for w, p in writes],
                       ("network", "online" if ctx.online else "offline"),
-                      ("steps", ", ".join(s.key for s in _select(registry(), only)))], title="agentdata setup")
+                      ("steps", ", ".join(s.key for s in _select(registry(), only))),
+                      *([("menu", "prefer a menu? `tnp` asks the same, one screen at a time")] if interactive else [])],
+                     title="agentdata setup")
         else:
             ctx.say(color.paint("agentdata setup", "bold") + f" · {where.summary()} · "
                     f"{'online' if ctx.online else 'offline'}")
@@ -764,8 +799,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
             extra["unanswered"] = len(prompter.unanswered)
         return 0 if print_checks(ctx, "ad-setup", extra=extra, quiet=a.quiet) else 1
     except (C.ConfigError,) as e:
-        print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": str(e), "hint": e.hint}}))
-        ui.problem(str(e), e.hint or "", title="ad-setup")
+        refuse("ad-setup", e)
         return 2
     except EOFError:
         # not an interrupt: there is simply nothing to read. 130 is the SIGINT convention and would

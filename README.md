@@ -84,8 +84,9 @@ pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.g
 #    with the extras you actually use:
 #    pip install "agentdata[teradata,impala,oracle,pbi,uat,test] @ git+https://github.com/agentchieflou/this-next-please.git"
 
-tnp                    # the setup menu: data connections (paste a JDBC URL), Power BI, each repo's settings,
-#                        toil's connections; says where every answer is written (docs/tnp.md)
+tnp                    # the menu: data connections (paste a JDBC URL), Power BI, each repo's settings, toil's
+#                        connections, health, the fleet desk, and every ad-* command to browse, search and run
+#                        (docs/tnp.md); says where every answer is written
 ad-setup               # guided: toil (its launcher, and which connection each service uses), data sources,
 #                        Power BI tools/workspaces; without toil, `ad-setup --only jira` keeps a token in the keyring
 #    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)

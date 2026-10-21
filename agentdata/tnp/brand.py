@@ -11,8 +11,10 @@ import os
 from .. import color
 
 TEAL = (0, 201, 183)
-BLUE = (37, 99, 235)
-MUTED = (135, 150, 165)
+BLUE = (37, 99, 235)            # the wordmark's far end only: 3.8:1 on black, too dark for text
+SKY = (96, 165, 250)            # selected rows and headings: 8:1 on black, 2.6:1 on white -> bold
+MUTED = (135, 150, 165)         # descriptions, footers: 7:1 on black
+LABEL = (176, 186, 197)         # fact labels: brighter than descriptions, the toil two-grey hierarchy
 
 WORDMARK = [
     "████████  ███    ██  ██████▄ ",
@@ -64,7 +66,16 @@ def accent(text: str) -> str:
 
 
 def blue(text: str) -> str:
-    return rgb(text, BLUE, bold=True)
+    return rgb(text, SKY, bold=True)
+
+
+def select(text: str) -> str:
+    """The selected row, a heading, the last breadcrumb."""
+    return rgb(text, SKY, bold=True)
+
+
+def label(text: str) -> str:
+    return rgb(text, LABEL)
 
 
 def muted(text: str) -> str:

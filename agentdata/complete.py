@@ -30,7 +30,7 @@ from typing import Iterable
 
 # Both live in `completion`, next to the `autocomplete()` that raises: the raiser owns the contract,
 # and importing them from there keeps this module off every command's start-up path.
-from .completion import COMPLETE_ENV as ENV, ParserCaptured, all_commands
+from .completion import COMPLETE_ENV as ENV, ParserCaptured, all_commands, registered
 
 
 # --------------------------------------------------------------------------------- the argv seam
@@ -131,8 +131,9 @@ def parser_for(command: str) -> argparse.ArgumentParser | None:
     """
     from . import __main__ as M
 
+    from .completion import EXTRA
     name = command[3:] if command.startswith("ad-") else command
-    entry = M.COMMANDS.get(name)
+    entry = M.COMMANDS.get(name) or (EXTRA[command] + ("",) if command in EXTRA else None)
     if not entry:
         return None
     module, func, _help = entry
@@ -141,7 +142,7 @@ def parser_for(command: str) -> argparse.ArgumentParser | None:
 
     saved_argv, saved_env = sys.argv, os.environ.get(ENV)
     saved_out, saved_err = sys.stdout, sys.stderr
-    sys.argv = [f"ad-{name}"]
+    sys.argv = [command if command in EXTRA else f"ad-{name}"]
     os.environ[ENV] = "1"
     # Anything the prologue prints would land in the middle of the candidate list -- `ad-help` has
     # no parser at all and printed its whole catalog into a tab press before this was here.
@@ -170,7 +171,7 @@ def complete(line: str, cursor: int | None = None) -> list[str]:
     """The candidates for a command line, as the shell scripts ask for them."""
     words, partial = _split(line, len(line) if cursor is None else cursor)
     if not words:                                # completing the command name itself
-        return [c for c in all_commands() if c.startswith(partial)]
+        return [c for c in registered() if c.startswith(partial)]
     parser = parser_for(words[0])
     if parser is None:
         # `ad-help` hand-rolls its arguments, and what it takes is a command name.

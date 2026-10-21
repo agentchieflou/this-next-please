@@ -25,17 +25,6 @@ GROUPS_URL = "https://api.powerbi.com/v1.0/myorg/groups"
 PBI_RESOURCE = "https://analysis.windows.net/powerbi/api"
 
 
-def _pick(answer: str, names: list[str]) -> list[str]:
-    """Numbers (1-based) or names, comma-separated, into names; unknown entries kept as typed."""
-    out = []
-    for part in [p.strip() for p in (answer or "").split(",") if p.strip()]:
-        if part.isdigit() and 1 <= int(part) <= len(names):
-            part = names[int(part) - 1]
-        if part not in out:
-            out.append(part)
-    return out
-
-
 class RepoStep(Step):
     key = "repo"
     title = "this repo (its data source environments and Power BI targets, in its AGENTS.md)"
@@ -120,8 +109,9 @@ class RepoStep(Step):
                 continue
             current = found["facts"].get(fact, "")
             listing = ", ".join(envs)
-            got = ctx.ask.ask(f"repo.{fact}", f"[{repo}] {LABEL[s]} environment it reads ({listing}; blank = none)",
-                              current, confident=bool(current) and current in envs).strip()
+            got = ctx.ask.ask(f"repo.{fact}", f"[{repo}] {LABEL[s]} environment it reads", current or "none",
+                              [*envs, "none"], confident=bool(current) and current in envs).strip()
+            got = "" if got == "none" else got
             if got and got not in envs:
                 ctx.add(self.key, f"{s} env", "fail", f"{got} is not a {LABEL[s]} environment on this machine",
                         f"one of {listing}, or add it machine-wide first (`ad-setup --only sources`)", (f"repo.{fact}",))
@@ -177,11 +167,9 @@ class RepoStep(Step):
                 if not catalog[g["name"]].get("id"):
                     catalog[g["name"]]["id"] = g.get("id")
         names = sorted(n for n in catalog if n)
-        for i, n in enumerate(names, 1):
-            ctx.say(f"    {i}. {n}")
-        default = ", ".join(dict.fromkeys(t["workspace"] for t in targets if t.get("workspace")))
-        chosen = _pick(ctx.ask.ask("repo.pbi.workspaces", f"[{repo}] workspaces it changes (numbers or names)",
-                                   default, confident=bool(default)), names)
+        default = list(dict.fromkeys(t["workspace"] for t in targets if t.get("workspace")))
+        chosen = ctx.ask.pick_many("repo.pbi.workspaces", f"[{repo}] workspaces it changes", names, default,
+                                   confident=bool(default))
         result: list[dict] = []
         for ws in chosen:
             ws_id = (catalog.get(ws) or {}).get("id") or next((t["ws_id"] for t in targets if t["workspace"] == ws
@@ -194,17 +182,13 @@ class RepoStep(Step):
             report_rows = {r.get("name"): r for r in reports or []}
             mine = [t for t in targets if t["workspace"] == ws]
             mnames = sorted(model_ids)
-            for i, n in enumerate(mnames, 1):
-                ctx.say(f"      model {i}. {n}")
-            mdef = ", ".join(dict.fromkeys(t["model"] for t in mine if t.get("model")))
-            pick_m = _pick(ctx.ask.ask(f"repo.pbi.{ws}.models", f"[{ws}] semantic models it changes (numbers or names; "
-                                       "blank = none)", mdef, confident=bool(mdef)), mnames)
+            mdef = list(dict.fromkeys(t["model"] for t in mine if t.get("model")))
+            pick_m = ctx.ask.pick_many(f"repo.pbi.{ws}.models", f"[{ws}] semantic models it changes (none is fine)",
+                                       mnames, mdef, confident=bool(mdef))
             rnames = sorted(report_rows)
-            for i, n in enumerate(rnames, 1):
-                ctx.say(f"      report {i}. {n}")
-            rdef = ", ".join(dict.fromkeys(t["report"] for t in mine if t.get("report")))
-            pick_r = _pick(ctx.ask.ask(f"repo.pbi.{ws}.reports", f"[{ws}] reports it changes (numbers or names; "
-                                       "blank = none)", rdef, confident=bool(rdef)), rnames)
+            rdef = list(dict.fromkeys(t["report"] for t in mine if t.get("report")))
+            pick_r = ctx.ask.pick_many(f"repo.pbi.{ws}.reports", f"[{ws}] reports it changes (none is fine)",
+                                       rnames, rdef, confident=bool(rdef))
             by_id = {v: k for k, v in model_ids.items() if v}
             covered = set()
             for r in pick_r:

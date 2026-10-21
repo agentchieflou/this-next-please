@@ -93,9 +93,23 @@ def reset_cache() -> None:
 
 
 def set_enabled(value: bool | None) -> None:
-    """--color / --no-color. None returns to auto-detection."""
+    """Force colour on or off; None returns to auto-detection. A command's `--color` goes through
+    `from_flag`, which keeps the documented precedence."""
     global _enabled
     _enabled = value
+
+
+def from_flag(choice: str | None) -> None:
+    """`--color auto|always|never`. `NO_COLOR` and `AGENTDATA_COLOR=never` still beat `--color always`
+    (docs/setup.md, colour precedence): a person who asked for no colour gets none."""
+    if choice in (None, "auto"):
+        set_enabled(None)
+    elif choice == "always":
+        refused = os.environ.get("NO_COLOR") is not None or \
+            os.environ.get("AGENTDATA_COLOR", "").strip().lower() in ("never", "0", "off", "no")
+        set_enabled(False if refused else True)
+    else:
+        set_enabled(False)
 
 
 def paint(text: str, *styles: str) -> str:
