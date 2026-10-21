@@ -417,7 +417,7 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         assert [c["step"] for c in swept["free"]["cells"]] == ["push", "pr", "onenote"], swept["free"]
         for repo, row in swept.items():
             pr = next(c for c in row["cells"] if c["step"] == "pr")
-            assert "not_pinned" in pr["text"] and "pncli.verbs" in pr["text"] and pr["disabled"], (repo, pr)
+            assert "not_pinned" in pr["text"] and "ad-doctor --only toil" in pr["text"] and pr["disabled"], (repo, pr)
         page_cell = next(c for c in swept["yday"]["cells"] if c["step"] == "page")
         assert "not_pinned" in page_cell["text"], page_cell
         ticked = sum(len(v) for v in planned.values())
@@ -450,7 +450,7 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
 
 class SweepRun:
     """#503's `RUN` for #512, in process: a push of one commit, the pr and page adapters refusing `not_pinned` (as
-    `ad-git pr` and `ad-confluence publish` do until `pncli.verbs.*` is set), a comment and a transition that
+    an adapter from before toil did; the row's hint names `ad-doctor --only toil`), a comment and a transition that
     answer `ok`."""
 
     def __init__(self):
