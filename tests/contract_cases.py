@@ -56,6 +56,7 @@ CASES: dict[str, dict] = {
     "ora":        {"args": ["--help"], "toon": False},
     "hive":       {"args": ["--help"], "toon": False},
     "impala":     {"args": ["--help"], "toon": False},
+    "spark":      {"args": ["--help"], "toon": False},
 }
 
 
