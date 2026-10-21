@@ -18,7 +18,7 @@ back one screen, and quits from home.
 
   this-next-please
 
-  agentdata 0.23.0 · 1 data connection · toil 4 connections · 1 to fix · 2 warnings
+  agentdata 0.22.0 · 1 data connection · toil 4 connections · 1 to fix · 2 warnings
 
   Scope      repo sales-bi
   Repo       C:/Users/me/PycharmProjects/sales-bi

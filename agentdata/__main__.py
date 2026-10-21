@@ -10,7 +10,6 @@ import sys
 COMMANDS = {
     "setup": ("agentdata.cli_setup", "main_setup", "guided setup wizard"),
     "doctor": ("agentdata.cli_setup", "main_doctor", "offline health check"),
-    "tnp": ("agentdata.tnp", "main_tnp", "the setup menu (bare `tnp`)"),
     "sql-check": ("agentdata.cli_sqlcheck", "main", "lint SQL for a dialect"),
     "jira": ("agentdata.cli_jira", "main", "Jira changelog and sprint replay"),
     "git": ("agentdata.cli_git", "main", "push the current branch (never forced) and open its PR, gated"),
