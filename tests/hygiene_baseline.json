@@ -338,7 +338,7 @@
   "tests/test_theme_omp.py": {"tests": 5},
   "tests/test_theme_project.py": {"tests": 6},
   "tests/test_theme_signals.py": {"tests": 9},
-  "tests/test_tnp.py": {"tests": 13},
+  "tests/test_tnp.py": {"tests": 38},
   "tests/test_toon.py": {"tests": 4},
   "tests/test_trace.py": {"tests": 5},
   "tests/test_uat.py": {"tests": 6},

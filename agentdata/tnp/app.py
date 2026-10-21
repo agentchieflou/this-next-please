@@ -1,17 +1,18 @@
-"""`tnp`: the menu over setup. Every screen says where you are (repo, folder of repos, machine), what it will write
-and where, then asks the same questions `ad-setup` asks -- the same steps, called one at a time -- and ends with the
-plain command that does the same thing, so nothing here is a separate way of configuring.
+"""`tnp`: the this-next-please menu. Setup (data sources, Power BI, this repo, toil's connections), a health check,
+the fleet desk, and every `ad-*` command, browsed, searched and run from one place.
 
-Laid out like toil's own menu (`toil` with no arguments): the wordmark, one status line, where you are, what needs
-attention, a numbered menu; up/down and Enter, or the digit; q goes back, and quits from home.
+Laid out like toil's own menu (`toil` with no arguments), and built on `screen.py`: the wordmark and breadcrumb on
+every screen, nothing wider or taller than the terminal, questions answered on the screen. Every setup screen
+asks the same questions `ad-setup` asks -- the same steps, one at a time -- says before it starts which command
+does the same, and when it is done prints that command with the answers filled in, so a person can script what
+they just did.
 """
 from __future__ import annotations
 
 import os
-import shutil
+import shlex
 import subprocess
 import sys
-import textwrap
 from typing import Callable, Iterator
 
 from .. import config as C
@@ -21,115 +22,67 @@ from ..setup import jdbc
 from ..setup import scope as S
 from ..setup import wizard as W
 from . import brand as B
+from . import commands as K
 from . import guide as G
+from .prompter import TnpPrompter
+from .screen import Back, Quit, Tui, fit, glyph
 
-GLYPH = {"ok": "✓", "warn": "!", "fail": "✗", "info": "·", "skip": "–"}
-SHADE = {"ok": (46, 160, 67), "warn": (210, 153, 34), "fail": (218, 54, 51), "info": B.MUTED, "skip": B.MUTED}
-SEP = " › "
-
-
-class Back(Exception):
-    """Leave the current screen."""
+DOCS_URL = "https://github.com/agentchieflou/this-next-please/blob/main/docs/tnp.md"
+Runner = Callable[[list[str], bool], tuple[int, str]]
 
 
-class App:
+def run_attached(argv: list[str], capture: bool) -> tuple[int, str]:
+    """Run a command with the person's terminal (its own prompts and approvals work), or capture its output."""
+    try:
+        if capture:
+            r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=600, env={**os.environ, "AGENTDATA_COLOR": "never"})
+            return r.returncode, (r.stdout or "") + (r.stderr or "")
+        return subprocess.run(argv, check=False).returncode, ""
+    except KeyboardInterrupt:
+        return 130, "interrupted"
+    except (OSError, subprocess.SubprocessError) as e:
+        return 127, f"{type(e).__name__}: {e}"
+
+
+class App(Tui):
     def __init__(self, det: W.Detectors | None = None, prompter: W.Prompter | None = None,
                  keys: Iterator[str] | None = None, out=None, cwd: str | None = None, repo: str | None = None,
-                 cfg: dict | None = None) -> None:
+                 cfg: dict | None = None, height: int | None = None, width: int | None = None,
+                 runner: Runner | None = None) -> None:
+        super().__init__(keys=keys, out=out, height=height, width=width)
         self.det = det or W.Detectors()
         self.scope = S.detect(cwd, repo)
         self.cfg = C.load() if cfg is None else cfg
-        self.prompter = prompter or W.Prompter()
-        self.out = out or sys.stdout
-        self.keys = keys
-        self.tty = keys is None and sys.stdin.isatty() and getattr(self.out, "isatty", lambda: False)()
+        self.prompter = prompter or (TnpPrompter(self) if self.interactive else W.Prompter())
+        self.runner = runner or run_attached
+        self.form_crumbs: tuple[str, ...] = ()
+        self.form_intro: list[str] = []
         self._attention: list[W.Check] | None = None
 
-    # ------------------------------------------------------------------ drawing and input
+    # ------------------------------------------------------------------ shared pieces
 
-    def w(self, line: str = "") -> None:
-        self.out.write(line + "\n")
+    def header_lines(self) -> list[str]:
+        if self.rows is not None and self.rows < 36:        # a short terminal: the menu before the brand
+            return [""] + self.compact_header()
+        return [""] + B.wordmark() + [""]
 
-    def para(self, text: str, indent: int = 2, muted: bool = False) -> None:
-        """`text` word-wrapped to the terminal, every line at `indent`. Colour goes on after wrapping, so the
-        escape codes never count as width."""
-        width = max(shutil.get_terminal_size((100, 40)).columns - 2, 40)
-        for line in textwrap.wrap(text, width, initial_indent=" " * indent, subsequent_indent=" " * indent,
-                                  break_on_hyphens=False, break_long_words=True) or [""]:
-            self.w(B.muted(line) if muted else line)
+    def cmd_line(self, command: str, note: str = "") -> str:
+        return "  " + B.muted("$ ") + B.accent(command) + (B.muted(f"   {note}") if note else "")
 
-    def clear(self) -> None:
-        if self.tty:
-            self.out.write("\x1b[2J\x1b[H")
+    def begin(self, crumbs: tuple[str, ...], stage: str = "", intro: list[str] | None = None) -> None:
+        """A new form: the screen every question of one stage is asked on."""
+        self.form_crumbs = crumbs
+        self.form_intro = ([B.label("  " + stage), ""] if stage else []) + list(intro or [])
+        if isinstance(self.prompter, TnpPrompter):
+            self.prompter.begin()
 
-    def crumb(self, *parts: str) -> None:
-        self.w()
-        self.w("  " + B.accent("TNP") + "".join(B.muted(SEP) + (B.blue(p) if i == len(parts) - 1 else p)
-                                              for i, p in enumerate(parts)))
-        self.w()
-
-    def key(self) -> str:
-        if self.keys is not None:
-            return next(self.keys)
-        if self.tty:
-            from .keys import read_key
-            return read_key()
-        got = input("  choose (number, q = back): ").strip().lower()
-        return got or "enter"
-
-    def menu(self, items: list[tuple[str, str]], draw: Callable[[], None], quit_word: str = "back") -> int | None:
-        """Index of the chosen item, or None for q / Esc / Backspace."""
-        sel = 0
-        width = max(len(label) for label, _ in items) + 3
-        while True:
-            self.clear()
-            draw()
-            for i, (label, desc) in enumerate(items):
-                n = str(i + 1) if i < 9 else " "
-                mark = B.accent("▸") if i == sel and (self.tty or self.keys is not None) else " "
-                text = f"{n}  {label.ljust(width)}"
-                self.w(f"  {mark} " + (B.blue(text) if i == sel else text) + B.muted(desc))
-            self.w()
-            self.w(B.muted(f"  up/down move   enter select   1-{min(len(items), 9)} jump   q {quit_word}"))
-            k = self.key()
-            if k in ("up", "down"):
-                sel = (sel + (1 if k == "down" else -1)) % len(items)
-            elif k == "enter":
-                return sel
-            elif k.isdigit() and 1 <= int(k) <= len(items):
-                return int(k) - 1
-            elif k in ("q", "esc", "back", "left"):
-                return None
-
-    def bullet(self, text: str) -> None:
-        width = max(shutil.get_terminal_size((100, 40)).columns - 2, 40)
-        lines = textwrap.wrap(text, width, initial_indent="    • ", subsequent_indent="      ") or [""]
-        for line in lines:
-            self.w(line)
-
-    def pause(self) -> None:
-        self.w()
-        self.w(B.muted("  enter or q: back"))
-        self.key()
-
-    def rows(self, checks: list[W.Check], only_problems: bool = False) -> None:
-        for c in checks:
-            if only_problems and c.status in ("ok", "info"):
-                continue
-            glyph = B.rgb(GLYPH.get(c.status, "?"), SHADE.get(c.status, B.MUTED), True)
-            width = max(shutil.get_terminal_size((100, 40)).columns - 29, 30)
-            detail = textwrap.wrap(c.detail, width) or [""]
-            self.w(f"  {glyph} {c.name:<22} {detail[0]}")
-            for more in detail[1:]:
-                self.w(" " * 27 + more)
-            if c.hint and c.status in ("fail", "warn"):
-                self.para(f"fix: {c.hint}", indent=6, muted=True)
-
-    def plain(self, *commands: str) -> None:
-        self.w()
-        self.w(B.muted("  Each step above is a plain command; run it yourself any time:"))
-        for cmd in commands:
-            self.w("    " + B.accent(cmd))
+    def say(self, line: str) -> None:
+        """A line into the current form (or onto the output, off a terminal)."""
+        if isinstance(self.prompter, TnpPrompter):
+            self.prompter.say(line)
+        else:
+            self.out.write(line + "\n")
 
     def context(self, online: bool = False, scope: S.Scope | None = None) -> W.Context:
         where = scope or self.scope
@@ -140,12 +93,32 @@ class App:
     def save(self) -> str:
         return C.display_path(C.save(self.cfg))
 
+    def show(self, crumbs: tuple[str, ...], body: list[str], actions: list[tuple[str, str]] | None = None) -> int:
+        """A result: scrolls when long; Enter (or the action's digit) returns the action, Esc goes back."""
+        return self.pager(crumbs, body, actions)
+
+    def busy(self, crumbs: tuple[str, ...], text: str) -> None:
+        if self.tty:
+            self.draw(crumbs, [B.muted(f"  {text}")], [], "working…")
+
+    def replay(self, only: str, extra: list[str] | None = None) -> str:
+        """The `ad-setup` line that repeats what was just answered: every key and answer, secrets left out."""
+        sets = []
+        if isinstance(self.prompter, TnpPrompter):
+            sets = [f"--set {shlex.quote(f'{k}={v}')}" for k, v in self.prompter.answers.items()
+                    if not k.startswith("tnp.")]
+        return " ".join(["ad-setup --non-interactive", f"--only {only}", *(extra or []), *sets])
+
     # ------------------------------------------------------------------ home
 
     def counts(self) -> tuple[int, int]:
         conns = sum(len(C.get(self.cfg, f"sources.{s}.envs", {}) or {}) for s in C.SOURCES)
         toil = len((self.det.toil(self.cfg) or {}).get("connections") or [])
         return conns, toil
+
+    def tested(self) -> str:
+        stamps = [v for v in (self.cfg.get("verified") or {}).values() if isinstance(v, str)]
+        return f"last tested {max(stamps)}" if stamps else "not tested yet"
 
     def attention(self) -> list[W.Check]:
         """Offline rows for what the home screen can afford to check: toil, the data sources, this repo."""
@@ -170,43 +143,40 @@ class App:
                 return ""
         return git("rev-parse", "--abbrev-ref", "HEAD"), git("remote", "get-url", "origin")
 
-    def header(self) -> None:
+    def home_body(self) -> list[str]:
         from ..update import version
-        self.w()
-        for line in B.wordmark():
-            self.w(line)
-        self.w()
-        self.w("  " + B.gradient(B.NAME, bold=True))
-        self.w()
         conns, toil = self.counts()
         att = self.attention()
         fails = sum(c.status == "fail" for c in att)
         warns = len(att) - fails
-        state = (f"{fails} to fix" if fails else "") + (" · " if fails and warns else "") + \
-                (f"{warns} warning{'s' * (warns != 1)}" if warns else "")
-        self.w(B.muted(f"  agentdata {version()} · {conns} data connection{'s' * (conns != 1)} · "
-                       f"toil {toil} connection{'s' * (toil != 1)} · {state or 'no warnings'}"))
-        self.w()
+        state = " · ".join(x for x in ((f"{fails} to fix" if fails else ""),
+                                       (f"{warns} warning{'s' * (warns != 1)}" if warns else "")) if x)
+        compact = self.rows is not None and self.rows < 36
+        out = ([] if compact else ["  " + B.gradient(B.NAME, bold=True), ""]) + [
+               B.muted(f"  agentdata {version()} · {state or 'no warnings'} · {conns} data connection"
+                       f"{'s' * (conns != 1)} · toil {toil} connection{'s' * (toil != 1)} · {self.tested()}"), ""]
         sc = self.scope
         label = {"repo": f"repo {sc.name}", "folder": f"folder of {len(sc.repos)} repos — a machine-wide setup",
                  "machine": "machine — no repo here"}[sc.kind]
-        self.w(f"  {'Scope':<10} {label}")
+        out.append(self.fact("Scope", label))
         if sc.kind == "repo":
-            self.w(f"  {'Repo':<10} {textio.norm_path(sc.root)}")
+            out.append(self.fact("Repo", textio.norm_path(sc.root)))
             br, remote = self.branch()
             if br:
-                self.w(f"  {'Branch':<10} {br}" + (B.muted(f"  from {remote}") if remote else ""))
+                out.append(self.fact("Branch", br + (B.muted(f"  from {remote}") if remote else "")))
         else:
-            self.w(f"  {'Folder':<10} {textio.norm_path(sc.root)}")
+            out.append(self.fact("Folder", textio.norm_path(sc.root)))
         for what, where in sc.writes():
-            self.w(f"  {'Writes':<10} " + B.muted(f"{what}: ") + where)
-        self.w()
+            out.append(self.fact("Writes", B.muted(f"{what}: ") + where))
+        out.append("")
         if att:
-            self.w("  " + B.blue("Needs attention"))
-            self.rows(att[:4])
-            if len(att) > 4:
-                self.w(B.muted(f"    … {len(att) - 4} more under Health check"))
-            self.w()
+            out.append(self.heading("Needs attention"))
+            room = self.rows
+            show = 4 if room is None else max(min(4, room - 30), 1)
+            out += [self.check_line(c) for c in att[:show]]
+            if len(att) > show:
+                out.append(B.muted(f"    … {len(att) - show} more under Health check"))
+        return out
 
     def home_items(self) -> list[tuple[str, str, Callable[[], None]]]:
         sc = self.scope
@@ -220,45 +190,78 @@ class App:
             ("Power BI", "This machine's tools and sign-in; the models and reports each repo changes", self.power_bi),
             (*repo_item, self.repos),
             ("Service connections", "Jira, Confluence, Bitbucket, GitHub, set up in toil", self.services),
+            ("Commands", "Browse, search and run every ad-* command", self.commands),
+            ("Fleet desk", "Open the agents' desk in the browser, or start one", self.fleet),
             ("Health check", "Every check ad-doctor runs, with the fix for each", self.health),
-            ("Help", "How tnp works, where each answer is written, a command cheatsheet", self.help),
-            ("Quit", "Back to your shell", lambda: None),
+            ("Help", "How tnp works, where each answer is written, keys, the docs", self.help),
+            ("Quit", "Back to your shell", self._quit),
         ]
 
+    @staticmethod
+    def _quit() -> None:
+        raise Quit
+
     def run(self) -> int:
+        from . import keys
+        if not self.tty:
+            return self._run()
+        with keys.held():
+            self.out.write("\x1b[?25l")                         # no blinking cursor over a menu
+            try:
+                return self._run()
+            finally:
+                self.out.write("\x1b[?25h\x1b[2J\x1b[H")
+                self.out.flush()
+
+    def _run(self) -> int:
+        self.busy((), "Reading this machine: connections, toil, this repo…")
         try:
             while True:
                 items = self.home_items()
-                i = self.menu([(a, b) for a, b, _ in items], self.header, quit_word="quit")
-                if i is None or i == len(items) - 1:
-                    return 0
+                i = self.choose((), [(a, b) for a, b, _ in items], body=self.home_body(), home=True)
+                if isinstance(self.prompter, TnpPrompter):
+                    self.prompter.reset()
                 try:
                     items[i][2]()
                 except Back:
                     pass
                 self._attention = None
-        except (StopIteration, EOFError):
+        except (Quit, StopIteration, EOFError):
             return 0
         except KeyboardInterrupt:
-            self.w()
+            self.out.write("\n")
             return 130
+
+    def loop(self, crumbs: tuple[str, ...], items: Callable[[], list[tuple[str, str, Callable[[], None]]]],
+             body: Callable[[], list[str]]) -> None:
+        """A menu screen: pick, run, come back here; Esc leaves."""
+        while True:
+            entries = items()
+            try:
+                i = self.choose(crumbs, [(a, b) for a, b, _ in entries], body=body())
+            except Back:
+                return
+            if isinstance(self.prompter, TnpPrompter):
+                self.prompter.reset()
+            try:
+                entries[i][2]()
+            except Back:
+                pass
 
     # ------------------------------------------------------------------ test connections
 
     def test_connections(self) -> None:
         from ..setup.steps import sources, toil
-        self.clear()
-        self.crumb("Test connections")
-        self.w(B.muted("  Connecting… (a SELECT 1 per data source, one authenticated read per toil connection)"))
+        crumbs = ("Test connections",)
+        self.busy(crumbs, "Connecting: a SELECT 1 per data source, one authenticated read per toil connection…")
         ctx = self.context(online=True)
         for step in (sources.SourcesStep(), toil.ToilStep()):
             step.verify(ctx)
-        if not ctx.checks:
-            self.w("  Nothing to test yet: add a connection under Data sources, or in toil.")
-        self.rows(ctx.checks)
         C.save(self.cfg)
-        self.plain("ad-doctor --online --only sources,toil")
-        self.pause()
+        body = [self.cmd_line("ad-doctor --online --only sources,toil"), ""]
+        body += self.check_rows(ctx.checks) or ["  Nothing to test yet: add a connection under Data sources, "
+                                                "or in toil."]
+        self.show(crumbs, body + self.command_lines("ad-doctor --online --only sources,toil"))
 
     # ------------------------------------------------------------------ data sources
 
@@ -267,73 +270,62 @@ class App:
 
     def data_sources(self) -> None:
         from ..setup.steps.sources import LABEL
-        while True:
-            items = [(LABEL[s], ", ".join(self.envs(s)) or "none yet") for s in C.SOURCES] + [("Back", "")]
-
-            def draw() -> None:
-                self.crumb("Data sources")
-                self.w("  Connections are machine-wide: add one once and every repo on this machine can use it.")
-                self.w("  Each repo says which one it reads in its AGENTS.md (This repo).")
-                self.w()
-            i = self.menu(items, draw)
-            if i is None or i == len(C.SOURCES):
-                return
-            self.source(C.SOURCES[i])
+        self.loop(("Data sources",),
+                  lambda: [(LABEL[s], ", ".join(self.envs(s)) or "none yet", lambda s=s: self.source(s))
+                           for s in C.SOURCES],
+                  lambda: self.wrap("Connections are machine-wide: add one once and every repo on this machine can "
+                                    "use it. Each repo says which one it reads in its AGENTS.md (This repo).") + [""])
 
     def source(self, s: str) -> None:
         from ..setup.steps.sources import LABEL, SourcesStep
         g = G.SOURCES[s]
-        while True:
+
+        def items():
             envs = list(self.envs(s))
-            items = [("Add a connection", "Walks you through it; paste a JDBC URL to skip most questions")]
-            items += [(f"Change {e}", "Re-ask its questions with today's answers as defaults") for e in envs]
-            items += [("Test", f"SELECT 1 against each {LABEL[s]} connection")] if envs else []
-            items += [("Remove a connection", "Deletes it from the machine config")] if envs else []
-            items += [("Back", "")]
+            out = [("Add a connection", "Walks you through it; paste a JDBC URL to skip most questions",
+                    lambda: self.add_connection(s))]
+            out += [(f"Change {e}", "Asks again, with today's answers as the defaults",
+                     lambda e=e: self.add_connection(s, e)) for e in envs]
+            if envs:
+                out += [("Test", f"SELECT 1 against each {LABEL[s]} connection", lambda: self.test_source(s)),
+                        ("Remove a connection", "Deletes it from the machine config",
+                         lambda: self.remove_connection(s))]
+            return out
+
+        def body():
             ctx = self.context()
             step = SourcesStep()
             step.check(ctx, step.detect(ctx))
             mine = [c for c in ctx.checks if c.name.startswith(f"{s}:")]
+            out = self.wrap(g["what"]) + ["", self.heading("Have ready")]
+            for h in g["have"]:
+                out += self.bullet(h)
+            out += [self.heading("Where to find it")] + self.wrap(g["find"], indent=4) + [""]
+            if mine:
+                out += [self.heading("On this machine")] + [self.check_line(c) for c in mine]
+            return out
 
-            def draw() -> None:
-                self.crumb("Data sources", LABEL[s])
-                self.w(f"  {g['what']}")
-                self.w()
-                self.w("  " + B.blue("Have ready"))
-                for h in g["have"]:
-                    self.bullet(h)
-                self.w("  " + B.blue("Where to find it"))
-                self.para(g["find"], indent=4)
-                self.w()
-                if mine:
-                    self.w("  " + B.blue("On this machine"))
-                    self.rows(mine)
-                    self.w()
-            i = self.menu(items, draw)
-            if i is None or items[i][0] == "Back":
-                return
-            label = items[i][0]
-            if label == "Add a connection":
-                self.add_connection(s)
-            elif label.startswith("Change "):
-                self.add_connection(s, label[len("Change "):])
-            elif label == "Test":
-                self.test_source(s)
-            elif label == "Remove a connection":
-                self.remove_connection(s)
+        self.loop(("Data sources", LABEL[s]), items, body)
 
     def add_connection(self, s: str, env: str | None = None) -> None:
         from ..setup.steps.sources import LABEL, SourcesStep
         g = G.SOURCES[s]
-        self.clear()
-        self.crumb("Data sources", LABEL[s], f"Change {env}" if env else "Add a connection")
-        self.w("  You will be asked, in this order:")
-        for n, q in enumerate(g["questions"], 1):
-            self.w(B.muted(f"    {n}. {q}"))
-        self.w(B.muted("  Enter keeps the answer in [brackets]. Passwords go to the OS keyring, never a file."))
-        self.w()
+        sc = self.scope
+        repo_step = sc.kind == "repo" and os.path.exists(sc.agents_md)
+        crumbs = ("Data sources", LABEL[s], f"Change {env}" if env else "Add a connection")
+        stages = (["name", "JDBC URL"] if env is None else []) + ["connection details", "test"] + \
+                 (["this repo"] if repo_step else [])
+        n = len(stages)
+
+        def stage(title: str) -> str:
+            return f"Step {stages.index(title) + 1} of {n}: {title}"
+
+        same = self.cmd_line("ad-setup --only sources", "asks the same, for every connection")
         ask = self.prompter
+        filled: dict = {}
         if env is None:
+            self.begin(crumbs, stage("name"), [same, ""] + self.wrap(
+                "Then: " + " · ".join(g["questions"][1:]), muted=True) + [""])
             existing = self.envs(s)
             env = ask.ask(f"tnp.{s}.name", f"Name for this {LABEL[s]} connection (prod, uat, ...)",
                           "" if existing else "prod").strip()
@@ -341,156 +333,167 @@ class App:
                 return
             if env in existing and not ask.confirm(f"tnp.{s}.overwrite", f"{env} exists. Change it?", True):
                 return
-            url = ask.ask(f"tnp.{s}.jdbc", "Paste a JDBC URL to fill in the answers (blank = type them yourself)",
-                          "").strip()
+            self.begin(crumbs, stage("JDBC URL"), [same, ""] + self.wrap(
+                f"Paste the JDBC URL your SQL tool shows (DBeaver, SQL Developer, Hue), and the answers it holds "
+                f"become the defaults. e.g. {jdbc.EXAMPLE[s]}", muted=True) + [""])
+            url = ask.ask(f"tnp.{s}.jdbc", "JDBC URL (blank = type every answer yourself)", "").strip()
             if url:
                 try:
                     filled = jdbc.parse(s, url)
                 except ValueError as e:
-                    self.w(f"  {B.rgb('!', SHADE['warn'], True)} {e}. Carrying on without it.")
+                    self.say(f"  {glyph('warn')} {e}. Carrying on without it.")
                 else:
-                    merged = {**(existing.get(env) or {}), **filled}
-                    C.put_leaf(self.cfg, f"sources.{s}.envs", env, merged)
-                    shown = ", ".join(f"{k} {v}" for k, v in filled.items() if k != "mode")
-                    self.para(f"✓ From the URL: {shown}. They are the defaults below.")
+                    C.put_leaf(self.cfg, f"sources.{s}.envs", env, {**(existing.get(env) or {}), **filled})
+        from_url = ["  " + glyph("ok") + " From the URL: " + ", ".join(f"{k} {v}" for k, v in filled.items()
+                                                                      if k != "mode"), ""] if filled else []
+        self.begin(crumbs + (env,), stage("connection details"), [same, ""] + from_url)
         ctx = self.context()
         step = SourcesStep()
         step.ask_env(ctx, step.detect(ctx), s, env)
         where = self.save()
-        self.w()
-        self.w(f"  {B.rgb('✓', SHADE['ok'], True)} Saved {s}:{env} to the machine config ({where}).")
-        self.rows([c for c in ctx.checks if c.status != "ok"])
+        result = [x for x in from_url if x] + [f"  {glyph('ok')} Saved {s}:{env} to the machine config ({where})."]
+        result += self.check_rows([c for c in ctx.checks if c.status != "ok"])
+        replay = self.replay("sources")
+
+        self.begin(crumbs + (env,), stage("test"), result + [""])
         if ask.confirm(f"tnp.{s}.test", f"Test {s}:{env} now (SELECT 1)?", True):
-            self.test_source(s, [env], pause=False)
-        sc = self.scope
-        fact = S.SOURCE_FACT[s]
-        if sc.kind == "repo" and os.path.exists(sc.agents_md):
+            self.busy(crumbs + (env,), f"Connecting to {s}:{env}…")
+            result += self.smoke_lines(s, env)
+        if repo_step:
+            fact = S.SOURCE_FACT[s]
+            self.begin(crumbs + (env,), stage("this repo"), result + [""])
             current = C.project_facts(sc.agents_md).get(fact)
             if current != env and ask.confirm(
                     f"tnp.{s}.repo", f"Make {env} the {LABEL[s]} environment {sc.name} reads "
                                      f"({fact} in {textio.norm_path(sc.agents_md)})?", not current):
                 F.set_facts(sc.agents_md, {fact: env})
-                self.w(f"  {B.rgb('✓', SHADE['ok'], True)} {fact}: {env} written to {textio.norm_path(sc.agents_md)}")
-        self.plain(f"ad-setup --only sources          # every {LABEL[s]} question, for all connections",
-                   g["test"].replace("<env>", env).replace("<name>", env))
-        self.pause()
+                result.append(f"  {glyph('ok')} {fact}: {env} written to {textio.norm_path(sc.agents_md)}")
+        self.show(crumbs + (env,), result + self.command_lines(
+            replay, g["test"].replace("<env>", env).replace("<name>", env)))
 
-    def test_source(self, s: str, envs: list[str] | None = None, pause: bool = True) -> None:
-        if pause:
-            self.clear()
-            self.crumb("Data sources", s, "Test")
-        for env in envs or list(self.envs(s)):
-            try:
-                r = self.det.smoke(s, env, self.cfg)
-                C.stamp(self.cfg, f"{s}:{env}")
-                self.w(f"  {B.rgb('✓', SHADE['ok'], True)} {s}:{env}  answered in {r.get('elapsed_s', '?')}s")
-            except Exception as e:  # noqa: BLE001 -- a driver's own error is the message a person needs
-                self.w(f"  {B.rgb('✗', SHADE['fail'], True)} {s}:{env}  {type(e).__name__}: {str(e)[:160]}")
-                if isinstance(e, C.ConfigError):        # ours: it already says what to do
-                    if e.hint:
-                        self.para(f"fix: {e.hint}", indent=6, muted=True)
-                    continue
-                for sign, fix in G.SOURCES[s]["fails"]:
-                    self.para(f"if it says {sign}: {fix}", indent=6, muted=True)
+    def smoke_lines(self, s: str, env: str) -> list[str]:
+        try:
+            r = self.det.smoke(s, env, self.cfg)
+        except Exception as e:  # noqa: BLE001 -- a driver's own error is the message a person needs
+            out = [f"  {glyph('fail')} {s}:{env}  {type(e).__name__}: {str(e)[:160]}"]
+            if isinstance(e, C.ConfigError):                    # ours: it already says what to do
+                return out + (self.wrap(f"fix: {e.hint}", indent=6, muted=True) if e.hint else [])
+            for sign, fix in G.SOURCES[s]["fails"]:
+                out += self.wrap(f"if it says {sign}: {fix}", indent=6, muted=True)
+            return out
+        C.stamp(self.cfg, f"{s}:{env}")
         C.save(self.cfg)
-        if pause:
-            self.pause()
+        return [f"  {glyph('ok')} {s}:{env}  answered in {r.get('elapsed_s', '?')}s"]
+
+    def test_source(self, s: str) -> None:
+        crumbs = ("Data sources", s, "Test")
+        self.busy(crumbs, f"Connecting to every {s} connection…")
+        body = [self.cmd_line("ad-doctor --online --only sources"), ""]
+        for env in self.envs(s):
+            body += self.smoke_lines(s, env)
+        self.show(crumbs, body)
 
     def remove_connection(self, s: str) -> None:
         envs = list(self.envs(s))
-        name = self.prompter.ask(f"tnp.{s}.remove", f"Which one ({', '.join(envs)})", "").strip()
+        self.begin(("Data sources", s, "Remove"), "", [])
+        name = self.prompter.ask(f"tnp.{s}.remove", "Which connection", envs[0], envs)
         if name in envs and self.prompter.confirm(f"tnp.{s}.remove_ok", f"Remove {s}:{name} from the machine "
-                                                  f"config? Repos that read it will say so in Health check.", False):
+                                                  "config? Repos that read it will say so in Health check.", False):
             (C.get(self.cfg, f"sources.{s}.envs") or {}).pop(name, None)
             self.save()
 
     # ------------------------------------------------------------------ Power BI
 
     def power_bi(self) -> None:
-        from ..setup.steps import powerbi, repo
-        while True:
-            sc = self.scope
-            items = [("This machine", "Tools, sign-in and the workspaces this account can reach")]
+        sc = self.scope
+
+        def items():
+            out = [("This machine", "Tools, sign-in and the workspaces this account can reach", self.pbi_machine)]
             if sc.kind == "repo":
-                items.append((f"{sc.name}'s models and reports", "Which workspaces, semantic models and reports "
-                                                                  "this repo changes"))
+                out.append((f"{sc.name}'s models and reports",
+                            "Which workspaces, semantic models and reports this repo changes",
+                            lambda: self.pbi_repo(sc)))
             elif sc.kind == "folder":
-                items.append(("A repo's models and reports", "Pick the repo, then its workspaces, models, reports"))
-            items.append(("Back", ""))
+                out.append(("A repo's models and reports", "Pick the repo, then its workspaces, models, reports",
+                            lambda: self.pbi_repo(self.pick_repo(("Power BI",)))))
+            return out
 
-            def draw() -> None:
-                self.crumb("Power BI")
-                self.para(G.POWER_BI["why"])
-                self.w()
-                self.w("  " + B.blue("This machine") + B.muted("  (machine config, once)"))
-                for line in G.POWER_BI["machine"]:
-                    self.bullet(line)
-                self.w("  " + B.blue("Each repo") + B.muted("  (its AGENTS.md, only the repos that need it)"))
-                for line in G.POWER_BI["repo"]:
-                    self.bullet(line)
-                self.w()
-                if sc.kind == "repo" and os.path.exists(sc.agents_md):
-                    self.targets(sc.agents_md)
-                elif sc.kind == "folder":
-                    with_pbi = [S.repo_summary(r, self.cfg) for r in sc.repos]
-                    with_pbi = [r for r in with_pbi if r["pbi_targets"]]
-                    self.w("  " + B.blue("Repos here with Power BI targets") + ": " +
+        def body():
+            out = self.wrap(G.POWER_BI["why"]) + ["", self.heading("This machine", "(machine config, once)")]
+            for line in G.POWER_BI["machine"]:
+                out += self.bullet(line)
+            out.append(self.heading("Each repo", "(its AGENTS.md, only the repos that need it)"))
+            for line in G.POWER_BI["repo"]:
+                out += self.bullet(line)
+            out.append("")
+            if sc.kind == "repo" and os.path.exists(sc.agents_md):
+                out += self.target_lines(sc.agents_md)
+            elif sc.kind == "folder":
+                with_pbi = [r for r in (S.repo_summary(r, self.cfg) for r in sc.repos) if r["pbi_targets"]]
+                out.append(self.heading("Repos here with Power BI targets") + "  " +
                            (", ".join(f"{r['name']} ({r['pbi_targets']})" for r in with_pbi) or "none yet"))
-                    self.w()
-            i = self.menu(items, draw)
-            if i is None or items[i][0] == "Back":
-                return
-            if i == 0:
-                self.clear()
-                self.crumb("Power BI", "This machine")
-                self.w(B.muted(f"  Writes: the machine config ({C.display_path(C.path())})"))
-                ctx = self.context(online=True)
-                step = powerbi.PowerBIStep()
-                step.ask(ctx, step.detect(ctx))
-                self.save()
-                self.rows(ctx.checks, only_problems=True)
-                self.plain("ad-setup --only powerbi")
-                self.pause()
-            else:
-                target = sc if sc.kind == "repo" else self.pick_repo("Power BI")
-                if target is None:
-                    continue
-                self.clear()
-                self.crumb("Power BI", target.name)
-                ctx = self.context(online=True, scope=target)
-                step = repo.RepoStep()
-                found = step.detect(ctx)
-                if not found.get("exists"):
-                    self.w(f"  {target.name} has no AGENTS.md yet: set the repo up first (Repos).")
-                    self.pause()
-                    continue
-                self.w(B.muted(f"  Writes: {textio.norm_path(target.agents_md)} (## Power BI targets)"))
-                step._ask_pbi(ctx, found)
-                self.rows(ctx.checks)
-                self.targets(target.agents_md)
-                self.plain(f"ad-setup --repo {target.name}" if target is not sc else "ad-setup --only repo")
-                self.pause()
+            return out
 
-    def targets(self, md: str) -> None:
+        self.loop(("Power BI",), items, body)
+
+    def pbi_machine(self) -> None:
+        from ..setup.steps import powerbi
+        crumbs = ("Power BI", "This machine")
+        self.begin(crumbs, "Tools, sign-in, workspaces", [
+            self.cmd_line("ad-setup --only powerbi", "asks the same"),
+            B.muted(f"  Writes: the machine config ({C.display_path(C.path())})"), ""])
+        ctx = self.context(online=True)
+        step = powerbi.PowerBIStep()
+        step.ask(ctx, step.detect(ctx))
+        self.save()
+        self.show(crumbs, self.check_rows(ctx.checks, only_problems=True) + self.command_lines(
+            self.replay("powerbi")))
+
+    def pbi_repo(self, target: S.Scope | None) -> None:
+        from ..setup.steps import repo
+        if target is None:
+            return
+        crumbs = ("Power BI", target.name)
+        ctx = self.context(online=True, scope=target)
+        step = repo.RepoStep()
+        found = step.detect(ctx)
+        if not found.get("exists"):
+            if self.show(crumbs, self.wrap(f"{target.name} has no AGENTS.md yet, so there is nowhere to write its "
+                                           "Power BI targets. Setting the repo up creates it, then asks about "
+                                           "Power BI."), [("Set the repo up", f"Creates {target.name}/AGENTS.md "
+                                                                             "from the project stub")]) == 0:
+                self.repo_setup(target)
+            return
+        self.begin(crumbs, "Workspaces, then each one's semantic models and reports", [
+            self.cmd_line(self.repo_command(target), "asks the same"),
+            B.muted(f"  Writes: {textio.norm_path(target.agents_md)} (## Power BI targets)"), ""])
+        step._ask_pbi(ctx, found)
+        self.show(crumbs, self.check_rows(ctx.checks) + [""] + self.target_lines(target.agents_md) +
+                  self.command_lines(self.replay("repo", [] if target is self.scope else
+                                                 ["--repo", shlex.quote(target.name)])))
+
+    def target_lines(self, md: str) -> list[str]:
         rows = F.pbi_targets(md)
-        self.w("  " + B.blue("Power BI targets") + B.muted(f"  ({textio.norm_path(md)})"))
+        out = [self.heading("Power BI targets", f"({textio.norm_path(md)})")]
         if not rows:
-            self.w("    none: this repo does not change Power BI")
+            out.append("    none: this repo does not change Power BI")
         for n, t in enumerate(rows, 1):
             what = " / ".join(x for x in (t["workspace"], t["model"], t["report"]) if x)
             ids = "" if t["ws_id"] and (t["ds_id"] or not t["model"]) else B.muted("  (ids not looked up yet)")
-            self.w(f"    {n}. {what}{ids}")
-        self.w()
+            out.append(f"    {n}. {what}{ids}")
+        return out
 
     # ------------------------------------------------------------------ repos
 
-    def pick_repo(self, *crumbs: str) -> S.Scope | None:
+    def repo_command(self, target: S.Scope) -> str:
+        return "ad-setup --only repo" if target is self.scope else f"ad-setup --repo {shlex.quote(target.name)}"
+
+    def pick_repo(self, crumbs: tuple[str, ...]) -> S.Scope | None:
         sc = self.scope
         if not sc.repos:
             return None
-        summaries = [S.repo_summary(r, self.cfg) for r in sc.repos]
         items = []
-        for r in summaries:
+        for r in (S.repo_summary(r, self.cfg) for r in sc.repos):
             if not r["agents_md"]:
                 items.append((r["name"], "no AGENTS.md yet"))
                 continue
@@ -498,111 +501,294 @@ class App:
             pbi = f" · {r['pbi_targets']} Power BI" if r["pbi_targets"] else ""
             bad = f" · missing here: {', '.join(r['unknown'])}" if r["unknown"] else ""
             items.append((r["name"], used + pbi + bad))
-        i = self.menu(items + [("Back", "")], lambda: (self.crumb(*crumbs, "Pick a repo"), self.w(
-            f"  {len(items)} repos in {textio.norm_path(sc.root)}. What each one reads comes from its AGENTS.md."),
-            self.w()))
-        if i is None or i == len(items):
-            return None
+        i = self.choose(crumbs + ("Pick a repo",), items, body=self.wrap(
+            f"{len(items)} repos in {textio.norm_path(sc.root)}. What each one reads comes from its AGENTS.md.")
+            + [""])
         root = sc.repos[i]
         return S.Scope("repo", sc.cwd, root, [root])
 
     def repos(self) -> None:
         sc = self.scope
         if sc.kind == "machine":
-            self.clear()
-            self.crumb("Repos")
-            self.w(f"  {G.SCOPES['machine']}")
-            self.w("  Run tnp inside a repo, or in the folder that holds your repos (PycharmProjects), to give a repo")
-            self.w("  its own settings. Or: `tnp --repo <path>`.")
-            self.pause()
+            self.show(("Repos",), self.wrap(G.SCOPES["machine"]) + [""] + self.wrap(
+                "Run tnp inside a repo, or in the folder that holds your repos (PycharmProjects), to give a repo "
+                "its own settings. Or: `tnp --repo <path>`."))
+            return
+        if sc.kind == "repo":
+            self.repo_setup(sc)
             return
         while True:
-            target = sc if sc.kind == "repo" else self.pick_repo("Repos in this folder")
-            if target is None:
+            try:
+                target = self.pick_repo(("Repos in this folder",))
+            except Back:
                 return
-            self.repo_setup(target)
-            if sc.kind == "repo":
-                return
+            try:
+                self.repo_setup(target)
+            except Back:
+                pass
 
-    def repo_setup(self, target: S.Scope) -> None:
+    def repo_setup(self, target: S.Scope | None) -> None:
         from ..setup.steps import repo
-        self.clear()
-        self.crumb("This repo" if target is self.scope else "Repos in this folder", target.name)
+        if target is None:
+            return
+        crumbs = ("This repo" if target is self.scope else "Repos in this folder", target.name)
+        self.begin(crumbs, "Which environment of each source it reads, then its Power BI targets", [
+            self.cmd_line(self.repo_command(target), "asks the same"),
+            B.muted(f"  Writes only {textio.norm_path(target.agents_md)}. Connections stay machine-wide."), ""])
         ctx = self.context(online=True, scope=target)
         step = repo.RepoStep()
         step.ask(ctx, step.detect(ctx))
         ctx.checks.clear()
         step.check(ctx, step.detect(ctx))
-        self.w()
-        self.rows(ctx.checks)
-        self.plain("ad-setup --only repo" if target is self.scope else f"ad-setup --repo {target.name}",
-                   "ad-doctor --only repo")
-        self.pause()
+        extra = [] if target is self.scope else ["--repo", shlex.quote(target.name)]
+        self.show(crumbs, self.check_rows(ctx.checks) + self.command_lines(
+            self.replay("repo", extra), "ad-doctor --only repo" + (f" --repo {shlex.quote(target.name)}"
+                                                                  if extra else "")))
 
     # ------------------------------------------------------------------ toil services
 
     def services(self) -> None:
         from ..setup.steps import toil
-        while True:
+
+        def body():
             found = self.det.toil(self.cfg) or {}
             conns = found.get("connections") or []
-
-            def draw() -> None:
-                self.crumb("Service connections")
-                self.w(f"  {G.SERVICES['what']}")
-                self.w()
-                if found.get("error"):
-                    self.w(f"  {B.rgb('✗', SHADE['fail'], True)} {found['error']}")
-                    self.w(B.muted(f"      fix: {found.get('fix') or toil.T.install_hint(self.cfg)}"))
-                elif not conns:
-                    self.w("  toil has no connections yet.")
-                else:
-                    self.w(B.muted(f"  {'name':<18} {'area':<16} {'host':<28} writes  default"))
-                    for c in conns:
-                        self.w(f"  {str(c.get('name')):<18} {str(c.get('area')):<16} {str(c.get('host') or ''):<28} "
-                               f"{'on' if c.get('writes') else 'off':<7} {'yes' if c.get('isDefault') else ''}")
-                self.w()
-                self.w(f"  {G.SERVICES['add']}")
-                self.w(f"  {G.SERVICES['writes']}")
-                self.w()
-            items = [("Open toil", "Add a connection, sign in again, turn writes on"),
-                     ("Test them", "One authenticated read per connection"), ("Back", "")]
-            i = self.menu(items, draw)
-            if i is None or i == 2:
-                return
-            if i == 0:
-                self.launch_toil(found)
-                if hasattr(self.det, "_toil"):
-                    del self.det._toil                       # read them again after toil changed them
+            out = self.wrap(G.SERVICES["what"]) + [""]
+            if found.get("error"):
+                out.append(f"  {glyph('fail')} {found['error']}")
+                out += self.wrap(f"fix: {found.get('fix') or toil.T.install_hint(self.cfg)}", indent=6, muted=True)
+            elif not conns:
+                out.append("  toil has no connections yet.")
             else:
-                self.clear()
-                self.crumb("Service connections", "Test")
-                ctx = self.context(online=True)
-                toil.ToilStep().verify(ctx)
-                self.rows(ctx.checks)
-                self.plain("ad-doctor --online --only toil", "toil connections test <name>")
-                self.pause()
+                out.append(B.label(f"  {'NAME':<18} {'AREA':<16} {'HOST':<28} {'WRITES':<10} DEFAULT"))
+                for c in conns:
+                    out.append(f"  {str(c.get('name')):<18} {str(c.get('area')):<16} "
+                               f"{str(c.get('host') or '-'):<28} {'on' if c.get('writes') else 'read only':<10} "
+                               f"{'yes' if c.get('isDefault') else ''}")
+            return out + [""] + self.wrap(G.SERVICES["add"], muted=True) + self.wrap(G.SERVICES["writes"], muted=True)
 
-    def launch_toil(self, found: dict) -> None:
+        def test():
+            crumbs = ("Service connections", "Test")
+            self.busy(crumbs, "One authenticated read per connection…")
+            ctx = self.context(online=True)
+            toil.ToilStep().verify(ctx)
+            self.show(crumbs, [self.cmd_line("ad-doctor --online --only toil"), ""] + self.check_rows(ctx.checks)
+                      + self.command_lines("ad-doctor --online --only toil", "toil connections test <name>"))
+
+        self.loop(("Service connections",),
+                  lambda: [("Open toil", "Add a connection, sign in again, turn writes on", self.launch_toil),
+                           ("Test them", "One authenticated read per connection", test)], body)
+
+    def launch_toil(self) -> None:
         from .. import proc
         from ..connectors import toil as T
-        where = found.get("where") or {}
-        if not where.get("found"):
-            self.w(f"  toil is not installed. {T.install_hint(self.cfg)}")
-            self.pause()
+        found = self.det.toil(self.cfg) or {}
+        if not (found.get("where") or {}).get("found"):
+            self.show(("Service connections", "Open toil"), self.wrap(f"toil is not installed. {T.install_hint(self.cfg)}"))
             return
-        self.w(B.muted("  Opening toil. Quit it (q) to come back here."))
+        if self.tty:
+            self.out.write("\x1b[2J\x1b[H" + B.muted("  Opening toil. Quit it (q) to come back to tnp.\n"))
+            self.out.flush()
+        from . import keys
         try:
-            subprocess.run(proc.command(["toil"], exe=T.exe(self.cfg), path=T.search_path()), check=False)
-        except OSError as e:
-            self.w(f"  could not start toil: {e}")
-            self.pause()
+            self.out.write("\x1b[?25h")
+            with keys.released():
+                subprocess.run(proc.command(["toil"], exe=T.exe(self.cfg), path=T.search_path()), check=False)
+            self.out.write("\x1b[?25l")
+        except (OSError, KeyboardInterrupt) as e:
+            self.show(("Service connections", "Open toil"), [f"  could not start toil: {e}"])
+        if hasattr(self.det, "_toil"):
+            del self.det._toil                                   # read them again: toil may have changed them
+
+    # ------------------------------------------------------------------ every ad-* command
+
+    def commands(self) -> None:
+        self.busy(("Commands",), "Reading every command's options…")
+        roots = K.catalog()
+        self.loop(("Commands",),
+                  lambda: [("Find a command", "Search every command and subcommand by name or what it does",
+                            self.find_command)] +
+                          [(c.title, c.help, lambda c=c: self.command(c)) for c in roots],
+                  lambda: self.wrap(f"Every ad-* command and its {sum(1 for _ in K.walk()) - len(roots)} "
+                                    "subcommands, read from the commands themselves. Pick one to see its "
+                                    "arguments and flags, then run it here.") + [""])
+
+    def find_command(self) -> None:
+        crumbs = ("Commands", "Find")
+        self.begin(crumbs, "", self.wrap('Words to look for in a command or what it does, such as "refresh", '
+                                         '"pr" or "sprint".') + [""])
+        words = self.prompter.ask("tnp.find", "Find", "")
+        hits = K.find(words)
+        crumbs = crumbs + (f'"{words}"',)
+        if not hits:
+            self.show(crumbs, [f"  Nothing matches {words!r}. Try fewer words, or browse the list."])
+            return
+        self.loop(crumbs, lambda: [(c.title, c.help, lambda c=c: self.command(c)) for c in hits],
+                  lambda: [B.muted(f"  {len(hits)} match{'es' * (len(hits) != 1)}"), ""])
+
+    def command(self, cmd: K.Command) -> None:
+        crumbs = ("Commands", *cmd.title.split())
+        if cmd.children:
+            runnable = self._runs_without_subcommand(cmd)
+            self.loop(crumbs,
+                      lambda: ([(f"Run {cmd.title}", "On its own, without a subcommand",
+                                 lambda: self.run_command(cmd))] if runnable else []) +
+                              [(c.path[-1], c.help, lambda c=c: self.command(c)) for c in cmd.children],
+                      lambda: self.wrap(cmd.help) + [""])
+            return
+        while True:
+            try:
+                self.pager(crumbs, self.command_page(cmd), [("Run it", "Asks for its arguments, then flags")])
+            except Back:
+                return
+            try:
+                self.run_command(cmd)
+            except Back:
+                pass
+
+    @staticmethod
+    def _runs_without_subcommand(cmd: K.Command) -> bool:
+        import argparse
+        for a in (cmd.parser._actions if cmd.parser else []):    # noqa: SLF001
+            if isinstance(a, argparse._SubParsersAction):        # noqa: SLF001
+                return not a.required
+        return True
+
+    def command_page(self, cmd: K.Command) -> list[str]:
+        pos, opt = cmd.arguments()
+        out = self.wrap(cmd.help) + ["", self.cmd_line(cmd.usage.split("\n")[0].strip())]
+        out += [B.muted("    " + line.strip()) for line in cmd.usage.split("\n")[1:]]
+        if pos:
+            out += ["", self.heading("Arguments")]
+            for a in pos:
+                need = "" if a.nargs in ("?", "*") else B.muted("  required")
+                out.append(fit(f"    {a.name:<28} {a.help}", self.cols - 12) + need)
+        if opt:
+            out += ["", self.heading("Flags")]
+            for a in opt:
+                flag = ", ".join(a.flags) + (f" <{a.metavar or a.dest}>" if a.takes_value else "")
+                choices = f" ({'/'.join(a.choices)})" if a.choices else ""
+                need = B.muted("  required") if a.required else ""
+                out.append(fit(f"    {flag:<28} {a.help}{choices}", self.cols - (12 if need else 2)) + need)
+        return out
+
+    def run_command(self, cmd: K.Command) -> None:
+        crumbs = ("Commands", *cmd.title.split(), "Run")
+        pos, opt = cmd.arguments()
+        self.begin(crumbs, f"$ {cmd.title} …", [])
+        values: list[str] = []
+        for a in pos:
+            optional = a.nargs in ("?", "*")
+            label = f"{a.name}" + (" (optional)" if optional else "") + (f": {a.help}" if a.help else "")
+            if a.choices:
+                got = self.prompter.ask(f"tnp.arg.{a.dest}", label, a.choices[0], a.choices + (["(none)"] if optional
+                                                                                              else []))
+                got = "" if got == "(none)" else got
+            else:
+                got = self.prompter.ask(f"tnp.arg.{a.dest}", label, "")
+            if got:
+                values += shlex.split(got) if a.nargs in ("*", "+") else [got]
+            elif not optional:
+                self.show(crumbs, [f"  {a.name} is required: nothing was run."])
+                return
+        for a in [o for o in opt if o.required]:           # a required flag is asked like an argument
+            label = f"{a.name}" + (f": {a.help}" if a.help else "")
+            got = (self.prompter.ask(f"tnp.flag.{a.dest}", label, a.choices[0], a.choices) if a.choices
+                   else self.prompter.ask(f"tnp.flag.{a.dest}", label, ""))
+            if not got:
+                self.show(crumbs, [f"  {a.name} is required: nothing was run."])
+                return
+            values += [a.name] + ([got] if a.takes_value else [])
+        opt = [o for o in opt if not o.required]
+        if opt:
+            names = "  ".join(a.flags[0] for a in opt)
+            self.begin(crumbs, f"$ {K.shown(cmd, values)} …", self.wrap("Flags: " + names, muted=True) + [""])
+            flags = self.prompter.ask("tnp.flags", "Flags (optional; enter runs it)", "")
+            try:
+                values += shlex.split(flags)
+            except ValueError as e:
+                self.show(crumbs, [f"  Could not read the flags: {e}. Nothing was run."])
+                return
+        self.execute(crumbs, cmd, values)
+
+    def execute(self, crumbs: tuple[str, ...], cmd: K.Command, values: list[str]) -> None:
+        line = K.shown(cmd, values)
+        if self.tty:                                              # the person's own terminal: prompts work
+            self.out.write("\x1b[2J\x1b[H\n" + self.crumb_line(crumbs) + "\n\n" + self.cmd_line(line) + "\n\n")
+            self.out.flush()
+            from . import keys
+            self.out.write("\x1b[?25h")
+            with keys.released():
+                rc, _ = self.runner(K.argv(cmd, values), False)
+            self.out.write("\x1b[?25l")
+            self.out.write("\n" + B.muted(f"  exit {rc}") + "\n")
+            self.out.write(B.muted("  Each step above is a plain command: run it yourself any time.") + "\n\n")
+            self.out.write(B.muted("  enter back   q quit"))
+            self.out.flush()
+            if self.key() in ("q", "Q"):
+                raise Quit
+            return
+        rc, text = self.runner(K.argv(cmd, values), True)
+        body = [self.cmd_line(line), ""] + ["  " + x for x in text.rstrip("\n").split("\n")]
+        body += ["", B.muted(f"  exit {rc}")] + self.command_lines(line)
+        self.show(crumbs, body)
+
+    # ------------------------------------------------------------------ the fleet desk
+
+    def fleet(self) -> None:
+        from ..fleet import opener
+
+        def body():
+            live = {}
+            try:
+                live = opener.running()
+            except Exception:  # noqa: BLE001 -- a broken record is "not running"
+                live = {}
+            out = self.wrap("The desk is a page in your browser that shows every agent the fleet runs: what each "
+                            "is doing, the writes waiting for your approval, and their replies.") + [""]
+            if live:
+                out.append(self.fact("Desk", f"running on port {live.get('port')}"))
+            else:
+                out.append(self.fact("Desk", "not running"))
+            return out + [""]
+
+        def run(*args: str) -> Callable[[], None]:
+            return lambda: self.execute(("Fleet desk",), K.Command(("fleet", *args[:1]), "", None), list(args[1:]))
+
+        sc = self.scope                     # quickstart scans a folder OF repos: inside one, its parent
+        folder = os.path.dirname(sc.root.rstrip("/\\")) if sc.kind == "repo" else sc.root
+        self.loop(("Fleet desk",),
+                  lambda: [("Open the desk", "In your browser; starts it when it is not running",
+                            run("open")),
+                           ("Quickstart this folder", f"Scan {textio.norm_path(folder)} for repos, index, serve",
+                            run("quickstart", folder)),
+                           ("Every fleet command", "Browse ad-fleet's commands",
+                            lambda: self.command(next(c for c in K.catalog() if c.path == ("fleet",))))], body)
 
     # ------------------------------------------------------------------ health and help
 
+    def environment(self) -> list[str]:
+        from ..version import version_string
+        toil = (self.det.toil(self.cfg) or {}).get("where") or {}
+        cfg_path = C.path()
+        try:
+            keyring = self.det.keyring_backend()
+        except Exception:  # noqa: BLE001
+            keyring = "unavailable"
+        out = [self.fact("agentdata", version_string().replace("agentdata ", "")),
+               self.fact("Python", f"{sys.version.split()[0]} at {textio.norm_path(sys.executable)}"),
+               self.fact("Config", C.display_path(cfg_path) + ("" if os.path.exists(cfg_path) else
+                                                               B.muted("  (not created yet)"))),
+               self.fact("Keyring", str(keyring)),
+               self.fact("toil", (f"{toil.get('version') or '?'} at {textio.norm_path(toil.get('path') or '')}"
+                                  if toil.get("found") else "not found"))]
+        sc = self.scope
+        out.append(self.fact("Scope", f"{sc.kind} {sc.name}" if sc.kind == "repo" else sc.kind))
+        return out
+
     def health(self) -> None:
-        self.clear()
-        self.crumb("Health check")
+        crumbs = ("Health check",)
+        self.busy(crumbs, "Checking…")
         ctx = self.context()
         for step in W.registry():
             try:
@@ -610,61 +796,34 @@ class App:
             except Exception as e:  # noqa: BLE001
                 ctx.add(step.key, step.key, "fail", f"{type(e).__name__}: {e}", f"ad-doctor --only {step.key}")
         ok = sum(c.status in ("ok", "info") for c in ctx.checks)
-        self.w(f"  {ok} of {len(ctx.checks)} checks fine.")
-        self.w()
-        self.rows(ctx.checks, only_problems=True)
-        self.plain("ad-doctor", "ad-setup --patch          # re-asks only what is wrong")
-        self.pause()
+        problems = len(ctx.checks) - ok
+        body = [self.cmd_line("ad-doctor"), ""] + self.environment() + [""]
+        body.append(f"  {ok} of {len(ctx.checks)} checks fine." + ("" if problems else "  No warnings."))
+        body += [""] + self.check_rows(ctx.checks, only_problems=True)
+        body += self.command_lines("ad-doctor", "ad-setup --patch          # asks again only what is wrong")
+        actions = [("Repair", "Asks again only the settings behind the rows above (ad-setup --patch)")] if problems \
+            else None
+        if self.show(crumbs, body, actions) == 0 and actions:
+            setup = next(c for c in K.catalog() if c.path == ("setup",))
+            self.execute(crumbs + ("Repair",), setup, ["--patch"])
 
     def help(self) -> None:
-        pages: list[tuple[str, str, Callable[[], None]]] = [
-            ("Where things are written", "Machine config, keyring, a repo's AGENTS.md, toil", self.help_where),
-            ("Adding a data connection", "Teradata, Hive, Impala, Oracle, Spark, step by step", self.help_sources),
-            ("Power BI for one repo", "Workspaces, semantic models and reports per repo", self.help_pbi),
-            ("Commands", "The plain command behind each screen", self.help_commands),
-            ("Back", "", lambda: None),
-        ]
-        while True:
-            i = self.menu([(a, b) for a, b, _ in pages], lambda: (self.crumb("Help"), self.w(
-                "  The full guide, with screens: docs/tnp.md in this-next-please."), self.w()))
-            if i is None or i == len(pages) - 1:
-                return
-            self.clear()
-            self.crumb("Help", pages[i][0])
-            pages[i][2]()
-            self.pause()
-
-    def help_where(self) -> None:
-        self.w(f"  {G.SCOPES[self.scope.kind]}")
-        self.w()
+        from ..update import version
+        body = [self.heading("How tnp works")]
+        body += self.wrap("tnp is the menu over this-next-please. Setup screens ask the questions ad-setup asks and "
+                          "write the same files; Commands runs any ad-* command; the fleet desk opens the agents' "
+                          "page. Every screen says which command does the same, so anything done here can be "
+                          "scripted or handed to an agent.")
+        body += ["", self.heading("Where things are written")] + self.wrap(G.SCOPES[self.scope.kind])
         for what, why in G.WHERE:
-            self.w("  " + B.blue(what))
-            self.w(f"    {why}")
-        self.w()
-        for what, where in self.scope.writes():
-            self.w(f"  {'Writes':<8} " + B.muted(f"{what}: ") + where)
-
-    def help_sources(self) -> None:
-        from ..setup.steps.sources import LABEL
-        self.w("  Data sources → pick one → Add a connection. Paste the JDBC URL your SQL tool shows and most")
-        self.w("  answers are filled in; then test it, and (inside a repo) say whether this repo reads it.")
-        for s in C.SOURCES:
-            g = G.SOURCES[s]
-            self.w()
-            self.w("  " + B.blue(LABEL[s]) + B.muted(f"  {g['command']}"))
-            self.w(f"    {g['what']}")
-            self.w(B.muted(f"    asks: {'; '.join(g['questions'])}"))
-            self.w(B.muted(f"    test: {g['test']}"))
-
-    def help_pbi(self) -> None:
-        self.w(f"  {G.POWER_BI['why']}")
-        for title, key in (("Once per machine", "machine"), ("Per repo", "repo")):
-            self.w()
-            self.w("  " + B.blue(title))
-            for line in G.POWER_BI[key]:
-                self.bullet(line)
-
-    def help_commands(self) -> None:
+            body += self.wrap(f"{what}: {why}", indent=4, hang=2)
+        body += ["", self.heading("Keys")]
+        body += ["    up/down or j/k   move          enter      select / go on",
+                 "    1-9              jump          space      tick a box",
+                 "    esc, backspace   back          ctrl-u     clear a field",
+                 "    q                quit tnp      pgup/pgdn  scroll a long page"]
+        body += ["", self.heading("Commands")]
         width = max(len(c) for c, _ in G.CHEATSHEET) + 2
-        for cmd, what in G.CHEATSHEET:
-            self.w(f"  {B.accent(cmd.ljust(width))} {what}")
+        body += [f"    {B.accent(cmd.ljust(width))} {what}" for cmd, what in G.CHEATSHEET]
+        body += ["", self.fact("Docs", DOCS_URL), self.fact("Version", f"agentdata {version()}")]
+        self.show(("Help",), body)

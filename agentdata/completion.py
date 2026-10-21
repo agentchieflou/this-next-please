@@ -42,6 +42,15 @@ def all_commands() -> list[str]:
     return [f"ad-{name}" for name in M.COMMANDS if name not in M.HIDDEN]
 
 
+# Console scripts that are not `ad-*`: completed the same way, by their own parser.
+EXTRA = {"tnp": ("agentdata.tnp", "main")}
+
+
+def registered() -> list[str]:
+    """Every name a shell gets a completer for: the `ad-*` commands, and `tnp`."""
+    return all_commands() + list(EXTRA)
+
+
 class ParserCaptured(BaseException):
     """Carries a parser out of a `main()` that was never going to finish -- see `agentdata.complete`.
 
@@ -173,7 +182,7 @@ foreach ($AgentdataCommand in @({names})) {{
 
 
 def completion_script(shell: str, commands: list[str] | None = None) -> str:
-    cmds = commands or all_commands()
+    cmds = commands or registered()
     shell = shell.lower().strip()
     py = _python()
     if shell == "bash":

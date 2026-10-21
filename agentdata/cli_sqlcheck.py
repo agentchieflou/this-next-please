@@ -40,7 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--env", default=None, help="env whose recorded capabilities gate some rules (default: AGENTS.md fact)")
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
-    sql = a.sql if a.sql is not None else read_text(a.file)
+    try:
+        sql = a.sql if a.sql is not None else read_text(a.file)
+    except OSError as e:
+        print(error(f"cannot read {a.file}: {e.strerror or e}", "give the path to a .sql file, or the SQL itself "
+                    "with --sql \"...\"", "ad-sql-check"))
+        return 2
 
     if a.sql is not None:
         leaked = unexpanded_variable(a.sql)

@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     utf8_stdout()
-    color.set_enabled(None if a.color == "auto" else a.color == "always")
+    color.from_flag(a.color)
     from .app import App
     try:
         app = App(repo=a.repo, keys=iter(["q"]) if a.print_home else None)

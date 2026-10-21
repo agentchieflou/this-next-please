@@ -43,7 +43,9 @@ COMMANDS = {
 # diagnostics and shell plumbing: real commands, deliberately absent from the catalog a person
 # reads. `_complete` runs on a keypress, so it must never look like something to type.
 HIDDEN = {"argv", "metrics", "_complete"}
-USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
+USAGE = ("usage: python -m agentdata <command> [options]\n\n"
+         "  tnp                     the menu: setup, health, the fleet desk, and every command below\n\n"
+         "Same commands as the ad-* console scripts:\n"
          + "\n".join(f"  {name:<10} ad-{name:<10} {help}"
                      for name, (_m, _f, help) in COMMANDS.items() if name not in HIDDEN)
          + "\n\nExample: python -m agentdata pbip check  (identical to: ad-pbip check)\n")
@@ -55,7 +57,8 @@ def usage() -> None:
     if not ui.on():
         print(USAGE)
         return
-    ui.commands([(name, f"ad-{name}", help) for name, (_m, _f, help) in COMMANDS.items()],
+    ui.commands([("", "tnp", "the menu: setup, health, the fleet desk, and every command below")] +
+                [(name, f"ad-{name}", help) for name, (_m, _f, help) in COMMANDS.items() if name not in HIDDEN],
                 title="agentdata",
                 footer="usage: python -m agentdata <command> [options] — identical to the ad-* script, and it works "
                        "when the Scripts directory is not on PATH. Every command prints TOON.")

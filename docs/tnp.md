@@ -1,13 +1,23 @@
-# tnp: setting up this-next-please
+# tnp: the this-next-please menu
 
-`tnp` opens a menu for setting up this-next-please. It asks the same questions as `ad-setup` and runs the same
-checks as `ad-doctor`, one screen at a time. Before it writes anything, each screen tells you where the answers
-will go. Each screen also ends with the plain command that does the same thing, so you can script it later or
-hand it to an agent. `ad-setup` and `ad-doctor` do not change: scripts and agents keep using them.
+`tnp` is the one place to set up and run this-next-please. It covers:
+
+- **Setup.** Data source connections, Power BI, each repo's settings, and toil's service connections.
+- **A health check.**
+- **The fleet desk.**
+- **Commands.** Every `ad-*` command and subcommand: browse them, search them, read their arguments and flags, and
+  run them.
+
+The setup screens ask the same questions as `ad-setup` and write the same files. Before a flow starts, its first
+screen shows the command that asks the same questions (`$ ad-setup --only sources`). When the flow is done, the
+command is printed again with every answer you gave filled in (`ad-setup --non-interactive --only sources --set
+…`), so anything done here can be scripted or handed to an agent. `ad-setup` and `ad-doctor` are unchanged, and
+scripts and agents keep using them.
 
 The layout copies toil's own menu (`toil` with no arguments): a wordmark, one status line, where you are, what
-needs attention, then a numbered menu. Move with up/down and press Enter, or press the item's number. `q` goes
-back one screen, and quits from home.
+needs attention, then a numbered menu. The wordmark and the breadcrumb stay at the top of every screen. Nothing
+is wider than the terminal: long lines end in `…`. Nothing is taller than it either: long lists and pages scroll,
+marked `↑ N more` and `↓ N more`. File paths are never cut; they wrap.
 
 ```
   ████████  ███    ██  ██████▄
@@ -18,7 +28,7 @@ back one screen, and quits from home.
 
   this-next-please
 
-  agentdata 0.22.0 · 1 data connection · toil 4 connections · 1 to fix · 2 warnings
+  agentdata 0.22.0 · 1 to fix · 1 warning · 1 data connection · toil 4 connections · last tested 2026-10-21
 
   Scope      repo sales-bi
   Repo       C:/Users/me/PycharmProjects/sales-bi
@@ -28,24 +38,53 @@ back one screen, and quits from home.
   Writes     this repo: C:/Users/me/PycharmProjects/sales-bi/AGENTS.md
 
   Needs attention
+  ✗ spark:prod             impala not installed
   ! power bi target        Finance BI / Sales Overview: no ws_id, report_id yet
-      fix: sign in (`ad-pbi auth`), then `tnp` -> Power BI, or `ad-setup --patch repo`: the ids are looked up
 
   ▸ 1  Test connections      One query against each data source, one read against each toil connection
     2  Data sources          Teradata, Hive, Impala, Oracle, Spark: add, change, test
     3  Power BI              This machine's tools and sign-in; the models and reports each repo changes
     4  This repo             Which environments and Power BI targets sales-bi uses (its AGENTS.md)
     5  Service connections   Jira, Confluence, Bitbucket, GitHub, set up in toil
-    6  Health check          Every check ad-doctor runs, with the fix for each
-    7  Help                  How tnp works, where each answer is written, a command cheatsheet
-    8  Quit                  Back to your shell
+    6  Commands              Browse, search and run every ad-* command
+    7  Fleet desk            Open the agents' desk in the browser, or start one
+    8  Health check          Every check ad-doctor runs, with the fix for each
+    9  Help                  How tnp works, where each answer is written, keys, the docs
+       Quit                  Back to your shell
 
-  up/down move   enter select   1-8 jump   q quit
+  up/down move   enter select   1-9 jump   q quit
 ```
 
+*Needs attention* gives one line per problem; the fix for each is on *Health check*.
+
+## Keys
+
+| Key | What it does |
+|---|---|
+| up/down, or j/k | Move. |
+| Enter | Select, or go on to the next question. |
+| 1–9 | Jump to that item. |
+| Space | Tick a box in a list where you can pick several. |
+| Esc, Backspace or ← | Go back one screen. |
+| q | Quit tnp, from any screen. |
+| Ctrl-U | Clear a text field. |
+| PgUp/PgDn | Scroll a long page. |
+
+Questions are answered on the screen:
+
+- a text field is prefilled with the current answer (`host: tdprod.corp▏`);
+- a choice is a pick list;
+- yes/no is a two-item list;
+- "which of these" is a checkbox list;
+- a password is drawn as dots, and goes to the OS keyring.
+
+Every answer so far stays on the screen above the next question. Without a terminal (a pipe, a CI log), each
+question falls back to a single numbered line prompt.
+
 The wordmark runs from teal to blue. It uses 24-bit colour in Windows Terminal, VS Code and any terminal that
-sets `COLORTERM=truecolor`. Other terminals get the nearest 256-colour shade. With `NO_COLOR`, a pipe or
-`--color never`, it is drawn in plain blocks.
+sets `COLORTERM=truecolor`; other terminals get the nearest 256-colour shade. The selected row is a lighter
+blue, about 8:1 on a dark background, and every text colour reaches at least 4.5:1. With `NO_COLOR`, a pipe or
+`--color never`, the screen is drawn without colour. `NO_COLOR` wins over `--color always`.
 
 ## Where things are written
 
@@ -73,55 +112,57 @@ Where you start `tnp` (or `ad-setup`) decides the **scope**:
 
 ## Adding a data connection
 
-The walkthrough is the same for every source: *Data sources → pick the source → Add a connection*.
+The walkthrough is the same for every source: *Data sources → pick the source → Add a connection*. Before you
+start, the source's screen lists what to have ready and where to find it. The flow then runs in numbered steps:
 
-1. The screen lists what to have ready and where to find it, then the questions in the order they will be asked.
-2. Name the connection, for example `prod` or `uat`. Every repo on the machine refers to it by this name.
-3. **Paste a JDBC URL**, if you have one. DBeaver, SQL Developer, Teradata Studio and Hue all show one. tnp reads
-   the host, port, transport, HTTP path and Kerberos service out of it and uses them as the defaults for the
-   questions that follow. You can keep each one or change it. Leave the URL blank to type every answer yourself.
-4. Answer the questions. Enter keeps the answer shown in `[brackets]`. A password goes straight to the OS keyring.
-5. **Test it.** tnp runs `SELECT 1` against the new connection. If the test fails, tnp prints the driver's own error
-   along with what the common errors for that source mean.
-6. **Inside a repo, say whether this repo reads it.** tnp offers to write the connection's name as the repo's fact
-   (`env`, `hive_env`, `impala_env`, `oracle_env` or `spark_env`) in its AGENTS.md. Before it writes, it shows
-   that file's path.
+1. **Name.** For example `prod` or `uat`. Every repo on the machine refers to the connection by this name.
+2. **JDBC URL**, if you have one. DBeaver, SQL Developer, Teradata Studio and Hue all show one. tnp reads the host,
+   port, transport, HTTP path and Kerberos service out of it, and they become the defaults for the next step.
+   Leave it blank to type every answer yourself.
+3. **Connection details.** The mode, the host, the auth and so on, one question at a time. A password goes
+   straight to the OS keyring.
+4. **Test.** tnp runs `SELECT 1` against the new connection. If it fails, tnp shows the driver's own error and what
+   the usual errors for that source mean.
+5. **This repo** (inside a repo only). tnp offers to write the connection's name as the repo's fact (`env`,
+   `hive_env`, `impala_env`, `oracle_env` or `spark_env`) in its AGENTS.md, and shows that file's path first.
 
-The screen ends with the commands that do the same: `ad-setup --only sources` for every question, and the
-source's own test query.
+The last screen gives the command that repeats it all and the source's own test query:
 
 ```
-  TNP › Data sources › Spark (Thrift Server) › Add a connection
+  TNP › Data sources › Teradata › Add a connection › uat
 
-  You will be asked, in this order:
-    1. environment name
-    2. connection mode
-    3. host
-    4. Thrift transport: binary or http
-    ...
-Name for this Spark (Thrift Server) connection (prod, uat, ...) [prod]: prod
-Paste a JDBC URL to fill in the answers (blank = type them yourself): jdbc:hive2://sparkts.corp.example:10001/default;transportMode=http;httpPath=cliservice;principal=hive/_HOST@CORP.EXAMPLE
-  ✓ From the URL: host sparkts.corp.example, port 10001, transport http, http_path cliservice, auth GSSAPI,
-  service_name hive. They are the defaults below.
-[spark:prod] connection mode (native/odbc) [native]:
-[spark:prod] host [sparkts.corp.example]:
-[spark:prod] Thrift transport (binary/http) [http]:
-[spark:prod] port [10001]:
-[spark:prod] HTTP path [cliservice]:
-[spark:prod] auth mechanism (GSSAPI/PLAIN/LDAP/NOSASL) [GSSAPI]:
-[spark:prod] Kerberos service in the server's principal (<service>/host@REALM) [hive]:
-[spark:prod] TLS? [y/N]:
+  Step 3 of 5: connection details
 
-  ✓ Saved spark:prod to the machine config (~/.agentdata/config.json).
-Test spark:prod now (SELECT 1)? [Y/n]:
-  ✓ spark:prod  answered in 0.41s
-Make prod the Spark (Thrift Server) environment sales-bi reads (spark_env in .../sales-bi/AGENTS.md)? [Y/n]:
-  ✓ spark_env: prod written to C:/Users/me/PycharmProjects/sales-bi/AGENTS.md
+  $ ad-setup --only sources   asks the same, for every connection
 
-  Each step above is a plain command; run it yourself any time:
-    ad-setup --only sources          # every Spark (Thrift Server) question, for all connections
-    ad-spark --env prod "SELECT 1"
+  ✓ From the URL: host tduat.corp.example, logmech LDAP, tmode ANSI
+
+  connection mode                               native
+  host                                          tduat.corp.example
+  logon mechanism                               LDAP
+  transaction mode ANSI/TERA (blank = serve…    ANSI
+  user                                          svc_bi
+  password (stored in keyring only): ••••••▏
+
+  type   enter go on   ctrl-u clear   esc back
 ```
+
+```
+  TNP › Data sources › Teradata › Add a connection › uat
+
+  ✓ From the URL: host tduat.corp.example, logmech LDAP, tmode ANSI
+  ✓ Saved teradata:uat to the machine config (~/.agentdata/config.json).
+  ✓ teradata:uat  answered in 0.38s
+  ✓ env: uat written to C:/Users/me/PycharmProjects/sales-bi/AGENTS.md
+
+  Each step above is a plain command: run it yourself any time.
+    ad-setup --non-interactive --only sources --set sources.teradata.uat.mode=native --set
+      sources.teradata.uat.host=tduat.corp.example --set sources.teradata.uat.logmech=LDAP --set
+      sources.teradata.uat.tmode=ANSI --set sources.teradata.uat.user=svc_bi
+    ad-td --env uat "SELECT 1"
+```
+
+The repeat command leaves the password out: `--set` never carries one.
 
 ### Teradata
 
@@ -222,11 +263,16 @@ models and reports, in different workspaces. That's why Power BI setup is split 
 `ad-setup --repo <name>`). This writes only that repo's AGENTS.md:
 
 1. Does this repo change Power BI at all? Most answer no, and nothing is written.
-2. Which workspaces? Answer with numbers from the list or with names. When you're signed in, the list is read
-   live from Power BI.
-3. For each workspace: which semantic models, and which reports. Picking several of each is normal.
+2. Which workspaces? Tick them in a checkbox list (Space ticks, Enter goes on). When you're signed in, the list is
+   read live from Power BI. For a workspace that isn't listed, choose *Another, not listed…* and type its name.
+3. For each workspace: tick its semantic models, then its reports. Picking several of each is normal.
 4. When you're signed in, tnp looks up the ids: the workspace id, each model's dataset id, and each report's id.
    A report's model comes from the report itself.
+
+A repo with no AGENTS.md yet is offered *Set the repo up* first, which creates it from the project stub.
+
+From a script, `ad-setup --repo <name>` asks the same questions with numbers or names, comma-separated
+(`--set "repo.pbi.workspaces=Finance BI, Ops"`).
 
 Each pick becomes one row of a table in the repo's AGENTS.md:
 
@@ -254,17 +300,71 @@ host, whether writes are on, and which one is the default. *Open toil* hands the
 add a connection, sign in again or turn writes on. toil stores the token itself; tnp never copies a token or a
 JSON file. A write needs writes turned on for that connection in toil.
 
+## Running any ad-* command
+
+*Commands* lists every `ad-*` command and subcommand, about 250 in all. The list is read from the commands
+themselves, so a new flag or subcommand appears here the day it ships.
+
+- **Find a command** searches names and descriptions. `pr` finds `ad-git pr` first; `refresh` finds `ad-pbi
+  refresh`, `ad-pbip model refresh` and `ad-fleet refresh`.
+- **A command's page** shows what it does, its usage, its arguments and its flags, with the required ones marked.
+- **Run it** asks for each argument and each required flag in a field (or a pick list, when there's a fixed
+  set of values). The remaining flags go in one line. The command line appears first, starting with `$ ad-…`,
+  and then the command runs in your own terminal, so its own dry run and approval prompt work exactly as
+  they do in a shell.
+
+```
+  TNP › Commands › ad-pbi › refresh
+
+  refresh model on service and poll status
+
+  $ ad-pbi refresh [-h] --workspace WORKSPACE --model MODEL [--scope SCOPE] [--wait WAIT] [--history]
+
+  Flags
+    --workspace, -w <workspace>  workspace name or ID                                       required
+    --model, -m <model>          model name                                                 required
+    --scope <scope>              refresh scope: full | table:<T> | partition:<T>/<P>
+    --wait <wait>                wait timeout in seconds (default: 1800; 0 to skip waiting)
+
+  ▸ 1  Run it   Asks for its arguments, then flags
+
+  enter run it   esc back   q quit
+```
+
+## The fleet desk
+
+*Fleet desk* says whether the desk is running. *Open the desk* runs `ad-fleet open`, which opens the desk in
+your browser and starts it first if needed. *Quickstart this folder* runs `ad-fleet quickstart` on the folder
+that holds your repos. *Every fleet command* opens `ad-fleet` in Commands.
+
+## Health check
+
+*Health check* starts with this machine:
+
+- agentdata's version and commit;
+- which Python runs it;
+- the config file, and whether it exists yet;
+- the keyring backend;
+- toil's version and path;
+- the scope.
+
+Then come every check `ad-doctor` runs, problems first, each with its fix. When something is wrong, *Repair*
+runs `ad-setup --patch`, which asks again only the settings behind those rows.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `tnp` | Opens this menu. |
 | `tnp --repo <name>` | Opens the menu for one repo in this folder. |
+| `python -m agentdata.tnp` | The same as `tnp`, when the console script isn't on PATH. |
 | `ad-setup` | Runs the full guided setup, top to bottom. |
 | `ad-setup --only sources` | Sets up data source connections only. |
 | `ad-setup --repo <name>` | Sets up one repo's AGENTS.md: its environments and Power BI targets. |
 | `ad-setup --patch` | Asks again only about what ad-doctor says is wrong. |
 | `ad-doctor` | Runs the offline health check; add `--online` to connect too. |
 | `toil` | Sets up Jira, Confluence, Bitbucket and GitHub connections. |
+
+Tab completion covers `tnp` as well as the `ad-*` commands (`ad-setup --print-completion bash --install`).
 
 `tnp --print` prints the home screen once and exits, which is handy in a bug report.
