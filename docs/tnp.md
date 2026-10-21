@@ -28,7 +28,7 @@ marked `↑ N more` and `↓ N more`. File paths are never cut; they wrap.
 
   this-next-please
 
-  agentdata 0.22.0 · 1 to fix · 1 warning · 1 data connection · toil 4 connections · last tested 2026-10-21
+  agentdata 0.23.0 · 1 to fix · 1 warning · 1 data connection · toil 4 connections · last tested 2026-10-21
 
   Scope      repo sales-bi
   Repo       C:/Users/me/PycharmProjects/sales-bi
