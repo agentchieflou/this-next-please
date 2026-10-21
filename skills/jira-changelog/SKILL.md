@@ -1,6 +1,6 @@
 ---
 name: jira-changelog
-description: "Use for field history, sprint reports, committed vs completed points, \"when did X change\", or anything current Jira values cannot answer. Uses ad-jira, which extends pncli's Jira commands over REST. For current-state lists use pncli jira search (saved to .agent/out/, read with ad-view) instead."
+description: "Use for field history, sprint reports, committed vs completed points, \"when did X change\", or anything current Jira values cannot answer. Uses ad-jira, which extends toil's Jira commands over REST (through toil's connection). For current-state lists use toil jira issue search (saved to .agent/out/, read with ad-view) instead."
 ---
 # Jira changelog and sprint replay
 

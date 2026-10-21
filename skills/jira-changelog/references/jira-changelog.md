@@ -1,10 +1,20 @@
 # Jira changelog — what ad-jira does and why
 
 ## Where the token comes from
-`ad-jira` extends pncli's Jira commands and never runs the pncli binary. At call time it reads env `JIRA_URL` /
-`JIRA_EMAIL` / `JIRA_TOKEN` first, then pncli's own config (`~/.pncli/config.json`) by the key names chosen in
-`ad-setup --only pncli` -- the default -- and last the keyring entry `ad-setup --only jira` stored (`jira:default`,
-beside `jira.base_url` / `jira.email` in config), the fallback on a machine without pncli. It sends the token itself. Nothing is ever printed or stored elsewhere; `ad-jira whoami` shows only `token_source`.
+`ad-jira` extends toil's Jira commands. At call time it uses env `JIRA_URL` / `JIRA_EMAIL` / `JIRA_TOKEN` first, then
+toil's Jira connection -- the default, set up by a person in toil (never by an agent) and named by
+`ad-doctor --only toil` -- and last the keyring entry `ad-setup --only jira` stored (`jira:default`, beside
+`jira.base_url` / `jira.email` in config), the fallback on a machine without toil. Through toil, every REST call goes
+as `toil jira api <METHOD> <path>` and the token never leaves toil's credential store; only the env and keyring paths
+send a token from this process. Nothing is ever printed or stored elsewhere; `ad-jira whoami` shows only
+`token_source` (`toil:<connection>`, `env` or `keyring`).
+
+toil's `jira issue history <KEY>` returns one issue's changelog, but warns `JIRA_CHANGELOG_TRUNCATED` when Data
+Center sent fewer entries than it has: a successful read is not a complete history. `ad-jira changelog` keeps its
+own paging, budget, resume and cache, and is the one to use for history across many issues.
+
+**Flavor through toil is the connection's area:** `jira` is Data Center (REST v2), `jira-cloud` is Cloud (REST v3);
+nothing is probed. The detection below applies to a direct token.
 
 ## Flavor (detected once, cached in config; `ad-jira whoami --redetect` to redo)
 | | Cloud (`*.atlassian.net`) | Data Center / Server |

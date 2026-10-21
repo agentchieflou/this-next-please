@@ -8,6 +8,6 @@
   "confluence_url": null,
   "open_questions": [],
   "artifacts": [],
-  "tools": {"pncli_verified": null, "doctor_verified": null},
+  "tools": {"toil_verified": null, "doctor_verified": null},
   "last_updated": null
 }

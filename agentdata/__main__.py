@@ -25,7 +25,7 @@ COMMANDS = {
     "ora": ("agentdata.cli", "main_ora", "Oracle query"),
     "hive": ("agentdata.cli", "main_hive", "Hive query"),
     "impala": ("agentdata.cli", "main_impala", "Impala query"),
-    "view": ("agentdata.cli", "main_view", "render a TSV, a CSV or a saved pncli JSON answer as TOON"),
+    "view": ("agentdata.cli", "main_view", "render a TSV, a CSV or a saved toil envelope as TOON"),
     "diff": ("agentdata.cli", "main_diff", "compare two TSVs"),
     "help": ("agentdata.cli_help", "main", "command catalog and per-command help"),
     "pbiviz": ("agentdata.cli_pbiviz", "main", "Power BI custom visual development loop"),

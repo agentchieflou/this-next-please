@@ -75,10 +75,10 @@ DEFAULT_ALLOW = [
     "shell(python -m agentdata doctor)",
     "shell(ad-help)",
     "shell(ad-jira)",
-    # pncli itself, directly (docs/pncli-parts.md). The prefix allows every verb, which is why the gate is
-    # not here: the agent's PATH starts with the fleet's pncli shim (`fleet/pncli_gate.py`, written by
+    # toil itself, directly (docs/toil-parts.md). The prefix allows every command, which is why the gate is
+    # not here: the agent's PATH starts with the fleet's toil shim (`fleet/toil_gate.py`, written by
     # `child_env`), which runs a read and refuses a write, naming the gated extension that does it.
-    "shell(pncli)",
+    "shell(toil)",
     "shell(ad-sql-check)",
     "shell(ad-graph)",
     "shell(ad-test)",
@@ -110,8 +110,8 @@ DEFAULT_ALLOW = [
     # unconfigured remote itself, and waits on the approval gate. `shell(git push)` stays denied
     # below -- a prefix allow on it would also allow every dangerous continuation.
     "shell(ad-git push)",
-    # The PR (#506): `ad-git pr` refuses a protected branch and a detached head like the push, runs pncli's
-    # pinned PR verb, and waits on the approval gate (`bitbucket-pr`).
+    # The PR (#506): `ad-git pr` refuses a protected branch and a detached head like the push, runs toil's
+    # PR verb, and waits on the approval gate (`bitbucket-pr`).
     "shell(ad-git pr)",
     # The cleanup (operator request, 2026-10): commit, branch or stash a dirty tree, never discard;
     # `--apply` waits on the approval gate like the push, so an agent proposes and the operator decides.
@@ -145,9 +145,9 @@ DEFAULT_DENY = [
     # Anything that could reach Jira, Confluence or Bitbucket without passing the approval gate
     # (#95). None of these is on the allow-list, so this is the second line and not the boundary --
     # but the boundary here is a model's own classifier, which the spike measured letting a .NET
-    # file-write through after refusing three plainer spellings of the same act. pncli is not here:
-    # it is allowed, and gated by the fleet's shim (`fleet/pncli_gate.py`, first on the agent's PATH),
-    # because a deny is a prefix and a list of write verbs would miss every write nobody listed.
+    # file-write through after refusing three plainer spellings of the same act. toil is not here:
+    # it is allowed, and gated by the fleet's shim (`fleet/toil_gate.py`, first on the agent's PATH),
+    # because a deny is a prefix and `--allow-write` can sit anywhere on the line.
     "shell(curl)",
     "shell(wget)",
     "shell(Invoke-RestMethod)",
@@ -182,7 +182,7 @@ FORBIDDEN_FLAGS = ("--allow-all", "--allow-all-tools", "--allow-all-paths", "--a
 
 # `{summary}` is filled from the board when the fleet knows it and left empty otherwise, so the
 # template works either way. Deliberately nothing more than the key and one line: `jira-triage` does
-# the reading through `pncli jira get-issue`, as its SKILL.md says, and a fleet that pasted acceptance criteria
+# the reading through `toil jira issue get`, as its SKILL.md says, and a fleet that pasted acceptance criteria
 # into the prompt would be a second, staler copy of the ticket for the agent to trust.
 #
 # `{handoff}` is the same shape: a sentence naming `.agent/in/<KEY>/` and what is in it when the
@@ -714,18 +714,21 @@ def top_up(env: dict, fresh: dict) -> list[str]:
 SHIM_DIR = "bin"
 
 
+RETIRED_SHIMS = ("pncli", "pncli.cmd")
+
+
 def shim_dir(fleet_dir_path: str) -> str:
     return os.path.join(fleet_dir_path, SHIM_DIR)
 
 
 def shim_files(python: str) -> dict[str, tuple[str, str]]:
-    """{file name: (text, newline)} for the fleet's pncli shim: a POSIX script and a Windows `.cmd`."""
-    return {"pncli": (f'#!/bin/sh\nexec "{python}" -m agentdata.fleet.pncli_gate "$@"\n', "\n"),
-            "pncli.cmd": (f'@"{python}" -m agentdata.fleet.pncli_gate %*\r\n', "")}
+    """{file name: (text, newline)} for the fleet's toil shim: a POSIX script and a Windows `.cmd`."""
+    return {"toil": (f'#!/bin/sh\nexec "{python}" -m agentdata.fleet.toil_gate "$@"\n', "\n"),
+            "toil.cmd": (f'@"{python}" -m agentdata.fleet.toil_gate %*\r\n', "")}
 
 
 def write_shim(fleet_dir_path: str, python: str | None = None) -> str:
-    """Write the pncli shim into `<fleet_dir>/bin/` (only what differs) and return the directory."""
+    """Write the toil shim into `<fleet_dir>/bin/` (only what differs) and return the directory."""
     import sys
 
     where = shim_dir(fleet_dir_path)
@@ -740,8 +743,15 @@ def write_shim(fleet_dir_path: str, python: str | None = None) -> str:
         if not same:
             with open(path, "w", encoding="utf-8", newline=newline) as f:
                 f.write(text)
-        if name == "pncli" and os.name != "nt":
+        if name == "toil" and os.name != "nt":
             os.chmod(path, 0o755)
+    # The pncli shim this directory held before 0.22.0 runs a module that no longer exists; a stale one first on
+    # PATH would answer every `pncli` with a traceback instead of "not found".
+    for stale in RETIRED_SHIMS:
+        try:
+            os.remove(os.path.join(where, stale))
+        except OSError:
+            pass
     return where
 
 
@@ -752,11 +762,11 @@ def child_env(repo_name: str, fleet_dir_path: str, *, login=None) -> dict:
     running under a supervisor at all -- #95 keys its approval gate on them. They are not a grant:
     `ad-fleet` itself is on the deny-list, so an agent cannot use its own marker to drive the fleet.
 
-    PATH starts with the fleet's pncli shim (`write_shim`, `fleet/pncli_gate.py`): pncli is allowed, and that
+    PATH starts with the fleet's toil shim (`write_shim`, `fleet/toil_gate.py`): toil is allowed, and that
     is where its writes are refused.
 
     The desk's own environment, topped up with what a terminal opened now would have (`login_env`,
-    `top_up`). The desk usually runs for days; pncli, the Azure CLI or a proxy setting installed
+    `top_up`). The desk usually runs for days; toil, the Azure CLI or a proxy setting installed
     since were in every new terminal and missing from every agent, and the operator's way round it
     was to close the fleet and resume the session in a local `copilot` (report, 2026-10-02).
     """
@@ -771,11 +781,11 @@ def child_env(repo_name: str, fleet_dir_path: str, *, login=None) -> dict:
         debug_exc("fleet login environment")
     env[AGENT_ENV] = repo_name
     env[FLEET_DIR_ENV] = textio.norm_path(fleet_dir_path)
-    # pncli is the fleet's gate first (`fleet/pncli_gate.py`): its shim leads PATH, and names its own directory
-    # so every launch from this package -- the gate's pass-through, `ad-git pr`, `ad-confluence publish` --
-    # resolves the real pncli without it.
+    # toil is the fleet's gate first (`fleet/toil_gate.py`): its shim leads PATH, and names its own directory
+    # so every launch from this package -- the gate's pass-through, `ad-git pr`, `ad-confluence publish`,
+    # `ad-jira` through `toil jira api` -- resolves the real toil without it.
     try:
-        from ..connectors.pncli import SHIM_ENV
+        from ..connectors.toil import SHIM_ENV
 
         if not os.path.isdir(fleet_dir_path):
             raise FileNotFoundError(fleet_dir_path)       # never create a fleet directory just for the shim
@@ -785,11 +795,11 @@ def child_env(repo_name: str, fleet_dir_path: str, *, login=None) -> dict:
         env[key] = os.pathsep.join([shims, *rest])
         env[SHIM_ENV] = shims
     except OSError:
-        # A launch never stops for the shim: the agent's pncli is then the real one, and every extension's
-        # own approval gate still holds.
+        # A launch never stops for the shim: the agent's toil is then the real one, toil still refuses a write
+        # without --allow-write, and every extension's own approval gate still holds.
         from ..log import debug_exc
 
-        debug_exc("fleet pncli shim")
+        debug_exc("fleet toil shim")
     env["AGENTDATA_COLOR"] = "never"      # the events are read by a machine
     env["PYTHONUTF8"] = "1"
     env["NO_COLOR"] = "1"

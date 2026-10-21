@@ -2,20 +2,27 @@ import builtins, json, os, sys
 import pytest
 from agentdata import config as C, textio
 from agentdata.setup import wizard as W
-from agentdata.setup.steps import pncli_import, powerbi, project, sources
+from agentdata.setup.steps import powerbi, project, sources, toil as toil_step
 
-PNCLI = {"jira": {"url": "https://acme.atlassian.net", "email": "me@acme.com", "token": "tok_1234567890abcdef"},
-         "bitbucket": {"token": "bb_secret_value_123"}}
+# What `toil connections list` answers on a set-up machine: a name, an area, a host and whether writes are on --
+# never a secret, which is why there is none here to leak.
+CONNS = [{"name": "corp-jira", "area": "jira", "isDefault": True, "host": "jira.acme.test", "writes": False,
+          "definedIn": "file"},
+         {"name": "corp-wiki", "area": "confluence", "isDefault": True, "host": "wiki.acme.test", "writes": False,
+          "definedIn": "file"},
+         {"name": "corp-bb", "area": "bitbucket", "isDefault": True, "host": "bb.acme.test", "writes": True,
+          "definedIn": "file"}]
 PKG_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__import__("agentdata").__file__)))
 
 
 class FakeDet(W.Detectors):
     """No machine or network access. Tunable per test."""
 
-    def __init__(self, pncli=PNCLI, tools=None, modules=(), dsns=None, whoami_error=None, smoke_error=None,
-                 pncli_bin="C:/Users/me/AppData/Roaming/npm/pncli.cmd", pncli_rc=0, set_password_error=None):
-        self.pncli, self.tools, self.modules = pncli, tools or {}, set(modules)
-        self.pncli_bin, self.pncli_rc = pncli_bin, pncli_rc
+    def __init__(self, conns=CONNS, tools=None, modules=(), dsns=None, whoami_error=None, smoke_error=None,
+                 toil_bin="C:/Users/me/AppData/Roaming/npm/toil.cmd", toil_error=None, set_password_error=None):
+        self.conns, self.tools, self.modules = conns, tools or {}, set(modules)
+        self.toil_bin, self.toil_error = toil_bin, toil_error
+        self.tested: list = []
         self.dsns = dsns or {}
         self.whoami_error, self.smoke_error = whoami_error, smoke_error
         self.set_password_error = set_password_error   # simulates a broken keyring backend (see secrets._guard)
@@ -31,13 +38,35 @@ class FakeDet(W.Detectors):
         return self.tools.get(name)
 
     def launcher(self, name, exe=None):
-        """pncli is an npm command shim on Windows (pncli.cmd -> node cli.js); never an .exe."""
-        p = exe or self.pncli_bin if name == "pncli" else self.tools.get(name)
+        p = exe or self.tools.get(name)
         if not p:
-            return {"found": False, "name": name, "kind": "", "path": "", "tried": ["pncli on PATH + PATHEXT", "npm global prefix"]}
-        return {"found": True, "name": name, "path": p, "kind": "npm shim", "tried": [], "rc": self.pncli_rc,
-                "version": "pncli/1.4.0", "node": "C:/Program Files/nodejs/node.exe",
-                "script": "C:/Users/me/AppData/Roaming/npm/node_modules/@kolatts/pncli/bin/cli.js"}
+            return {"found": False, "name": name, "kind": "", "path": "", "tried": [f"{name} on PATH + PATHEXT"]}
+        return {"found": True, "name": name, "path": p, "kind": "executable", "tried": [], "rc": 0, "version": ""}
+
+    def toil(self, cfg):
+        """toil is an npm command shim on Windows (toil.cmd -> node dist/toil.js); never an .exe. TOIL_EXE or the
+        `toil.exe` key wins, exactly as connectors/toil.py resolves it, and a pinned path is taken to start."""
+        from agentdata.connectors import toil as T
+        pinned = T.exe(cfg)
+        p = pinned or self.toil_bin
+        self.toil_seen = pinned
+        if not p:
+            return {"where": {"found": False, "name": "toil", "kind": "", "path": "", "tried": ["toil on PATH"]},
+                    "connections": [], "error": "toil is not installed", "fix": ""}
+        where = {"found": True, "name": "toil", "path": p, "kind": "npm shim", "tried": [],
+                 "node": "C:/Program Files/nodejs/node.exe", "script": "C:/npm/node_modules/@imagile-dev/toil/dist/toil.js"}
+        if self.toil_error and not pinned:
+            where.update(rc=1, version="", error="toil needs Node 24.14 or later; this is 22.22.0.",
+                         code=self.toil_error, fix="Install Node 24.14 or later, then run toil again.")
+            return {"where": where, "connections": [], "error": where["error"], "fix": where["fix"]}
+        where.update(rc=0, version="0.1.0-alpha.5", node_version="24.14.0", contract=1)
+        return {"where": where, "connections": [dict(c) for c in self.conns or []], "error": "", "fix": ""}
+
+    def toil_test(self, name, cfg):
+        self.tested.append(name)
+        if self.whoami_error:
+            return {"ok": False, "error": self.whoami_error, "fix": f"`toil connections login {name}`"}
+        return {"ok": True}
 
     def exists(self, p):
         """Only what a test registered, plus data packaged inside agentdata/ (that ships with the code and is not
@@ -45,18 +74,12 @@ class FakeDet(W.Detectors):
         CI runner really does have `C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd` — one of the az
         candidates — so falling through made a tool "found" there and missing everywhere else."""
         p = C.expand(p or "")
-        if p.endswith("config.json"):
-            return self.pncli is not None
         if os.path.normcase(os.path.abspath(p)).startswith(PKG_DIR):
             return os.path.exists(p)
         return p in self.tools.values() or p in self.files
 
     def read_json(self, p):
-        if self.pncli is None:
-            raise FileNotFoundError(p)
-        if self.pncli == "bad":
-            raise json.JSONDecodeError("bad", "x", 0)
-        return self.pncli
+        raise FileNotFoundError(p)
 
     def read_text(self, p):
         return self.files.get(C.expand(p)) or open(C.expand(p), encoding="utf-8").read()
@@ -115,7 +138,7 @@ class FakeDet(W.Detectors):
         C.put(cfg, "jira.flavor", "cloud"); C.put(cfg, "jira.auth", "basic"); C.put(cfg, "jira.api", "3")
         C.stamp(cfg, "jira")
         return {"base_url": "https://acme.atlassian.net", "flavor": "cloud", "auth": "basic", "api": "3",
-                "token_source": "pncli:jira.token", "display_name": "Me", "account": "acc"}
+                "token_source": "toil:corp-jira", "display_name": "Me", "account": "acc"}
 
     def getuser(self):
         return "luna"
@@ -130,11 +153,6 @@ def cfg_path(tmp_path, monkeypatch):
     monkeypatch.setenv(C.CONFIG_ENV, str(p))
     monkeypatch.chdir(tmp_path)
     return p
-
-
-def test_propose_keys_and_masking():
-    prop = pncli_import.propose(C.flatten(PNCLI))
-    assert prop == {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}
 
 
 def test_setup_non_interactive_writes_config_without_secrets(cfg_path, capsys):
@@ -152,9 +170,8 @@ def test_setup_non_interactive_writes_config_without_secrets(cfg_path, capsys):
     out = capsys.readouterr()
     cfg = json.loads(cfg_path.read_text())
     assert rc == 0, out.out
-    assert cfg["pncli"]["keys"] == {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}
-    assert cfg["pncli"]["exe"].endswith("pncli.cmd")   # the shim we proved starts is pinned; PATH changes cannot break it
-    assert cfg["jira"]["base_url"] == "https://acme.atlassian.net" and cfg["jira"]["flavor"] == "cloud"
+    assert cfg["toil"]["exe"].endswith("toil.cmd")   # the shim we proved starts is pinned; PATH changes cannot break it
+    assert "pncli" not in cfg and cfg["jira"]["flavor"] == "cloud"
     td = cfg["sources"]["teradata"]["envs"]
     assert td["prod"]["host"] == "td.acme" and td["prod"]["capabilities"]["tmode"] == "ANSI"
     assert td["uat"]["mode"] == "odbc" and td["uat"]["dsn"] == "TD_PROD" and td["uat"]["user"] == "luna"
@@ -163,7 +180,7 @@ def test_setup_non_interactive_writes_config_without_secrets(cfg_path, capsys):
     assert cfg["powerbi"]["tools"]["dscmd_caps"]["file_flag"] is True
     assert set(cfg["verified"]) >= {"jira", "teradata:prod", "teradata:uat", "powerbi:xmla:Sales Workspace"}
     text = json.dumps(cfg) + out.out + out.err
-    assert "tok_1234567890abcdef" not in text and "bb_secret_value_123" not in text and "pw" not in json.dumps(cfg)
+    assert "pw" not in json.dumps(cfg)
     assert "meta:" in out.out and "ok: true" in out.out
     # idempotent re-run
     assert W.run_setup(["--non-interactive", "--answers", str(cfg_path.parent / "answers.json")], det) == 0
@@ -175,38 +192,44 @@ def test_answers_file_rejects_passwords(cfg_path):
         W.AnswerPrompter({"sources.teradata.prod.password": "x"})
 
 
-def test_doctor_fails_without_pncli_config(cfg_path, capsys):
-    """pncli is required: installed but never initialised is broken, and not installed at all is broken too."""
-    rc = W.run_doctor(["--only", "pncli"], FakeDet(pncli=None))
+def test_doctor_fails_without_toil_or_its_connections(cfg_path, capsys):
+    """toil is required: not installed is broken, installed on a Node it cannot run on is broken, and installed with
+    no Jira connection (and no other Jira token) is broken too."""
+    assert W.run_doctor(["--only", "toil"], FakeDet(toil_bin=None)) == 1
     out = capsys.readouterr().out
-    assert rc == 1 and "ok: false" in out and "pncli config init" in out
-    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli=None, pncli_bin=None)) == 1
+    assert "toil launcher,fail," in out and "npm install -g @imagile-dev/toil" in out and "Node 24.14" in out
+    assert W.run_doctor(["--only", "toil"], FakeDet(toil_error="UNSUPPORTED_NODE")) == 1
     out = capsys.readouterr().out
-    assert "pncli launcher,fail," in out and "pncli config,fail," in out and ",skip," not in out
+    assert "toil launcher,fail," in out and "this is 22.22.0" in out and "Install Node 24.14" in out
+    assert W.run_doctor(["--only", "toil"], FakeDet(conns=[])) == 1
+    out = capsys.readouterr().out
+    assert "toil,jira connection,fail," in out and "toil connections add <name> --area jira" in out
+    assert "toil,confluence connection,warn," in out and "toil,bitbucket connection,warn," in out
 
 
-def test_doctor_fails_without_pncli_and_names_ad_setup_patch_for_its_launcher(cfg_path, capsys):
-    """The 0.19.0 contract inverted: the jira step's keyring token is a complete Jira install, but pncli is used
-    directly for Jira, Confluence and Bitbucket, so a machine without it fails the doctor -- and the launcher row
-    says how to install it and that `ad-setup --patch` pins its path. The jira step is the fallback."""
+def test_the_jira_keyring_fallback_stands_in_for_toils_jira_connection(cfg_path, capsys):
+    """A machine whose Jira token is in JIRA_TOKEN or the jira step's keyring entry needs no Jira connection in
+    toil: the row is a skip, and the jira step owns the token rows. Without either, the jira step's fail names
+    toil's connection first."""
     C.save({"jira": {"base_url": "https://acme.atlassian.net", "email": "me@acme.com"}, "verified": {"jira": "2026-10-08"}})
-    det = FakeDet(pncli=None, pncli_bin=None)
+    det = FakeDet(conns=[c for c in CONNS if c["area"] != "jira"])
     det.passwords[("jira", "default", "api-token")] = "tok"
-    assert W.run_doctor(["--only", "pncli,jira"], det) == 1
+    assert W.run_doctor(["--only", "toil,jira"], det) == 0
     out = capsys.readouterr().out
-    assert "pncli,pncli launcher,fail," in out and "npm install -g @kolatts/pncli" in out and "ad-setup --patch" in out
+    assert "toil,jira connection,skip," in out
     assert "jira,jira url,ok," in out and "https://acme.atlassian.net (config)" in out
     assert "jira,jira token,ok," in out and "keyring jira:default" in out and "jira,jira auth,ok,verified 2026-10-08" in out
-    assert out.index("pncli,pncli launcher") < out.index("jira,jira url"), "pncli first, the jira fallback after"
-    det = FakeDet(pncli=None, pncli_bin=None)
+    keys = [st.key for st in W.registry()]
+    assert keys.index("toil") < keys.index("jira"), "toil first, the jira fallback after"
+    det = FakeDet(conns=[])
     det.envs["AGENTDATA_JIRA_TOKEN"] = "tok"                     # the alias is a token too
     assert W.run_doctor(["--only", "jira"], det) == 0
     assert "jira,jira token,ok,JIRA_TOKEN" in capsys.readouterr().out
     C.save({})
-    rc = W.run_doctor(["--only", "pncli,jira"], FakeDet(pncli=None, pncli_bin=None))
+    rc = W.run_doctor(["--only", "toil,jira"], FakeDet(conns=[]))
     out = capsys.readouterr().out
     assert rc == 1 and "jira,jira token,fail" in out and "jira,jira url,fail" in out
-    assert "ad-setup --only pncli" in out and "JIRA_TOKEN" in out and "ad-setup --only jira" in out
+    assert "toil connections add <name> --area jira" in out and "JIRA_TOKEN" in out and "ad-setup --only jira" in out
     assert "jira,jira auth,skip" in out
 
 
@@ -216,7 +239,7 @@ def test_jira_step_stores_the_token_in_keyring_and_patch_reasks_only_it(cfg_path
     monkeypatch.setattr(W, "has_tty", lambda: True)
     answers = iter(["acme.atlassian.net", "me@acme.com", "tok_secret_1234567890"])
     monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(answers))
-    det = FakeDet(pncli=None, pncli_bin=None)
+    det = FakeDet(conns=[])
     assert W.run_setup(["--only", "jira", "--offline"], det) == 0
     cfg = json.loads(cfg_path.read_text())
     assert cfg["jira"] == {"base_url": "https://acme.atlassian.net", "email": "me@acme.com"}
@@ -237,32 +260,62 @@ def test_jira_step_stores_the_token_in_keyring_and_patch_reasks_only_it(cfg_path
 
 
 def test_doctor_ok_and_quiet(cfg_path, capsys):
-    """pncli supplies the token: the jira step stores nothing, its url/email/token rows say so, and it keeps
-    the `jira auth` row."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
-            "verified": {"jira": "2026-09-02"}})
-    det = FakeDet(tools={"pncli": "/usr/bin/pncli"})
-    assert W.run_doctor(["--only", "pncli,jira"], det) == 0
+    """toil's connection answers: the jira step stores nothing, its url and token rows say so as `info`, and it keeps
+    the `jira auth` row. A connection with writes on is said, as `info`: the gates still ask first."""
+    C.save({"verified": {"jira": "2026-09-02"}})
+    det = FakeDet()
+    assert W.run_doctor(["--only", "toil,jira"], det) == 0
     out = capsys.readouterr().out
-    assert "ok: true" in out and "jira,jira auth,ok" in out and "pncli,jira_token,ok" in out
-    for row in ("jira url", "jira email", "jira token"):
-        assert f"jira,{row},info,\"from pncli's config: " in out, row
-    assert "key jira.token" in out
-    assert W.run_doctor(["--only", "pncli,jira", "--quiet"], det) == 0
+    assert "ok: true" in out and "jira,jira auth,ok" in out
+    assert "toil,toil launcher,ok," in out and "toil.cmd (npm shim) · 0.1.0-alpha.5 · node 24.14.0" in out
+    assert "toil,jira connection,ok,\"corp-jira (jira, jira.acme.test, writes off, file)\"" in out
+    assert "toil,bitbucket writes,info," in out and "MCP server" in out
+    for row in ("jira url", "jira token"):
+        assert f"jira,{row},info,\"toil's connection corp-jira" in out or f"jira,{row},info," in out, row
+    assert "credential store (corp-jira)" in out
+    assert W.run_doctor(["--only", "toil,jira", "--quiet"], det) == 0
     quiet = capsys.readouterr().out
-    # The rows that only say "from pncli's config" are `info`, so a healthy machine's quiet check is empty.
+    # The rows that only say where toil answers are `info`, so a healthy machine's quiet check is empty.
     assert "checks[0]" in quiet and ",skip," not in quiet and ",fail," not in quiet and ",warn," not in quiet
-    assert W.run_doctor(["--only", "pncli", "--quiet"], det) == 0
-    assert "checks[0]" in capsys.readouterr().out
 
 
-def test_doctor_online_verifies_and_reports_failure(cfg_path, capsys):
-    C.save({"pncli": {"keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}}})
-    rc = W.run_doctor(["--only", "jira", "--online"], FakeDet(whoami_error="401 nope"))
+def test_doctor_online_tests_toils_connections_and_jira(cfg_path, capsys):
+    det = FakeDet(whoami_error="401 nope")
+    rc = W.run_doctor(["--only", "toil,jira", "--online"], det)
     out = capsys.readouterr().out
-    assert rc == 1 and "401 nope" in out and "jira,jira auth,fail" in out
-    assert W.run_doctor(["--only", "jira", "--online"], FakeDet()) == 0
+    assert rc == 1 and "401 nope" in out and "jira,jira auth,fail" in out and "toil,jira connection,fail" in out
+    assert "toil connections login corp-jira" in out
+    det = FakeDet()
+    assert W.run_doctor(["--only", "toil,jira", "--online"], det) == 0
+    assert det.tested == ["corp-jira", "corp-wiki", "corp-bb"]
     assert json.loads(cfg_path.read_text())["verified"]["jira"]
+
+
+def test_several_connections_and_a_pin(cfg_path, capsys):
+    """Two Jira connections and no default is one question, answered once; a pin that toil does not list fails."""
+    two = CONNS + [{"name": "lab-jira", "area": "jira", "isDefault": False, "host": "lab.acme.test", "writes": False}]
+    two[0] = dict(two[0], isDefault=False)
+    assert W.run_doctor(["--only", "toil"], FakeDet(conns=two)) == 1
+    assert "several jira connections and none is the default: corp-jira, lab-jira" in capsys.readouterr().out
+    assert W.run_setup(["--only", "toil", "--non-interactive", "--offline", "--set", "toil.connections.jira=lab-jira"],
+                       FakeDet(conns=two)) == 0
+    assert json.loads(cfg_path.read_text())["toil"]["connections"] == {"jira": "lab-jira"}
+    capsys.readouterr()
+    C.save({"toil": {"connections": {"jira": "gone"}}})
+    assert W.run_doctor(["--only", "toil"], FakeDet()) == 1
+    assert "toil.connections.jira = gone, which `toil connections list` does not name" in capsys.readouterr().out
+
+
+def test_the_retired_pncli_section_is_reported_and_removed(cfg_path, capsys):
+    """A config from before 0.22.0 keeps saving (its `pncli.keys` are key names, not secrets), the doctor says the
+    section is retired, and the toil step removes it."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_token": "jira.token"},
+                      "verbs": {"page_create": "confluence create-page --body {body}"}}})
+    assert W.run_doctor(["--only", "toil"], FakeDet()) == 0
+    assert "toil,retired pncli settings,warn," in capsys.readouterr().out
+    assert W.run_setup(["--only", "pncli", "--non-interactive", "--offline"], FakeDet()) == 0, \
+        "`--only pncli` still names the step that replaced it"
+    assert "pncli" not in json.loads(cfg_path.read_text())
 
 
 def test_sources_doctor_flags_missing_dsn_and_driver(cfg_path, capsys):
@@ -335,20 +388,16 @@ def test_answers_file_with_bom_and_set_flags(cfg_path, tmp_path, capsys):
     assert W.load_answers(str(ans), ["project.jira_project=OVR"]) == {"project.jira_project": "OVR"}
 
 
-def test_doctor_fails_when_pncli_launcher_is_missing_or_broken(cfg_path, capsys):
-    """2026-09-02 laptop friction: a pncli call died with [WinError 2] while setup called pncli 'ok' — there is no pncli.exe."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
-    # not installed: the token still reaches REST through the config file, but pncli is required, so a fail row
-    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_bin=None)) == 1
+def test_doctor_fails_when_the_toil_launcher_is_missing_or_cannot_start(cfg_path, capsys):
+    """2026-09-02 laptop friction, met first with pncli: a call died with [WinError 2] while setup called it 'ok' --
+    there is no .exe. The launcher row proves toil starts by asking `toil version`."""
+    assert W.run_doctor(["--only", "toil"], FakeDet(toil_bin=None)) == 1
     out = capsys.readouterr().out
-    assert "pncli launcher,fail" in out and "npm install -g @kolatts/pncli" in out and "there is no pncli.exe" in out
-    assert "pncli,jira_token,ok" in out
-    # installed but broken is broken too
-    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_rc=9)) == 1
-    out = capsys.readouterr().out
-    assert "exits 9 on --version" in out
-    assert W.run_doctor(["--only", "pncli"], FakeDet()) == 0
-    assert "pncli.cmd (npm shim) · pncli/1.4.0" in capsys.readouterr().out
+    assert "toil launcher,fail" in out and "npm install -g @imagile-dev/toil" in out and "never toil.exe" in out
+    assert W.run_doctor(["--only", "toil"], FakeDet(toil_error="UNSUPPORTED_NODE")) == 1
+    assert "this is 22.22.0" in capsys.readouterr().out
+    assert W.run_doctor(["--only", "toil"], FakeDet()) == 0
+    assert "toil.cmd (npm shim) · 0.1.0-alpha.5" in capsys.readouterr().out
 
 
 def _patch(det, extra=None, cfg=None):
@@ -359,8 +408,7 @@ def _patch(det, extra=None, cfg=None):
 
 def test_patch_reasks_only_the_failing_setting(cfg_path, capsys):
     """One wrong DSN must cost one env's questions, not the whole wizard."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
-            "verified": {"jira": "2026-09-02", "teradata:prod": "2026-09-02"},
+    C.save({"verified": {"jira": "2026-09-02", "teradata:prod": "2026-09-02"},
             "sources": {"teradata": {"envs": {"prod": {"mode": "odbc", "dsn": "TD_PROD", "logmech": "KRB5"},
                                               "uat": {"mode": "odbc", "dsn": "GONE", "logmech": "KRB5"}}}}})
     det = FakeDet(modules={"pyodbc", "teradatasql", "keyring"}, dsns={"TD_PROD": "Teradata"})
@@ -380,41 +428,27 @@ def test_patch_reasks_only_the_failing_setting(cfg_path, capsys):
 
 
 def test_patch_with_nothing_broken_asks_nothing(cfg_path, capsys):
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
-            "verified": {"jira": "2026-09-02"}})
-    assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli"], FakeDet()) == 0
+    C.save({"verified": {"jira": "2026-09-02"}})
+    assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "toil,jira"], FakeDet()) == 0
     out = capsys.readouterr().out
     assert "repaired: 0" in out and "nothing to repair" in out
     assert "--include-warnings" not in out              # no warn rows: do not advertise a flag that finds nothing
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
-    assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli"], FakeDet()) == 0
+    C.save({})
+    assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "toil,jira"], FakeDet()) == 0
     out = capsys.readouterr().out                       # jira never verified is a warn row
     assert "nothing to repair" in out and "--include-warnings covers warn rows" in out
 
 
-def test_the_refusal_hint_pins_a_pncli_verb_template(cfg_path, capsys):
-    """`not_pinned` tells the operator to run exactly this; it must store that one template and no other."""
-    template = "confluence create-page --space {space} --title {title} --body {body}"
-    rc = W.run_setup(["--only", "pncli", "--non-interactive", "--offline",
-                      "--set", f"pncli.verbs.page_create={template}"], FakeDet())
-    assert rc in (0, 1)
-    cfg = json.loads(cfg_path.read_text())
-    assert cfg["pncli"]["verbs"] == {"page_create": template}
-    from agentdata.connectors import pncli as P
-    assert P.verb_template("page_create", cfg) == template and P.verb_template("pr_create", cfg) == ""
-
-
-def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
-    """Laptop case: pncli is not on PATH at all (npm shim, no pncli.exe). --patch asks for the one path."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
-            "verified": {"jira": "2026-09-02"}})
-    shim = tmp_path / "pncli.cmd"
+def test_patch_repairs_a_missing_toil_launcher(cfg_path, capsys, tmp_path):
+    """Laptop case: toil is not on PATH at all (npm shim, no toil.exe). --patch asks for the one path."""
+    C.save({"verified": {"jira": "2026-09-02"}})
+    shim = tmp_path / "toil.cmd"
     shim.write_text("@echo off\n", encoding="utf-8")
-    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli", "--set", f"pncli.exe={shim}"],
-                     FakeDet(pncli_bin=None))
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "toil", "--set", f"toil.exe={shim}"],
+                     FakeDet(toil_bin=None))
     out, _err = capsys.readouterr()
-    assert "pncli/pncli launcher" in out and "not found on PATH" in out
-    assert json.loads(cfg_path.read_text())["pncli"]["exe"] == str(shim).replace("\\", "/")
+    assert "toil/toil launcher" in out and "not found on PATH" in out
+    assert json.loads(cfg_path.read_text())["toil"]["exe"] == str(shim).replace("\\", "/")
     assert rc == 0 and "ok: true" in out and "was_failing: 1" in out
 
 
@@ -453,46 +487,36 @@ def test_launcher_probes_the_pinned_path_not_the_bare_name(tmp_path, monkeypatch
     """A pinned launcher is usually NOT on PATH — probing the bare name reported a working pin as broken."""
     if os.name == "nt":
         pytest.skip("POSIX stand-in for a pinned launcher")
-    exe = tmp_path / "pncli"
-    exe.write_text("#!/bin/sh\necho pncli/1.4.0\n", encoding="utf-8", newline="\n")
+    exe = tmp_path / "dscmd"
+    exe.write_text("#!/bin/sh\necho dscmd/1.4.0\n", encoding="utf-8", newline="\n")
     os.chmod(exe, 0o755)
-    info = W.Detectors().launcher("pncli", str(exe))
-    assert info["found"] and info["rc"] == 0 and info["version"] == "pncli/1.4.0"
-    assert W.Detectors().launcher("pncli", str(tmp_path / "gone"))["found"] is False
+    info = W.Detectors().launcher("dscmd", str(exe))
+    assert info["found"] and info["rc"] == 0 and info["version"] == "dscmd/1.4.0"
+    assert W.Detectors().launcher("dscmd", str(tmp_path / "gone"))["found"] is False
 
 
-def test_pncli_step_honours_PNCLI_EXE(cfg_path, monkeypatch):
-    """The pncli connector honours PNCLI_EXE and the check's own hint recommends it; the doctor must resolve it the same way."""
-    seen = {}
-
-    class Det(FakeDet):
-        def launcher(self, name, exe=None):
-            seen["exe"] = exe
-            return super().launcher(name, exe)
-
-    monkeypatch.setenv("PNCLI_EXE", "C:/tools/pncli/pncli.cmd")
-    ctx = W.Context(cfg=C.load(), det=Det(), ask=W.AnswerPrompter({}), facts={})
-    pncli_import.PncliStep().detect(ctx)
-    assert seen["exe"] == "C:/tools/pncli/pncli.cmd"
-    monkeypatch.delenv("PNCLI_EXE")
-    C.save({"pncli": {"exe": "C:/from/config/pncli.cmd"}})
-    ctx = W.Context(cfg=C.load(), det=Det(), ask=W.AnswerPrompter({}), facts={})
-    pncli_import.PncliStep().detect(ctx)
-    assert seen["exe"] == "C:/from/config/pncli.cmd"
+def test_toil_step_honours_TOIL_EXE(cfg_path, monkeypatch):
+    """The toil connector honours TOIL_EXE and the check's own hint recommends it; the doctor resolves it the same way."""
+    det = FakeDet()
+    monkeypatch.setenv("TOIL_EXE", "C:/tools/toil/dist/toil.js")
+    ctx = W.Context(cfg=C.load(), det=det, ask=W.AnswerPrompter({}), facts={})
+    assert toil_step.ToilStep().detect(ctx)["where"]["path"] == "C:/tools/toil/dist/toil.js"
+    monkeypatch.delenv("TOIL_EXE")
+    C.save({"toil": {"exe": "C:/from/config/toil.cmd"}})
+    ctx = W.Context(cfg=C.load(), det=FakeDet(), ask=W.AnswerPrompter({}), facts={})
+    assert toil_step.ToilStep().detect(ctx)["where"]["path"] == "C:/from/config/toil.cmd"
 
 
 def test_patch_repairs_a_launcher_that_is_found_but_will_not_start(cfg_path, capsys, tmp_path):
-    """`exits N on --version` is tagged with pncli.exe, so --patch must actually offer that prompt."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "exe": "C:/broken/pncli.cmd",
-                      "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
-            "verified": {"jira": "2026-09-02"}})
-    good = tmp_path / "pncli.cmd"
-    good.write_text("@echo off\n", encoding="utf-8")
-    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli", "--set", f"pncli.exe={good}"],
-                     FakeDet(pncli_rc=9))
+    """A toil that answers UNSUPPORTED_NODE is tagged with toil.exe, so --patch must actually offer that prompt."""
+    C.save({"verified": {"jira": "2026-09-02"}})
+    good = tmp_path / "toil.js"
+    good.write_text("//\n", encoding="utf-8")
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "toil", "--set", f"toil.exe={good}"],
+                     FakeDet(toil_error="UNSUPPORTED_NODE"))
     out = capsys.readouterr().out
-    assert "exits 9 on --version" in out and "asked[1]: pncli.exe" in out
-    assert json.loads(cfg_path.read_text())["pncli"]["exe"] == str(good).replace("\\", "/")
+    assert "this is 22.22.0" in out and "asked[1]: toil.exe" in out
+    assert json.loads(cfg_path.read_text())["toil"]["exe"] == str(good).replace("\\", "/")
     assert rc in (0, 1)
 
 
@@ -553,8 +577,7 @@ def test_oracle_tns_style_and_incomplete_connections_are_caught(cfg_path, capsys
 def test_patch_never_asks_questions_an_answer_cannot_fix(cfg_path, capsys):
     """`teradatasql not installed` is a pip install. Asking that env's questions repairs nothing and, with no stdin,
     dies on the first prompt — which is what a laptop run looked like."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}},
-            "verified": {"jira": "2026-09-02"},
+    C.save({"verified": {"jira": "2026-09-02"},
             "sources": {"teradata": {"envs": {"prod": {"mode": "native", "host": "td.example.net", "logmech": "KRB5"}}}}})
     rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "sources"], FakeDet())   # no teradatasql
     out = capsys.readouterr().out
@@ -566,8 +589,7 @@ def test_patch_never_asks_questions_an_answer_cannot_fix(cfg_path, capsys):
 def test_patch_takes_explicit_targets(cfg_path, capsys, tmp_path):
     """`ad-setup --patch sources.oracle` re-asks that area on demand, without waiting for a check to fail."""
     C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "old.example.net", "port": 1521,
-                                                     "service_name": "old.svc", "auth": "password", "user": "luna"}}}},
-            "pncli": {"keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+                                                     "service_name": "old.svc", "auth": "password", "user": "luna"}}}}})
     det = FakeDet(modules={"oracledb", "keyring"})
     det.passwords[("oracle", "prod", "luna")] = "pw"
     rc = W.run_setup(["--patch", "sources.oracle", "--non-interactive", "--offline",
@@ -576,7 +598,7 @@ def test_patch_takes_explicit_targets(cfg_path, capsys, tmp_path):
     out = capsys.readouterr().out
     e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["prod"]
     assert rc == 0 and e["host"] == "new.example.net" and e["service_name"] == "new.svc"
-    assert "sources.oracle.prod.host" in out and "pncli" not in out.split("checks[")[0]   # only that step ran
+    assert "sources.oracle.prod.host" in out and "toil" not in out.split("checks[")[0]   # only that step ran
     rc = W.run_setup(["--patch", "nope.thing", "--non-interactive", "--offline"], det)
     assert rc == 2 and "nothing to repair for: nope.thing" in capsys.readouterr().out
 
@@ -616,8 +638,7 @@ def test_oracle_auth_modes_and_the_missing_client_check(cfg_path, capsys):
 def test_patch_asks_only_the_missing_oracle_field(cfg_path, capsys):
     """A host with no service name is one question, not the whole connection."""
     C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "db.example.net", "port": 1521,
-                                                     "auth": "password", "user": "luna"}}}},
-            "pncli": {"keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+                                                     "auth": "password", "user": "luna"}}}}})
     det = FakeDet(modules={"oracledb", "keyring"})
     det.passwords[("oracle", "prod", "luna")] = "pw"
     rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "sources",
@@ -634,12 +655,11 @@ def test_patch_asks_only_the_missing_oracle_field(cfg_path, capsys):
 
 def test_patch_refuses_to_prompt_with_no_terminal(cfg_path, capsys, monkeypatch):
     """Piped (Luna's terminal, CI): dying on EOF at the first prompt taught nobody anything."""
-    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
     monkeypatch.setattr(W, "has_tty", lambda: False)
-    assert W.run_setup(["--patch", "--include-warnings", "--offline", "--only", "pncli"], FakeDet(pncli=None)) == 2
+    assert W.run_setup(["--patch", "--include-warnings", "--offline", "--only", "toil"], FakeDet(toil_bin=None)) == 2
     out = capsys.readouterr().out
-    assert "no terminal to ask on" in out and "needs_answers[" in out and "--set pncli.config_path=<value>" in out
-    assert W.run_setup(["--offline", "--only", "pncli"], FakeDet()) == 2
+    assert "no terminal to ask on" in out and "needs_answers[" in out and "--set toil.exe=<value>" in out
+    assert W.run_setup(["--offline", "--only", "jira"], FakeDet(conns=[])) == 2
     assert "no terminal to ask on" in capsys.readouterr().out
 
 
@@ -828,7 +848,7 @@ def test_export_defaults_and_import_roundtrip(cfg_path, tmp_path, capsys):
     and --import loads it as defaults without overwriting existing settings."""
     initial_cfg = {
         "version": 1,
-        "pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_token": "jira.token", "jira_url": "jira.url"}},
+        "toil": {"connections": {"jira": "corp-jira"}},
         "sources": {
             "teradata": {
                 "envs": {
@@ -869,7 +889,7 @@ def test_export_defaults_and_import_roundtrip(cfg_path, tmp_path, capsys):
         assert imported_cfg["powerbi"]["tools"]["te2_exe"] == "C:/MyCustom/TE.exe"
         # Shared defaults were imported:
         assert imported_cfg["sources"]["teradata"]["envs"]["prod"]["host"] == "team-td.corp"
-        assert imported_cfg["pncli"]["keys"]["jira_token"] == "jira.token"
+        assert imported_cfg["toil"]["connections"]["jira"] == "corp-jira"
     finally:
         monkeypatch.undo()
 

@@ -280,9 +280,17 @@ def record(tool: str, argv: list[str]) -> None:
     path = os.environ.get("AGENTDATA_FAKE_LOG")
     if not path:
         return
+    entry: dict = {"tool": tool, "argv": argv}
+    # A body handed over on stdin (`toil ... --body-file -`) is part of what the code sent. Read only when the argv
+    # says stdin carries one: an inherited terminal would otherwise block the fake.
+    if any(a == "--body-file" and i + 1 < len(argv) and argv[i + 1] == "-" for i, a in enumerate(argv)):
+        try:
+            entry["stdin"] = sys.stdin.buffer.read().decode("utf-8", "replace")
+        except (OSError, ValueError, AttributeError):
+            entry["stdin"] = None
     try:
         with open(path, "a", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps({"tool": tool, "argv": argv}) + "\n")
+            f.write(json.dumps(entry) + "\n")
     except OSError:
         pass
 

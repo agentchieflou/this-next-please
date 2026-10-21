@@ -1,0 +1,15 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed",
+  "match": [
+    "version"
+  ],
+  "argv": [
+    "toil",
+    "version"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\":true,\"data\":{\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"commit\":\"b25fcc43002639d94d7cc5bc14676cad45aa4578\",\"node\":\"24.14.0\",\"platform\":\"linux\",\"arch\":\"x64\"},\"error\":null,\"meta\":{\"command\":\"version\",\"durationMs\":2,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

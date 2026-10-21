@@ -135,7 +135,7 @@ def cmd_line(argv: list[str]) -> str:
         if CMD_UNSAFE in a or "\r" in a or "\n" in a:
             raise ProcError("cmd_unsafe_argument", f"argument cannot be passed through cmd.exe: {a[:60]!r}",
                             "install Node.js so the npm shim runs directly, or pin the tool's entry point "
-                            "(for pncli: the `pncli.exe` config key or PNCLI_EXE, pointed at the .js file)")
+                            "(for toil: the `toil.exe` config key or TOIL_EXE, pointed at its dist/toil.js)")
         parts.append('"' + a.replace('"', '""') + '"')   # quote every part: paths hold spaces, JQL holds >, & and |
     return '"' + " ".join(parts) + '"'
 
@@ -226,7 +226,8 @@ def _overlay(base: dict, env: dict | None) -> dict:
     return out
 
 
-def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None = None) -> tuple[int, str, str]:
+def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None = None,
+           stdin_text: str | None = None) -> tuple[int, str, str]:
     """Run to completion, or kill the whole tree and raise. Never blocks past `timeout`.
 
     Deliberately not `subprocess.run(capture_output=True, timeout=...)`, which is not a real timeout
@@ -246,13 +247,20 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None =
 
     `stdin` is `DEVNULL` for a third reason: nothing this package spawns should ever wait for a
     person. git reaching for a credential helper is the usual way that happens, and on a machine
-    with no console attached it waits forever rather than failing.
+    with no console attached it waits forever rather than failing. `stdin_text` (a body toil reads
+    with `--body-file -`) is a temporary file for the same reason as stdout: it ends, so a reader
+    reaches EOF instead of waiting.
     """
     import tempfile
 
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as out, \
-            tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
-        p = subprocess.Popen(real, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+            tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err, \
+            tempfile.TemporaryFile(mode="w+", encoding="utf-8") as inp:
+        if stdin_text is not None:
+            inp.write(stdin_text)
+            inp.flush()
+            inp.seek(0)
+        p = subprocess.Popen(real, stdin=subprocess.DEVNULL if stdin_text is None else inp, stdout=out, stderr=err,
                              cwd=cwd, env=_overlay(child_env(), env), text=True,
                              encoding="utf-8", errors="replace",
                              # Its own session on POSIX, so the timeout can kill the child *and its
@@ -276,12 +284,13 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None =
 
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
         cwd: str | None = None, progress: str | None = None, env: dict | None = None,
-        path: str | None = None) -> tuple[int, str, str, float]:
+        path: str | None = None, stdin_text: str | None = None) -> tuple[int, str, str, float]:
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0.
 
     `env` is laid over the child's environment (`child_env()`), for the variables one call needs --
     `GIT_TERMINAL_PROMPT=0` on a push -- without changing this process's own. A None value removes one.
-    `path` replaces PATH for resolving `argv[0]` only (the fleet's pncli shim leaves its own directory out)."""
+    `path` replaces PATH for resolving `argv[0]` only (the fleet's toil shim leaves its own directory out).
+    `stdin_text` is handed to the child as its stdin (a body toil reads with `--body-file -`)."""
     real, info = prepare(argv, exe=exe, hint=hint, path=path)
     launched = info["path"]
     t0 = time.time()
@@ -289,9 +298,9 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
         if progress:
             from . import ui
             with ui.progress(progress):
-                code, out, err = _spawn(real, timeout=timeout, cwd=cwd, env=env)
+                code, out, err = _spawn(real, timeout=timeout, cwd=cwd, env=env, stdin_text=stdin_text)
         else:
-            code, out, err = _spawn(real, timeout=timeout, cwd=cwd, env=env)
+            code, out, err = _spawn(real, timeout=timeout, cwd=cwd, env=env, stdin_text=stdin_text)
     except FileNotFoundError as e:      # resolved, then vanished, or a broken shim target
         raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e.strerror or e})",
                         hint or "re-run `ad-setup --patch`", {"executable": launched, "kind": info["kind"]}) from None

@@ -7,7 +7,7 @@ the agent (AGENTS.md rule 3, and `ad-state` stays the only writer of `state.json
 The facts this is built on were measured, not assumed — `docs/fleet-spike.md` (#92) has the working:
 
 * the CLI is **`copilot`**, an npm-installed command, so it is resolved through `proc.py` like
-  `pncli` and `az` and never handed to `subprocess` as a bare name;
+  `toil` and `az` and never handed to `subprocess` as a bare name;
 * `--output-format json` gives one JSON object per line, and the ones without `"ephemeral": true`
   are the durable narrative;
 * `--allow-tool 'shell(<prefix>)'` is a **prefix** match, which is what makes an allow-list of

@@ -6,7 +6,7 @@ regression test. Every laptop step now appends a TOON record here instead, and t
 into the issue.
 
 Nothing secret can reach it by construction: only `ad-*` stdout is captured, and that never contains
-a credential -- passwords live in keyring and tokens in pncli's own config, neither of which any
+a credential -- passwords live in keyring and tokens in toil's credential store, neither of which any
 `ad-*` command prints.
 """
 from __future__ import annotations
@@ -168,7 +168,7 @@ def environment_bundle() -> dict[str, Any]:
             "windows-powershell": ("installed, unsupported" if powershell_51 else ""),
         },
         "tools": {name: (shutil.which(name) or "") for name in
-                  ("pip", "gh", "az", "pncli", "node", "git", "ad-doctor")},
+                  ("pip", "gh", "az", "toil", "node", "git", "ad-doctor")},
         "pythons": pythons(),
         "installs": update.installed_distributions(),
         "default_shells": default_shell_settings(),

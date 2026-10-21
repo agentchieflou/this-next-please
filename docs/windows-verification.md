@@ -1,7 +1,7 @@
 # Windows verification runbook (post PR #2)
 
 Everything that could be proven on Linux CI was proven (parsers, lint rules, replay algorithm, validators, wizard with
-fake drivers). What remains is every integration seam that only exists on the laptop: pncli's real config, the real Jira
+fake drivers). What remains is every integration seam that only exists on the laptop: toil's real connections, the real Jira
 instance, ODBC/native drivers, keyring, `az`, Tabular Editor 2, DAX Studio's `dscmd` flags, Power BI Desktop discovery,
 and PBIR/TMDL files as the current Desktop writes them. Run this top to bottom; paste results back as described and
 each failure becomes a fix with a reproducing test.
@@ -71,8 +71,9 @@ recorded until now:
   is the one npm path the corporate proxy lets through. A plain `npm install <pkg>` from an unconfigured shell does
   not reach the registry.
 - **Every npm package must be vetted before it is installed.** A dependency is a review and an approval, not just
-  bytes; the vetting is what makes an npm package on the laptop expensive, and it is why pncli (an npm global) is
-  the one the repo leans on rather than adding siblings beside it.
+  bytes; the vetting is what makes an npm package on the laptop expensive, and it is why toil (an npm global, which
+  replaced pncli in 0.22.0 and has no runtime dependencies of its own) is the one the repo leans on rather than
+  adding siblings beside it. toil needs Node 24.14 or later.
 - **This is a laptop rule, not a CI rule.** CI fetches TypeScript with `npx --yes -p typescript@7.0.2`; that run is
   not on the laptop and needs no vetting. The page's own rule (no CDN; `agentdata/fleet/serve.py` lines 10–13) is
   a third thing again: it is about what the *browser* fetches, and holds whatever npm does.
@@ -115,23 +116,24 @@ ad-doctor
 ```
 Pass: exit 1 with `fail`/`warn` rows that each carry a hint naming `ad-setup --only <step>`; no traceback. Paste: the output.
 
-## 2. pncli and the Jira credentials it lends
+## 2. toil and the Jira connection the extensions go through
 ```powershell
-pncli config init                # once, if ~/.pncli/config.json does not exist yet
-ad-setup --only pncli            # accept the proposed keys if they point at url / email / token; note if the proposal is wrong
-ad-doctor --only pncli,jira      # pncli rows ok; the jira step's url / email / token rows skip, "from pncli's config"
+toil version                     # an envelope with "node": "24.14..." or later; UNSUPPORTED_NODE means Node is too old
+toil                             # once: add the Jira, Confluence and Bitbucket connections (tokens to the credential store)
+ad-setup --only toil             # pins the launcher it proved starts; asks only where an area has several connections
+ad-doctor --only toil,jira       # toil rows ok; the jira step's url / token rows are info, "toil's connection"
+ad-doctor --only toil --online   # `toil connections test` for each connection
 ad-jira whoami
-ad-jira whoami --redetect        # only if the first call failed
-pncli jira search --jql "key = <any issue>" > .agent/out/check.json
+toil jira issue search --jql "key = <any issue>" > .agent/out/check.json
 ad-view .agent/out/check.json
-pncli jira get-issue --key <any issue key> > .agent/out/check-issue.json
+toil jira issue get <any issue key> > .agent/out/check-issue.json
 ad-view .agent/out/check-issue.json
 ```
-Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source: pncli:<key path>`; `ad-doctor --only pncli,jira` is all `ok` or `skip`, no `fail`; each `ad-view` prints the issue's `key` and `status` (Windows PowerShell 5.1's `>` writes UTF-16, which `ad-view` reads). Paste: the key list the wizard printed (values are masked), the answers you gave, and the `whoami` TOON. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`. A laptop that cannot have pncli: `ad-setup --only jira` stores a token in the keyring (the fallback), and `ad-doctor` keeps one `pncli launcher` fail row.
+Pass: `whoami` returns `flavor` (`cloud` for a `jira-cloud` connection, `dc` for `jira`), `api`, `display_name`, `token_source: toil:<connection>`; `ad-doctor --only toil,jira` is all `ok`, `info` or `skip`, no `fail`; each `ad-view` prints the issue's `key` and `status` (Windows PowerShell 5.1's `>` writes UTF-16, which `ad-view` reads). Paste: the doctor's toil rows and the `whoami` TOON. A laptop that cannot have toil: `ad-setup --only jira` stores a token in the keyring (the fallback), and `ad-doctor` keeps one `toil launcher` fail row.
 
 | # | What to do | What it must do | Host | Date |
 |---|---|---|---|---|
-| P1 | Read `pncli bitbucket --help` and `pncli confluence create-page --help` (WRAP-D6), pin the two verbs with `ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create="<the verb and its options>"` (then `page_create`), and run `ad-git pr --dry-run` on a ticket branch and `ad-confluence publish .agent/out/<KEY>-confluence.md --dry-run` | each dry run prints its plan, `command:` the pinned verb with the body summarised; nothing is sent. Paste both `--help` texts (hosts redacted by hand) on #506 | _not yet measured_ | — |
+| P1 | Run `ad-git pr --dry-run` on a ticket branch and `ad-confluence publish .agent/out/<KEY>-confluence.md --dry-run` (WRAP-D6), then each without `--dry-run` once writes are on for the two connections | each dry run prints its plan, `command:` the `toil bitbucket pr create` / `toil confluence page create` it will run, `--allow-write` included and the body summarised; nothing is sent. The real runs return the PR's and the page's `url`; with writes off, toil's `WRITE_DISABLED` and its fix | _not yet measured_ | — |
 | L1 | Move (rename) the venv the `ad-*` launchers were installed from, then run `python -m agentdata doctor` from the moved venv's python (#500) | `console/launchers: fail`, naming the launcher and *Unable to create process*, with a hint naming that `sys.executable`; a `console/module` row naming the `python` on PATH and its version. Run the hint: `launchers: ok` | _not yet measured_ | — |
 
 ## 3. Jira changelog and sprint replay
@@ -531,7 +533,7 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|
-| pncli keys not proposed / token indirect | `agentdata/setup/steps/pncli_import.py`, `connectors/jira_api.load_credentials` | key heuristics; support env-var indirection |
+| toil has no connection for a service / several and none the default | `agentdata/setup/steps/toil.py`, `connectors/toil.connection_for` | a person adds one in toil; `ad-setup --only toil` picks one |
 | `whoami` 401/404 on DC | `jira_api.detect_flavor` | candidate order, `/rest/api/2` paths |
 | `sprint-replay` delta vs Sprint Report | `uat/sprint.py` | boundary convention, done-at rule, sprint field parsing (DC string form) |
 | ODBC DSN not visible / driver name | `connectors/odbc.py`, `steps/sources.py` | bitness hint, driver matching |
@@ -544,13 +546,13 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 | Desktop refuses a report after `ad-pbiviz import`, or its save changes the `CustomVisual` entry or `CustomVisuals\` | `pbiviz/core.import_custom_visual`, `package_visual` | the entry's shape (`tests/pbir_schema.py` checks it against the vendored report schema) or the package layout |
 | reconcile class wrong | `uat/reconcile.classify` | rule order, coverage semantics |
 | `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
-| pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; every pncli recipe in a skill names its options |
+| toil answers `ok: false` (`NOT_CONFIGURED`, `WRITE_DISABLED`, `AUTH`, `UNSUPPORTED_NODE`) | `connectors/toil.raise_for`, `cli.py` | toil's own `error.fix` is the hint, as it is; every toil recipe in a skill names a command toil has (`tests/test_skill_contracts.py`) |
 | `The filename, directory name, or volume label syntax is incorrect` from `az login` / any `.cmd` tool | `agentdata/proc.py` | the cmd.exe command line must reach Windows as one string; a list goes through `list2cmdline`, which backslash-escapes the quotes |
 | `ad-pbi auth --probe` fails only in token mode (passes with `AGENTDATA_PBI_AUTH=interactive` after a GUI sign-in) | `agentdata/pbi/auth.py` | the `Password=<token>` connection-string form Tabular Editor is handed; `-L "" <token>` is the alternative |
 | `az login` ran but `token: not_signed_in` persists | `agentdata/pbi/auth.py` | the sign-in was made without `--allow-no-subscriptions` or into another tenant; `powerbi.tenant_id` |
 | `ad-jira create` refuses a field the project really has | `agentdata/jira_create.py` | the schema type → value shape table in `coerce` |
 | az not found although it is installed | `agentdata/proc.TOOL_DIRS`, `steps/powerbi.py` | the Azure CLI `wbin` dir is searched even when the installer left it off PATH; `ad-setup --patch` asks for the path |
-| `[WinError 2] The system cannot find the file specified` from any `ad-*` command | `agentdata/proc.py` | the tool is a `.cmd` shim (npm) or a `.bat`, not an `.exe`: resolution honours PATHEXT + the npm global prefix and unwraps the shim to `node <script>`; `ad-doctor --only pncli` shows what resolved |
+| `[WinError 2] The system cannot find the file specified` from any `ad-*` command | `agentdata/proc.py` | the tool is a `.cmd` shim (npm) or a `.bat`, not an `.exe`: resolution honours PATHEXT + the npm global prefix and unwraps the shim to `node <script>`; `ad-doctor --only toil` shows what resolved |
 | `pytest` fails on Windows | tests / `.gitattributes` | line endings, path separators |
 
 ## Fixed from laptop results

@@ -1,0 +1,20 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed",
+  "match": [
+    "jira",
+    "issue",
+    "get"
+  ],
+  "argv": [
+    "toil",
+    "jira",
+    "issue",
+    "get",
+    "NOPE-1"
+  ],
+  "returncode": 1,
+  "stdout": "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Issue Does Not Exist\",\"fix\":\"Check the key or id you passed exists in Jira and is visible to you.\",\"details\":{\"status\":404,\"url\":\"https://jira.example.test/rest/api/2/issue/NOPE-1\"}},\"meta\":{\"command\":\"jira issue get\",\"durationMs\":89,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"context\":{\"connection\":{\"value\":\"jira\",\"source\":\"default\",\"default\":\"named\"}}}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

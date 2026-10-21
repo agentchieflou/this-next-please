@@ -147,14 +147,14 @@ def test_doctor_prints_toon_for_a_pipe_and_a_report_for_a_person(monkeypatch, ca
     from agentdata.setup import wizard as W
     from tests.test_setup import FakeDet                       # the hermetic machine stand-in
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "c.json"))
-    assert W.run_doctor([], det=FakeDet()) == 1
+    assert W.run_doctor([], det=FakeDet(toil_bin=None)) == 1
     plain = capsys.readouterr().out
     assert plain.startswith("meta:") and "checks[" in plain and "╭" not in plain
 
     monkeypatch.setenv("AGENTDATA_UI", "rich")
     monkeypatch.setenv("AGENTDATA_WIDTH", "100")
     ui.reset_cache()
-    assert W.run_doctor([], det=FakeDet()) == 1
+    assert W.run_doctor([], det=FakeDet(toil_bin=None)) == 1
     pretty = color.strip(capsys.readouterr().out)
     assert "╭" in pretty and "ad-doctor" in pretty and f"{ui.glyphs()['fail']} fail" in pretty
     assert "meta:" not in pretty and "checks[" not in pretty

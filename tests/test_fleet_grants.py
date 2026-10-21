@@ -83,13 +83,13 @@ def test_the_deny_floor_is_never_offered_and_says_what_to_use_instead(command, i
     assert instead in row["instead"] and instead in got["why"], got["why"]
 
 
-def test_pncli_is_not_on_the_floor_its_writes_are_the_shims_to_refuse():
-    """pncli is used directly: a read needs no grant, and a write is not a grant either -- the fleet's shim
-    refuses it (tests/test_fleet_pncli_gate.py), so nothing here offers or forbids it."""
-    for command in ("pncli jira get-issue --key RDSD-1", "pncli confluence create-page --title t"):
+def test_toil_is_not_on_the_floor_its_writes_are_the_shims_to_refuse():
+    """toil is used directly: a read needs no grant, and a write is not a grant either -- the fleet's shim
+    refuses it (tests/test_fleet_toil_gate.py), so nothing here offers or forbids it."""
+    for command in ("toil jira issue get RDSD-1", "toil confluence page create --title t --allow-write"):
         row = G.refusal("bash", {"command": command})
         assert row["floor"] == "" and row["patterns"] == [] and not row["grantable"], row
-    assert "ad-confluence publish" in G.INSTEAD["pncli"] and "ad-git pr" in G.INSTEAD["pncli"]
+    assert "ad-confluence publish" in G.INSTEAD["toil"] and "ad-git pr" in G.INSTEAD["toil"]
 
 
 def test_a_denial_whose_call_was_never_seen_keeps_its_own_words():

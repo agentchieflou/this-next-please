@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("tool", help="the tool being recorded: pip, gh, az, te2, dscmd, powershell, pncli")
+    ap.add_argument("tool", help="the tool being recorded: pip, gh, az, te2, dscmd, powershell, toil")
     ap.add_argument("--case", required=True, help="a short name for this outcome, e.g. winerror5")
     ap.add_argument("--note", default="", help="one line saying what makes this case interesting")
     ap.add_argument("--shell", default="", help="which shell it was run from, if that matters")

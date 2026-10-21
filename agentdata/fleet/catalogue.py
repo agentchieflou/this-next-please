@@ -157,7 +157,7 @@ _ASSIGNMENT = re.compile(r"([A-Za-z_][\w.\-]{0,60})\s*[:=]\s*(\S[^\n]{0,200})")
 # auth. That is the trade the epic asked for: a refused doc costs one search result and says so in
 # the report, a missed one puts a live token in a sqlite file that gets copied between machines.
 _BEARER = re.compile(r"\bBearer\s+\S")
-# a value nobody has filled in yet. The AGENTS.md stub ships `- jira_token: <set in pncli>`, and a
+# a value nobody has filled in yet. An AGENTS.md stub shipped `- jira_token: <set in pncli>`, and a
 # catalogue that refused every freshly generated project would be uninstalled by lunchtime.
 _PLACEHOLDER = re.compile(r"^(?:<.*>|\*+|x+|none|null|todo|tbd|\.\.\.)$", re.I)
 
@@ -175,8 +175,8 @@ def looks_like_a_credential(text: str) -> str | None:
     if _BEARER.search(text):
         return "bearer"
     for key, value in _ASSIGNMENT.findall(text):
-        # `pncli.keys.jira_token: some.dot.path` names *where* the token is kept, which is exactly
-        # what AGENTS.md is supposed to say. config.py exempts the same prefix for the same reason.
+        # `pncli.keys.jira_token: some.dot.path` (setup before 0.22.0) names *where* a token was kept, not
+        # the token, so an AGENTS.md that still carries one is not a credential.
         if key.lower().startswith("pncli.keys."):
             continue
         # config's own compiled pattern, not a copy of it: two lists of credential key shapes drift,
@@ -708,8 +708,8 @@ class Catalogue:
                 pattern = looks_like_a_credential(doc.text)
                 if pattern:
                     entry = {"project": name, "path": rel, "kind": kind, "pattern": pattern,
-                             "hint": f"move the {pattern} out of {rel} (keyring or pncli's own "
-                                     "config), then re-run `ad-fleet index`"}
+                             "hint": f"move the {pattern} out of {rel} (keyring or toil's "
+                                     "credential store), then re-run `ad-fleet index`"}
                     refused.append(entry)
                     emit({"event": "refused", **entry})
                     self._delete(name, rel)

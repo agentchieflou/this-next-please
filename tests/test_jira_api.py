@@ -37,7 +37,7 @@ class FakeOpener:
 
 
 def creds(url="https://acme.atlassian.net", email="me@acme.com"):
-    return J.Creds(url, email, TOKEN, "pncli:jira.token")
+    return J.Creds(url, email, TOKEN, "keyring")
 
 
 def client(routes, url="https://acme.atlassian.net", flavor=J.CLOUD, sleeps=None):
@@ -171,65 +171,132 @@ def test_statuses_and_pin_fields():
     assert J.resolve_field_ids(["status", "Sprint", '"Story Points"', "customfield_9"], fields) == ["status", "customfield_10020", "customfield_10026", "customfield_9"]
 
 
-def test_load_credentials_from_pncli_and_env(tmp_path, monkeypatch):
-    p = tmp_path / "pncli.json"
-    p.write_text(json.dumps({"jira": {"url": "acme.atlassian.net/", "email": "me@acme.com", "token": TOKEN}}), encoding="utf-8")
-    for v in ("JIRA_URL", "JIRA_EMAIL", "JIRA_TOKEN", "AGENTDATA_JIRA_TOKEN"):
-        monkeypatch.delenv(v, raising=False)
-    monkeypatch.setattr(J, "keyring_token", lambda: None)
-    cfg = {"pncli": {"config_path": str(p), "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}}}
-    c = J.load_credentials(cfg)
-    assert c.base_url == "https://acme.atlassian.net" and c.email == "me@acme.com" and c.token == TOKEN and c.source == "pncli:jira.token"
-    monkeypatch.setenv("JIRA_TOKEN", "envtok"); monkeypatch.setenv("JIRA_URL", "https://other")
-    assert J.load_credentials(cfg).source == "env" and J.load_credentials(cfg).base_url == "https://other"
-    monkeypatch.delenv("JIRA_TOKEN"); monkeypatch.delenv("JIRA_URL")
-    with pytest.raises(J.JiraError) as ei:
-        J.load_credentials({"pncli": {"config_path": str(tmp_path / "missing.json")}})
-    assert "pncli config init" in ei.value.hint
-    with pytest.raises(J.JiraError):
-        J.load_credentials({"pncli": {"config_path": str(p), "keys": {"jira_token": "nope.key"}}})
+def _toil_conns(monkeypatch, conns, error=None):
+    """`toil connections list`, answered in-process: the connections, or the error toil gave."""
+    from agentdata.connectors import toil as T
+
+    def connections(cfg=None):
+        if error:
+            raise T.ToilError("NOT_FOUND" if error == "missing" else "toil_error", f"toil: {error}", "install toil")
+        return [dict(c) for c in conns]
+
+    monkeypatch.setattr(T, "connections", connections)
 
 
-def test_load_credentials_env_then_pncli_then_the_keyring(tmp_path, monkeypatch):
-    """env -> pncli's config (the default) -> the keyring entry `ad-setup --only jira` writes (a machine without
-    pncli). AGENTDATA_JIRA_TOKEN is JIRA_TOKEN by another name, and the hints name `ad-setup --only pncli` first."""
+JIRA_CONN = {"name": "corp-jira", "area": "jira", "isDefault": True, "host": "jira.acme.test", "writes": False}
+
+
+def test_load_credentials_env_then_toil_then_the_keyring(tmp_path, monkeypatch):
+    """env -> toil's Jira connection (the default) -> the keyring entry `ad-setup --only jira` writes (a machine
+    without toil). AGENTDATA_JIRA_TOKEN is JIRA_TOKEN by another name, and the hints name toil's connection first.
+    A toil connection carries no token at all: requests go through `toil jira api`."""
     for v in ("JIRA_URL", "JIRA_EMAIL", "JIRA_TOKEN", "AGENTDATA_JIRA_TOKEN"):
         monkeypatch.delenv(v, raising=False)
     from agentdata.connectors import secrets
     store = {("jira:default", "api-token"): "kr_tok_1234567890"}
     monkeypatch.setattr(secrets, "get_password", lambda src, env, user: store.get((f"{src}:{env}", user)))
-    p = tmp_path / "pncli.json"
-    p.write_text(json.dumps({"jira": {"url": "acme.atlassian.net", "email": "me@acme.com", "token": TOKEN}}),
-                 encoding="utf-8")
-    keys = {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}
-    with_pncli = {"jira": {"base_url": "acme.atlassian.net"}, "pncli": {"config_path": str(p), "keys": keys}}
-    assert J.load_credentials(with_pncli).source == "pncli:jira.token", "pncli's config wins over the keyring"
-    cfg = {"jira": {"base_url": "acme.atlassian.net", "email": "me@acme.com"},
-           "pncli": {"config_path": str(tmp_path / "missing.json")}}
+    cfg = {"jira": {"base_url": "acme.atlassian.net", "email": "me@acme.com"}}
+    _toil_conns(monkeypatch, [JIRA_CONN])
+    c = J.load_credentials(cfg)
+    assert (c.source, c.area, c.connection, c.token, c.via_toil) == ("toil:corp-jira", "jira", "corp-jira", "", True)
+    assert c.base_url == "https://jira.acme.test", "a label for messages; toil holds the real base URL"
+    _toil_conns(monkeypatch, [dict(JIRA_CONN, area="jira-cloud")])
+    assert J.load_credentials(cfg).area == "jira-cloud"
+    _toil_conns(monkeypatch, [], error="missing")
     c = J.load_credentials(cfg)
     assert c.source == "keyring" and c.token == "kr_tok_1234567890" and c.base_url == "https://acme.atlassian.net"
-    assert c.email == "me@acme.com" and "kr_tok" not in repr(c)
+    assert c.email == "me@acme.com" and "kr_tok" not in repr(c) and not c.via_toil
+    _toil_conns(monkeypatch, [JIRA_CONN])
     monkeypatch.setenv("AGENTDATA_JIRA_TOKEN", "alias_tok")
-    assert J.load_credentials(cfg).source == "env" and J.load_credentials(cfg).token == "alias_tok"
-    assert J.load_credentials(with_pncli).source == "env", "the environment wins over pncli's config"
+    assert J.load_credentials(cfg).source == "env" and J.load_credentials(cfg).token == "alias_tok", \
+        "the environment wins over toil's connection"
     monkeypatch.setenv("JIRA_TOKEN", "envtok")
     assert J.load_credentials(cfg).token == "envtok"                 # JIRA_TOKEN wins over its alias
     monkeypatch.delenv("JIRA_TOKEN"); monkeypatch.delenv("AGENTDATA_JIRA_TOKEN")
+    _toil_conns(monkeypatch, [])
     store.clear()
     with pytest.raises(J.JiraError) as ei:
         J.load_credentials(cfg)
-    assert "not in the keyring" in str(ei.value) and ei.value.hint.startswith("ad-setup --only pncli")
+    assert "toil has no Jira connection" in str(ei.value) and "not in the keyring" in str(ei.value)
+    assert ei.value.hint.startswith("set up a Jira connection in toil")
     assert "JIRA_TOKEN" in ei.value.hint and "ad-setup --only jira" in ei.value.hint
     assert J.has_credentials(cfg) is False
     store[("jira:default", "api-token")] = "back"
     assert J.has_credentials(cfg) is True
-    # a broken keyring backend reads as "nothing stored": pncli's own error is the one raised
+    # a broken keyring backend reads as "nothing stored": toil's own error is the one raised
     def boom(*a):
         raise C.ConfigError("keyring backend failed on read")
     monkeypatch.setattr(secrets, "get_password", boom)
+    _toil_conns(monkeypatch, [], error="missing")
     with pytest.raises(J.JiraError) as ei:
         J.load_credentials(cfg)
-    assert "no Jira token" in str(ei.value) and "pncli config init" in ei.value.hint
+    assert "no Jira token" in str(ei.value) and "toil cannot answer" in str(ei.value) and ei.value.hint == "install toil"
+
+
+def test_a_pinned_toil_connection_is_the_one_used(monkeypatch):
+    for v in ("JIRA_TOKEN", "AGENTDATA_JIRA_TOKEN"):
+        monkeypatch.delenv(v, raising=False)
+    lab = {"name": "lab-jira", "area": "jira", "isDefault": False, "host": "lab.acme.test"}
+    _toil_conns(monkeypatch, [JIRA_CONN, lab])
+    assert J.load_credentials({}).connection == "corp-jira"
+    assert J.load_credentials({"toil": {"connections": {"jira": "lab-jira"}}}).connection == "lab-jira"
+
+
+def test_a_client_on_toil_sends_every_request_through_toil_jira_api(monkeypatch):
+    """The flavor is the connection's area; the opener is `toil.ApiOpener`, so the token never reaches this
+    process. A GET is a read; a POST carries `--allow-write` and its body on stdin; toil's HTTP failure comes back
+    as the service's status, so the retry and error paths are unchanged."""
+    from agentdata.connectors import toil as T
+
+    c = J.Creds("https://jira.acme.test", None, "", "toil:corp-jira", area="jira")
+    j, me = None, None
+    sent = []
+
+    def run(argv, timeout=120, cfg=None, *, stdin_text=None, cwd=None):
+        sent.append((argv, stdin_text))
+        if argv[2] == "GET" and argv[3].endswith("NOPE-1"):
+            raise T.ToilError("NOT_FOUND", "Issue Does Not Exist", "Check the key",
+                              {"details": {"status": 404, "url": "x"}})
+        if argv[2] == "POST" and "--allow-write" in argv and "comment" in argv[3]:
+            raise T.ToilError("WRITE_DISABLED", "writes are off for connection corp-jira", "set writes: true")
+        return {"ok": True, "data": {"name": "me", "displayName": "Me"}, "error": None,
+                "meta": {"response": {"status": 200}}}, 0.1
+
+    monkeypatch.setattr(T, "run", run)
+    j, me = J.detect_flavor(c, {})
+    assert j.flavor == J.DC_BEARER and me["displayName"] == "Me"
+    assert sent[-1] == (["jira", "api", "GET", "rest/api/2/myself", "--connection", "corp-jira"], None)
+    j.get("/rest/api/2/search", {"jql": "project = A AND updated >= '2026-01-01'", "maxResults": 5})
+    assert sent[-1][0][:4] == ["jira", "api", "GET", "rest/api/2/search"]
+    assert "--query" in sent[-1][0] and "jql=project = A AND updated >= '2026-01-01'" in sent[-1][0]
+    with pytest.raises(J.JiraHTTPError) as e:
+        j.get("/rest/api/2/issue/NOPE-1")
+    assert e.value.status == 404
+    with pytest.raises(J.JiraError) as e:
+        j.post("/rest/api/2/issue/A-1/comment", {"body": "hi"}, idempotent=False)
+    assert "writes are off" in str(e.value) and e.value.hint == "set writes: true"
+    argv, body = sent[-1]
+    assert argv[-3:] == ["--allow-write", "--connection", "corp-jira"] and json.loads(body) == {"body": "hi"}
+    assert J.Jira(J.Creds("https://x", None, "", "toil:c", area="jira-cloud"), J.DC_BASIC).flavor == J.CLOUD
+
+
+def test_a_read_only_post_refused_by_toil_takes_the_get_fallback(monkeypatch):
+    """Cloud's bulk changelog is a POST that only asks a question, and toil gates every POST as a write. On a
+    connection with writes off it must not fail the pull, nor ask for writes: it reads as a 405, which is the
+    client's existing signal to fall back to GET. A real write refused the same way stays the error it is."""
+    from agentdata.connectors import toil as T
+
+    def run(argv, timeout=120, cfg=None, *, stdin_text=None, cwd=None):
+        raise T.ToilError("WRITE_DISABLED", "writes are off for connection c", "set writes: true")
+
+    monkeypatch.setattr(T, "run", run)
+    j = J.Jira(J.Creds("https://x", None, "", "toil:c", area="jira-cloud"), J.CLOUD)
+    with pytest.raises(J.JiraHTTPError) as e:
+        j.post("/rest/api/3/changelog/bulkfetch", {"issueIdsOrKeys": ["A-1"]})
+    assert e.value.status == 405
+    with pytest.raises(J.JiraError) as e:
+        j.post("/rest/api/3/issue/A-1/comment", {"body": "x"}, idempotent=False)
+    assert not isinstance(e.value, J.JiraHTTPError) and e.value.hint == "set writes: true"
 
 
 def test_parse_ts_forms():

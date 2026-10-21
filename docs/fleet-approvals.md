@@ -40,8 +40,8 @@ reason gives whoever picks the ticket up nothing to act on.
 for such an agent layer 2 is the boundary for every write made through an `ad-*` command. Under
 `strict` the agent is started with an enumerated whitelist of
 shell commands. `curl`, `Invoke-RestMethod` and `wget` are not on it, and are on the deny floor as
-well. `pncli` is on it, because pncli is used directly for what it reads; in every mode its writes are
-refused by the fleet's pncli shim (below), so the agent cannot write to a system of record except
+well. `toil` is on it, because toil is used directly for what it reads; in every mode its writes are
+refused by the fleet's toil shim (below), so the agent cannot write to a system of record except
 through an `ad-*` command.
 
 **Layer 2 — the gate (this file).** The `ad-*` command that performs the write blocks until an
@@ -67,27 +67,38 @@ command, where a refusal is a return value rather than a guess about a command s
 | `ad-jira comment <KEY> --body …` | run without `--dry-run`; the operator approves the exact body (`kind: jira-comment`) | `--dry-run` (reads the issue, prints `chars`, `lines` and `first_line`, posts nothing) |
 | `ad-jira create --summary …` | run without `--dry-run`; the operator approves the exact `POST /issue` body | `--dry-run` (resolves every field, posts nothing) |
 | `ad-git push [--remote NAME]` | run without `--dry-run` and with commits ahead; the operator approves the plan (`kind: git-push`: branch, remote, target, ahead, subjects) | `--dry-run` (local refs only, contacts no remote); nothing ahead |
-| `ad-confluence publish <file.md>` | run without `--dry-run`; the operator approves the plan (`kind: confluence-publish`: action, page id, title, space, parent, chars, and pncli's command with the body summarised) | `--dry-run` (builds the body, resolves space, title and parent, runs nothing); refused `not_pinned` until `pncli.verbs.page_create` / `page_update` is set |
-| `ad-git pr` | run without `--dry-run`; the operator approves the plan (`kind: bitbucket-pr`: action, PR id, title, draft, source, target) | `--dry-run` (local refs and config only, contacts nothing); refused `not_pinned` until `pncli.verbs.pr_create` / `pr_update` is set |
-| `pncli <product> <verb> …`, typed by a fleet agent | never waits: a verb not in the read allow-list below is **refused** by the fleet's pncli shim (`pncli_write_in_fleet`, exit 2), with the extension that does it as the `hint` | `--dry-run`, `--help` or `-h` as a flag of its own (as an option's value, `--title --dry-run` or `--title -h`, or after `--`, it is neither and the verb is refused, #524, #525), `--version`, and every verb in the list: the real pncli runs with the same argv, its output and exit code untouched |
+| `ad-confluence publish <file.md>` | run without `--dry-run`; the operator approves the plan (`kind: confluence-publish`: action, page id, title, space, parent, chars, and toil's exact command with the body summarised) | `--dry-run` (builds the body, resolves space, title and parent, runs nothing) |
+| `ad-git pr` | run without `--dry-run`; the operator approves the plan (`kind: bitbucket-pr`: action, PR id, title, source, target, and toil's exact command) | `--dry-run` (local refs and config only, contacts nothing); `--draft` is refused `draft_unsupported`, because toil's PR verb has no draft |
+| `toil <area> <command> …`, typed by a fleet agent | never waits: an argv carrying `--allow-write`, or a command that writes toil's own setup, is **refused** by the fleet's toil shim (`toil_write_in_fleet`, exit 2), with the extension that does it as the `hint` | everything else: the real toil runs with the same argv, its envelope and exit code untouched |
 
-**The fleet's pncli shim.** `launch.child_env` writes `pncli` (POSIX) and `pncli.cmd` (Windows) into
-`<fleet_dir>/bin/`, each running `python -m agentdata.fleet.pncli_gate` with the agent's arguments, and
+**Approval is not permission.** toil has its own write gate: a write needs `writes: true` on the connection,
+which only a person sets, and `--allow-write` on the call; without them toil refuses with `WRITE_DISABLED` and
+sends nothing. toil has no `--dry-run` -- a write without `--allow-write` is a refusal, not a preview -- so the
+preview is the `ad-*` command's own `--dry-run`, and `--allow-write` is added only to the run the operator
+approved, which then executes exactly the reviewed command. A connection stays read-only until a person turns
+writes on, and the overlay reads that first: `ad-git pr` and `ad-confluence publish` ask `toil connections list` (local,
+no network) before they plan, and refuse `toil_not_ready`, `no_connection` or `writes_off`, dry run included, so the
+operator is never asked to approve a write toil would refuse. Should toil still refuse at run time, its
+`WRITE_DISABLED` and fix are the answer, and nothing is retried.
+
+**The fleet's toil shim.** `launch.child_env` writes `toil` (POSIX) and `toil.cmd` (Windows) into
+`<fleet_dir>/bin/`, each running `python -m agentdata.fleet.toil_gate` with the agent's arguments, and
 puts that directory first on the agent's PATH. A deny pattern could not do this job: a deny is a prefix,
-and a list of write verbs misses every write nobody listed. The shim resolves the real pncli with its own
-directory left out of the search, so it never runs itself, and so do `ad-confluence publish` and `ad-git pr`.
-Outside a fleet it passes everything through. Its read allow-list is `agentdata/connectors/pncli.READ_VERBS`:
+and `--allow-write` can sit anywhere on the line. The shim resolves the real toil with its own directory
+left out of the search, so it never runs itself, and neither do `ad-confluence publish`, `ad-git pr` or
+`ad-jira`'s REST calls (which go through `toil jira api`). Outside a fleet it passes everything through.
+Its classification is `agentdata/connectors/toil.is_write`:
 
-`jira search`, `jira get`, `jira get-issue`, `jira changelog`, `jira transitions`, `jira comments`,
-`jira fields`, `jira list`, `confluence get-page`, `confluence search`, `confluence list-pages`,
-`bitbucket get-pr`, `bitbucket list-prs`, `bitbucket diff`, `config get`, `config list`,
-`config show` — plus the bare commands `help`, `version`, `where`.
+* **`--allow-write` anywhere before `--`** (or `--allow-write=…`) is a write, even as some option's value. toil
+  refuses a service write without it, so its absence is the proof of a read.
+* **The commands that write toil's own setup without the flag** are writes: `connections` (all but `list` and
+  `test`), `dossiers` (all but `list`, `show`, `context` and `check`), `skill`, `skills`, `setup`, `feedback`
+  (it sends a public report) and `mcp` (a server is not an agent's to start).
+* `--help` / `-h` never unlocks a write: `--allow-write` is looked at first.
 
-**Everything else is treated as a write.** That direction is deliberate. A write verb missing from
-a *write*-list would be sent unattended; a read verb missing from this list costs one refused read
-and a line in the friction log. It is also what makes the shim hold on verbs nobody has pinned yet:
-the Bitbucket PR verb is still unpinned, and a fleet agent typing it is refused today whatever it
-turns out to be called. A Jira comment never goes through pncli: `ad-jira comment` posts it, gated above.
+The shim gates the command line. toil's MCP door is outside it: an MCP server a person registers with toil for an
+agent lists write tools when writes are on for its connection, and nothing here intercepts them. That is why
+`ad-doctor --only toil` reports every connection with writes on.
 
 ## What the agent sees
 

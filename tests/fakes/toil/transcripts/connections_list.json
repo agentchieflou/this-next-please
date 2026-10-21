@@ -1,0 +1,17 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed; the jira, confluence and bitbucket connections come from TOIL_* env vars",
+  "match": [
+    "connections",
+    "list"
+  ],
+  "argv": [
+    "toil",
+    "connections",
+    "list"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\":true,\"data\":{\"configFile\":\"/home/user/.toil/config.json\",\"connections\":[{\"name\":\"bitbucket\",\"area\":\"bitbucket\",\"isDefault\":true,\"host\":\"bitbucket.example.test\",\"writes\":false,\"values\":{\"pat\":\"env\",\"baseUrl\":\"env\"},\"definedIn\":\"env\"},{\"name\":\"confluence\",\"area\":\"confluence\",\"isDefault\":true,\"host\":\"confluence.example.test\",\"writes\":false,\"values\":{\"baseUrl\":\"env\",\"apiToken\":\"env\"},\"definedIn\":\"env\"},{\"name\":\"jira\",\"area\":\"jira\",\"isDefault\":true,\"host\":\"jira.example.test\",\"writes\":false,\"values\":{\"baseUrl\":\"env\",\"apiToken\":\"env\"},\"definedIn\":\"env\"}]},\"error\":null,\"meta\":{\"command\":\"connections list\",\"durationMs\":4,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

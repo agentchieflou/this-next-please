@@ -303,7 +303,7 @@ def _client():
     except Exception as e:                    # noqa: BLE001 - any credential or flavour failure
         raise CommandRefused(f"Jira is not reachable: {str(e)[:200]}",
                              "`ad-jira whoami` checks the token and the flavour; the Command Center uses the "
-                             "same one pncli stores", code="jira_unreachable") from None
+                             "same toil connection", code="jira_unreachable") from None
     return client
 
 

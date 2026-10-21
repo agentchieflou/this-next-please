@@ -41,8 +41,8 @@ INTERPRETERS = ("python", "python3", "py", "pythonw", "node", "npx", "powershell
 
 # What the deny floor is for, and what an agent uses instead. Keyed by the floor entry's first word.
 INSTEAD = {
-    "pncli": "pncli is used directly for what it reads; in a fleet its writes are refused by the fleet's "
-             "shim and go through `ad-confluence publish`, `ad-git pr` or `ad-jira comment|transition|create`, "
+    "toil": "toil is used directly for what it reads; in a fleet its writes are refused by the fleet's "
+            "shim and go through `ad-confluence publish`, `ad-git pr` or `ad-jira comment|transition|create`, "
              "each waiting on the approval gate",
     "git": "history is the operator's; the one push is `ad-git push`, which refuses a force and waits "
            "on the approval gate",

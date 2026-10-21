@@ -314,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", help="run id recorded with --artifact entries")
     p.add_argument("--question", action="append", help="append an open question (repeatable); use with phase=blocked")
     p.add_argument("--clear-questions", action="store_true", help="empty open_questions (when unblocked)")
-    p.add_argument("--tool", action="append", metavar="KEY=DATE", help="tools.<key>=<date>: doctor_verified, pncli_verified")
+    p.add_argument("--tool", action="append", metavar="KEY=DATE", help="tools.<key>=<date>: doctor_verified, toil_verified")
     # The fleet's Downloads tray (#132) copies a file into `<repo>/.agent/in/<KEY>/` on a click and then
     # runs `ad-state set --input <path>` here rather than writing state.json itself, which is what keeps
     # ad-state the only writer of that file. A person attaching a file by hand records it the same way.

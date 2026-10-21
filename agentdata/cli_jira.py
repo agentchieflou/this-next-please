@@ -1,8 +1,9 @@
 # PYTHON_ARGCOMPLETE_OK
-"""ad-jira: what pncli's Jira commands do not do, over REST. whoami · fields · statuses · transitions · transition · comment · create · sprints · changelog · sprint-replay · cache · match.
-Current-state reads are pncli's own (`pncli jira search`, `pncli jira get-issue`, saved and read with `ad-view`); this
-never shells out to pncli. The token comes from the env, pncli's own config file by key name, or the keyring entry
-`ad-setup --only jira` writes, at call time.
+"""ad-jira: what toil's Jira commands do not do, over REST. whoami · fields · statuses · transitions · transition · comment · create · sprints · changelog · sprint-replay · cache · match.
+Current-state reads are toil's own (`toil jira issue search`, `toil jira issue get`, saved and read with `ad-view`).
+The REST calls here go through toil's Jira connection (`toil jira api`, `connectors/toil.ApiOpener`), so the token
+stays in toil's credential store; JIRA_TOKEN in the env, or the keyring entry `ad-setup --only jira` writes, is
+used instead on a machine without toil. Writes still pass this command's own `--dry-run` and approval gate first.
 
 Epic #121 changed how a changelog pull is *run*; it never changed what a row means. Four operator-facing
 consequences live in this file.
@@ -1159,9 +1160,9 @@ def _add_run_flags(p, bulk: bool = True) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
-    ap = argparse.ArgumentParser(prog="ad-jira", description="Jira over REST, extending pncli: workflow writes behind the "
+    ap = argparse.ArgumentParser(prog="ad-jira", description="Jira over REST, extending toil: workflow writes behind the "
                                  "approval gate, and the history the current state cannot give. Current-state reads are "
-                                 "pncli's: `pncli jira search --jql ... > .agent/out/<name>.json`, then `ad-view` it.")
+                                 "toil's: `toil jira issue search --jql ... > .agent/out/<name>.json`, then `ad-view` it.")
     from . import version
     version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1254,7 +1255,7 @@ def main(argv: list[str] | None = None) -> int:
     except J.JiraError as e:
         print(error(str(e), e.hint or "ad-jira whoami --redetect", "ad-jira")); return 1
     except C.ConfigError as e:
-        print(error(str(e), e.hint or "ad-setup --only pncli", "ad-jira")); return 2
+        print(error(str(e), e.hint or "ad-setup --only toil", "ad-jira")); return 2
 
 
 if __name__ == "__main__":

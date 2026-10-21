@@ -71,10 +71,10 @@ def main_impala(): _sql_main("impala", "ad-impala")
 
 
 def main_view() -> None:
-    """Render a file on disk through the format policy: a TSV, a CSV export, or a JSON answer (pncli's)."""
+    """Render a file on disk through the format policy: a TSV, a CSV export, or a JSON answer (toil's envelope)."""
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-view", description="ad-view <file.tsv|file.csv|file.json>: a TSV or CSV a "
-                                 "script wrote, or the JSON a direct `pncli` read saved under .agent/out/, as TOON "
+                                 "script wrote, or the envelope a direct `toil` read saved under .agent/out/, as TOON "
                                  "(full rows stay in the file on disk)")
     ap.add_argument("path"); ap.add_argument("--name", default=None)
     ap.add_argument("--fields", default=None, help="JSON only: comma-separated columns to keep (a Jira search or "
@@ -105,45 +105,83 @@ def main_view() -> None:
     print(render(AgentTable.read_tsv(a.path, a.name or "result")))
 
 
-def _view_json(path: str, name: str | None, fields: list[str] | None) -> int:
-    """`ad-view <file.json>`: pncli's answer, saved by `pncli ... > .agent/out/<name>.json`, through the policy.
+def _toil_extra(payload) -> dict:
+    """What a toil envelope's `meta` says that the rows do not: its warnings (a truncated history, a summary that
+    left rows in a file) and the cursor of the next page. Kept on the rendered meta, so a partial answer never
+    reads as a complete one."""
+    from .connectors import toil as T
+    if not T.is_envelope(payload):
+        return {}
+    meta = payload.get("meta") or {}
+    extra: dict = {}
+    warnings = [f"{w.get('code')}: {w.get('message')}" if isinstance(w, dict) else str(w)
+                for w in meta.get("warnings") or []]
+    if warnings:
+        extra["warnings"] = warnings
+    cursor = (meta.get("page") or {}).get("nextCursor")
+    if cursor not in (None, ""):
+        extra["next_cursor"] = cursor
+    if meta.get("summary"):
+        extra["summary_file"] = (meta["summary"] or {}).get("file")
+    if meta.get("command"):
+        extra["toil"] = meta["command"]
+    return extra
 
-    A Jira search or a single issue gets the columns the in-process reads give (`pncli.jira_search_from_payload`,
-    `pncli.get_issue_from_payload`); anything else is pncli's result list, normalized (`render_nested`)."""
+
+def _view_json(path: str, name: str | None, fields: list[str] | None) -> int:
+    """`ad-view <file.json>`: toil's envelope, saved by `toil ... > .agent/out/<name>.json`, through the policy.
+
+    A Jira search or a single issue gets the columns the in-process reads give (`toil.jira_search_from_payload`,
+    `toil.get_issue_from_payload`); anything else is the envelope's result list, normalized (`render_nested`).
+    A failed envelope prints toil's own message and fix; its warnings and next-page cursor stay on the meta. A bare
+    JSON answer (not an envelope) is read the same way."""
     import json
-    from .connectors import pncli as P
+    from .connectors import toil as T
     source = f"ad-view {path}"
     try:
         text = read_text(path)
     except OSError as e:
-        print(error(f"cannot read {path}: {e.strerror or e}", "save pncli's answer first: "
-                    "pncli <product> <verb> --<option> <value> > .agent/out/<name>.json", "ad-view"))
+        print(error(f"cannot read {path}: {e.strerror or e}", "save toil's answer first: "
+                    "toil <area> <command> ... > .agent/out/<name>.json", "ad-view"))
         return 2
     try:
         payload = json.loads(text) if text.strip() else None
     except json.JSONDecodeError as e:
-        print(error(f"{path} is not JSON ({e.msg}, line {e.lineno})", "pncli prints JSON on stdout; a usage error goes "
-                    "to stderr and leaves this file empty or partial: run the pncli command again and read its message",
-                    "ad-view"))
+        print(error(f"{path} is not JSON ({e.msg}, line {e.lineno})", "toil prints one JSON envelope on stdout: the "
+                    "file is empty or partial, so run the toil command again and read its answer", "ad-view"))
         return 1
     if payload is None:
-        print(error(f"{path} is empty", "the pncli command printed nothing: run it again and read its message", "ad-view"))
+        print(error(f"{path} is empty", "the toil command printed nothing: run it again and read its message", "ad-view"))
         return 1
     if isinstance(payload, dict) and payload.get("ok") is False:
-        print(error(str(payload.get("error") or payload.get("message") or "pncli error")[:300],
-                    "pncli refused the command: fix its options (named, never positional) and run it again", "ad-view"))
+        err = payload.get("error")
+        if isinstance(err, dict):
+            print(error(f"{err.get('code') or 'toil'}: {err.get('message') or 'toil refused the command'}"[:300],
+                        str(err.get("fix") or "read toil's message, fix the command and run it again"), "ad-view"))
+        else:
+            print(error(str(err or payload.get("message") or "toil error")[:300],
+                        "the command refused: fix it and run it again", "ad-view"))
         return 1
-    kind = P.payload_kind(payload)
+    extra = _toil_extra(payload)
+    data = T.data_of(payload)
+    if isinstance(data, str) and ((payload.get("meta") or {}).get("format") == "toon" if T.is_envelope(payload) else False):
+        # `--output-format toon` already wrote the rows as TOON: print them as they are, under the meta.
+        from . import toon
+        print(toon.encode({"meta": {"ok": True, "source": source, **extra}}))
+        print(data)
+        return 0
+    kind = T.payload_kind(payload)
     if kind == "search":
-        t = P.jira_search_from_payload(payload, fields, source=source)
+        t = T.jira_search_from_payload(payload, fields, source=source)
     elif kind == "issue":
-        t = P.get_issue_from_payload(payload, fields, source=source)
+        t = T.get_issue_from_payload(payload, fields, source=source)
     else:
-        print(render_nested(P.extract_records(payload), name=name or "pncli", source=source, raw_payload=payload))
+        print(render_nested(T.extract_records(payload), name=name or "toil", source=source, raw_payload=payload,
+                            extra=extra or None))
         return 0
     if name:
         t.name = name
-    print(render(t))
+    print(render(t, extra=extra or None))
     return 0
 
 

@@ -1,0 +1,19 @@
+{
+  "source": "synthesized",
+  "note": "something printed prose where toil's envelope was expected (a wrapper script, a broken install)",
+  "match": [
+    "jira",
+    "issue",
+    "search"
+  ],
+  "argv": [
+    "toil",
+    "jira",
+    "issue",
+    "search"
+  ],
+  "returncode": 3,
+  "stdout": "not json",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

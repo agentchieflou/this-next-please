@@ -1,5 +1,6 @@
-"""Starting programs on Windows. `pncli` is an npm package: it exists as pncli.cmd, never pncli.exe, so handing the
-bare name to CreateProcess fails with [WinError 2] — the 2026-09-02 laptop failure of the first Jira search.
+"""Starting programs on Windows. `toil` is an npm package: it exists as toil.cmd, never toil.exe, so handing the
+bare name to CreateProcess fails with [WinError 2] — the 2026-09-02 laptop failure of the first Jira search (then
+through toil, toil's predecessor, which was an npm package the same way).
 Windows behaviour is exercised on any OS through the `windows=` switch."""
 import json
 import os
@@ -11,7 +12,7 @@ import time
 import pytest
 
 from agentdata import proc
-from agentdata.connectors import pncli as P
+from agentdata.connectors import toil as T
 
 NPM7_CMD = """@ECHO off\r
 GOTO start\r
@@ -22,13 +23,13 @@ EXIT /b\r
 SETLOCAL\r
 CALL :find_dp0\r
 IF EXIST "%dp0%\\node.exe" (SET "_prog=%dp0%\\node.exe") ELSE (SET "_prog=node")\r
-endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@kolatts\\pncli\\bin\\cli.js" %*\r
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@imagile-dev\\toil\\bin\\cli.js" %*\r
 """
-NPM6_CMD = '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\@kolatts\\pncli\\bin\\cli.js" %*\r\n)\r\n'
-SH_SHIM = '#!/bin/sh\nbasedir=$(dirname "$0")\nexec node  "$basedir/node_modules/@kolatts/pncli/bin/cli.js" "$@"\n'
+NPM6_CMD = '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\@imagile-dev\\toil\\bin\\cli.js" %*\r\n)\r\n'
+SH_SHIM = '#!/bin/sh\nbasedir=$(dirname "$0")\nexec node  "$basedir/node_modules/@imagile-dev/toil/bin/cli.js" "$@"\n'
 
 
-def npm_install(d, *, shim=NPM7_CMD, name="pncli", script=True, node=True):
+def npm_install(d, *, shim=NPM7_CMD, name="toil", script=True, node=True):
     """A directory shaped like npm's global prefix on Windows."""
     os.makedirs(d, exist_ok=True)
     open(os.path.join(d, name + ".cmd"), "w", newline="").write(shim)
@@ -36,7 +37,7 @@ def npm_install(d, *, shim=NPM7_CMD, name="pncli", script=True, node=True):
     if node:
         open(os.path.join(d, "node.exe"), "w").write("")
     if script:
-        bin_dir = os.path.join(d, "node_modules", "@kolatts", "pncli", "bin")
+        bin_dir = os.path.join(d, "node_modules", "@imagile-dev", "toil", "bin")
         os.makedirs(bin_dir, exist_ok=True)
         open(os.path.join(bin_dir, "cli.js"), "w").write("// entry point\n")
     return d
@@ -44,35 +45,35 @@ def npm_install(d, *, shim=NPM7_CMD, name="pncli", script=True, node=True):
 
 def test_which_prefers_exe_then_cmd_and_finds_the_shim(tmp_path):
     d = npm_install(str(tmp_path / "npm"))
-    assert proc.which("pncli", path=d, windows=True) == os.path.normpath(os.path.join(d, "pncli.cmd"))
-    assert proc.which("pncli", path=d, windows=True, pathext=".COM;.EXE;.BAT;.CMD").endswith("pncli.cmd")
-    open(os.path.join(d, "pncli.exe"), "w").write("")
-    assert proc.which("pncli", path=d, windows=True).endswith("pncli.exe")   # a real executable wins
-    assert proc.which("pncli.cmd", path=d, windows=True).endswith("pncli.cmd")
+    assert proc.which("toil", path=d, windows=True) == os.path.normpath(os.path.join(d, "toil.cmd"))
+    assert proc.which("toil", path=d, windows=True, pathext=".COM;.EXE;.BAT;.CMD").endswith("toil.cmd")
+    open(os.path.join(d, "toil.exe"), "w").write("")
+    assert proc.which("toil", path=d, windows=True).endswith("toil.exe")   # a real executable wins
+    assert proc.which("toil.cmd", path=d, windows=True).endswith("toil.cmd")
     assert proc.which("nope", path=d, windows=True) is None
-    assert proc.which(os.path.join(d, "pncli"), windows=True).endswith("pncli.exe")   # a pinned path gets PATHEXT too
-    assert proc.which(os.path.join(npm_install(str(tmp_path / "n2")), "pncli"), windows=True).endswith("pncli.cmd")
+    assert proc.which(os.path.join(d, "toil"), windows=True).endswith("toil.exe")   # a pinned path gets PATHEXT too
+    assert proc.which(os.path.join(npm_install(str(tmp_path / "n2")), "toil"), windows=True).endswith("toil.cmd")
 
 
 def test_unwrap_npm_shim_for_every_shim_style(tmp_path):
     for i, shim in enumerate((NPM7_CMD, NPM6_CMD)):
         d = npm_install(str(tmp_path / f"npm{i}"), shim=shim)
-        node, script = proc.unwrap_shim(os.path.join(d, "pncli.cmd"), windows=True)
+        node, script = proc.unwrap_shim(os.path.join(d, "toil.cmd"), windows=True)
         assert node.endswith("node.exe") and script.endswith(os.path.join("bin", "cli.js")) and os.path.isfile(script)
     d = npm_install(str(tmp_path / "sh"), node=False)
-    got = proc.unwrap_shim(os.path.join(d, "pncli"), windows=False)
+    got = proc.unwrap_shim(os.path.join(d, "toil"), windows=False)
     assert got is None or got[1].endswith("cli.js")          # depends on a `node` being installed here
     d2 = npm_install(str(tmp_path / "broken"), script=False)  # shim present, entry point gone
-    assert proc.unwrap_shim(os.path.join(d2, "pncli.cmd"), windows=True) is None
+    assert proc.unwrap_shim(os.path.join(d2, "toil.cmd"), windows=True) is None
 
 
 def test_command_runs_the_node_entry_point_not_cmd_exe(tmp_path):
     d = npm_install(str(tmp_path / "npm"))
     jql = "project = RDSD AND updated >= '2026-01-01'"
-    argv = proc.command(["pncli", "jira", "search", "--jql", jql], windows=True, path=d)
+    argv = proc.command(["toil", "jira", "search", "--jql", jql], windows=True, path=d)
     assert argv[0].endswith("node.exe") and argv[1].endswith("cli.js") and argv[2:] == ["jira", "search", "--jql", jql]
-    info = proc.resolve("pncli", windows=True, path=d)
-    assert info["kind"] == "npm shim" and info["found"] and info["path"].endswith("pncli.cmd")
+    info = proc.resolve("toil", windows=True, path=d)
+    assert info["kind"] == "npm shim" and info["found"] and info["path"].endswith("toil.cmd")
 
 
 def test_cmd_shim_is_a_command_line_string_not_a_list(tmp_path, monkeypatch):
@@ -81,25 +82,25 @@ def test_cmd_shim_is_a_command_line_string_not_a_list(tmp_path, monkeypatch):
     quotes; cmd.exe then reads \"\"C:\Program as a filename. It must be passed as a string, verbatim."""
     d = npm_install(str(tmp_path / "npm"), script=False)
     monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
-    line = proc.command(["pncli", "jira", "search", "--jql", "a >= b"], windows=True, path=d)
+    line = proc.command(["toil", "jira", "search", "--jql", "a >= b"], windows=True, path=d)
     assert isinstance(line, str)
     assert line.startswith(r'"C:\Windows\System32\cmd.exe" /d /s /c ""')
-    assert line.endswith('"') and '"a >= b"' in line and "pncli.cmd" in line      # `>` and the path stay inside quotes
+    assert line.endswith('"') and '"a >= b"' in line and "toil.cmd" in line      # `>` and the path stay inside quotes
     assert '\\"' not in line                                                       # never backslash-escaped
     assert '\\"' in subprocess.list2cmdline([os.environ["COMSPEC"], "/d", "/s", "/c", line])   # why it is not a list
-    assert proc.resolve("pncli", windows=True, path=d)["kind"] == "cmd shim"
+    assert proc.resolve("toil", windows=True, path=d)["kind"] == "cmd shim"
     assert proc.cmd_line(["x.cmd", "plain", 'say "hi"']) == '""x.cmd" "plain" "say ""hi""""'
     with pytest.raises(proc.ProcError) as e:
         proc.cmd_line(["x.cmd", "%USERPROFILE%"])
-    assert e.value.code == "cmd_unsafe_argument" and "PNCLI_EXE" in e.value.hint
+    assert e.value.code == "cmd_unsafe_argument" and "TOIL_EXE" in e.value.hint
 
 
 def test_not_found_names_what_was_tried(tmp_path):
     with pytest.raises(proc.ProcError) as e:
-        proc.command(["pncli", "jira"], windows=True, path=str(tmp_path), hint="install pncli")
-    assert e.value.code == "not_found" and e.value.hint == "install pncli"
+        proc.command(["toil", "jira"], windows=True, path=str(tmp_path), hint="install toil")
+    assert e.value.code == "not_found" and e.value.hint == "install toil"
     assert any("PATHEXT" in t for t in e.value.detail["tried"])
-    info = proc.resolve("pncli", exe=str(tmp_path / "gone.cmd"), windows=True)
+    info = proc.resolve("toil", exe=str(tmp_path / "gone.cmd"), windows=True)
     assert not info["found"] and "configured path not found" in info["error"]
 
 
@@ -126,21 +127,21 @@ def test_run_returns_streams_and_reports_start_failure(tmp_path):
     assert e.value.code == "exit_code" and e.value.detail["exit_code"] == 3
 
 
-def _fake_pncli(tmp_path, body: str) -> str:
-    """A stand-in pncli that runs `body`.
+def _fake_toil(tmp_path, body: str) -> str:
+    """A stand-in toil that runs `body`.
 
     On Windows it is a `.cmd` running the same logic through Python, so the tests that use it are
     not skipped on the one OS this module exists for. `tests/fakes/` is the transcript-driven
     harness; this is the simpler shape for tests that only need "print this, exit with that".
     """
     if os.name == "nt":
-        script = tmp_path / "pncli-fake.py"
+        script = tmp_path / "toil-fake.py"
         script.write_text(_body_as_python(body), encoding="utf-8", newline="\n")
-        p = tmp_path / "pncli-fake.cmd"
+        p = tmp_path / "toil-fake.cmd"
         p.write_text(f'@ECHO OFF\r\n"{sys.executable}" "{script}" %*\r\n',
                      encoding="utf-8", newline="")
         return str(p)
-    p = tmp_path / "pncli-fake"
+    p = tmp_path / "toil-fake"
     p.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8", newline="\n")
     os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return str(p)
@@ -179,22 +180,23 @@ def _body_as_python(body: str) -> str:
 def test_install_hint_names_the_configured_package(tmp_path, monkeypatch):
     """`where` itself is exercised against a fake in tests/test_fakes.py; this is the config half."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.delenv("PNCLI_EXE", raising=False)
+    monkeypatch.delenv("TOIL_EXE", raising=False)
     with open(tmp_path / "cfg.json", "w", encoding="utf-8") as f:
-        json.dump({"pncli": {"npm_package": "@acme/pncli"}}, f)
-    assert "@acme/pncli" in P.install_hint()
-def test_usage_errors_become_the_exact_fix():
-    """2026-09-02 laptop friction: `jira get-issue RDSD-22399` -> pncli wants a NAMED option, --key.
+        json.dump({"toil": {"npm_package": "@acme/toil"}}, f)
+    assert "@acme/toil" in T.install_hint() and "Node 24.14" in T.install_hint()
 
-    Pure string work, so it needs no shell at all; the end-to-end half runs against a fake in
-    tests/test_fakes.py on every OS.
-    """
-    assert P.usage_hint("error: required option '--key <issue-key>' not specified", ["jira", "get-issue", "RDSD-22399"]) == (
-        "pncli options are named, never positional (you passed 'RDSD-22399' positionally): re-run with "
-        "`--key RDSD-22399`, e.g. `pncli jira get-issue --key RDSD-22399`")
-    assert "--key <issue-key>" in P.usage_hint("required option '--key <issue-key>' not specified", ["jira", "get-issue"])
-    assert "run `pncli jira --help` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
-    assert P.usage_hint("Traceback: connection reset", ["jira", "search"]) == ""
+
+def test_a_failed_envelope_is_toils_own_code_and_fix(tmp_path, monkeypatch):
+    """toil answers every failure as `{ok: false, error: {code, message, fix}}`: the code and the fix travel as
+    they are, because toil's fix is always the more exact hint, and the details (an HTTP status) are kept."""
+    body = ("printf '%s' '{\"ok\":false,\"data\":null,\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Issue "
+            "Does Not Exist\",\"fix\":\"Check the key\",\"details\":{\"status\":404}},\"meta\":{}}'; exit 1")
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("TOIL_EXE", _fake_toil(tmp_path, body))
+    with pytest.raises(T.ToilError) as e:
+        T.run(["jira", "issue", "get", "NOPE-1"])
+    assert (e.value.code, e.value.msg, e.value.hint) == ("NOT_FOUND", "Issue Does Not Exist", "Check the key")
+    assert e.value.detail["details"] == {"status": 404}
 
 
 def test_get_issue_renames_and_selects_fields(monkeypatch, tmp_path):
@@ -202,13 +204,25 @@ def test_get_issue_renames_and_selects_fields(monkeypatch, tmp_path):
     on Windows too rather than being skipped there."""
     import fakes
 
-    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="get_issue_ok")
+    fakes.apply(monkeypatch, tmp_path, ["toil"], case="get_issue_ok")
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("PNCLI_EXE", os.path.join(str(tmp_path), "fakebin",
-                                                 "pncli.cmd" if os.name == "nt" else "pncli"))
-    t = P.get_issue("RDSD-22399", ["key", "description"])
+    monkeypatch.setenv("TOIL_EXE", os.path.join(str(tmp_path), "fakebin",
+                                                "toil.cmd" if os.name == "nt" else "toil"))
+    t = T.get_issue("RDSD-22399", ["key", "description"])
     assert t.columns == ["key", "description"]
     assert t.rows == [["RDSD-22399", "AC: 1) x"]]
+
+
+def test_stdin_text_reaches_the_child_and_ends(tmp_path):
+    """A body handed over as stdin (`--body-file -`) arrives whole, and the child reaches EOF instead of waiting."""
+    rc, out, _err, _el = proc.run([sys.executable, "-X", "utf8", "-c",
+                                   "import sys; d = sys.stdin.read(); print(len(d), d[:4])"],
+                                  stdin_text="<p>" + "é" * 5000, timeout=30)
+    assert rc == 0 and out.split() == ["5003", "<p>é"], "UTF-8 on the way in, whatever the console's code page"
+    rc, out, _err, _el = proc.run([sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], timeout=30)
+    assert out.strip() == "''", "no stdin_text is no stdin, never an inherited terminal"
+
+
 def test_well_known_install_dirs_are_searched(tmp_path, monkeypatch):
     """az lives in C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin, which the installer does not always leave on PATH."""
     wbin = tmp_path / "Program Files" / "Microsoft SDKs" / "Azure" / "CLI2" / "wbin"
@@ -232,38 +246,31 @@ def test_a_pinned_js_entry_point_runs_through_node(tmp_path, monkeypatch):
     os.chmod(node_dir / "node", 0o755)
     monkeypatch.setenv("PATH", str(node_dir) + os.pathsep + os.environ.get("PATH", ""))
     script = npm_install(str(tmp_path / "npm"))
-    js = os.path.join(script, "node_modules", "@kolatts", "pncli", "bin", "cli.js")
-    info = proc.resolve("pncli", exe=js, windows=True)
+    js = os.path.join(script, "node_modules", "@imagile-dev", "toil", "bin", "cli.js")
+    info = proc.resolve("toil", exe=js, windows=True)
     assert info["kind"] == "node script" and info["script"].endswith("cli.js") and info["node"].endswith("node")
-    argv = proc.command(["pncli", "jira", "search", "--jql", "a % b"], exe=js, windows=True)
+    argv = proc.command(["toil", "jira", "search", "--jql", "a % b"], exe=js, windows=True)
     assert argv[0].endswith("node") and argv[1].endswith("cli.js") and argv[-1] == "a % b"   # `%` is safe here
     real_which = proc.which                                                       # no node anywhere: say so
     monkeypatch.setattr(proc, "which", lambda name, **kw: None if name == "node" else real_which(name, **kw))
-    info = proc.resolve("pncli", exe=js, windows=True)
+    info = proc.resolve("toil", exe=js, windows=True)
     assert info["kind"] == "executable" and "no `node` on PATH" in info["error"]
 
 
-PAGE_TEMPLATE = "confluence create-page --space {space} --title {title} --parent {parent} --body {body}"
-
-
-def _pin_page(tmp_path, monkeypatch):
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in is a shell script; Windows is covered by test_a_multiline_body_goes_through_a_cmd_shim_on_stdin")
+def test_publish_sends_the_page_on_stdin(tmp_path, monkeypatch, capsys):
+    """toil's page verb reads the body from `--body-file -`. A page of storage format cannot survive shell quoting,
+    so `ad-confluence publish` hands it over on stdin -- and never echoes it into the agent's context."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {"page_create": PAGE_TEMPLATE}}}),
-                                       encoding="utf-8")
-
-
-@pytest.mark.skipif(os.name == "nt", reason="the stand-in is a shell loop; Windows is covered by test_a_multiline_body_is_refused_through_a_cmd_shim")
-def test_publish_sends_the_page_as_one_argument(tmp_path, monkeypatch, capsys):
-    """pncli's page verb takes the body INLINE. A page of storage format cannot survive shell quoting, so
-    `ad-confluence publish` hands it across as a single argv element -- and never echoes it into the agent's
-    context. An empty `--parent {parent}` is left out with its option."""
-    _pin_page(tmp_path, monkeypatch)
     md = '# Findings\n\nA "quoted" & **bold** line, with > and | in it.\n\n- one\n- two\n'
     page = tmp_path / "findings.md"
     page.write_text(md, encoding="utf-8")
-    body = 'prev=""; n=0\nfor a in "$@"; do\n  if [ "$prev" = "--body" ]; then n=${#a}; fi\n  prev="$a"\ndone\n' \
-           'printf \'{"id":"%s-%s"}\' "$#" "$n"'
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, body))
+    body = ('n=$(cat | wc -c | tr -d " ")\n'
+            'printf \'{"ok":true,"data":{"id":"%s-%s"},"error":null,"meta":{"command":"confluence page create"}}\' '
+            '"$#" "$n"')
+    monkeypatch.setenv("TOIL_EXE", _fake_toil(tmp_path, body))
+    import fakes
+    fakes.toil_connections(monkeypatch)
     from agentdata import cli_confluence
     from agentdata import confluence as CF
 
@@ -271,16 +278,16 @@ def test_publish_sends_the_page_as_one_argument(tmp_path, monkeypatch, capsys):
     assert cli_confluence.main(["publish", str(page), "--space", "RDSD"]) == 0
     out = capsys.readouterr().out
     assert f"chars: {len(html)}" in out
-    assert f"page_id: 8-{len(html)}" in out, out     # 8 arguments, the last one the whole body
-    assert "<strong>" not in out and f"--body <{len(html)} chars>" in out   # the page is summarised, never echoed
+    assert f"page_id: 12-{len(html.encode())}" in out, out    # 12 arguments; the body arrived whole, on stdin
+    assert "<strong>" not in out and f"--body-file - --connection corp-wiki --allow-write < <{len(html)} chars>" in out
 
 
 def test_publish_refuses_a_body_that_is_not_markdown(tmp_path, monkeypatch, capsys):
     """The reported bug was a page posted as Markdown and rendered as `## mismatch`. The body is now built here
     from the Markdown source, so what is refused is the other way round: a storage-format file, or no Markdown
-    at all. The refusal closes BEFORE pncli is looked for, on every platform."""
-    _pin_page(tmp_path, monkeypatch)
-    monkeypatch.delenv("PNCLI_EXE", raising=False)
+    at all. The refusal closes BEFORE toil is looked for, on every platform."""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("TOIL_EXE", str(tmp_path / "never-started.cmd"))
     from agentdata import cli_confluence
 
     html = tmp_path / "findings.html"
@@ -295,13 +302,15 @@ def test_publish_refuses_a_body_that_is_not_markdown(tmp_path, monkeypatch, caps
     empty.write_text("\n\n", encoding="utf-8")
     assert cli_confluence.main(["publish", str(empty), "--space", "RDSD", "--dry-run"]) == 2
     assert "refused: empty_source" in capsys.readouterr().out
-    assert "PNCLI_EXE" not in os.environ                              # refused without ever looking for pncli
 
 
 def test_publish_dry_run_resolves_everything_and_launches_nothing(tmp_path, monkeypatch, capsys):
-    """The other half: a dry run reads the facts, builds the body and the argv, and never starts pncli."""
-    _pin_page(tmp_path, monkeypatch)
-    monkeypatch.setenv("PNCLI_EXE", str(tmp_path / "never-started.cmd"))
+    """The other half: a dry run reads the facts, builds the body and the argv, and never starts toil for the write
+    (its connections are read in-process here)."""
+    import fakes
+    fakes.toil_connections(monkeypatch)
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("TOIL_EXE", str(tmp_path / "never-started.cmd"))
     (tmp_path / "AGENTS.md").write_text("- confluence_space: RDSD\n- confluence_parent: 12345\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     page = tmp_path / "findings.md"
@@ -312,7 +321,7 @@ def test_publish_dry_run_resolves_everything_and_launches_nothing(tmp_path, monk
     out = capsys.readouterr().out
     for line in ("action: create", "title: Findings", "space: RDSD", "parent: \"12345\"", "dry_run: true"):
         assert line in out or line.replace('"', "") in out, (line, out)
-    assert "--parent 12345 --body <" in out
+    assert "--parent-id 12345 --body-file - --connection corp-wiki --allow-write < <" in out
 
 
 # --------------------------------------------- the timeout has to be a timeout, grandchildren or not

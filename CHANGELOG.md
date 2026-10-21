@@ -4,6 +4,42 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.22.0
+
+**On update:**
+- **Install toil, then start a new Copilot chat.** toil replaces pncli as the service backend for Jira, Confluence
+  and Bitbucket (`docs/toil-parts.md`). It needs **Node 24.14 or later**:
+  `npm install -g @imagile-dev/toil`, then `toil` (a menu: add the Jira, Confluence and Bitbucket connections; the
+  tokens go to the OS credential store), then `ad-setup --only toil` and `ad-doctor --only toil`. `ad-doctor` fails
+  without toil, and without a Jira connection unless JIRA_TOKEN or the keyring answers. Skills changed
+  (`data-adapter`, `jira-triage`, `session-bootstrap`, `research-spike`, `uat-report-visual`, `jira-changelog`,
+  `jira-router`, `router`, `confluence-publish`, `bitbucket-pr`, `state-update`), and a running chat keeps the old
+  ones. No new Python dependency.
+- **Writes are off until a person turns them on in toil.** `ad-confluence publish`, `ad-git pr` and
+  `ad-jira comment|transition|create` still dry-run and wait on the approval gate first, and toil needs
+  `writes: true` on the connection besides. `ad-git pr` and `ad-confluence publish` read that before they plan and
+  refuse `writes_off` (or `no_connection`, `toil_not_ready`), dry run included, so nobody approves a write toil
+  would refuse; the fleet's wrap-up shows such a row unticked.
+- **The `pncli` config section is retired.** `ad-doctor --only toil` warns about it and `ad-setup --only toil`
+  removes it (`--only pncli` still names the step). The token is no longer read out of `~/.pncli/config.json`;
+  pncli itself can be uninstalled.
+
+**What changed:**
+
+| Was (pncli) | Now (toil) |
+|---|---|
+| `pncli jira search --jql "<JQL>" --max-results 500 > .agent/out/<name>.json` | `toil jira issue search --jql "<JQL>" --limit 500 > .agent/out/<name>.json` |
+| `pncli jira get-issue --key <KEY>` · `pncli jira comments --key <KEY>` | `toil jira issue get <KEY>` · `toil jira issue comments <KEY>` (ids are positional again) |
+| `ad-view` of pncli's JSON | `ad-view` of toil's envelope: a failed one prints toil's code and fix; warnings and the next page's cursor stay on the meta |
+| `ad-jira` borrowing the token from pncli's config by key name | `ad-jira`'s REST calls go through `toil jira api`; the token never leaves toil. Order: env, toil's connection, keyring |
+| pinned verb templates (`pncli.verbs.*`), `refused: not_pinned` | toil's fixed verbs: `confluence page create|update`, `bitbucket pr create|update`; the page body goes on stdin |
+| `ad-git pr` opening a draft | toil has no draft PR: a PR opens ready for review, `--draft` is refused (`draft_unsupported`), and end of day leaves a PR create unticked |
+| the fleet's pncli shim, `pncli_write_in_fleet` | the fleet's toil shim, `toil_write_in_fleet`: `--allow-write` anywhere, or a change to toil's own setup, is refused |
+| `PNCLI_EXE`, `pncli.exe` · `tools.pncli_verified` | `TOIL_EXE`, `toil.exe` (a clone's `dist/toil.js` works) · `tools.toil_verified` |
+
+Downstream scripts that still call the pncli wrapper command (gone since 0.20.0) or parse pncli's JSON need the
+same move: read toil's envelope (`data`), and treat `ok: false` as the failure it is.
+
 ## 0.21.0
 
 **On update:** the two standard commands. No new dependency, no new pncli verb, and no skill changed, so a running

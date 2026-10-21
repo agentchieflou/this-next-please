@@ -86,7 +86,7 @@ def build(pbip_dir: str, visual: str, ticket: str, page: str | None = None, expe
         steps.append({"tier": "1 jira", "cmd": f'ad-jira sprint-replay --sprint <id> --board {facts.get("jira_board_id", "<jira_board_id>")} --jql "project = {project} AND updated >= \'{start}\'"', "gives": "<jira.tsv>: committed/completed per issue (truth for points)"})
     else:
         saved = f".agent/out/{ticket}-jira.json"
-        steps.append({"tier": "1 jira", "cmd": f'pncli jira search --jql "project = {project} AND updated >= \'{start}\' AND updated <= \'{end}\'" --max-results 2000 > {saved}   # then: ad-view {saved} --fields key,status,assignee,updated --name jira',
+        steps.append({"tier": "1 jira", "cmd": f'toil jira issue search --jql "project = {project} AND updated >= \'{start}\' AND updated <= \'{end}\'" --limit 2000 > {saved}   # then: ad-view {saved} --fields key,status,assignee,updated --name jira',
                       "gives": "<jira.tsv>: live values (truth), the path ad-view prints"})
     steps.append({"tier": "reconcile", "cmd": f"ad-uat reconcile --expected <expected.tsv> --jira <jira.tsv> --hist <hist.tsv> --pbi <pbi.tsv> --key {key_guess} --cols {','.join(metrics) or '<metric>'} --window {start},{end} --hist-coverage <cov.tsv> --ticket {ticket}",
                   "gives": ".agent/out/<ticket>-uat-findings.md with a class per (key, metric)"})

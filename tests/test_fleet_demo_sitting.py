@@ -250,7 +250,7 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
 
         # 6. Wrap up (#510): `w` on luna's pane opens the project panel with the sheet. #503's `RUN`
         #    is recorded: push is real git against a bare origin, the comment goes to the fake Jira,
-        #    and the pr and page adapters answer as `main` does until #506 and #507 land.
+        #    and the pr and page adapters answer that toil cannot write yet: this machine has no toil.
         wrapped = _wrap_up_from_the_pane(grid, desk, tmp_path, monkeypatch)
         assert not errors, errors
         close_pages(browser)
@@ -268,7 +268,7 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
     assert [r["step"] for r in rows] == ["push", "pr", "page", "onenote", "comment", "transition", "transition"], rows
     by = {r["slot"]: r for r in rows}
     for step in ("pr", "page"):
-        assert "not_pinned" in by[step]["text"] and by[step]["disabled"] and not by[step]["checked"], by[step]
+        assert "toil_not_ready" in by[step]["text"] and by[step]["disabled"] and not by[step]["checked"], by[step]
     assert by["push"]["checked"] and by["comment"]["checked"], rows
     assert not by["transition-review"]["checked"] and not by["transition-done"]["checked"], rows
     assert [p.get("dry_run") for p in wrapped["posts"]] == [True, None], wrapped["posts"]

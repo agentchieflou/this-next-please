@@ -1,7 +1,7 @@
 """The fake-tool harness, and the Windows behaviour it un-skips.
 
 `tests/test_proc.py` had six tests marked `skipif(os.name == "nt")` with the reason "POSIX shell
-stand-in for pncli" — so the Windows behaviour of the module that exists *because of* Windows was
+stand-in for pncli" (toil's predecessor) — so the Windows behaviour of the module that exists *because of* Windows was
 skipped on Windows, which is where it breaks. These run on both.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import sys
 import pytest
 
 from agentdata import proc
-from agentdata.connectors import pncli as P
+from agentdata.connectors import toil as T
 
 import fakes
 
@@ -27,17 +27,17 @@ WINDOWS = os.name == "nt"
 
 
 def test_a_fake_materialises_for_this_platform(tmp_path):
-    fakes.install(tmp_path, ["pncli"])
+    fakes.install(tmp_path, ["toil"])
     bin_dir = os.path.join(str(tmp_path), "fakebin")
-    assert os.path.isfile(os.path.join(bin_dir, "pncli")), "the sh shim is written on every OS"
+    assert os.path.isfile(os.path.join(bin_dir, "toil")), "the sh shim is written on every OS"
     if WINDOWS:
-        shim = open(os.path.join(bin_dir, "pncli.cmd"), encoding="utf-8").read()
+        shim = open(os.path.join(bin_dir, "toil.cmd"), encoding="utf-8").read()
         assert "node_modules" in shim, "the Windows shim must look like npm's, because proc.py unwraps it"
 
 
 def test_an_unmatched_argv_is_loud(tmp_path):
-    env = fakes.install(tmp_path, ["pncli"])
-    p = subprocess.run([sys.executable, fakes.RUNNER, "pncli", "nothing", "like", "this"],
+    env = fakes.install(tmp_path, ["toil"])
+    p = subprocess.run([sys.executable, fakes.RUNNER, "toil", "nothing", "like", "this"],
                        capture_output=True, text=True, env=env)
     assert p.returncode == 99, "a silent success would prove nothing"
     assert "no transcript matches" in p.stderr
@@ -45,10 +45,10 @@ def test_an_unmatched_argv_is_loud(tmp_path):
 
 
 def test_a_case_can_be_selected_explicitly(tmp_path):
-    env = fakes.install(tmp_path, ["pncli"], case="version")
-    p = subprocess.run([sys.executable, fakes.RUNNER, "pncli", "--version"],
+    env = fakes.install(tmp_path, ["toil"], case="version_old_node")
+    p = subprocess.run([sys.executable, fakes.RUNNER, "toil", "version"],
                        capture_output=True, text=True, env=env)
-    assert p.returncode == 0 and "pncli/1.4.0" in p.stdout
+    assert p.returncode == 1 and "UNSUPPORTED_NODE" in p.stdout
 
 
 def test_an_always_transcript_answers_under_any_case(tmp_path, monkeypatch):
@@ -114,7 +114,7 @@ def test_an_unclaimed_argv_still_says_so(tmp_path):
 
 
 def test_every_transcript_records_its_provenance():
-    for tool in ("pip", "gh", "pncli", "az", "te2", "dscmd", "powershell"):
+    for tool in ("pip", "gh", "toil", "az", "te2", "dscmd", "powershell"):
         assert fakes.cases(tool), f"{tool} has no transcripts"
         for case in fakes.cases(tool):
             entry = fakes.load_case(tool, case)
@@ -129,58 +129,65 @@ def test_the_recorder_exists_and_explains_itself():
     assert "captured" in text and "invented" in text
 
 
-# ------------------------------------------------- the pncli tests, now running on both platforms
+# ------------------------------------------------- the toil tests, running on both platforms
 
 
-def _pncli_env(monkeypatch, tmp_path, case):
-    fakes.apply(monkeypatch, tmp_path, ["pncli"], case=case)
+def _toil_env(monkeypatch, tmp_path, case):
+    fakes.apply(monkeypatch, tmp_path, ["toil"], case=case)
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
     bin_dir = os.path.join(str(tmp_path), "fakebin")
-    exe = os.path.join(bin_dir, "pncli.cmd" if WINDOWS else "pncli")
-    monkeypatch.setenv("PNCLI_EXE", exe)
+    exe = os.path.join(bin_dir, "toil.cmd" if WINDOWS else "toil")
+    monkeypatch.setenv("TOIL_EXE", exe)
     return exe
 
 
-def test_pncli_run_returns_the_payload(monkeypatch, tmp_path):
-    _pncli_env(monkeypatch, tmp_path, "search_ok")
-    payload, elapsed = P.run(["jira", "search", "--jql", "key = RDSD-1"])
-    assert payload["issues"][0]["key"] == "RDSD-1"
+def test_toil_run_returns_the_envelope(monkeypatch, tmp_path):
+    _toil_env(monkeypatch, tmp_path, "search_ok")
+    envelope, elapsed = T.run(["jira", "issue", "search", "--jql", "key = RDSD-22399", "--limit", "50"])
+    assert envelope["ok"] is True and envelope["data"]["issues"][0]["key"] == "RDSD-22399"
+    assert envelope["meta"]["page"] == {"nextCursor": None, "limit": 50}
     assert elapsed >= 0
 
 
-def test_pncli_non_json_output_is_a_bad_output_error(monkeypatch, tmp_path):
-    _pncli_env(monkeypatch, tmp_path, "bad_json")
+def test_output_that_is_not_an_envelope_is_a_bad_output_error(monkeypatch, tmp_path):
+    _toil_env(monkeypatch, tmp_path, "search_prose")
     with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "search"])
+        T.run(["jira", "issue", "search"])
     assert e.value.code == "bad_output"
     assert e.value.detail["exit_code"] == 3
     assert "not json" in e.value.msg
 
 
-def test_pncli_own_error_is_surfaced_verbatim(monkeypatch, tmp_path):
-    _pncli_env(monkeypatch, tmp_path, "pncli_error")
-    with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "search"])
-    assert e.value.code == "pncli_error" and e.value.msg == "bad JQL"
+@pytest.mark.parametrize("case, code, fix", [
+    ("not_found", "NOT_FOUND", "Check the key"),
+    ("not_configured", "NOT_CONFIGURED", "TOIL_JIRA_BASE_URL"),
+    ("write_disabled", "WRITE_DISABLED", '"writes": true'),
+])
+def test_toils_own_error_is_surfaced_with_its_code_and_fix(monkeypatch, tmp_path, case, code, fix):
+    _toil_env(monkeypatch, tmp_path, case)
+    argv = ["confluence", "page", "create"] if case == "write_disabled" else ["jira", "issue", "get", "X-1"]
+    with pytest.raises(T.ToilError) as e:
+        T.run(argv)
+    assert e.value.code == code and fix in e.value.hint
 
 
-def test_a_missing_pncli_names_the_npm_package(monkeypatch, tmp_path):
-    """The 2026-09-02 failure: there is no pncli.exe, and the hint has to say so."""
+def test_a_missing_toil_names_the_npm_package(monkeypatch, tmp_path):
+    """The 2026-09-02 failure, met first with pncli: there is no toil.exe, and the hint has to say so."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("PNCLI_EXE", str(tmp_path / "gone.cmd"))
+    monkeypatch.setenv("TOIL_EXE", str(tmp_path / "gone.cmd"))
     with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "search"])
+        T.run(["jira", "issue", "search"])
     assert e.value.code == "not_found"
-    assert "npm install -g @kolatts/pncli" in e.value.hint
+    assert "npm install -g @imagile-dev/toil" in e.value.hint
 
 
 def test_ad_view_gives_a_saved_get_issue_answer_the_issue_columns(monkeypatch, tmp_path, capsys):
-    """The recipe the skills teach: `pncli jira get-issue --key <KEY> > .agent/out/<KEY>.json`, then
-    `ad-view` it. The file is what the fake really printed, BOM and all, as PowerShell 5.1 writes it."""
+    """The recipe the skills teach: `toil jira issue get <KEY> > .agent/out/<KEY>.json`, then `ad-view` it. The
+    file is what the fake really printed, BOM and all, as PowerShell 5.1 writes it."""
     from agentdata import cli
 
-    _pncli_env(monkeypatch, tmp_path, "get_issue_ok")
-    rc, out, _err, _el = proc.run(["pncli", "jira", "get-issue", "--key", "RDSD-22399"], exe=P.exe(), timeout=60)
+    _toil_env(monkeypatch, tmp_path, "get_issue_ok")
+    rc, out, _err, _el = proc.run(["toil", "jira", "issue", "get", "RDSD-22399"], exe=T.exe(), timeout=60)
     assert rc == 0
     saved = tmp_path / "RDSD-22399.json"
     saved.write_bytes(b"\xef\xbb\xbf" + out.encode("utf-8"))
@@ -189,25 +196,26 @@ def test_ad_view_gives_a_saved_get_issue_answer_the_issue_columns(monkeypatch, t
     cli.main_view()
     shown = capsys.readouterr().out
     assert "RDSD-22399" in shown and "In Progress" in shown and "status" in shown
-    assert "fields.status.name" not in shown, "the issue columns, not pncli's flattened paths"
+    assert "fields.status.name" not in shown, "the issue columns, not the flattened paths"
 
 
 def test_ad_view_gives_a_saved_search_the_search_columns_in_the_encoding_powershell_wrote(monkeypatch, tmp_path,
                                                                                           capsys):
-    """`pncli jira search ... > .agent/out/x.json` from Windows PowerShell 5.1 writes UTF-16 with a BOM; the
-    answer still reads as the search it is, and an empty file (pncli printed its usage error to stderr) says so."""
+    """`toil jira issue search ... > .agent/out/x.json` from Windows PowerShell 5.1 writes UTF-16 with a BOM; the
+    envelope still reads as the search it is, and an empty file says so."""
     from agentdata import cli
 
-    _pncli_env(monkeypatch, tmp_path, "search_ok")
-    _rc, out, _err, _el = proc.run(["pncli", "jira", "search", "--jql", "key = RDSD-1"], exe=P.exe(), timeout=60)
+    _toil_env(monkeypatch, tmp_path, "search_ok")
+    _rc, out, _err, _el = proc.run(["toil", "jira", "issue", "search", "--jql", "key = RDSD-22399"], exe=T.exe(),
+                                   timeout=60)
     saved = tmp_path / "search.json"
     saved.write_bytes(out.encode("utf-16"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["ad-view", str(saved)])
     cli.main_view()
     shown = capsys.readouterr().out
-    assert "key: RDSD-1" in shown and re.search(r'source: "?ad-view', shown), shown
-    assert "status:" in shown and "summary:" in shown, "the search columns, even for an issue with no fields"
+    assert "RDSD-22399" in shown and re.search(r'source: "?ad-view', shown), shown
+    assert "status" in shown and "summary" in shown and "Ana Lee" in shown, "the search columns"
     empty = tmp_path / "empty.json"
     empty.write_text("", encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["ad-view", str(empty)])
@@ -216,29 +224,51 @@ def test_ad_view_gives_a_saved_search_the_search_columns_in_the_encoding_powersh
     assert e.value.code == 1 and "is empty" in capsys.readouterr().out
 
 
-def test_where_reports_the_resolved_launcher(monkeypatch, tmp_path):
-    exe = _pncli_env(monkeypatch, tmp_path, "version")
-    info = P.where()
+def test_ad_view_prints_a_failed_envelope_as_toils_error_and_fix(monkeypatch, tmp_path, capsys):
+    from agentdata import cli
+
+    _toil_env(monkeypatch, tmp_path, "not_found")
+    _rc, out, _err, _el = proc.run(["toil", "jira", "issue", "get", "NOPE-1"], exe=T.exe(), timeout=60)
+    saved = tmp_path / "NOPE-1.json"
+    saved.write_text(out, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["ad-view", str(saved)])
+    with pytest.raises(SystemExit) as e:
+        cli.main_view()
+    shown = capsys.readouterr().out
+    assert e.value.code == 1 and "NOT_FOUND: Issue Does Not Exist" in shown and "Check the key" in shown
+
+
+def test_where_reports_the_resolved_launcher_and_toils_version(monkeypatch, tmp_path):
+    exe = _toil_env(monkeypatch, tmp_path, "version")
+    info = T.where()
     assert info["found"] and info["rc"] == 0
-    assert info["version"] == "pncli/1.4.0"
+    assert info["version"] == "0.1.0-alpha.5" and info["node_version"] == "24.14.0" and info["contract"] == 1
     assert exe.replace("\\", "/").endswith(info["path"].replace("\\", "/").split("/")[-1])
 
 
-def test_a_positional_argument_becomes_the_exact_fix(monkeypatch, tmp_path):
-    """2026-09-02 laptop friction: pncli options are named, never positional."""
-    _pncli_env(monkeypatch, tmp_path, "positional_option")
-    with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "get-issue", "RDSD-22399"])
-    assert e.value.code == "bad_output"
-    assert "--key RDSD-22399" in e.value.hint
+def test_where_says_when_node_is_too_old(monkeypatch, tmp_path):
+    _toil_env(monkeypatch, tmp_path, "version_old_node")
+    info = T.where()
+    assert info["found"] and info["rc"] == 1 and info["code"] == "UNSUPPORTED_NODE"
+    assert "Node 24.14" in info["error"] and info["fix"].startswith("Install Node")
 
 
-def test_get_issue_uses_the_named_option(monkeypatch, tmp_path):
-    _pncli_env(monkeypatch, tmp_path, "get_issue_ok")
-    table = P.get_issue("RDSD-22399")
-    assert table.source == "pncli jira get-issue --key RDSD-22399"
+def test_get_issue_reads_the_issue(monkeypatch, tmp_path):
+    _toil_env(monkeypatch, tmp_path, "get_issue_ok")
+    table = T.get_issue("RDSD-22399")
+    assert table.source == "toil jira issue get RDSD-22399"
     row = dict(zip(table.columns, table.rows[0]))
     assert row["key"] == "RDSD-22399" and row["status"] == "In Progress"
+
+
+def test_connections_lists_the_service_connections(monkeypatch, tmp_path):
+    _toil_env(monkeypatch, tmp_path, "connections_list")
+    conns = T.connections()
+    assert {c["area"] for c in conns} == {"jira", "confluence", "bitbucket"}
+    assert T.connection_for("jira", conns, {})["host"] == "jira.example.test"
+    assert T.connection_for("jira-cloud", conns, {}) is None
+    assert T.connection_for("jira", conns, {"toil": {"connections": {"jira": "other"}}}) is None, \
+        "a pinned connection that does not exist is none, never a different one"
 
 
 # --------------------------------------------------------------------- the npm shim, unwrapped
@@ -250,10 +280,10 @@ def test_proc_unwraps_an_npm_shim(monkeypatch, tmp_path):
 
     This is the behaviour the old `skipif(nt)` tests skipped on the one OS where it matters.
     """
-    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="version")
-    shim = os.path.join(str(tmp_path), "fakebin", "pncli.cmd")
-    info = proc.resolve("pncli")
-    assert info["path"].lower().endswith(("pncli.cmd", "pncli"))
+    fakes.apply(monkeypatch, tmp_path, ["toil"], case="version")
+    shim = os.path.join(str(tmp_path), "fakebin", "toil.cmd")
+    info = proc.resolve("toil")
+    assert info["path"].lower().endswith(("toil.cmd", "toil"))
     assert os.path.isfile(shim)
 
 
@@ -277,30 +307,22 @@ def test_the_gh_already_installed_transcript_replays(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the cmd.exe quoting limit is a Windows concept")
-def test_a_multiline_body_is_refused_through_a_cmd_shim(monkeypatch, tmp_path, capsys):
-    """The Windows half of `ad-confluence publish`, which sends the page body as one argument.
-
-    A page of HTML cannot survive cmd.exe's parsing, so when the only launcher is a `.cmd` shim with
-    nothing for `proc.unwrap_shim` to run under Node, the command refuses with a hint naming the way
-    out rather than sending a mangled body to Confluence. That refusal *is* the Windows behaviour,
-    and it is worth asserting. Paragraphs fold onto one line in storage format; a fenced block keeps
-    its newlines, so that is the body that has to be refused.
-    """
+def test_a_multiline_body_goes_through_a_cmd_shim_on_stdin(monkeypatch, tmp_path, capsys):
+    """The Windows half of `ad-confluence publish`. pncli took the page body as one argument, and a page of HTML
+    cannot survive cmd.exe's parsing, so a `.cmd`-only launcher had to refuse it. toil reads the body from
+    `--body-file -`, so the body never touches the command line: even through a plain `.cmd` shim with nothing for
+    `proc.unwrap_shim` to run under Node, a fenced block with its newlines is sent."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {
-        "page_create": "confluence create-page --space {space} --title {title} --body {body}"}}}), encoding="utf-8")
     page = tmp_path / "page.md"
     page.write_text("# Findings\n\n```\nline one\nline two\n```\n", encoding="utf-8")
-    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="search_ok", npm=False)
-    monkeypatch.setenv("PNCLI_EXE", os.path.join(str(tmp_path), "fakebin", "pncli.cmd"))
+    fakes.apply(monkeypatch, tmp_path, ["toil"], case="page_created", npm=False)
+    monkeypatch.setenv("TOIL_EXE", os.path.join(str(tmp_path), "fakebin", "toil.cmd"))
 
     from agentdata import cli_confluence
 
-    assert cli_confluence.main(["publish", str(page), "--space", "S"]) == 1
+    assert cli_confluence.main(["publish", str(page), "--space", "S"]) == 0
     out = capsys.readouterr().out
-    assert "ok: false" in out
-    assert "cmd.exe" in out, "the refusal must say why"
-    assert "Node.js" in out or "entry point" in out, "and how to get past it"
+    assert "page_id: \"98765\"" in out or "page_id: 98765" in out, out
 
 
 # ------------------------------------------------------------------- no skipif(nt) left behind

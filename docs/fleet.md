@@ -413,8 +413,8 @@ the month's credits every new launch steps `auto` down to `efficiency`, `ad-flee
 still the only stop ([fleet-lifecycle.md](fleet-lifecycle.md) §The budget). The fleet's only deny is
 its own commands (`ad-fleet`, `ad-update`, `ad-setup`), plus whatever you deny on the settings page.
 Writes made through `ad-*` commands still wait on the approval gate, which is in the command. A
-pncli write is refused in every mode: the agent's PATH starts with the fleet's pncli shim, which runs
-a read and refuses a write with the extension that does it ([fleet-approvals.md](fleet-approvals.md)
+toil write is refused in every mode: the agent's PATH starts with the fleet's toil shim, which runs
+a read and refuses a write (`--allow-write`, or a change to toil's own setup) with the extension that does it ([fleet-approvals.md](fleet-approvals.md)
 §What is gated). A `curl` write is the agent's, as it is in a window where you said yes. Each of these
 is on the settings page, fleet-wide and per agent; `fleet.permissions: strict` is everything below.
 
@@ -442,7 +442,7 @@ deny-list. The spike measured Copilot's own permission classifier refusing three
 file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
 `git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
 branch and an unconfigured remote itself and waits on the gate, and the PR is `shell(ad-git pr)`.
-`shell(git push)` stays denied. `shell(pncli)` is allowed: the shim is its gate.
+`shell(git push)` stays denied. `shell(toil)` is allowed: the shim is its gate.
 Two module forms are on the list, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
 agent whose launcher will not start can still record that it is stuck. The write adapters (jira,
 confluence, git) have none: the `python` on PATH may be another install, one without the
@@ -463,7 +463,7 @@ offered (a deny wins over an allow, so the grant would be a lie); that row says 
 settings page beside the rest, and taken back there.
 
 **An agent starts with what a new terminal would have.** The desk runs for days, and a launch used
-to hand each agent the desk's own environment as it was when the desk started -- so pncli, the Azure
+to hand each agent the desk's own environment as it was when the desk started -- so toil, the Azure
 CLI or a proxy setting installed since were in every new terminal and missing from every agent. On
 Windows a launch now tops the desk's environment up from the current sign-in's (the machine's and
 your variables in the registry): directories PATH is missing are appended after its own, variables

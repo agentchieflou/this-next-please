@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from agentdata.connectors import pncli as P
+from agentdata.connectors import toil as T
 from agentdata.fleet import approval, events as E, launch, registry
 
 from test_fleet import make_project
@@ -201,39 +201,52 @@ def test_pending_never_prunes_and_decided_eventually_does(as_agent):
 
 
 @pytest.mark.parametrize("args", [
-    ["jira", "search", "--jql", "key = RDSD-1"],
-    ["jira", "get", "--key", "RDSD-1"],
-    ["jira", "get-issue", "--key", "RDSD-1"],
-    ["confluence", "get-page", "--id", "123"],
-    ["bitbucket", "list-prs"],
-    ["confluence", "create-page", "--dry-run", "--title", "x"],   # a dry run sends nothing
-    ["jira", "transition", "--dry-run"],
+    ["jira", "issue", "search", "--jql", "key = RDSD-1"],
+    ["jira", "issue", "get", "RDSD-1"],
+    ["jira", "issue", "history", "RDSD-1"],
+    ["jira", "api", "GET", "rest/api/2/myself"],
+    ["confluence", "page", "get", "123"],
+    ["bitbucket", "pr", "list"],
+    ["confluence", "page", "create", "--help"],
     ["--help"],
-    ["where"],
+    ["version"],
+    ["connections", "list"],
+    ["connections", "test", "corp-jira"],
+    ["dossiers", "show"],
+    ["wait", "--until", "result != null", "--", "jenkins", "run", "get", "x", "42"],
 ])
-def test_reads_and_dry_runs_are_never_gated(args):
-    assert not P.is_write(args), args
+def test_reads_and_help_are_never_gated(args):
+    assert not T.is_write(args), args
 
 
 @pytest.mark.parametrize("args", [
-    ["confluence", "create-page", "--title", "x"],
-    ["confluence", "update-page", "--id", "1"],
-    ["jira", "comment", "--key", "RDSD-1", "--body", "x"],
-    ["jira", "transition", "--key", "RDSD-1"],
-    ["bitbucket", "create-pull-request", "--title", "x"],
-    ["bitbucket", "pr-create"],                      # the verb is still TODO(HANDOFF); gated anyway
-    ["jira", "some-verb-nobody-has-pinned"],
+    ["confluence", "page", "create", "--title", "x", "--allow-write"],
+    ["confluence", "page", "update", "1", "--allow-write"],
+    ["jira", "issue", "comment", "RDSD-1", "--body", "x", "--allow-write"],
+    ["jira", "issue", "transition", "RDSD-1", "--to", "done", "--allow-write"],
+    ["bitbucket", "pr", "create", "--title", "x", "--allow-write"],
+    ["jira", "api", "POST", "rest/api/2/issue", "--allow-write"],
+    ["--allow-write", "bitbucket", "pr", "merge", "42"],
+    ["jira", "issue", "comment", "RDSD-1", "--body", "--allow-write"],    # as a value it still counts
+    ["jira", "issue", "transition", "RDSD-1", "--allow-write=true"],
+    ["wait", "--until", "x", "--", "jira", "issue", "transition", "RDSD-1", "--allow-write"],   # past `--` too
+    ["connections", "add", "corp"], ["connections", "login", "corp"], ["connections"],
+    ["dossiers", "init", "pay"], ["skill", "install"], ["skills", "marketplace", "add", "x"],
+    ["setup", "alias"], ["feedback", "bug", "--consent"], ["mcp"],
 ])
-def test_anything_not_known_to_be_a_read_is_a_write(args):
-    """The asymmetry is the design. A write verb missing from a write-list would be sent
-    unattended; a read verb missing from the read-list costs one extra click."""
-    assert P.is_write(args), args
+def test_anything_that_can_write_is_a_write(args):
+    """toil refuses a service write without `--allow-write`, so its presence anywhere is the write -- even as some
+    option's value, because a false yes costs one refused read and a false no sends a write unattended. The
+    commands that write toil's own setup without the flag are writes too."""
+    assert T.is_write(args), args
 
 
-def test_the_verb_is_read_from_the_bare_tokens_not_the_options():
-    """pncli is commander.js: every argument is a named option, so nothing but the command path can
-    look like a verb -- including a value that happens to read like one."""
-    assert P.verb(["confluence", "create-page", "--title", "jira get"]) == ("confluence", "create-page")
+def test_the_command_path_skips_global_option_values():
+    """`toil --workspace jira connections list` is a listing, not a Jira call: the value of a global option is not
+    the command."""
+    assert T.verb(["--workspace", "jira", "connections", "list"]) == ("connections", "list")
+    assert not T.is_write(["--workspace", "jira", "connections", "list"])
+    assert T.verb(["jira", "issue", "get", "RDSD-1", "--select", "fields.status"]) == ("jira", "issue", "get")
 
 
 # ----------------------------------------------------------- the commands that are gated
@@ -341,8 +354,8 @@ def test_the_launch_line_denies_every_way_round_the_gate(pattern):
     """Layer 1, for an agent set to `fleet.permissions: strict`. None of these is on the allow-list
     either -- this is the second line, because the boundary otherwise is a model's own classifier,
     which the spike measured being talked around. (The default since 2026-10-02 is a Copilot window's
-    tools, where layer 2 -- the gate inside every `ad-*` write -- is the boundary.) pncli is not here:
-    it is allowed, and the fleet's shim refuses its writes (tests/test_fleet_pncli_gate.py)."""
+    tools, where layer 2 -- the gate inside every `ad-*` write -- is the boundary.) toil is not here:
+    it is allowed, and the fleet's shim refuses its writes (tests/test_fleet_toil_gate.py)."""
     strict = {"fleet": {"permissions": "strict"}}
     deny = launch.deny_tools(strict)
     assert pattern in deny
@@ -353,10 +366,10 @@ def test_the_contract_lists_every_refusal_code_and_every_gated_verb():
     text = open(CONTRACT, encoding="utf-8").read()
     for code in approval.REFUSALS.values():
         assert f"`{code}`" in text, f"{code} is not documented"
-    for product, verb in sorted(P.READ_VERBS):
-        assert f"{product} {verb}" in text, f"the read verb {product} {verb} is not documented"
+    for group in sorted(T.LOCAL_WRITES):
+        assert f"`{group}`" in text, f"the local-write group {group} is not documented"
     assert "ad-jira transition" in text and "ad-confluence publish" in text and "ad-git pr" in text
-    assert "`pncli_write_in_fleet`" in text and "fleet's pncli shim" in text
+    assert "`toil_write_in_fleet`" in text and "fleet's toil shim" in text and "`--allow-write`" in text
 
 
 def test_every_skill_that_writes_tells_the_agent_what_a_refusal_means():
@@ -368,65 +381,56 @@ def test_every_skill_that_writes_tells_the_agent_what_a_refusal_means():
         assert "friction-log" in body
 
 
-def _pncli_env(monkeypatch, tmp_path, case="search_ok"):
+def _toil_env(monkeypatch, tmp_path, case="search_ok"):
     from tests import fakes                                    # noqa: F401 - registered by the harness
     import test_fakes
 
-    return test_fakes._pncli_env(monkeypatch, tmp_path, case)
+    return test_fakes._toil_env(monkeypatch, tmp_path, case)
 
 
 def _gate(argv, capsys):
-    from agentdata.fleet import pncli_gate
+    from agentdata.fleet import toil_gate
 
-    code = pncli_gate.main(list(argv))
+    code = toil_gate.main(list(argv))
     return code, capsys.readouterr().out
 
 
 def test_the_fleet_shim_gates_a_write_and_leaves_a_read_alone(as_agent, monkeypatch, tmp_path, capfd):
-    """pncli is run directly, so the shim first on a fleet agent's PATH is where a Confluence page or a
-    Bitbucket PR would be created -- it refuses, and names the extension. `jira search` through the
-    same shim must reach the real pncli untouched, and neither asks the operator anything."""
-    from agentdata.fleet import pncli_gate
+    """toil is run directly, so the shim first on a fleet agent's PATH is where a Confluence page or a
+    Bitbucket PR would be created -- it refuses, and names the extension. A Jira search through the
+    same shim must reach the real toil untouched, and neither asks the operator anything."""
+    from agentdata.fleet import toil_gate
 
-    _pncli_env(monkeypatch, tmp_path)
-    assert pncli_gate.main(["jira", "search", "--jql", "key = RDSD-1"]) == 0
-    assert '"key": "RDSD-1"' in capfd.readouterr().out
-    assert pncli_gate.main(["confluence", "create-page", "--space", "RDSD", "--title", "Findings"]) == 2
+    _toil_env(monkeypatch, tmp_path)
+    assert toil_gate.main(["jira", "issue", "search", "--jql", "key = RDSD-22399"]) == 0
+    assert '"key":"RDSD-22399"' in capfd.readouterr().out
+    assert toil_gate.main(["confluence", "page", "create", "--space", "RDSD", "--title", "Findings",
+                           "--allow-write"]) == 2
     out = capfd.readouterr().out
-    assert "refused: pncli_write_in_fleet" in out and "ad-confluence publish" in out
+    assert "refused: toil_write_in_fleet" in out and "ad-confluence publish" in out
     assert approval.pending() == [], "the shim refuses; the extension is what asks"
 
 
-def test_a_help_token_in_a_value_position_is_a_write_to_the_shim(as_agent, monkeypatch, capsys):
-    """#524: `--title -h` is the PR's title, not a help request, so the shim refuses it as the write it
-    is and runs nothing."""
-    from agentdata.fleet import pncli_gate
+def test_a_help_token_does_not_unlock_a_write(as_agent, monkeypatch, capsys):
+    """#524, with toil: `--allow-write` decides before `--help` is looked at, so `-h` as a PR title -- or as a flag
+    -- never lets a write through the shim."""
+    from agentdata.fleet import toil_gate
 
     ran = []
-    monkeypatch.setattr(pncli_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
-    code, out = _gate(["bitbucket", "create-pr", "--title", "-h"], capsys)
-    assert code == 2 and ran == [] and "refused: pncli_write_in_fleet" in out and "ad-git pr" in out
+    monkeypatch.setattr(toil_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
+    code, out = _gate(["bitbucket", "pr", "create", "--title", "-h", "--allow-write"], capsys)
+    assert code == 2 and ran == [] and "refused: toil_write_in_fleet" in out and "ad-git pr" in out
 
 
-def test_a_dry_run_token_in_a_value_position_is_a_write_to_the_shim(as_agent, monkeypatch, capsys):
-    """#525: `--title --dry-run` is the PR's title, and pncli would send the real write, so the shim
-    refuses it and runs nothing."""
-    from agentdata.fleet import pncli_gate
-
-    ran = []
-    monkeypatch.setattr(pncli_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
-    code, out = _gate(["bitbucket", "create-pr", "--title", "--dry-run"], capsys)
-    assert code == 2 and ran == [] and "refused: pncli_write_in_fleet" in out
-
-
-def test_a_real_dry_run_flag_runs_without_asking(as_agent, monkeypatch, capsys):
-    """#525: the flag of its own is still a dry run: the shim runs pncli at once and nothing waits."""
-    from agentdata.fleet import pncli_gate
+def test_a_write_without_allow_write_runs_and_toil_itself_refuses_it(as_agent, monkeypatch, capsys):
+    """Without `--allow-write` toil sends nothing (WRITE_DISABLED), so the shim has no reason to stop it: it runs at
+    once, nothing waits, and toil's own refusal is what the agent reads."""
+    from agentdata.fleet import toil_gate
 
     ran = []
-    monkeypatch.setattr(pncli_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
-    code, _out = _gate(["bitbucket", "create-pr", "--dry-run", "--title", "x"], capsys)
-    assert code == 0 and ran == [["bitbucket", "create-pr", "--dry-run", "--title", "x"]]
+    monkeypatch.setattr(toil_gate, "passthrough", lambda argv: ran.append(list(argv)) or 0)
+    code, _out = _gate(["bitbucket", "pr", "create", "--title", "x"], capsys)
+    assert code == 0 and ran == [["bitbucket", "pr", "create", "--title", "x"]]
     assert approval.pending() == []
 
 
@@ -610,9 +614,9 @@ def test_an_approve_comment_reaches_the_gated_commands_meta(as_agent, monkeypatc
     # ad-confluence publish: on the printed meta.
     from agentdata import cli_confluence
 
-    _pncli_env(monkeypatch, tmp_path, "page_created")
-    (tmp_path / "cfg.json").write_text(json.dumps({"pncli": {"verbs": {
-        "page_create": "confluence create-page --space {space} --title {title} --body {body}"}}}), encoding="utf-8")
+    _toil_env(monkeypatch, tmp_path, "page_created")
+    from tests import fakes as F
+    F.toil_connections(monkeypatch)
     page = tmp_path / "findings.md"
     page.write_text("# Findings\n\nTwo rows differ.\n", encoding="utf-8")
     assert cli_confluence.main(["publish", str(page), "--space", "RDSD"]) == 0

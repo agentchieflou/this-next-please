@@ -27,9 +27,11 @@ goes to **disk**. Agents never choose; the adapter does.
 `stats` block = per column: `nulls`, `distinct`, and `min`/`max` for numeric/date columns.
 
 ## Connector notes
-- **pncli** always emits JSON, and is run directly: its answer goes to a file under `.agent/out/`
-  (`pncli jira search --jql "<JQL>" > .agent/out/<name>.json`), and `ad-view <file.json>` renders it. `ad-view`
-  extracts the result array (`issues`, `results`, `values`, or root list), flattens Jira `fields.*` one level, then
+- **toil** always emits one JSON envelope (`{ok, data, error, meta}`), and is run directly: its answer goes to a file
+  under `.agent/out/` (`toil jira issue search --jql "<JQL>" > .agent/out/<name>.json`), and `ad-view <file.json>`
+  renders it. A failed envelope prints toil's code, message and fix; `meta.warnings` and the next page's cursor are
+  kept on the rendered meta; `--output-format toon` data is printed as the TOON it already is. Otherwise `ad-view`
+  extracts the result array from `data` (`issues`, `results`, `values`, or root list), flattens Jira `fields.*` one level, then
   applies rules 4–8; the full rows stay in the file. A Jira search or a single issue gets the Jira columns:
   default projection `key,status,assignee,priority,updated,summary`. Pass `--fields` to change.
 - **Teradata / Oracle / Hive** already return tabular. Rows are capped server-side at `--max-rows`

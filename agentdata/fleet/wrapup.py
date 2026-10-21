@@ -9,7 +9,7 @@ template (WRAP-D2), shown in full and editable.
 
 **Every write is an adapter, previewed.** `plan` runs each step's own `ad-*` adapter with `--dry-run` -- `git push`
 (#502), `git pr` (#506), `confluence publish` (#507), `jira comment` (#501) and `jira transition` --
-as `[sys.executable, "-m", "agentdata", ...]`, never a raw `git` or `pncli`, so each adapter's own refusals always
+as `[sys.executable, "-m", "agentdata", ...]`, never a raw `git` or `toil`, so each adapter's own refusals always
 run. The child's environment drops both fleet markers, so the adapter's `approval.require` is the outside-a-fleet
 pass-through: the operator's confirm is the approval (WRAP-D4), and `run` records it, `by: operator`,
 `via: wrapup`, one record per written step.
@@ -51,12 +51,18 @@ TERMINAL = ("pr_open", "done", "closed", "merged")
 NOT_ON_A_BRANCH = ("default_branch", "detached_head")
 KIND = {"push": "git-push", "pr": "bitbucket-pr", "page": "confluence-publish", "comment": "jira-comment",
         "transition": "jira-transition", "onenote": "onenote-worklog"}
+# `not_pinned` is the code an adapter older than this one answers (pncli's write verbs were argv templates the
+# operator pinned). toil's verbs are fixed, so what can be missing now is toil's connection, which the doctor names.
 NOT_PINNED_HINT = {
-    "pr": ("the PR verb is not pinned yet (HANDOFF.md) — read `pncli bitbucket --help`, then "
-           "`ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create=\"...\"` (WRAP-D6)"),
-    "page": ("the page verbs are not pinned yet (HANDOFF.md) — read `pncli confluence --help`, then "
-             "`ad-setup --only pncli --non-interactive --set pncli.verbs.page_create=\"...\"` (WRAP-D6)"),
+    "pr": ("this ad-git cannot open a PR through toil — `ad-update`, then `ad-doctor --only toil` names the "
+           "Bitbucket connection to set up (WRAP-D6)"),
+    "page": ("this ad-confluence cannot publish through toil — `ad-update`, then `ad-doctor --only toil` names the "
+             "Confluence connection to set up (WRAP-D6)"),
 }
+# toil's `bitbucket pr create` opens a PR ready for review: it has no draft. End of day used to open a draft, so
+# it now leaves a create unticked and says why; an update, and end of project, are ticked as before.
+DAY_CREATE_HINT = ("toil opens a PR ready for review (it has no draft): end of day leaves the create unticked — "
+                   "tick it to open the PR now, or let end of project open it")
 # The payload fields that say *what* a step would write. Ages, timestamps and counters are left out, so two
 # previews of an unchanged checkout hash alike and the confirm can prove it is writing what was previewed.
 STABLE = {
@@ -423,7 +429,7 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
                          code=code, hint="the work is not on a branch (AGENTS.md rule 16)"))
     else:
         title = f"{ticket}: {st.get('summary') or seen['branch']}" if ticket else str(st.get("summary") or seen["branch"])
-        argv = ["git", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
+        argv = ["git", "pr", "--title", title, "--ready"]
         if overwrite.get("pr"):
             argv += ["--overwrite", str(overwrite["pr"])]
         res = RUN(adapter(*argv, "--dry-run"), cwd, env=env)
@@ -435,12 +441,14 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
         elif ok:
             action = str(meta.get("action") or "")
             has_pr = has_pr or action == "update"
-            wanted = (ahead > 0 or action == "update") if mode == "day" else True
+            wanted = action == "update" if mode == "day" else True
             kept = meta.get("description") == "kept"
+            day_create = mode == "day" and action != "update" and ahead > 0
             rows.append(_row(name, "pr", ok=True, ticked=wanted, payload=dict(meta),
-                             summary=f"pr: {action or 'create'} {'draft ' if mode == 'day' else ''}— {meta.get('title') or title}",
+                             summary=f"pr: {action or 'create'} — {meta.get('title') or title}",
                              hint=("the description was edited since this tool wrote it: kept; replace it with a "
-                                   "second preview (--overwrite-pr)" if kept else "")))
+                                   "second preview (--overwrite-pr)" if kept else DAY_CREATE_HINT if day_create
+                                   else "")))
         else:
             rows.append(_row(name, "pr", ok=False, ticked=False, summary=f"pr: {pcode}", payload=dict(meta),
                              code=pcode, hint=hint or err, live=meta.get("live_hash")))
@@ -587,7 +595,7 @@ def _real_argv(row: dict, name: str, mode: str, st: dict, overwrite: dict) -> li
         return adapter("git", "push")
     if row["step"] == "pr":
         title = str(p.get("title") or "")
-        argv = ["git", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
+        argv = ["git", "pr", "--title", title, "--ready"]
         if overwrite.get("pr"):
             argv += ["--overwrite", str(overwrite["pr"])]
         return adapter(*argv)
@@ -772,10 +780,11 @@ def wait(name: str, timeout: float = 30.0) -> bool:
 PARALLEL = 3
 TOTALS = {"push": "pushes", "pr": "prs", "page": "pages", "onenote": "worklogs", "comment": "comments",
           "transition": "transitions"}
-# A row that could never write anything the operator should hear about: its verb is not pinned yet, there is
-# no page source, or end of day will not create a page. A repo whose rows are all these, or no-ops, has
+# A row that could never write anything the operator should hear about: toil cannot write it yet (not ready, no
+# connection, writes off -- a person's switch in toil), there is no page source, or end of day will not create a page. A repo whose rows are all these, or no-ops, has
 # *nothing to write*.
-QUIET = ("not_pinned", "no_source", "day_never_creates", "not_configured", "not_built", "worklog_failed")
+QUIET = ("not_pinned", "no_source", "day_never_creates", "not_configured", "not_built", "worklog_failed",
+         "toil_not_ready", "no_connection", "writes_off")
 NOTHING = "nothing to write"
 NO_REPO_HINT = "ad-fleet wrapup <repo> [<repo> …] | --all [--day | --project]; `ad-fleet repo list` names them"
 

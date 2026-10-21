@@ -45,7 +45,7 @@ PLACEHOLDERS = {
     "<before.toon>": "before.tsv", "<after.toon>": "after.tsv", "<before.tsv>": "before.tsv",
     "<after.tsv>": "after.tsv", "<tsv>": "a.tsv", "<a>": "a.tsv", "<b>": "b.tsv",
     "<yyyymmdd>": "20260904", "<short>": "thing", "<framework>": "pytest",
-    "<command>": "doctor", "<cmd>": "doctor", "<step>": "pncli", "<KEY>.vpax": "RDSD-1.vpax",
+    "<command>": "doctor", "<cmd>": "doctor", "<step>": "toil", "<KEY>.vpax": "RDSD-1.vpax",
     "<graph-dir>": ".agent/graph", "<exe>": "tool.exe", "<pkg>": "pkg", "<url>": "https://x",
 }
 # A line marked `<!-- no-parse -->` is illustrative rather than runnable. Keep this list short --

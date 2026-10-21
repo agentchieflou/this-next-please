@@ -71,9 +71,10 @@ The CLI needs **Python 3.14 or newer** (`python --version`). On an older interpr
 refuses the install with *"requires a different Python"* -- run the command below with the newer `python`.
 
 ```powershell
-# 1. pncli, used directly for Jira, Confluence and Bitbucket (docs/pncli-parts.md)
-npm install -g @kolatts/pncli     # lands as pncli.cmd -- there is no pncli.exe
-pncli config init                 # pncli's own config: your Jira, Confluence and Bitbucket URLs and tokens
+# 1. toil, used directly for Jira, Confluence and Bitbucket (docs/toil-parts.md); needs Node 24.14+
+npm install -g @imagile-dev/toil  # lands as toil.cmd -- there is no toil.exe
+toil                              # a menu: add your Jira, Confluence and Bitbucket connections (tokens go to the
+                                  # OS credential store, never a file); writes stay off until you turn them on
 
 # 2. the skills  ->  ~/.copilot/skills, for every repo you work in
 gh skill install agentchieflou/this-next-please --all --scope user
@@ -83,8 +84,8 @@ pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.g
 #    with the extras you actually use:
 #    pip install "agentdata[teradata,impala,oracle,pbi,uat,test] @ git+https://github.com/agentchieflou/this-next-please.git"
 
-ad-setup               # guided: pncli (its launcher, and the key names of its Jira URL / email / token), data sources,
-#                        Power BI tools/workspaces; without pncli, `ad-setup --only jira` keeps a token in the keyring
+ad-setup               # guided: toil (its launcher, and which connection each service uses), data sources,
+#                        Power BI tools/workspaces; without toil, `ad-setup --only jira` keeps a token in the keyring
 #    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)
 #    ad-setup --export-defaults team.json / ad-setup --import team.json  # share non-secret team defaults
 ad-theme gallery       # preview terminal themes (greens, dark, eye-relief, matrix, ...)
@@ -188,11 +189,11 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `agentdata/update.py` | `ad-update`: reinstall the CLI + skills, and report the exact commit installed |
 | `CHANGELOG.md` | what each version changed, and whether picking it up needs more than the two update commands |
 | `agentdata/state.py` | `ad-state`: the only writer of `.agent/state.json` (validated keys and phases, clean encoding) |
-| `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, jira (the fallback without pncli), sources, powerbi, content_understanding, project) |
-| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), jira_api (Jira REST for the `ad-jira` extensions: the token from the environment, pncli's config, or the keyring), pncli (pncli as a library: the read/write split the fleet's shim gates on, in-process reads, the pinned write verbs), content_understanding (Azure AI / Microsoft Foundry document field extraction, `ad-foundry`), keyring wrapper, probes |
+| `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: toil, jira (the fallback without toil), sources, powerbi, content_understanding, project) |
+| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), jira_api (Jira REST for the `ad-jira` extensions: through toil's connection, or a token from the environment or the keyring), toil (toil as a library: the read/write split the fleet's shim gates on, the envelope, in-process reads, the REST transport through `toil jira api`), content_understanding (Azure AI / Microsoft Foundry document field extraction, `ad-foundry`), keyring wrapper, probes |
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
-| `agentdata/fleet/` | `ad-fleet`: several headless agents, one per repository, watched from one page — supervisor, normalized event stream, approval gate, the pncli shim that refuses a pncli write (`pncli_gate.py`), notifications, Jira intake, dashboard ([docs/fleet.md](docs/fleet.md)) |
+| `agentdata/fleet/` | `ad-fleet`: several headless agents, one per repository, watched from one page — supervisor, normalized event stream, approval gate, the toil shim that refuses a toil write (`toil_gate.py`), notifications, Jira intake, dashboard ([docs/fleet.md](docs/fleet.md)) |
 | `agentdata/fleet/settings.py` | the enumerated table of what the `/settings` page may change: type, default and when a change takes effect. An allow-list, so a key nobody named is refused rather than written |
 | `ide/` | two thin shells that host that page — a JetBrains tool window and a VS Code view. Not part of the Python wheel; built by CI |
 | `agentdata/ui.py` | how the CLI looks to a person: panels, tables and status glyphs via `rich`, and off whenever a machine might be reading |
@@ -206,13 +207,13 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `agentdata/sorting/` | `ad-sort`: organizing a folder of files into a structure — a plan an agent writes and a person applies, by name only, copying and never moving ([docs/sorting.md](docs/sorting.md)) |
 | `agentdata/dpm/extract.py` | field extraction over DPM-routed text: the field list is an input, and the engine is a seam (`simple` label matching, or an Azure Content Understanding analyzer) that downstream output does not see |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
-| `docs/pncli-parts.md` | pncli, used directly and credited: what we use as it is, what we extend and where, what we retired and why |
+| `docs/toil-parts.md` | toil, the service backend: what we use as it is, what we extend and where, the behavioural differences from pncli, and what was retired |
 | `docs/fleet-skills.md` | the skills marketplace on `/settings`: every installed skill, how often it ran, in which repositories, and the source it syncs from |
 | `docs/npm.md` | the root `package.json`: a dev-only manifest and one lockfile (the vetting list) pinning the desk's TypeScript and the npm package the vendored three.js is copied from; `npm run types`, `npm run vendor:check`; nothing ships |
 | `docs/fleet-worklog.md` | the fleet's worklog: one page per checkout per day folded from the event stream, laid out like the fleet map (project → checkout → month → day), mirrored under the fleet directory by `ad-fleet worklog`, previewed by the wrap-up's `onenote` row; the OneNote writers are not built yet |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
-| `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
+| `docs/windows-verification.md` | laptop-only verification runbook (toil, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
 | `docs/copilot-personalization.md` | the Microsoft 365 Copilot custom-instructions block, and why repo rules belong in `AGENTS.md` instead |
 | `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
 | `docs/plan-m365-bridge.md` | proposed (2026-10-09): the Microsoft 365 lane — Power Automate as the second relay, SharePoint and OneDrive as sources ("on the fly RAG" into the ticket's folder), results out behind the gate, and the loop between triggered Microsoft agents and the fleet's Copilot agents |
@@ -243,12 +244,13 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 ## Acknowledgements
 
 **pncli** (`@kolatts/pncli`) is the fundamental inspiration for this repository: one CLI an agent could
-run over Jira, Confluence and Bitbucket, every argument a named option, a token borrowed by key name
-rather than copied. `ad-*` grew out of using it, and its shape is all through this code: the named-option
-rule, the read/write verb split behind an approval gate, the npm shim handling, the inline Confluence
-body. pncli is used directly for everything it does, and this repository builds only what extends it:
-history and workflow writes in `ad-jira`, the gated page and PR writes in `ad-confluence publish` and
-`ad-git pr`, the fleet's shim that refuses a pncli write. `docs/pncli-parts.md` keeps the full account.
+run over Jira, Confluence and Bitbucket. `ad-*` grew out of using it, and its shape is all through this
+code: the read/write split behind an approval gate, the npm shim handling, the column names a Jira read
+answers with. **toil** (`@imagile-dev/toil`), its successor, is the service backend since 0.22.0: it is
+used directly for everything it does, and this repository builds only what extends it -- history and
+workflow writes in `ad-jira` (whose REST calls go through toil's connection), the gated page and PR
+writes in `ad-confluence publish` and `ad-git pr`, the fleet's shim that refuses a toil write.
+`docs/toil-parts.md` keeps the full account.
 pbi-tools (AGPL) taught the PBIP side (`docs/pbi-tools-parts.md`), and Poly Haven's and MakeHuman's CC0
 assets dressed the world before it moved to play-sports.
 

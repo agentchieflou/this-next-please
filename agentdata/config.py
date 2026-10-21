@@ -1,7 +1,7 @@
 """Global config (~/.agentdata/config.json) + project facts (AGENTS.md) + env overrides.
 
-No secret ever lands here: save() refuses credential-looking keys. Tokens stay in pncli's own
-config (read by dot-path at call time), passwords live in `keyring` (see connectors/secrets.py).
+No secret ever lands here: save() refuses credential-looking keys. Service tokens stay in toil's credential store
+(requests go through toil, which holds them), passwords live in `keyring` (see connectors/secrets.py).
 """
 
 from __future__ import annotations
@@ -26,7 +26,9 @@ VERSION = 1
 SOURCES = ("teradata", "hive", "impala", "oracle")
 
 _SECRET_KEY = re.compile(r"(?:^|_)(password|passwd|pwd|secret|token|api_?key|pat|client_secret)$", re.I)
-_SECRET_EXEMPT = ("pncli.keys.",)  # values there are key *names* (dot-paths into pncli's config), not secrets
+# Values there are key *names* (dot-paths into pncli's config, from setup before 0.22.0), not secrets: a config
+# that still carries them must keep saving. `ad-setup --only toil` removes the retired `pncli` section.
+_SECRET_EXEMPT = ("pncli.keys.",)
 
 # env-var overrides per source; keeps the original connectors' variables working
 _ENV_VARS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -125,7 +127,7 @@ def assert_no_secrets(obj: Any, trail: str = "") -> None:
                 continue
             if _SECRET_KEY.search(str(k)) and isinstance(v, str) and v.strip():
                 raise ConfigError(f"refusing to store a credential-looking value at {here}",
-                                  hint="secrets go to keyring or pncli's own config, never to agentdata config")
+                                  hint="secrets go to keyring or toil's credential store, never to agentdata config")
             assert_no_secrets(v, here)
     elif isinstance(obj, list):
         for i, v in enumerate(obj):

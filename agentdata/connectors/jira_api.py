@@ -1,9 +1,10 @@
-"""Jira REST client (stdlib only). The token is read at call time, never stored in config: env JIRA_URL /
-JIRA_EMAIL / JIRA_TOKEN first (AGENTDATA_JIRA_TOKEN is an alias), then pncli's own config by dot-path (the
-default: `ad-setup --only pncli` picks the keys), and last the keyring entry `ad-setup --only jira` writes next to
-`jira.base_url` / `jira.email` (a machine without pncli). Flavor is detected once and cached in agentdata config: Cloud = REST v3 +
-Basic(email:token), Data Center = REST v2 + Bearer PAT (Basic as a fallback). The token never appears in output
-or errors.
+"""Jira REST client (stdlib only). Where a request goes, in order: env JIRA_URL / JIRA_EMAIL / JIRA_TOKEN
+(AGENTDATA_JIRA_TOKEN is an alias); then toil's Jira connection (the default), whose token this package never
+sees -- every request is sent through `toil jira api` (or `toil jira-cloud api`) by `toil.ApiOpener`, and the
+connection's area decides the flavor; and last the keyring entry `ad-setup --only jira` writes next to
+`jira.base_url` / `jira.email` (a machine without toil). For a direct token the flavor is detected once and cached
+in agentdata config: Cloud = REST v3 + Basic(email:token), Data Center = REST v2 + Bearer PAT (Basic as a
+fallback). The token never appears in output or errors.
 
 What changed with epic #121 is not what a row means -- `history_rows` and the column set are untouched -- but how
 rows are fetched and how the client behaves when the fetch goes wrong on request 1,900 of 2,000.
@@ -47,11 +48,13 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 from .. import textio
 from .. import config as C
+from .. import proc
 from .jira_http import (USER_AGENT, HINTS, JiraError, JiraHTTPError, JiraBudgetError, JiraPartialError,
                         RateLimit, RequestBudget, Stats, backoff_seconds, classify, retry_after_seconds)
 
 __all__ = ["USER_AGENT", "HINTS", "JiraError", "JiraHTTPError", "JiraBudgetError", "JiraPartialError",
            "Flavor", "CLOUD", "DC_BEARER", "DC_BASIC", "Creds", "Jira", "load_credentials", "has_credentials",
+           "toil_credentials", "toil_flavor", "TOIL_AREAS",
            "detect_flavor", "SETUP_HINT", "SECRET_SOURCE", "SECRET_ENV", "SECRET_USER",
            "remember_flavor", "history_rows", "pin_fields", "resolve_field_ids", "parse_ts",
            "RequestBudget", "RateLimit", "Stats"]
@@ -98,9 +101,12 @@ SECRET_SOURCE = "jira"
 SECRET_ENV = "default"
 SECRET_USER = "api-token"
 TOKEN_ENVS = ("JIRA_TOKEN", "AGENTDATA_JIRA_TOKEN")
-# The one hint every "no credentials" error carries: pncli's config first, the keyring as the fallback.
-SETUP_HINT = ("ad-setup --only pncli (borrow the token from pncli's config), or set JIRA_TOKEN, "
-              "or on a machine without pncli ad-setup --only jira (token to the keyring)")
+# The one hint every "no credentials" error carries: toil's connection first, the keyring as the fallback.
+SETUP_HINT = ("set up a Jira connection in toil (`toil connections add <name> --area jira`, then "
+              "`ad-setup --only toil`), or set JIRA_TOKEN, or on a machine without toil ad-setup --only jira "
+              "(token to the keyring)")
+# toil's two Jira areas, and the flavor each one is. A toil connection names its area, so nothing is probed.
+TOIL_AREAS = ("jira", "jira-cloud")
 
 
 @dataclass
@@ -108,10 +114,20 @@ class Creds:
     base_url: str
     email: str | None
     token: str
-    source: str  # "env", "keyring" or "pncli:<dot.path>" - where the token came from, never the token
+    source: str  # "env", "keyring" or "toil:<connection>" - where requests are authenticated, never the token
+    area: str = ""  # the toil area ("jira" / "jira-cloud") when source is toil; requests then go through it
 
     def __repr__(self) -> str:
-        return f"Creds(base_url={self.base_url!r}, email={self.email!r}, token='***', source={self.source!r})"
+        return (f"Creds(base_url={self.base_url!r}, email={self.email!r}, token='***', source={self.source!r}"
+                + (f", area={self.area!r}" if self.area else "") + ")")
+
+    @property
+    def via_toil(self) -> bool:
+        return self.source.startswith("toil:")
+
+    @property
+    def connection(self) -> str:
+        return self.source[5:] if self.via_toil else ""
 
 
 def keyring_token() -> str | None:
@@ -132,32 +148,31 @@ def env_token() -> str | None:
     return None
 
 
-def pncli_credentials(cfg: dict) -> tuple[str | None, str | None, str | None, str]:
-    """(url, email, token, source) from pncli's own config by the key names chosen in `ad-setup --only pncli`.
-    Raises JiraError naming what is missing; the caller decides whether that is fatal."""
-    p = C.expand(C.get(cfg, "pncli.config_path") or "~/.pncli/config.json")
-    keys = C.get(cfg, "pncli.keys", {}) or {}
-    if not os.path.exists(p):
-        raise JiraError(f"no Jira token: not in JIRA_TOKEN, no pncli config at {C.display_path(p)}, and not in the "
-                        "keyring", hint=SETUP_HINT + " (`pncli config init` writes that file)")
+def toil_credentials(cfg: dict) -> Creds:
+    """The Jira connection toil would use (`toil.connections.jira` pins one, else toil's default), as `Creds` with no
+    token: requests go through `toil jira api`, so the token stays in toil's credential store. Raises JiraError
+    naming what is missing; the caller decides whether that is fatal."""
+    from . import toil as T
+    from .. import proc
     try:
-        pj = json.loads(textio.read_text(p))
-    except json.JSONDecodeError:
-        raise JiraError("pncli config is not valid JSON", hint="fix it (`pncli config init` rewrites it), or set JIRA_TOKEN") from None
-    tk = keys.get("jira_token")
-    token = C.get(pj, tk) if tk else None
-    if not token:
-        raise JiraError("no Jira token: not in JIRA_TOKEN, no pncli token key configured, and not in the keyring",
-                        hint=SETUP_HINT)
-    email_ = C.get(pj, keys["jira_email"]) if keys.get("jira_email") else None
-    url = C.get(pj, keys["jira_url"]) if keys.get("jira_url") else None
-    return url, email_, str(token), f"pncli:{tk}"
+        conns = T.connections(cfg)
+    except proc.ProcError as e:
+        raise JiraError(f"no Jira token: not in JIRA_TOKEN, toil cannot answer ({e.msg}), and not in the keyring",
+                        hint=e.hint or SETUP_HINT) from None
+    for area in TOIL_AREAS:
+        c = T.connection_for(area, conns, cfg)
+        if c:
+            host = str(c.get("host") or "").strip()
+            return Creds(f"https://{host}" if host else f"toil://{c.get('name')}", None, "", f"toil:{c.get('name')}",
+                         area=area)
+    raise JiraError("no Jira token: not in JIRA_TOKEN, toil has no Jira connection, and not in the keyring",
+                    hint=SETUP_HINT)
 
 
 def load_credentials(cfg: dict | None = None) -> Creds:
-    """env -> pncli's config (the default, `ad-setup --only pncli`) -> keyring (`ad-setup --only jira`), in that
-    order. A pncli config that cannot answer is not fatal while the keyring can; when neither can, pncli's own
-    error is the one raised, because that is the source to fix."""
+    """env -> toil's Jira connection (the default) -> keyring (`ad-setup --only jira`), in that order. A toil that
+    cannot answer is not fatal while the keyring can; when neither can, toil's error is the one raised, because
+    that is the source to fix."""
     cfg = cfg if cfg is not None else C.load()
     url = os.environ.get("JIRA_URL") or C.get(cfg, "jira.base_url")
     email_ = os.environ.get("JIRA_EMAIL") or C.get(cfg, "jira.email")
@@ -165,9 +180,7 @@ def load_credentials(cfg: dict | None = None) -> Creds:
     source = "env"
     if not token:
         try:
-            p_url, p_email, token, source = pncli_credentials(cfg)
-            email_ = email_ or p_email
-            url = url or p_url
+            return toil_credentials(cfg)
         except JiraError:
             token = keyring_token()
             if not token:
@@ -222,6 +235,12 @@ class Jira:
                  clock: Callable[[], float] = time.monotonic, max_attempts: int = 6,
                  retry_after_cap: float = 120.0, rate_floor: float = 0.10,
                  log: Callable[[str], None] | None = None):
+        if creds.via_toil:
+            # A toil connection is one area, and the area is the flavor: nothing to detect, no header to build.
+            flavor = toil_flavor(creds)
+            if opener is None:
+                from .toil import ApiOpener
+                opener = ApiOpener(creds.area, creds.connection)
         self.creds, self.flavor, self.timeout, self.sleep = creds, flavor, timeout, sleep
         self._open = opener or urllib.request.urlopen
         self.ssl_ctx = ssl.create_default_context(cafile=ca_bundle or os.environ.get("AGENTDATA_CA_BUNDLE") or None)
@@ -315,6 +334,15 @@ class Jira:
                 if wait is None:
                     wait = backoff_seconds(attempt, BACKOFF_BASE, self.retry_after_cap, self.rand)
                 self._charge_retry(where, f"HTTP {e.code}", wait)
+            except proc.ProcError as e:                        # toil refused before the service answered
+                self._tick()
+                if e.code == "WRITE_DISABLED" and idempotent and method != "GET":
+                    # toil gates every non-GET verb, so a POST that only asks a question (Cloud's bulk changelog) is
+                    # refused on a read-only connection. As a 405 it takes the caller's existing fallback: the same
+                    # rows over GET, one issue at a time, with the cost announced -- never a write turned on for it.
+                    raise JiraHTTPError(405, where, "toil gates a read-only POST as a write on a connection with "
+                                        "writes off; falling back to GET") from None
+                raise JiraError(e.msg, hint=e.hint) from None
             except (OSError, http.client.HTTPException) as e:  # timeout, reset, remote disconnect, bad hostname
                 if classify(exc=e) != "retry" or not idempotent or attempt + 1 >= size_cap:
                     self._tick()
@@ -904,6 +932,9 @@ def _transport_reason(e: BaseException) -> str:
 def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False, **kw) -> tuple[Jira, dict]:
     """Return (client, /myself payload). Uses the cached flavor unless redetect."""
     cfg = cfg if cfg is not None else C.load()
+    if creds.via_toil:
+        j = Jira(creds, toil_flavor(creds), **kw)
+        return j, j.myself()
     if not redetect and all(C.get(cfg, f"jira.{k}") for k in ("flavor", "auth", "api")):
         fl = Flavor(C.get(cfg, "jira.flavor"), C.get(cfg, "jira.auth"), str(C.get(cfg, "jira.api")))
         j = Jira(creds, fl, **kw)
@@ -915,7 +946,7 @@ def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False,
         c = creds
         if fl.auth == "basic" and not creds.email:
             if fl.kind == "cloud":
-                errors.append("cloud Basic auth needs an email (JIRA_EMAIL, the email key in ad-setup --only pncli, or ad-setup --only jira)")
+                errors.append("cloud Basic auth needs an email (JIRA_EMAIL, or ad-setup --only jira)")
                 continue
             c = Creds(creds.base_url, getpass.getuser(), creds.token, creds.source)
         j = Jira(c, fl, **kw)
@@ -927,11 +958,17 @@ def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False,
                 continue
             raise
     raise JiraError("could not authenticate to Jira with the configured token: " + "; ".join(errors),
-                    hint="check the token (the key in ad-setup --only pncli, or ad-setup --only jira) or set JIRA_TOKEN / JIRA_EMAIL")
+                    hint="check the token (JIRA_TOKEN / JIRA_EMAIL, or ad-setup --only jira), or use toil's connection instead")
+
+
+def toil_flavor(creds: Creds) -> Flavor:
+    """A toil connection's flavor is its area: `jira-cloud` is Cloud (REST v3), `jira` is Data Center (REST v2)."""
+    return CLOUD if creds.area == "jira-cloud" else DC_BEARER
 
 
 def remember_flavor(cfg: dict, j: Jira) -> None:
-    C.put(cfg, "jira.base_url", j.creds.base_url)
+    if not getattr(j.creds, "via_toil", False):      # toil's connection holds its own URL; caching it here would outlive a change there
+        C.put(cfg, "jira.base_url", j.creds.base_url)
     C.put(cfg, "jira.flavor", j.flavor.kind)
     C.put(cfg, "jira.auth", j.flavor.auth)
     C.put(cfg, "jira.api", j.flavor.api)

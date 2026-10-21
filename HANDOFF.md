@@ -1,5 +1,12 @@
 # HANDOFF — for the Claude Code session that finishes this repo
 
+> **2026-10-21: 0.22.0 replaces pncli with toil** (`@imagile-dev/toil`, `docs/toil-parts.md`) as the service backend.
+> The `ad-*` public interface is unchanged; toil is used directly for what it reads, `ad-jira`'s REST calls go through
+> `toil jira api` (the token never leaves toil), the gated writes run toil's fixed verbs, and the fleet's shim refuses
+> `--allow-write`. Not in this repository and still to do: the downstream consumers -- `rdsd-pbi-reporting`'s
+> `scripts/rdsd22448_changelog_sweep.py` still calls the pncli wrapper command retired in 0.20.0, and Koa's intake
+> parses `ad-jira create|transition` output, which kept its shape but now needs writes on in toil.
+
 > **2026-10-09 checkpoint:** 0.19.0 (PR #657) shipped PBIR patching for Desktop 2.157, pncli as an optional backend with
 > Jira over REST, the skills marketplace with a configurable source, and the world parked (its assets and knowledge
 > moved to `agentchieflou/play-sports`, Track R). The next phase is the Microsoft 365 lane, `docs/plan-m365-bridge.md`:
@@ -24,13 +31,13 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 
 ## State of the scaffold
 - [x] AGENTS.md, README, data-format-policy, project stub
-- [x] `agentdata` package: AgentTable model, TOON encoder, policy engine, pncli + pandas connectors, `ad-*` CLI
+- [x] `agentdata` package: AgentTable model, TOON encoder, policy engine, toil + pandas connectors, `ad-*` CLI
 - [x] Teradata/Oracle/Hive/Impala connectors: settings from `~/.agentdata/config.json` (ad-setup) or env vars; passwords via keyring; native or ODBC DSN
 - [x] Skills: router, session-bootstrap, state-update, friction-log, data-adapter, jira-triage,
       teradata-query, hive-query, oracle-query, uat-jira-vs-source, bitbucket-pr, confluence-publish,
       pbi-deploy-te2, pbi-refresh-xmla (+refresh.csx), dax-studio-export, slurm-submit
-- [x] `ad-setup` / `ad-doctor` (agentdata/setup/): pncli (required) and its config by key name, Jira's keyring fallback, data sources with SELECT 1 + capability probes, Power BI tools/workspaces, project stub
-- [ ] Pin pncli's two write verbs on the laptop: read `pncli bitbucket --help` and `pncli confluence create-page --help`, then `ad-setup --only pncli --non-interactive --set pncli.verbs.pr_create="..."` (and `page_create`; `pr_update` / `page_update` for an update), and attach both help texts to #506. Until then `ad-git pr` and `ad-confluence publish` answer `not_pinned`, and the wrap-up says so. pncli is used directly for everything it does and an `ad-*` command exists only where it extends it (`docs/pncli-parts.md`, 0.20.0): `pncli jira search --jql "<JQL>"` and `pncli jira get-issue --key <KEY>` (confirmed on the laptop) are saved under `.agent/out/` and read with `ad-view`. `pncli confluence create-page --body <html>` is confirmed — the body is INLINE, so `ad-confluence publish` builds it from Markdown and hands it across as one argv element; `--space` / `--parent` / `--title` are still unconfirmed, which is why the template is the operator's. Jira transitions, comments and creates never need a pncli verb: `ad-jira` posts them over REST, gated. pncli is commander.js: **every argument is a named option, never positional**.
+- [x] `ad-setup` / `ad-doctor` (agentdata/setup/): toil (required), its launcher and connections, Jira's keyring fallback, data sources with SELECT 1 + capability probes, Power BI tools/workspaces, project stub
+- [ ] On the laptop (`docs/windows-verification.md` §2, P1): `toil version` under Node 24.14+, the three connections added in toil, `ad-doctor --only toil --online` all ok, and one real `ad-git pr` and `ad-confluence publish` once a person has turned writes on for those connections. toil's PR verb has no draft: say whether opening ready-for-review is acceptable, or a draft needs `toil bitbucket api` (#506).
 - [ ] Run `gh skill publish --dry-run` (pytest is green per slice)
 - [ ] Confirm on the laptop, with `ad-pbi auth --probe`: Tabular Editor 2 accepts the token-carrying connection string
       (`Provider=MSOLAP;Data Source=powerbi://…;User ID=;Password=<token>`) as the server argument for both the load
@@ -45,7 +52,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 
 ## Windows facts learned on the laptop (do not regress)
 - Files written by Windows PowerShell 5.1 carry a UTF-8 BOM (`Set-Content -Encoding utf8`) or are UTF-16 (`>`): read every external file through `agentdata/textio.py`.
-- npm-installed CLIs (pncli, az) exist only as `.cmd` shims. Never hand a bare name to `subprocess`; go through `agentdata/proc.py`.
+- npm-installed CLIs (toil, az; pncli before it) exist only as `.cmd` shims. Never hand a bare name to `subprocess`; go through `agentdata/proc.py`.
 - A cmd.exe command line must reach Windows as a STRING. As a list it goes through `list2cmdline`, which backslash-escapes the quotes, and cmd.exe answers "The filename, directory name, or volume label syntax is incorrect".
 - Every failing check names the prompt keys that fix it (`Check.keys`), which is what makes `ad-setup --patch` surgical. Add keys to any new check.
 - The fleet writes only under `~/.agentdata/fleet/` — except `fleet.mobile.folder`, which the operator names explicitly and which is never a repository (docs/fleet-mobile.md), and the cleanup guide, which on the operator's press commits, branches or stashes a dirty tree (never discards, never `.agent/`, never while its agent runs a turn; docs/fleet-map.md §Cleaning up dirty trees). A repository's `.agent/` is the agent's, and only `ad-state` writes `state.json` — `tests/test_fleet_e2e.py` walks four repositories after a run to prove it.
@@ -65,7 +72,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 ```bash
 pip install -e ".[dev]"
 pytest -q -n auto -m "not browser and not measured and not scale and not slow"   # the inner loop
-pncli config init                                                                 # pncli's own config, once (npm install -g @kolatts/pncli first)
-ad-setup --only pncli                                                             # its launcher, and the key names ad-jira borrows the token by
-pncli --help; pncli confluence --help; pncli bitbucket --help                     # the verbs to pin for ad-confluence publish and ad-git pr
+toil                                                                              # add the connections, once (npm install -g @imagile-dev/toil first; Node 24.14+)
+ad-setup --only toil                                                              # its launcher, and which connection each service uses
+toil jira --help; toil confluence page --help; toil bitbucket pr --help           # the commands the skills' recipes name
 ```

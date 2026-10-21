@@ -1,7 +1,7 @@
 """Fake external tools that behave like the real ones, on every OS.
 
 Six tests in `tests/test_proc.py` were `skipif(os.name == "nt")` with the reason "POSIX shell
-stand-in for pncli" — so the Windows behaviour of the module that exists *because of* Windows was
+stand-in for pncli (toil's predecessor)" — so the Windows behaviour of the module that exists *because of* Windows was
 skipped on Windows. That is the gap this harness closes: a fake materialises as an npm-style
 `.cmd` shim on Windows and an `sh` script on POSIX, and the same test runs on both.
 
@@ -52,6 +52,10 @@ process.exit(r.status === null ? 1 : r.status);
 """
 
 
+# The npm package each fake stands in for, so its `.cmd` shim names the path a real install has.
+NPM_PACKAGES = {"toil": "@imagile-dev/toil"}
+
+
 def transcript_dir(tool: str) -> str:
     return os.path.join(HERE, tool, "transcripts")
 
@@ -93,7 +97,7 @@ def install(tmp_path, tools: list[str], *, case: str | None = None, npm: bool = 
         _write_executable(sh_path, SH_SHIM.format(python=python, runner=RUNNER, tool=tool), crlf=False)
         if WINDOWS:
             template = NPM_SHIM if npm else CMD_SHIM
-            package = f"@kolatts/{tool}"
+            package = NPM_PACKAGES.get(tool, f"@fake/{tool}")
             _write_executable(
                 os.path.join(bin_dir, f"{tool}.cmd"),
                 template.format(package=package, python=python, runner=RUNNER, tool=tool),
@@ -147,3 +151,36 @@ def calls(env: dict[str, str], tool: str | None = None) -> list[list[str]]:
             if tool is None or entry.get("tool") == tool:
                 out.append(list(entry.get("argv") or []))
     return out
+
+
+def stdins(env: dict[str, str], tool: str | None = None) -> list[str | None]:
+    """What each call that read a body from stdin (`--body-file -`) was handed, oldest first."""
+    path = env.get("AGENTDATA_FAKE_LOG", "")
+    if not path or not os.path.isfile(path):
+        return []
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line) if line.strip() else {}
+            if "stdin" in entry and (tool is None or entry.get("tool") == tool):
+                out.append(entry["stdin"])
+    return out
+
+
+# `toil connections list` on a machine where a person set up the three services and turned writes on. The gated
+# writes read it before they plan (`toil.write_target`); a test that wants another machine passes its own list.
+WRITABLE = [{"name": "corp-jira", "area": "jira", "isDefault": True, "host": "jira.example.test", "writes": True},
+            {"name": "corp-wiki", "area": "confluence", "isDefault": True, "host": "wiki.example.test", "writes": True},
+            {"name": "corp-bb", "area": "bitbucket", "isDefault": True, "host": "bb.example.test", "writes": True}]
+
+
+def toil_connections(monkeypatch, conns=None, *, error: str = "") -> None:
+    """Answer `toil.connections()` in-process: `conns` (default `WRITABLE`), or toil's failure when `error` is set."""
+    from agentdata.connectors import toil
+
+    def connections(cfg=None):
+        if error:
+            raise toil.ToilError("UNSUPPORTED_NODE", error, "Install Node 24.14 or later, then run toil again.")
+        return [dict(c) for c in (WRITABLE if conns is None else conns)]
+
+    monkeypatch.setattr(toil, "connections", connections)

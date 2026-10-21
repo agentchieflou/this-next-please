@@ -1,11 +1,13 @@
 # PYTHON_ARGCOMPLETE_OK
 """ad-confluence: html (Markdown -> storage format) · check (is this body publishable?) · publish (gated).
 
-`publish` is the extension pncli does not have: it builds the storage-format body from Markdown (so a page is
+`publish` is the extension toil does not have: it builds the storage-format body from Markdown (so a page is
 never posted as Markdown and never rejected for markup Confluence cannot parse), resolves the space, the title and
-the parent from the flags and the project's facts, and runs pncli's own page verb -- the template the operator
-pinned in `pncli.verbs.page_create` / `pncli.verbs.page_update` -- with the body as ONE argv element, behind the
-approval gate (`confluence-publish`). Reading a page is pncli's: `pncli confluence get-page`, then `ad-view`.
+the parent from the flags and the project's facts, and runs toil's own page verb -- `toil confluence page create`
+or `page update <id>` -- with the body on stdin (`--body-file -`), behind the overlay's own dry run and the approval
+gate (`confluence-publish`). toil has no dry run: a write without `--allow-write` is a refusal, not a preview, so
+the preview is this command's, and `--allow-write` is added only to the run the operator approved. Reading a page
+is toil's: `toil confluence page get <id>`, then `ad-view`.
 """
 from __future__ import annotations
 
@@ -55,21 +57,13 @@ def cmd_check(a) -> int:
     return 0
 
 
-PIN_HINT = {
-    "page_create": ('pin it: run `pncli confluence create-page --help` and set the template: ad-setup --only pncli '
-                    '--non-interactive --set pncli.verbs.page_create="confluence create-page --space {space} '
-                    '--title {title} --body {body}"'),
-    "page_update": ('pin it: run `pncli confluence --help` for the update verb and set the template: ad-setup '
-                    '--only pncli --non-interactive --set pncli.verbs.page_update="confluence <verb> --id {page_id} '
-                    '--title {title} --body {body}"'),
-}
 MARKDOWN_EXTS = (".md", ".markdown")
 
 
 class Refused(Exception):
-    def __init__(self, code: str, error: str, hint: str, exit_code: int = 2):
+    def __init__(self, code: str, error: str, hint: str, exit_code: int = 2, plan: dict | None = None):
         super().__init__(error)
-        self.code, self.error, self.hint, self.exit_code = code, error, hint, exit_code
+        self.code, self.error, self.hint, self.exit_code, self.plan = code, error, hint, exit_code, plan or {}
 
 
 def _active_ticket() -> str:
@@ -84,15 +78,10 @@ def publish_plan(src: str, *, space: str | None = None, title: str | None = None
                  overwrite: str | None = None, cfg: dict | None = None, facts: dict | None = None) -> dict:
     """Everything a publish would send, worked out without sending anything. Raises `Refused`."""
     from . import config as C
-    from .connectors import pncli as P
+    from .connectors import toil as T
     cfg = C.load() if cfg is None else cfg
     facts = C.project_facts() if facts is None else facts
     action = "update" if overwrite else "create"
-    verb = "page_update" if overwrite else "page_create"
-    template = P.verb_template(verb, cfg)
-    if not template:
-        raise Refused("not_pinned", f"pncli's page {action} verb is not pinned (pncli.verbs.{verb} is unset)",
-                      PIN_HINT[verb])
     if not src.lower().endswith(MARKDOWN_EXTS):
         raise Refused("not_markdown", f"{src} is not a Markdown file",
                       "publish takes the Markdown the skill wrote (.agent/out/<KEY>-confluence.md); the storage "
@@ -118,33 +107,39 @@ def publish_plan(src: str, *, space: str | None = None, title: str | None = None
     if action == "create" and not space:
         raise Refused("no_space", "no Confluence space: no --space and no `confluence_space` in AGENTS.md",
                       "pass --space <SPACE>, or add `- confluence_space: <SPACE>` to AGENTS.md")
-    values = {"space": space, "title": title, "parent": parent, "body": html, "page_id": overwrite or "",
-              "version": ""}
-    try:
-        argv = P.template_argv(template, {k: values[k] for k in P.VERBS[verb]})
-    except ValueError as e:
-        raise Refused("bad_template", f"pncli.verbs.{verb}: {e}", PIN_HINT[verb]) from None
-    if P.verb(argv)[:1] != ("confluence",) or html not in argv:
-        raise Refused("bad_template", f"pncli.verbs.{verb} must be a confluence verb that takes {{body}}: {template}",
-                      PIN_HINT[verb])
-    return {"action": action, "page_id": overwrite or "", "title": title, "space": space, "parent": parent,
+    conn, code, hint = T.write_target(("confluence", "confluence-cloud"), cfg)
+    area = str((conn or {}).get("area") or "confluence")
+    if overwrite:
+        argv = [area, "page", "update", overwrite, "--title", title]
+    else:
+        argv = [area, "page", "create", "--space", space, "--title", title]
+        if parent:
+            argv += ["--parent-id", parent]
+    argv += ["--body-file", "-", *(["--connection", str(conn["name"])] if conn else []), T.ALLOW_WRITE]
+    plan = {"action": action, "page_id": overwrite or "", "title": title, "space": space, "parent": parent,
             "version": "", "edited": "", "chars": len(html), "warnings": info["warnings"], "argv": argv,
-            "command": P.shown_argv(argv, {"body": html})}
+            "body": html, "command": T.shown_argv(argv, len(html)), "connection": (conn or {}).get("name") or ""}
+    if code:
+        # toil would refuse it: say so now, with the command it would have been, rather than ask for an approval
+        raise Refused(code, f"toil cannot publish this page yet ({code})", hint, plan=plan)
+    return plan
 
 
 def cmd_publish(a) -> int:
     src = f"ad-confluence publish {a.src}"
     from . import config as C
     from . import proc
-    from .connectors import pncli as P
+    from .connectors import toil as T
     cfg = C.load()
     try:
         plan = publish_plan(a.src, space=a.space, title=a.title, parent=a.parent, overwrite=a.overwrite, cfg=cfg)
     except Refused as r:
-        print(toon.encode({"meta": {"ok": False, "source": src, "refused": r.code, "error": r.error, "hint": r.hint}}))
+        shown = {k: r.plan[k] for k in ("action", "title", "space", "connection", "command") if r.plan.get(k)}
+        print(toon.encode({"meta": {"ok": False, "source": src, "refused": r.code, "error": r.error, "hint": r.hint,
+                                    **shown}}))
         return r.exit_code
     meta = {"ok": True, "source": src, **{k: plan[k] for k in ("action", "page_id", "title", "space", "parent",
-                                                                 "version", "edited", "chars")},
+                                                                 "version", "edited", "chars", "connection")},
             "command": plan["command"]}
     if plan["warnings"]:
         meta["warnings"] = plan["warnings"]
@@ -155,7 +150,8 @@ def cmd_publish(a) -> int:
         return 0
     from .fleet import approval
 
-    payload = {k: plan[k] for k in ("action", "page_id", "title", "space", "parent", "version", "edited", "chars")}
+    payload = {k: plan[k] for k in ("action", "page_id", "title", "space", "parent", "version", "edited", "chars",
+                                    "connection")}
     payload["command"] = plan["command"]
     decision = approval.require("confluence-publish", f"{plan['action']} page \"{plan['title']}\" in "
                                 f"{plan['space'] or plan['page_id']} ({plan['chars']} chars)", payload,
@@ -166,12 +162,13 @@ def cmd_publish(a) -> int:
     if decision.reason:
         meta["approval_note"] = decision.reason
     try:
-        answer, elapsed = P.run(plan["argv"], timeout=300, cfg=cfg)
+        answer, elapsed = T.run(plan["argv"], timeout=300, cfg=cfg, stdin_text=plan["body"])
     except proc.ProcError as e:
         print(toon.encode({"meta": {"ok": False, "source": src, "refused": e.code, "error": e.msg,
-                                    "hint": e.hint or "read pncli's message; nothing is retried"}}))
+                                    "hint": e.hint or "read toil's message; nothing is retried"}}))
         return 1
-    meta.update(page_id=plan["page_id"] or P.find(answer, "id", "pageId", "page_id"), url=P.url_of(answer),
+    data = T.data_of(answer)
+    meta.update(page_id=plan["page_id"] or T.find(data, "id", "pageId", "page_id"), url=T.url_of(data),
                 elapsed_ms=int(elapsed * 1000))
     print(toon.encode({"meta": {k: v for k, v in meta.items() if v not in (None,)}}))
     return 0
@@ -191,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--stdout", action="store_true", help="print the body instead of writing it (debugging; not for a skill)")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_html)
-    p = sub.add_parser("publish", help="publish a Markdown page through pncli's pinned page verb: --dry-run "
+    p = sub.add_parser("publish", help="publish a Markdown page through toil's page verb: --dry-run "
                        "prints the plan, a real run waits on the approval gate in a fleet")
     p.add_argument("src", help="the Markdown source, e.g. .agent/out/<KEY>-confluence.md")
     p.add_argument("--space", help="space key (default: `confluence_space` in AGENTS.md)")

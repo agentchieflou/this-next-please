@@ -3,7 +3,7 @@
 Two problems this solves.
 
 **Isolation.** Several modules read the real `~/.agentdata/config.json`, the real `AGENTS.md`, the
-real keyring and the real `PATH`. A test that happens to pass on a laptop with pncli installed and
+real keyring and the real `PATH`. A test that happens to pass on a laptop with toil installed and
 fails on one without it is not a test, and a test that writes to the developer's own config is worse.
 Everything here runs against a temporary home unless it asks not to.
 
@@ -153,6 +153,10 @@ def isolated_home(tmp_path, monkeypatch, request):
     for var in HOME_VARS:
         monkeypatch.setenv(var, str(home))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(home / ".agentdata" / "config.json"))
+    # toil's configuration is `~/.toil/` (moved with HOME above) and TOIL_* variables, which always win over the
+    # file: a developer's real Jira connection must not answer a test, nor a pinned launcher start.
+    for var in [v for v in os.environ if v.startswith("TOIL_")]:
+        monkeypatch.delenv(var, raising=False)
 
     # Redirecting the profile without this makes pip fall back to a *relative* cache directory, so
     # the slow tests -- which really do run `pip wheel` and `pip install` -- wrote 3.8 MB of HTTP

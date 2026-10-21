@@ -1,0 +1,24 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed",
+  "match": [
+    "bitbucket",
+    "pr",
+    "get"
+  ],
+  "argv": [
+    "toil",
+    "bitbucket",
+    "pr",
+    "get",
+    "42",
+    "--project",
+    "RDSD",
+    "--repo",
+    "x"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\":true,\"data\":{\"id\":42,\"version\":0,\"title\":\"RDSD-1: add thing\",\"state\":\"OPEN\",\"links\":{\"self\":[{\"href\":\"https://jira.example.test/projects/RDSD/repos/x/pull-requests/42\"}]}},\"error\":null,\"meta\":{\"command\":\"bitbucket pr get\",\"durationMs\":104,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"context\":{\"connection\":{\"value\":\"bitbucket\",\"source\":\"default\",\"default\":\"named\"},\"inputs\":{\"project\":{\"value\":\"RDSD\",\"source\":\"input\"},\"repo\":{\"value\":\"x\",\"source\":\"input\"}}}}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

@@ -1,0 +1,26 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed; writes off on the connection",
+  "match": [
+    "confluence",
+    "page",
+    "create"
+  ],
+  "argv": [
+    "toil",
+    "confluence",
+    "page",
+    "create",
+    "--space",
+    "RDSD",
+    "--title",
+    "Findings",
+    "--body-file",
+    "-",
+    "--allow-write"
+  ],
+  "returncode": 1,
+  "stdout": "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"WRITE_DISABLED\",\"message\":\"confluence page create changes data in confluence, and writes are off for connection confluence.\",\"fix\":\"To allow writes, set \\\"writes\\\": true on connection \\\"confluence\\\" in your toil config (or TOIL_CONFLUENCE_WRITES=true), then pass --allow-write.\"},\"meta\":{\"command\":\"confluence page create\",\"durationMs\":9,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"context\":{\"connection\":{\"value\":\"confluence\",\"source\":\"default\",\"default\":\"named\"}}}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

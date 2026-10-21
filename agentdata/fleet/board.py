@@ -5,7 +5,7 @@ is the intake side of the fleet: a JQL the operator sets, the tickets it returns
 every registered repository already declares its `jira_project` in `AGENTS.md` — a suggestion of
 where each one goes.
 
-**No new credential.** `jira_api` runs on the token pncli already stores, exactly as `ad-jira
+**No new credential.** `jira_api` runs through toil's Jira connection, exactly as `ad-jira
 changelog` does. A fleet that asked for a second login would not be used.
 
 **Cached, because four tiles and a panel must not hammer Jira.** The board is a *view of a queue*,
@@ -120,7 +120,7 @@ def fetch(*, cfg: dict | None = None, client=None) -> list[dict]:
         except Exception as e:                    # noqa: BLE001 - any credential or flavor failure
             raise BoardError(f"Jira is not reachable: {str(e)[:200]}",
                              "`ad-jira whoami` checks the token and the flavour; the fleet uses the "
-                             "same one pncli stores and asks for no second login") from None
+                             "same toil connection and asks for no second login") from None
     try:
         issues = client.search(s["jql"], [f.strip() for f in s["fields"].split(",") if f.strip()])
     except Exception as e:                        # noqa: BLE001 - Jira's own error text is the hint

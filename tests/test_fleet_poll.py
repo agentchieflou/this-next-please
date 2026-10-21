@@ -107,7 +107,7 @@ def only_jira(poller: P.Poller) -> P.Poller:
 
 
 def test_four_tiles_cost_one_jira_search_per_interval(fleet_home, tmp_path):
-    """The whole reason this is not four `pncli jira get-issue` calls: one shared token, four tiles."""
+    """The whole reason this is not four `toil jira issue get` calls: one shared token, four tiles."""
     reg = fleet_of(tmp_path, 4)
     fake = FJ.FakeJira(issues=6, flavor="cloud")
     poller = only_jira(wire(P.Poller(reg, cfg={}, now=lambda: T0), fake))
@@ -612,8 +612,26 @@ def test_read_pr_refuses_a_url_it_cannot_read_an_id_from():
     assert "pull-requests" in str(e.value)
 
 
-def test_the_pr_read_is_a_read_verb():
-    """A poll that could reach a write verb is a poll that could merge a pull request on a timer."""
-    from agentdata.connectors import pncli
+def test_the_pr_read_is_a_read_and_names_its_repository():
+    """A poll that could reach a write is a poll that could merge a pull request on a timer. The project and
+    repository come from the PR's own URL, Data Center or Cloud."""
+    from agentdata.connectors import toil
 
-    assert pncli.is_write(["bitbucket", "get-pr", "--id", "42"]) is False
+    assert toil.is_write(["bitbucket", "pr", "get", "42"]) is False
+    assert P.pr_location("https://bb.acme.test/projects/RDSD/repos/x/pull-requests/42") == \
+        ("bitbucket", ["--project", "RDSD", "--repo", "x"])
+    assert P.pr_location("https://bitbucket.org/acme/rdsd/pull-requests/7") == \
+        ("bitbucket-cloud", ["--ws", "acme", "--repo", "rdsd"])
+    assert P.pr_location("https://elsewhere.test/pr/7") == ("bitbucket", [])
+
+
+def test_read_pr_reads_the_envelope_through_toil(monkeypatch, tmp_path):
+    import fakes
+
+    fakes.apply(monkeypatch, tmp_path, ["toil"], case="pr_get")
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("TOIL_EXE", str(tmp_path / "fakebin" / ("toil.cmd" if os.name == "nt" else "toil")))
+    got = P.read_pr(None, {"pr_url": "https://bb.acme.test/projects/RDSD/repos/x/pull-requests/42"})
+    assert got["state"] == "OPEN" and got["id"] == 42
+    assert fakes.calls({"AGENTDATA_FAKE_LOG": os.environ["AGENTDATA_FAKE_LOG"]}, "toil") == \
+        [["bitbucket", "pr", "get", "42", "--project", "RDSD", "--repo", "x"]]

@@ -43,7 +43,7 @@ long_jql = "project = PROJ AND updated >= -365d"   # a JQL returning more than 5
 def _configured():
     from agentdata import config
 
-    return bool(config.project_facts().get("jira_project")) and shutil.which("pncli")
+    return bool(config.project_facts().get("jira_project")) and shutil.which("toil")
 
 
 def _laptop_toml() -> dict:
@@ -120,7 +120,7 @@ def _history_total(key: str) -> int:
 
 def test_fields_can_be_pinned(run):
     if not _configured():
-        pytest.skip("no jira_project fact, or pncli is absent")
+        pytest.skip("no jira_project fact, or toil is absent")
     rc, out, _err = run("ad-jira fields --pin", ["jira", "fields", "--pin"])
     assert rc == 0
     assert "pinned_sprint" in out
@@ -144,7 +144,7 @@ def test_a_thousand_entry_history_comes_back_whole(run, recorder):
     what a *cold* pull of this issue costs against this tenant.
     """
     if not _configured():
-        pytest.skip("no jira_project fact, or pncli is absent")
+        pytest.skip("no jira_project fact, or toil is absent")
     key = _long_fact("long_issue")
 
     total = _history_total(key)
@@ -174,7 +174,7 @@ def test_a_wide_jql_comes_back_whole(run, recorder):
     reason to widen the budget until the test passes.
     """
     if not _configured():
-        pytest.skip("no jira_project fact, or pncli is absent")
+        pytest.skip("no jira_project fact, or toil is absent")
     jql = _long_fact("long_jql")
 
     rc, out, _err = run("ad-jira changelog --jql <long_jql> --stats",

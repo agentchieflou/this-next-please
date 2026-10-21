@@ -1,0 +1,15 @@
+{
+  "source": "captured",
+  "note": "captured: the released toil run under Node 22.22.0",
+  "match": [
+    "version"
+  ],
+  "argv": [
+    "toil",
+    "version"
+  ],
+  "returncode": 1,
+  "stdout": "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"UNSUPPORTED_NODE\",\"message\":\"toil needs Node 24.14 or later; this is 22.22.0.\",\"fix\":\"Install Node 24.14 or later (nodejs.org, or your organization's approved channel), then run toil again.\"},\"meta\":{\"command\":\"toil\",\"durationMs\":0,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

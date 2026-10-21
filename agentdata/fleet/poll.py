@@ -45,8 +45,8 @@ written to disk, so the same change polled again, or polled after `ad-fleet serv
 produces nothing. The *first* observation of a repository announces nothing at all, for the reason
 `notify.py` gives: attaching to four projects must not toast four things that happened last week.
 
-Read-only throughout, through the paths that already exist: `jira_api` on the token pncli stores,
-pncli's own `bitbucket get-pr` read verb (refused outright if `pncli.is_write` disagrees), the Power
+Read-only throughout, through the paths that already exist: `jira_api` through toil's Jira connection,
+toil's own `bitbucket pr get` read (refused outright if `toil.is_write` disagrees), the Power
 BI REST refresh history `pbi-verify-service` reads, and `git status` in the repo's own directory.
 Nothing here writes to a repository, and the only thing it writes at all is its own counters under
 `~/.agentdata/fleet/`.
@@ -602,7 +602,8 @@ class Poller:
 
 
 def default_jira_client(budget: RequestBudget):
-    """A `Jira` on the token pncli already stores, bounded by `budget`, and costing nothing to build.
+    """A `Jira` on toil's Jira connection (or the token the env or keyring holds), bounded by `budget`, and
+    costing nothing to build.
 
     `budget` is this tick's, not the process's, and a fresh client per tick is what makes that work:
     `Jira.__init__` starts the seconds clock only on a budget nobody has started, so a client handed
@@ -633,30 +634,28 @@ def default_jira_client(budget: RequestBudget):
 
 
 def read_pr(repo, state: dict, cfg: dict | None = None) -> dict:
-    """The PR's state through pncli's `bitbucket get-pr`, refusing anything that is not a read.
+    """The PR's state through toil's `bitbucket pr get <id>` (or `bitbucket-cloud`), refusing anything that is
+    not a read.
 
-    The option names are still `TODO(HANDOFF)` in `skills/bitbucket-pr`, so this can fail on a
-    machine where they turn out to be spelled differently -- and that is survivable by design: the
-    failure greys the cell and carries pncli's own usage error, which names the option it wanted,
-    rather than putting a guessed PR state on the tile.
+    The project and repository come from the PR's own URL (`pr_location`), so the read never depends on the
+    workspace's remote or the connection's defaults naming the same repository. A failure greys the cell and
+    carries toil's own error and fix, rather than putting a guessed PR state on the tile.
 
-    `pncli.is_write` decides whether the call is allowed at all. A poll that could reach a write verb
-    is a poll that could merge somebody's pull request on a timer.
+    `toil.is_write` decides whether the call is allowed at all. A poll that could reach a write is a poll that
+    could merge somebody's pull request on a timer.
     """
-    from ..connectors import pncli
+    from ..connectors import toil
 
     url = str(state.get("pr_url") or "").strip()
     match = _PR_ID.search(url)
     if not match:
         raise ValueError(f"cannot tell the PR id from {url!r}; expected .../pull-requests/<n>")
-    args = ["bitbucket", "get-pr", "--id", match.group(1)]
-    slug = _repo_slug(url)
-    if slug:
-        args += ["--repo", slug]
-    if pncli.is_write(args):
-        raise ValueError(f"refusing to poll with a pncli write verb: {' '.join(args[:2])}")
-    payload, _elapsed = pncli.run(args, timeout=60, cfg=cfg)
-    records = pncli.extract_records(payload)
+    area, where = pr_location(url)
+    args = [area, "pr", "get", match.group(1), *where]
+    if toil.is_write(args):
+        raise ValueError(f"refusing to poll with a toil write: {' '.join(args[:3])}")
+    envelope, _elapsed = toil.run(args, timeout=60, cfg=cfg)
+    records = toil.extract_records(envelope)
     return records[0] if records else {}
 
 
@@ -912,7 +911,7 @@ def _why(exc: BaseException) -> str:
     """One line for the cell: the message, and the hint when the error carries one.
 
     Every error in this codebase carries a hint saying what to do next, and a cell that says
-    "HTTP 401" without "re-run ad-setup --only pncli" sends the operator to a search engine.
+    "HTTP 401" without "`toil connections login <name>`" sends the operator to a search engine.
     """
     msg = str(exc).strip() or exc.__class__.__name__
     hint = str(getattr(exc, "hint", "") or "").strip()
@@ -980,14 +979,20 @@ def _map_rows(read: dict, now: float) -> dict:
             "at": float(read.get("at") or now)}
 
 
-def _repo_slug(url: str) -> str:
-    """`<workspace>/<slug>` out of a Bitbucket PR URL, or "" when the shape is not the Cloud one.
+def pr_location(url: str) -> tuple[str, list[str]]:
+    """(toil area, its `--project/--repo` or `--ws/--repo` flags) out of a Bitbucket PR URL.
 
-    Server nests the repository under `/projects/<KEY>/repos/<slug>`, which is not the same two
-    segments, so it returns "" and pncli falls back to whatever repository its own config names --
-    better than passing a `--repo` that means something else.
+    Data Center nests the repository under `/projects/<KEY>/repos/<slug>` (`bitbucket`); Cloud is
+    `/<workspace>/<slug>/pull-requests/<n>` (`bitbucket-cloud`). A URL of neither shape gives `bitbucket` and no
+    flags, and toil falls back to the workspace's remote and the connection's defaults -- better than passing a
+    `--repo` that means something else.
     """
     parts = [p for p in str(url).split("://")[-1].split("/") if p]
-    if len(parts) >= 4 and parts[3].lower().startswith("pull"):
-        return f"{parts[1]}/{parts[2]}"
-    return ""
+    low = [p.lower() for p in parts]
+    if "projects" in low and "repos" in low:
+        i, j = low.index("projects"), low.index("repos")
+        if j == i + 2 and len(parts) > j + 1:
+            return "bitbucket", ["--project", parts[i + 1], "--repo", parts[j + 1]]
+    if len(parts) >= 4 and low[3].startswith("pull"):
+        return "bitbucket-cloud", ["--ws", parts[1], "--repo", parts[2]]
+    return "bitbucket", []

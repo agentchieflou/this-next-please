@@ -1,0 +1,23 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed",
+  "match": [
+    "jira",
+    "issue",
+    "search"
+  ],
+  "argv": [
+    "toil",
+    "jira",
+    "issue",
+    "search",
+    "--jql",
+    "key = RDSD-22399",
+    "--limit",
+    "50"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\":true,\"data\":{\"issues\":[{\"id\":\"10001\",\"key\":\"RDSD-22399\",\"fields\":{\"summary\":\"Trace points\",\"description\":\"AC: 1) x\",\"status\":{\"name\":\"In Progress\"},\"issuetype\":{\"name\":\"Story\"},\"assignee\":{\"displayName\":\"Ana Lee\"},\"priority\":{\"name\":\"High\"},\"updated\":\"2026-10-20T09:00:00.000+0000\"}}],\"total\":1,\"startAt\":0,\"maxResults\":1},\"error\":null,\"meta\":{\"command\":\"jira issue search\",\"durationMs\":100,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"page\":{\"nextCursor\":null,\"limit\":50},\"context\":{\"connection\":{\"value\":\"jira\",\"source\":\"default\",\"default\":\"named\"}}}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

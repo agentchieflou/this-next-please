@@ -2,8 +2,8 @@
 
 Most cases replace `wrapup.RUN` with an in-process recorder. It answers `git push` through `cli_git.push` itself
 against a real tmp repository and a bare `origin`, `jira comment` through `cli_jira` against the fake Jira, and
-`git pr` / `confluence publish` through the real `ad-git pr` and `ad-confluence publish` -- which answer
-`refused: not_pinned` until the operator sets `pncli.verbs.*`, so the rows read `not_pinned` unless a test cans them.
+`git pr` / `confluence publish` through the real `ad-git pr` and `ad-confluence publish`, whose dry runs build
+toil's command and start nothing. toil's PR verb has no draft, so end of day offers a PR create unticked.
 Transitions are canned per test: the fake Jira's workflow has only *Done*.
 """
 from __future__ import annotations
@@ -20,6 +20,8 @@ import urllib.error
 import urllib.request
 
 import pytest
+
+import fakes
 
 from agentdata import cli_fleet, cli_git, cli_jira
 from agentdata.fleet import approval, registry, serve as S, supervisor, wrapup as WRAP
@@ -110,7 +112,9 @@ def fleet_home(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def luna(fleet_home, tmp_path, monkeypatch):
-    """A ticketed checkout on `feature/RDSD-1-thing` with 3 commits nobody pushed, and no PR."""
+    """A ticketed checkout on `feature/RDSD-1-thing` with 3 commits nobody pushed, and no PR, on a machine whose toil
+    has the three connections with writes on."""
+    fakes.toil_connections(monkeypatch)
     bare = tmp_path / "origin.git"
     git(tmp_path, "init", "-q", "--bare", str(bare))
     path = make_project(tmp_path / "luna", phase="building", ticket="RDSD-1")
@@ -185,9 +189,9 @@ def test_end_of_day_on_a_ticketed_branch_with_three_unpushed_commits(luna):
     assert "fleet.onenote.notebook" in rows["onenote"]["hint"] and "RDSD-1-confluence.md" not in rows["onenote"]["hint"]
     push = rows["push"]
     assert push["ok"] and push["ticked"] and push["payload"]["ahead"] == 3
-    assert rows["pr"]["code"] == "not_pinned" and not rows["pr"]["ticked"]
-    assert "pncli bitbucket --help" in rows["pr"]["hint"] and "pncli.verbs.pr_create" in rows["pr"]["hint"]
-    assert "WRAP-D6" in rows["pr"]["hint"]
+    assert rows["pr"]["ok"] and not rows["pr"]["ticked"] and rows["pr"]["payload"]["draft"] is False
+    assert rows["pr"]["hint"] == WRAP.DAY_CREATE_HINT and "ready for review" in rows["pr"]["hint"]
+    assert "--allow-write" in rows["pr"]["payload"]["command"], "the preview is the exact toil command"
     assert rows["page"]["code"] == "no_source" and "RDSD-1-confluence.md" in rows["page"]["hint"]
     comment = rows["comment"]
     assert comment["ok"] and comment["ticked"]
@@ -204,7 +208,8 @@ def test_end_of_day_on_a_ticketed_branch_with_three_unpushed_commits(luna):
 def test_end_of_project_offers_review_only_with_a_pr_and_done_unticked(luna):
     rows = _rows(WRAP.plan("luna", "project"))
     review, done = rows["transition-review"], rows["transition-done"]
-    assert review["ok"] and not review["ticked"] and "no PR yet" in review["hint"]
+    assert rows["pr"]["ticked"] and review["ok"] and review["ticked"], "the PR this wrap-up opens makes review the default"
+    assert rows["pr"]["needs"] == ["push"] and review["needs"] == ["pr"]
     assert done["ok"] and not done["ticked"] and "operator" in done["hint"]
     assert rows["comment"]["ticked"] and open(WRAP.comment_path("luna"), encoding="utf-8").read().startswith(
         "End of project, ")
@@ -260,7 +265,7 @@ def test_two_plans_of_an_unchanged_checkout_match_and_a_new_commit_moves_the_pus
 # ------------------------------------------------------------------------------------------ the run
 
 
-PR_OK = {"dry": {"ok": True, "action": "create", "title": "RDSD-1: x", "draft": True, "source": "feature/RDSD-1-thing",
+PR_OK = {"dry": {"ok": True, "action": "create", "title": "RDSD-1: x", "draft": False, "source": "feature/RDSD-1-thing",
                  "target": "main"},
          "real": {"ok": True, "action": "create", "pr_id": 7, "url": "bitbucket.example/projects/X/repos/y/pull-requests/7"}}
 PAGE_OK = {"dry": {"ok": True, "action": "update", "page_id": 5, "title": "RDSD-1", "version": 3},
@@ -273,10 +278,10 @@ def test_run_writes_push_pr_page_comment_transition_in_that_order(luna):
     os.makedirs(os.path.join(luna["path"], ".agent", "out"), exist_ok=True)
     open(os.path.join(luna["path"], ".agent", "out", "RDSD-1-confluence.md"), "w").close()
     plan = WRAP.plan("luna", "day")
-    ticked = [r["id"] for r in plan["rows"] if r["ticked"]]
-    assert [i.split(":")[0] for i in ticked] == ["push", "pr", "page", "comment", "transition-in-progress"]
     rows = _rows(plan)
-    assert rows["pr"]["needs"] == ["push"] and rows["comment"]["needs"] == ["pr", "page"]
+    assert not rows["pr"]["ticked"], "end of day never ticks a PR create: toil opens it ready for review"
+    ticked = [r["id"] for r in plan["rows"] if r["ticked"] or r["step"] == "pr"]   # the operator ticks it
+    assert [i.split(":")[0] for i in ticked] == ["push", "pr", "page", "comment", "transition-in-progress"]
     rec.calls.clear()
     done = WRAP.run("luna", "day", ticked)
     assert [r["done"] for r in done["results"]] == ["written"] * 5, done["results"]
@@ -293,7 +298,7 @@ def test_a_failed_push_skips_pr_and_everything_waiting_on_it(luna):
                                       "real": {"ok": False, "refused": "push_failed", "error": "rejected",
                                                "hint": "fetch and look"}})
     plan = WRAP.plan("luna", "day")
-    ticked = [r["id"] for r in plan["rows"] if r["ticked"]]
+    ticked = [r["id"] for r in plan["rows"] if r["ticked"] or r["step"] == "pr"]
     done = {r["step"]: r for r in WRAP.run("luna", "day", ticked)["results"]}
     assert done["push"]["done"] == "failed"
     assert done["pr"]["done"] == "skipped: push failed"
@@ -524,7 +529,7 @@ def _slots(row) -> dict:
     return {s["id"].split(":", 1)[0]: s for s in row["steps"]}
 
 
-PR_DRY = {"dry": {"ok": True, "action": "create", "pr_id": None, "title": "RDSD-1: thing", "draft": True,
+PR_DRY = {"dry": {"ok": True, "action": "create", "pr_id": None, "title": "RDSD-1: thing", "draft": False,
                   "source": "feature/RDSD-1-thing", "target": "main", "description": "replaced", "live_hash": ""},
           "real": {"ok": True, "action": "create", "pr_id": 7, "url": "https://bitbucket.example/pull-requests/7"}}
 PAGE_DRY = {"dry": {"ok": True, "action": "update", "page_id": 5, "title": "RDSD-1", "space": "RDSD", "parent": "1",
@@ -553,19 +558,21 @@ def test_plan_all_writes_nothing_outside_the_fleet_dir_and_its_totals_match_its_
     assert WRAP.plan_all("day")["plan_id"] == swept["plan_id"], "an unchanged fleet previews alike"
 
 
-def test_the_day_sweep_before_the_verbs_are_pinned(fleet4):
-    """The recorder runs the real `ad-git pr` and `ad-confluence publish`: with no `pncli.verbs.*` pinned,
-    both answer `not_pinned`, and the sweep says how to pin them."""
+def test_the_day_sweep_through_the_real_adapters(fleet4):
+    """The recorder runs the real `ad-git pr` and `ad-confluence publish` dry runs: the PR's builds toil's command
+    and end of day leaves its create unticked (toil has no draft); the page's refuses with its own reason."""
     os.makedirs(os.path.join(fleet4["path"], ".agent", "out"), exist_ok=True)
-    open(os.path.join(fleet4["path"], ".agent", "out", "RDSD-1-confluence.md"), "w").close()
+    with open(os.path.join(fleet4["path"], ".agent", "out", "RDSD-1-confluence.md"), "w", encoding="utf-8") as f:
+        f.write("# RDSD-1 findings\n\nTwo rows differ.\n")
     repos = _repos(WRAP.plan_all("day"))
     luna = _slots(repos["luna"])
     assert luna["push"]["ok"] and luna["push"]["ticked"] and luna["comment"]["ticked"]
-    for step in ("pr", "page"):
-        assert luna[step]["code"] == "not_pinned" and "pncli.verbs." in luna[step]["hint"], luna[step]
+    assert luna["pr"]["ok"] and not luna["pr"]["ticked"] and luna["pr"]["hint"] == WRAP.DAY_CREATE_HINT
+    assert luna["page"]["code"] == "no_space" and not luna["page"]["ticked"], "the adapter's own refusal, as is"
+    assert "confluence_space" in luna["page"]["hint"]
     sol = repos["sol"]
     assert [s["step"] for s in sol["steps"]] == ["push", "pr", "onenote"] and _slots(sol)["push"]["ticked"]
-    assert _slots(sol)["pr"]["code"] == "not_pinned"
+    assert _slots(sol)["pr"]["ok"] and not _slots(sol)["pr"]["ticked"]
     assert any("untracked" in n for n in sol["notes"]) and not sol["ticket"]
     terra = _slots(repos["terra"])
     for step in ("push", "pr"):
@@ -576,6 +583,19 @@ def test_the_day_sweep_before_the_verbs_are_pinned(fleet4):
     assert not any(s["step"] == "merge" for r in repos.values() for s in r["steps"])
 
 
+def test_a_toil_that_cannot_write_yet_is_a_quiet_unticked_row(luna, monkeypatch):
+    """No toil, no connection, or writes off: the PR row says which, with the fix, and is never ticked -- the
+    operator is not offered a write toil would refuse. A repo with only such rows has nothing to write."""
+    for conns, error, code in ((None, "toil needs Node 24.14 or later; this is 22.22.0.", "toil_not_ready"),
+                               ([], "", "no_connection"),
+                               ([dict(c, writes=False) for c in fakes.WRITABLE], "", "writes_off")):
+        fakes.toil_connections(monkeypatch, conns, error=error)
+        pr = _rows(WRAP.plan("luna", "day"))["pr"]
+        assert not pr["ok"] and not pr["ticked"] and pr["code"] == code, pr
+        assert code in WRAP.QUIET
+    assert "writes are off on toil's connection corp-bb" in pr["hint"] and "TOIL_BITBUCKET_WRITES=true" in pr["hint"]
+
+
 def test_the_sweep_with_the_pr_and_page_shapes_506_and_507_will_print(fleet4):
     os.makedirs(os.path.join(fleet4["path"], ".agent", "out"), exist_ok=True)
     open(os.path.join(fleet4["path"], ".agent", "out", "RDSD-1-confluence.md"), "w").close()
@@ -583,14 +603,13 @@ def test_the_sweep_with_the_pr_and_page_shapes_506_and_507_will_print(fleet4):
     rec.canned.update(pr=PR_DRY, page=PAGE_DRY)
     luna = _slots(_repos(WRAP.plan_all("day"))["luna"])
     assert luna["push"]["ticked"] and luna["comment"]["ticked"]
-    assert luna["pr"]["ok"] and luna["pr"]["ticked"] and luna["pr"]["payload"]["draft"] is True
-    assert "draft" in luna["pr"]["summary"]
+    assert luna["pr"]["ok"] and not luna["pr"]["ticked"] and "draft" not in luna["pr"]["summary"]
     project = _repos(WRAP.plan_all("project"))
     luna = _slots(project["luna"])
-    assert luna["transition-review"]["ticked"] and not luna["transition-done"]["ticked"]
+    assert luna["pr"]["ticked"] and luna["transition-review"]["ticked"] and not luna["transition-done"]["ticked"]
     rec.canned.pop("pr")
     luna = _slots(_repos(WRAP.plan_all("project"))["luna"])
-    assert luna["pr"]["code"] == "not_pinned" and not luna["transition-review"]["ticked"]
+    assert luna["pr"]["ok"] and luna["pr"]["ticked"], "the real adapter's dry run, through toil's fixed verb"
     for mode in ("day", "project"):
         assert not any(s["step"] == "merge" or "merge" in s["summary"].lower()
                        for r in WRAP.plan_all(mode)["repos"] for s in r["steps"])

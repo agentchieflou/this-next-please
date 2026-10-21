@@ -1,0 +1,20 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed",
+  "match": [
+    "jira",
+    "api",
+    "GET"
+  ],
+  "argv": [
+    "toil",
+    "jira",
+    "api",
+    "GET",
+    "rest/api/2/myself"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\":true,\"data\":{\"name\":\"alee\",\"displayName\":\"Ana Lee\",\"timeZone\":\"UTC\"},\"error\":null,\"meta\":{\"command\":\"jira api\",\"durationMs\":113,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"response\":{\"status\":200,\"contentType\":\"application/json\"},\"context\":{\"connection\":{\"value\":\"jira\",\"source\":\"default\",\"default\":\"named\"}}}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}

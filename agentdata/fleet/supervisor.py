@@ -353,7 +353,7 @@ def resolved(argv: list[str], exe: str | None = None):
     Windows it exists as `copilot.cmd`. `proc` returns `node <entry point> ...` as a list for an npm
     shim, and for any other `.cmd` a whole command **string**, which subprocess must pass to Windows
     verbatim rather than through `list2cmdline`. Getting that wrong is the WinError trap this repo
-    already hit with `pncli` and `az`.
+    already hit with `pncli` (toil's predecessor) and `az`.
     """
     try:
         return proc.command(argv, exe=exe)

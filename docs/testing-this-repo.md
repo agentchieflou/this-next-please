@@ -392,7 +392,7 @@ engine anybody will meet.
 
 `tests/conftest.py` gives every test a temporary `HOME`/`USERPROFILE`, a temporary
 `AGENTDATA_CONFIG`, `NO_COLOR=1` and `AGENTDATA_UI=plain`. A test that happens to pass because the
-developer has pncli installed is not a test, and one that writes to the developer's own config is
+developer has toil installed (or a `TOIL_*` variable set: the fixture clears them) is not a test, and one that writes to the developer's own config is
 worse.
 
 `PIP_CACHE_DIR` points into that temporary home too. Without it, redirecting the profile makes pip
@@ -586,7 +586,7 @@ tell the call from the sentence about the call in `norm_path`'s own docstring.
 
 ## Fakes
 
-`tests/fakes/` holds stand-ins for the external tools: pncli, pip, gh, az, TabularEditor, dscmd and
+`tests/fakes/` holds stand-ins for the external tools: toil, pip, gh, az, TabularEditor, dscmd and
 powershell. They exist because six tests in `test_proc.py` were `skipif(os.name == "nt")` with the
 reason "POSIX shell stand-in" — so the Windows behaviour of the module that exists *because of*
 Windows was skipped on Windows, which is where it breaks.
@@ -600,7 +600,7 @@ other.
 import fakes
 
 def test_something(monkeypatch, tmp_path):
-    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="positional_option")
+    fakes.apply(monkeypatch, tmp_path, ["toil"], case="not_found")
     ...
 ```
 

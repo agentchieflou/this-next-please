@@ -1,0 +1,26 @@
+{
+  "source": "captured",
+  "note": "captured from the released toil 0.1.0-alpha.5 against a stub service; hosts renamed; writes on",
+  "match": [
+    "confluence",
+    "page",
+    "create"
+  ],
+  "argv": [
+    "toil",
+    "confluence",
+    "page",
+    "create",
+    "--space",
+    "RDSD",
+    "--title",
+    "Findings",
+    "--body-file",
+    "-",
+    "--allow-write"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\":true,\"data\":{\"id\":\"98765\",\"type\":\"page\",\"title\":\"Findings\",\"version\":{\"number\":1},\"_links\":{\"base\":\"https://jira.example.test\",\"webui\":\"/spaces/RDSD/pages/98765\"}},\"error\":null,\"meta\":{\"command\":\"confluence page create\",\"durationMs\":98,\"version\":\"0.1.0-alpha.5\",\"contractVersion\":1,\"context\":{\"connection\":{\"value\":\"confluence\",\"source\":\"default\",\"default\":\"named\"}}}}\n",
+  "stderr": "",
+  "captured": "2026-10-21"
+}
