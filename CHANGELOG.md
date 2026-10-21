@@ -4,6 +4,71 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.23.0
+
+**On update:**
+- **Reinstall once** (`pip install -e ".[dev]"` in the checkout, or `ad-update`). This adds the new `tnp` and
+  `ad-spark` commands. Spark needs impyla, which Hive and Impala already use (`pip install -e ".[spark]"`). Start a
+  new Copilot chat: `hive-query` and `data-router` changed.
+- **Re-run `ad-setup --print-completion <shell> --install`** if you use tab completion, so `tnp` completes too.
+- **Nothing to re-answer.** The machine config is unchanged. A repo's AGENTS.md gets new lines only when you
+  answer the repo questions: `spark_env`, and a `## Power BI targets` table.
+
+**What changed:**
+- **`tnp`: the this-next-please menu** (`docs/tnp.md`). Its layout follows toil's menu, with a TNP wordmark in
+  teal and blue. It covers:
+  - setup: data source connections, Power BI for the machine and for each repo, each repo's settings, and
+    toil's service connections;
+  - testing connections, and a health check with an environment header and a *Repair* action
+    (`ad-setup --patch`);
+  - the fleet desk: open it, or quickstart a folder;
+  - **Commands**: every `ad-*` command and subcommand, about 250, read from their own parsers. You can find
+    them, read their arguments and flags, and run them. Arguments and required flags each get a field, the
+    command line is shown first, and the command runs in your own terminal, so its dry run and approval prompt
+    work as in a shell.
+
+  **Screens.** The wordmark and breadcrumb stay on every screen, and a short terminal gets a one-line header.
+  Lines are cut to the terminal width with `…`, but file paths wrap instead. Long lists and pages scroll, marked
+  `↑/↓ N more`.
+
+  **Questions.** Questions are answered on the screen: text fields come prefilled, choices are pick lists, yes/no
+  is a two-item list, "which of these" is a checkbox list, and passwords show as dots. Every answer so far stays
+  above the next question.
+
+  **Setup flows.** They are numbered ("Step 3 of 5"), and the first screen shows the command that asks the same
+  questions. The last screen prints the `ad-setup --non-interactive --set …` line that repeats your answers,
+  leaving out any secret. Adding a connection accepts a pasted **JDBC URL** that fills in the answers
+  (`agentdata/setup/jdbc.py`), tests the connection, and, inside a repo, offers to make it the repo's
+  environment.
+
+  **Keys.** Esc goes back and `q` quits from any screen, as in toil. `ad-setup` and `ad-doctor` are unchanged and
+  stay the scriptable forms.
+- **Setup knows where it runs** (`agentdata/setup/scope.py`):
+  - **inside a repo** (the repo scope): the repo's own answers go to its AGENTS.md;
+  - **in a folder of repos** such as `PycharmProjects` (the folder scope): a machine-wide setup that lists each
+    repo and what it uses;
+  - **anywhere else** (the machine scope): a machine-wide setup.
+
+  `ad-setup` and `ad-doctor` print the scope and every file they will write. `--repo <name>` sets up one repo
+  from its folder. The new `repo` step writes only the repo's AGENTS.md: which environment of each source the repo
+  reads, and its Power BI targets. Inside a repo, the project stub no longer guesses the first configured
+  environment or workspace.
+- **Power BI targets per repo.** A repo can change several semantic models and reports across workspaces. You
+  tick them in `tnp`; from a script you give numbers or names. When you're signed in, their ids are looked up
+  from Power BI. Each pick is one row of `## Power BI targets` in AGENTS.md, and the first row is still copied
+  into the single `pbi_*` facts.
+- **Spark connections** through the Spark Thrift Server: `ad-spark`, `spark_env`, binary or HTTP transport, and
+  the Kerberos service. The SQL rules follow Hive's (`skills/hive-query/references/hive-impala-sql.md`, *Spark
+  SQL*).
+- **Fixes:**
+  - `NO_COLOR` (and `AGENTDATA_COLOR=never`) now beat `--color always`, as docs/setup.md always said.
+  - `ad-setup` and `ad-doctor` print a refusal once: a panel at a terminal, TOON everywhere else. Before, they
+    printed both.
+  - The rich `python -m agentdata` / `ad-help` front door lists `tnp` and no longer shows the hidden plumbing
+    commands.
+  - `ad-doctor --only` help lists every step key.
+  - `ad-sql-check` reports a missing file instead of printing a traceback.
+
 ## 0.22.0
 
 **On update:**
